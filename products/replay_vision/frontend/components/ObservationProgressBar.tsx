@@ -69,23 +69,20 @@ export function ObservationProgressBar({
     sessionId: string
     compact?: boolean
 }): JSX.Element {
-    const { progress, streamError } = useValues(observationProgressLogic({ observationId, sessionId }))
+    const { progress, phaseStartedAt, streamError } = useValues(observationProgressLogic({ observationId, sessionId }))
     const { startStream } = useActions(observationProgressLogic({ observationId, sessionId }))
     usePeriodicRerender(1000)
 
-    // Record when the active phase was first observed so its asymptotic fill animates from then.
-    const startTimesRef = useRef<Record<number, number>>({})
+    const mountedAtRef = useRef(Date.now())
     useEffect(() => {
-        startTimesRef.current = {}
+        mountedAtRef.current = Date.now()
         startStream()
     }, [observationId, startStream])
 
     const currentStep = Math.min(progress?.step ?? 0, PHASE_ORDER.length - 1)
     const activePhase = PHASE_ORDER[currentStep]
-    if (!(currentStep in startTimesRef.current)) {
-        startTimesRef.current[currentStep] = Date.now()
-    }
-    const activeElapsed = Math.max(0, (Date.now() - startTimesRef.current[currentStep]) / 1000)
+    const activeStartedAt = phaseStartedAt[currentStep] ?? mountedAtRef.current
+    const activeElapsed = Math.max(0, (Date.now() - activeStartedAt) / 1000)
 
     // Real sub-progress only exists while rendering (frame counts from the rasterizer heartbeats); else asymptote.
     const frame = activePhase === 'rendering' ? progress?.rasterizer?.frame_progress : undefined

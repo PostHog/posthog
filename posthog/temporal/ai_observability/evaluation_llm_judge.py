@@ -1,4 +1,5 @@
 import json
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Annotated, Any, Literal
@@ -12,6 +13,16 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
+from posthog.llm.system_one import (
+    MAX_SCORE_LEVELS,
+    ChoiceAnswer,
+    ChoiceQuestion,
+    NoulAnswer,
+    NoulQuestion,
+    Question,
+    ScoreAnswer,
+    ScoreQuestion,
+)
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -48,6 +59,14 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     UnsupportedModelError,
 )
+from products.ai_observability.backend.llm.system_one import (
+    SystemOneClient,
+    SystemOneEndpointBlockedError,
+    SystemOneRateLimitError,
+    SystemOneRequestRejectedError,
+    system_one_evaluations_enabled,
+)
+from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
     CategoricalOutputConfig,
     NumericOutputConfig,
@@ -431,6 +450,20 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     )
 
 
+def _system_one_numeric_score(minimum: float, maximum: float, index: float) -> float:
+    last_index = MAX_SCORE_LEVELS - 1
+    if index == 0:
+        return minimum
+    if index == last_index:
+        return maximum
+    score = (minimum * (last_index - index) + maximum * index) / last_index
+    if math.isfinite(score):
+        return score
+    # Scale first when multiplying large finite bounds would overflow.
+    weight = index / last_index
+    return minimum * (1 - weight) + maximum * weight
+
+
 def call_llm_judge(
     *,
     evaluation: dict[str, Any],
@@ -464,6 +497,23 @@ def call_llm_judge(
     is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
+    if provider == "system_one":
+        if output_type not in ("boolean", "categorical", "numeric"):
+            return build_skipped_evaluation_result(
+                output_type=output_type,
+                allows_na=allows_na,
+                reasoning="System One supports boolean, categorical, and numeric evaluations.",
+                skip_reason="unsupported_output_type",
+            )
+        base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
+        if not system_one_evaluations_enabled(team_id, base_url=base_url):
+            return build_skipped_evaluation_result(
+                output_type=output_type,
+                allows_na=allows_na,
+                reasoning="System One evaluations are not available for this project.",
+                skip_reason="system_one_unavailable",
+            )
+
     type_config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     response_format = type_config.response_format
 
@@ -475,16 +525,175 @@ def call_llm_judge(
         capture_analytics=False,
     )
 
+    probability: float | None = None
+    system_one_result = None
     try:
-        response = client.complete(
-            CompletionRequest(
-                model=model,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-                provider=provider,
-                response_format=response_format,
+        if provider == "system_one":
+            prompt = evaluation["evaluation_config"]["prompt"]
+            categorical_config = (
+                CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
             )
+            numeric_levels: list[float] | None = None
+            questions: dict[str, Question]
+            if output_type == "numeric":
+                numeric_config = NumericOutputConfig.model_validate(output_config)
+                if numeric_config.min is None or numeric_config.max is None or numeric_config.min >= numeric_config.max:
+                    return build_skipped_evaluation_result(
+                        output_type=output_type,
+                        allows_na=allows_na,
+                        reasoning="System One numeric evaluations require a minimum score below the maximum score.",
+                        skip_reason="request_rejected",
+                    )
+                numeric_levels = [
+                    _system_one_numeric_score(numeric_config.min, numeric_config.max, index)
+                    for index in range(MAX_SCORE_LEVELS)
+                ]
+                if numeric_config.step is not None:
+                    prompt += (
+                        f"\nSuggested score increment: {numeric_config.step}; do not round an otherwise valid score."
+                    )
+                questions = {
+                    "score": ScoreQuestion(
+                        instructions=prompt,
+                        criteria=[
+                            f"The score according to the evaluation criteria is {value!r}." for value in numeric_levels
+                        ],
+                    )
+                }
+            elif categorical_config is None:
+                questions = {"verdict": NoulQuestion(instructions=prompt)}
+            elif categorical_config.selection_mode == "single":
+                questions = {
+                    "category": ChoiceQuestion(
+                        instructions=prompt,
+                        criteria={option.key: option.label for option in categorical_config.options},
+                    )
+                }
+            else:
+                questions = {
+                    f"category_{index}": NoulQuestion(
+                        instructions=prompt,
+                        criteria_true=f"Matches category: {option.label}",
+                        criteria_false=f"Does not match category: {option.label}",
+                    )
+                    for index, option in enumerate(categorical_config.options)
+                }
+            if allows_na:
+                questions["applicable"] = NoulQuestion(
+                    instructions=(
+                        "Do these evaluation criteria apply to this input? Answer true when the criteria can be "
+                        "evaluated, even if they are not met. Answer false only when they are not relevant.\n\n"
+                        + prompt
+                    )
+                )
+            system_one_result = SystemOneClient.evaluate(
+                api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
+                base_url=base_url,
+                model=model,
+                state=user_prompt,
+                questions=questions,
+            )
+            applicable = True
+            if allows_na:
+                applicability_answer = system_one_result.answers["applicable"]
+                if not isinstance(applicability_answer, NoulAnswer):
+                    raise StructuredOutputParseError("The endpoint returned an invalid applicability answer.")
+                applicable = applicability_answer.probability >= 0.5
+            parsed: (
+                BooleanEvalResult
+                | BooleanWithNAEvalResult
+                | CategoricalEvalResult
+                | CategoricalWithNAEvalResult
+                | NumericEvalResult
+                | NumericWithNAEvalResult
+            )
+            if numeric_levels is not None:
+                score_answer = system_one_result.answers["score"]
+                if not isinstance(score_answer, ScoreAnswer):
+                    raise StructuredOutputParseError("The endpoint returned an invalid score answer.")
+                score = _system_one_numeric_score(numeric_levels[0], numeric_levels[-1], score_answer.score)
+                parsed = (
+                    NumericWithNAEvalResult(reasoning="", score=score if applicable else None)
+                    if allows_na
+                    else NumericEvalResult(reasoning="", score=score)
+                )
+            elif categorical_config is not None:
+                categories: list[str] = []
+                if categorical_config.selection_mode == "single":
+                    category_answer = system_one_result.answers["category"]
+                    if not isinstance(category_answer, ChoiceAnswer):
+                        raise StructuredOutputParseError("The endpoint returned an invalid category answer.")
+                    categories = [category_answer.choice]
+                else:
+                    for index, option in enumerate(categorical_config.options):
+                        category_match = system_one_result.answers[f"category_{index}"]
+                        if not isinstance(category_match, NoulAnswer):
+                            raise StructuredOutputParseError("The endpoint returned an invalid category answer.")
+                        if category_match.probability >= 0.5:
+                            categories.append(option.key)
+                parsed = (
+                    CategoricalWithNAEvalResult(reasoning="", categories=categories if applicable else None)
+                    if allows_na
+                    else CategoricalEvalResult(reasoning="", categories=categories)
+                )
+            else:
+                verdict_answer = system_one_result.answers["verdict"]
+                if not isinstance(verdict_answer, NoulAnswer):
+                    raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
+                probability = verdict_answer.probability
+                parsed = (
+                    BooleanWithNAEvalResult(
+                        reasoning="",
+                        outcome="not_applicable" if not applicable else "pass" if probability >= 0.5 else "fail",
+                    )
+                    if allows_na
+                    else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
+                )
+            response = CompletionResponse(
+                content="",
+                model=model,
+                parsed=parsed,
+                usage=Usage(
+                    input_tokens=(system_one_result.input_tokens or 0),
+                    output_tokens=(system_one_result.output_tokens or 0),
+                    total_tokens=(system_one_result.input_tokens or 0) + (system_one_result.output_tokens or 0),
+                ),
+            )
+        else:
+            response = client.complete(
+                CompletionRequest(
+                    model=model,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    provider=provider,
+                    response_format=response_format,
+                )
+            )
+    except SystemOneEndpointBlockedError as e:
+        increment_user_errors("endpoint_blocked", provider=provider)
+        return terminal_user_error_result(
+            spec=require_user_error_spec("endpoint_blocked", is_byok=is_byok),
+            message=str(e),
+            allows_na=allows_na,
+            output_type=output_type,
+            key_id=key_id,
+            is_byok=is_byok,
         )
+    except SystemOneRequestRejectedError as e:
+        increment_user_errors("request_rejected", provider=provider)
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=str(e),
+            skip_reason="request_rejected",
+        )
+    except SystemOneRateLimitError as e:
+        increment_errors("rate_limit", provider=provider)
+        raise ApplicationError(
+            str(e),
+            {"error_type": "provider_unavailable", "provider": provider},
+            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+        ) from e
     except AuthenticationError:
         if is_byok:
             increment_user_errors("auth_error", provider=provider)
@@ -694,6 +903,9 @@ def call_llm_judge(
         "model": model,
         "provider": provider,
     }
+    if system_one_result is not None:
+        result_dict["input_tokens"] = system_one_result.input_tokens
+        result_dict["output_tokens"] = system_one_result.output_tokens
 
     if isinstance(parsed_result, CategoricalEvalResult | CategoricalWithNAEvalResult):
         result_dict["result_type"] = "categorical"
@@ -750,4 +962,6 @@ def call_llm_judge(
     else:
         raise ValueError(f"Unexpected result type: {type(parsed_result)}")
 
+    if probability is not None and result_dict["verdict"] is not None:
+        result_dict["probability"] = probability
     return result_dict

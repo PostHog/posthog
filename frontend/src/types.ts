@@ -81,6 +81,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import {
@@ -486,6 +487,7 @@ export interface NotificationSettings {
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
+    task_comments_slack_dm?: boolean
 }
 
 export interface WebAnalyticsDigestMetricChange {
@@ -1126,8 +1128,6 @@ export enum SavedInsightsTabs {
 export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
-    Comments = 'comments',
-    Templates = 'templates',
     Settings = 'settings',
 }
 
@@ -1632,6 +1632,7 @@ export interface RecordingUniversalFilters {
     order_direction?: RecordingsQuery['order_direction']
     limit?: RecordingsQuery['limit']
     recommended_only?: boolean
+    event_match_scope?: RecordingsQuery['event_match_scope']
     /**
      * Server-resolved population narrowing (sessions of persons exposed to the experiment).
      * Not part of `filter_group`, so the filter-pill editor neither renders nor edits it;
@@ -2489,6 +2490,7 @@ export interface BillingType {
         email?: string
         name?: string
     }
+    billing_managed_by_partner?: { partner_name: string } | null
 }
 
 export interface ClaimedCouponInfo {
@@ -5167,6 +5169,9 @@ export interface PropertyGroupFilterValue {
     values: (AnyPropertyFilter | PropertyGroupFilterValue)[]
 }
 
+/** One row of a filter editor. A group's values can nest, so a row is not always a leaf filter. */
+export type PropertyFilterRow = AnyPropertyFilter | PropertyGroupFilterValue
+
 export interface CohortCriteriaGroupFilter {
     id?: string
     type: FilterLogicalOperator
@@ -5635,6 +5640,7 @@ export const INTEGRATION_KINDS = [
     's3-compatible',
     'snowflake',
     'youtube-analytics',
+    'twitter-ads',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5868,134 +5874,9 @@ export interface RoleMemberType {
     user_uuid: string
 }
 
-// Single source of truth for scope objects on the frontend. Keep in sync with
-// `APIScopeObject` in posthog/scopes.py (same order). The runtime array lets
-// scopes.test.ts assert that every scope object is either offered in the PAK
-// creation modal or explicitly omitted — see `API_SCOPES_OMITTED_FROM_MODAL`.
-export const API_SCOPE_OBJECTS = [
-    'action',
-    'access_control',
-    'account',
-    'activity_log',
-    'alert',
-    'annotation',
-    'approvals',
-    'autoresearch',
-    'batch_export',
-    'batch_import',
-    'batch_import_support',
-    'billing',
-    'business_knowledge',
-    'canvas',
-    'clickhouse_test_cluster_perf',
-    'cohort',
-    'comment',
-    'conversation',
-    'context_layer_internal',
-    'customer_analytics',
-    'customer_task',
-    'customer_journey',
-    'customer_profile_config',
-    'data_catalog',
-    'data_catalog_approval',
-    'data_deletion',
-    'dashboard',
-    'event_filter',
-    'dashboard_template',
-    'dataset',
-    'early_access_feature',
-    'endpoint',
-    'engineering_analytics',
-    'error_tracking',
-    'evaluation',
-    'element',
-    'event_definition',
-    'experiment',
-    'experiment_holdout',
-    'experiment_saved_metric',
-    'export',
-    'external_data_schema',
-    'external_data_source',
-    'feature_flag',
-    'file_system',
-    'file_system_shortcut',
-    'group',
-    'health_issue',
-    'heatmap',
-    'hog_flow',
-    'hog_function',
-    'ingestion_warning',
-    'insight',
-    'insight_variable',
-    'integration',
-    'internal_run',
-    'legal_document',
-    'link',
-    'live_debugger',
-    'llm_analytics',
-    'ai_observability_clusters',
-    'llm_gateway',
-    'llm_playground',
-    'llm_prompt',
-    'llm_provider_key',
-    'llm_skill',
-    'logs',
-    'loop',
-    'marketing_analytics',
-    'mcp_builtin_agent',
-    'mcp_analytics',
-    'mcp_registry',
-    'metrics',
-    'notebook',
-    'offline_evaluation_ingestion',
-    'organization',
-    'organization_integration',
-    'organization_member',
-    'person',
-    'plugin',
-    'product_enablement',
-    'product_tour',
-    'project',
-    'property_definition',
-    'query',
-    'query_performance',
-    'replay_scanner',
-    'review_hog',
-    'revenue_analytics',
-    'session_recording',
-    'session_recording_playlist',
-    'sharing_configuration',
-    'signal_scout',
-    'signal_scout_internal',
-    'signal_scout_report',
-    'signal_scratchpad_internal',
-    'stamphog',
-    'streamlit_app',
-    'subscription',
-    'survey',
-    'tagger',
-    'ticket',
-    'task',
-    'toolbar',
-    'tracing',
-    'field_note',
-    'uploaded_media',
-    'usage_metric',
-    'user',
-    'user_interview',
-    'vision_action',
-    'vision_alert',
-    'visual_review',
-    'warehouse_objects',
-    'warehouse_table',
-    'warehouse_view',
-    'web_analytics',
-    'webhook',
-    'wizard_session',
-    'wizard_run',
-] as const
-
-export type APIScopeObject = (typeof API_SCOPE_OBJECTS)[number]
+// Every grantable scope object. `hogli build:openapi` generates the enum from posthog/scopes.py,
+// through the `resource` choice fields of the access control serializers.
+export type APIScopeObject = ScopeObjectEnumApi
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -7289,6 +7170,11 @@ export enum SidePanelTab {
     /** Access detail for one member or role. Opened programmatically from access control settings. */
     AccessDetail = 'access-detail',
     Info = 'info',
+    // A canvas scene replaces the general tabs with its own panel tabs.
+    CanvasChat = 'canvas-chat',
+    CanvasBlocks = 'canvas-blocks',
+    CanvasComments = 'canvas-comments',
+    CanvasTimeline = 'canvas-timeline',
 }
 
 export interface ProductPricingTierSubrows {

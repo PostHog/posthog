@@ -1,5 +1,6 @@
 import logging
-from typing import TYPE_CHECKING, Optional, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import structlog
 from psycopg import OperationalError
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     FieldType,
     ResumableSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
     HostNotAllowedError,
@@ -72,6 +74,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     pg_connection,
     postgres_source,
     source_requires_ssl,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.xmin_cursor import (
+    XminCursor,
+    xmin_cursor_from_legacy,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
 
@@ -322,6 +328,16 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
 # Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
 _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
+# sshtunnel raises this once the SSH session is up but no forwarded tunnel came up with it: the
+# bastion could not open a channel to the database host and port, or it refuses port forwarding
+# altogether. Its own wording names neither, so it leaves the user nothing to act on.
+_SSH_FORWARD_FAILED_ERROR = "An error occurred while opening tunnels."
+_SSH_FORWARD_FAILED_MESSAGE = (
+    "PostHog signed in to your SSH server but couldn't reach the database through it. Check that "
+    "the database host and port are reachable from the SSH server, and that the server allows port "
+    "forwarding."
+)
+
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
 # `require_tls` off is the supported way to reach such a server.
@@ -378,6 +394,7 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
 class PostgresSource(
     SQLSource[PostgresSourceConfig],
     ResumableSource[PostgresSourceConfig, KeysetResumeState],
+    CursorSource[XminCursor],
     SSHTunnelMixin,
     ValidateDatabaseHostMixin,
 ):
@@ -385,7 +402,22 @@ class PostgresSource(
     # `SourceSchema.supports_xmin` at discovery.
     supports_xmin = True
 
-    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+    def cursor_class(self) -> type[XminCursor]:
+        return XminCursor
+
+    def cursor_from_legacy(self, sync_type_config: Mapping[str, Any]) -> XminCursor | None:
+        return xmin_cursor_from_legacy(sync_type_config)
+
+    def merge_cursors(self, current: XminCursor, candidate: XminCursor) -> XminCursor:
+        return max(current, candidate, key=lambda cursor: cursor.ceiling_xid8)
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        keyset_full_load_enabled: bool = False,
+        schema_name: str | None = None,
+    ) -> bool:
         # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
         # its watermark and keeps the incremental budget. And a full load only resumes once the flag
         # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
@@ -1672,10 +1704,14 @@ class PostgresSource(
             raw = e.value or ""
             if _SSH_GATEWAY_SESSION_ERROR in raw:
                 return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
+            if _SSH_FORWARD_FAILED_ERROR in raw:
+                return False, _SSH_FORWARD_FAILED_MESSAGE
+            # sshtunnel writes its messages for whoever is reading a traceback, so an unmapped one
+            # gives the user nothing and can carry the host it was dialing. Keep it for triage.
+            capture_exception(e)
             return (
                 False,
-                raw
-                or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
@@ -1896,13 +1932,13 @@ class PostgresSource(
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
-        proof_time = async_to_sync(completed_listing_proof)(schema)
+        proof = async_to_sync(completed_listing_proof)(schema)
         # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
         # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
         # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
         # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
         # without the longer read.
-        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+        if proof is None and async_to_sync(buffer_expired_unread)(schema):
             inputs.logger.warning(
                 "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
             )
@@ -1922,7 +1958,7 @@ class PostgresSource(
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=proof_time,
+            proof=proof,
         )
         return SourceResponse(
             name=lanes[0].name,
@@ -2009,16 +2045,11 @@ class PostgresSource(
                 is_initial_sync=not schema.initial_sync_complete,
                 enabled_columns=inputs.enabled_columns,
                 row_filters=inputs.row_filters,
-                # xmin state is read straight off the schema here (the generic `SourceInputs` stays
-                # Postgres-agnostic). xmin rides the normal full per-schema path — no CDC dispatch.
-                # A reset, and a pending corrupt-delta revive, both delete the Delta table before
-                # this read, so the cursor has to go with it: kept, the read covers only the window
-                # since the last run, and the overwrite collapses the table to that slice. The
-                # activity drops the incremental cursor for both cases for the same reason; the xmin
-                # cursor is dropped here because it is read here.
+                # xmin rides the normal full per-schema path, with no CDC dispatch. On a reset or a
+                # pending corrupt-delta revive the activity loads no cursor, because both delete the
+                # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
-                xmin_last_value=None if table_rebuild_pending else schema.xmin_last_value,
-                xmin_num_wraparound=None if table_rebuild_pending else schema.xmin_num_wraparound,
+                xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
                 byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,

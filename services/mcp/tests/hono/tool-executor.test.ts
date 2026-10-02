@@ -5,7 +5,6 @@ vi.mock('@/resources/internals', () => ({
     fetchContextMillResources: vi.fn().mockRejectedValue(new Error('mocked')),
     filterValidEntries: vi.fn().mockReturnValue([]),
     loadManifestFromArchive: vi.fn().mockReturnValue({ resources: [] }),
-    clearResourceCache: vi.fn(),
 }))
 
 vi.mock('@/resources', () => ({
@@ -20,6 +19,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
+import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
@@ -501,23 +501,44 @@ describe('ToolExecutor', () => {
             })
         })
 
-        it('tells the agent project skills need the read scope instead of failing silently', async () => {
-            const state = makeToolExecutorState([], {
-                useSingleExec: true,
-                toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
-                apiKeyScopes: ['insight:read'],
-            })
+        it.each([
+            {
+                connection: 'the PostHog app for ChatGPT and Codex',
+                oauthClientId: CHATGPT_APP_OAUTH_CLIENT_ID,
+                reconnectHint: true,
+            },
+            {
+                connection: "the Codex CLI's own OAuth client",
+                oauthClientId: 'https://chatgpt.com/oauth/codex/51XaKixG06mz/client.json',
+                reconnectHint: false,
+            },
+            { connection: 'a personal API key', oauthClientId: undefined, reconnectHint: false },
+        ])(
+            'tells the agent project skills need the read scope, with a reconnect step only for $connection',
+            async ({ oauthClientId, reconnectHint }) => {
+                const state = makeToolExecutorState([], {
+                    useSingleExec: true,
+                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+                    apiKeyScopes: ['insight:read'],
+                    oauthClientId,
+                })
 
-            const result = (await executor.handleToolCall(
-                { name: 'exec', arguments: { command: 'learn skills' } },
-                state
-            )) as { content: { text: string }[] }
+                const result = (await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'learn skills' } },
+                    state
+                )) as { content: { text: string }[] }
 
-            expect(JSON.parse(result.content[0]!.text).project).toEqual({
-                available: false,
-                reason: expect.stringContaining('llm_skill:read'),
-            })
-        })
+                const { project } = JSON.parse(result.content[0]!.text)
+                expect(project.available).toBe(false)
+                expect(project.reason).toContain('llm_skill:read')
+                if (reconnectHint) {
+                    expect(project.reason).toContain('disconnect the PostHog app in ChatGPT or Codex')
+                } else {
+                    expect(project.reason).not.toMatch(/ChatGPT|Codex/)
+                    expect(project.reason).toContain('Reconnect with that scope')
+                }
+            }
+        )
 
         // Hosts cache one tool roster and serve it to other accounts, so nothing
         // account-specific may reach the advertised exec entry. The domain index stays

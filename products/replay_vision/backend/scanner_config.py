@@ -45,6 +45,21 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
             if slug in slugged:
                 return f"Categories must be unique: '{slugged[slug]}' and '{t}' are the same category."
             slugged[slug] = t
+    if scanner_type == ScannerType.EXPERIMENT:
+        experiment_id = scanner_config.get("experiment_id")
+        if isinstance(experiment_id, bool) or not isinstance(experiment_id, int) or experiment_id < 1:
+            return "Experiment is required."
+        variants = scanner_config.get("variants")
+        if variants is not None:
+            if not isinstance(variants, list) or not variants:
+                return "Variants must be a non-empty list, or null to watch every variant."
+            if any(not isinstance(v, str) or not v.strip() for v in variants):
+                return "Variants can't be blank."
+            if len(set(variants)) != len(variants):
+                return "Variants must be unique."
+        balance_variants = scanner_config.get("balance_variants")
+        if balance_variants is not None and not isinstance(balance_variants, bool):
+            return "balance_variants must be true or false."
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):
@@ -59,7 +74,7 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
     except (ValueError, PydanticValidationError):
         return "Scanner configuration is invalid."
     # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
-    unknown = set(scanner_config) - set(type(scanner).model_fields)
+    unknown = set(scanner_config) - (set(type(scanner).model_fields) - type(scanner).session_fields)
     if unknown:
         return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None

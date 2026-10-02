@@ -119,6 +119,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityOfflineScorerHistory": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}/offline",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityPlayground": {
         "template": "/ai-observability/playground",
         "params": [],
@@ -136,6 +141,11 @@
     },
     "aiObservabilityReviews": {
         "template": "/ai-observability/reviews",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityScorers": {
+        "template": "/ai-evals/evaluations/scorers",
         "params": [],
         "scope": "project"
     },
@@ -239,6 +249,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -291,6 +316,16 @@
     },
     "canvas": {
         "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
         "params": [],
         "scope": "project"
     },
@@ -1644,6 +1679,26 @@
         "params": [],
         "scope": "project"
     },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceSettings": {
+        "template": "/spaces/{id}/settings",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaces": {
+        "template": "/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "taskTracker": {
         "template": "/tasks",
         "params": [],
@@ -1731,6 +1786,11 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
         "params": [],
         "scope": "project"
     },
