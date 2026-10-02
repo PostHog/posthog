@@ -4,6 +4,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -93,6 +96,10 @@ describe('ReportExpectedImpact', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true,
+        })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
         logic.mount()
@@ -126,6 +133,12 @@ describe('ReportExpectedImpact', () => {
         await userEvent.setup().click(screen.getByText('Suggest different metrics'))
         expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
+    })
+
+    it('disables metric suggestions until the replacement tool is available', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false })
+        renderMeasurements([check])
+        expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {

@@ -1765,6 +1765,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
+        if not self._is_sandbox_agent_request(task_id) and not tasks_access.may_read_task_run_context(
+            request=self.request, team=self.team, task_id=task_id, run_id=run_id
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if (
             not is_read_only
             and run_id is not None
@@ -4229,6 +4233,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):
             raise NotFound("Task run not found")
+        if not is_sandbox_agent_request(self.request, task_id) and not tasks_access.may_read_task_run_context(
+            request=self.request, team=self.team, task_id=task_id, run_id=self._run_id()
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         return task_id
 
     @validated_request(

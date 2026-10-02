@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
@@ -42,7 +44,12 @@ const check: SignalReportCheckApi = {
 const meta: Meta<typeof ReportExpectedImpact> = {
     title: 'Scenes-App/Inbox/Detail/Expected impact',
     component: ReportExpectedImpact,
-    parameters: { layout: 'centered', viewMode: 'story', mockDate: '2026-08-29' },
+    parameters: {
+        layout: 'centered',
+        viewMode: 'story',
+        mockDate: '2026-08-29',
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
+    },
     args: { report, reportUrl: 'https://example.com/report' },
     decorators: [
         (Story, context) =>
@@ -75,7 +82,9 @@ const meta: Meta<typeof ReportExpectedImpact> = {
                 },
             })(Story, context),
         (Story, context) => (
-            <section className={`${context.parameters.narrow ? 'w-[32rem]' : 'w-[48rem]'} max-w-full p-4`}>
+            <section
+                className={`${context.parameters.narrow ? 'w-[32rem]' : 'w-[48rem]'} max-w-[calc(100vw-4rem)] p-4`}
+            >
                 <h2 className="text-lg font-semibold">Expected impact</h2>
                 <Story />
             </section>
@@ -90,3 +99,7 @@ export const MetricCheck: Story = {}
 export const Narrow: Story = { parameters: { narrow: true } }
 export const Failed: Story = { parameters: { failed: true } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }
+
+export const ReplacementUnavailable: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false } },
+}

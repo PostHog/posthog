@@ -270,6 +270,7 @@ async def create_task_and_trigger(
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
     output_schema: dict[str, Any] | None = None,
+    analytics_query_context: list[dict[str, object]] | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -283,6 +284,8 @@ async def create_task_and_trigger(
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
         extra_run_state["caller_ends_run"] = True
+    if analytics_query_context is not None:
+        extra_run_state["analytics_query_context"] = analytics_query_context
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,

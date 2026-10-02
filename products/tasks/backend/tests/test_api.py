@@ -6476,7 +6476,12 @@ class TestTaskRunAPI(BaseTaskAPITest):
     def test_task_bound_sandbox_can_update_only_its_task(self, _mock_publish_stream_state_event: MagicMock):
         owner = self.create_organization_user("sandbox-owner")
         bound_task = self.create_task(created_by=owner)
-        bound_run = TaskRun.objects.create(task=bound_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        bound_run = TaskRun.objects.create(
+            task=bound_task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"analytics_query_context": [None]},
+        )
         other_task = self.create_task(created_by=owner)
         other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         client = self._sandbox_oauth_client(bound_task.id)
@@ -6829,6 +6834,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             status=TaskRun.Status.IN_PROGRESS,
             state={
                 "github_credential_source": "caller_token",
+                "analytics_query_context": [],
                 "systemPrompt": system_prompt,
                 "claude_model_access": "own-subscription",
                 "claude_subscription_user_id": self.user.id,
@@ -6904,6 +6910,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {
                     "github_credential_source": "server_integration",
+                    "analytics_query_context": [{"kind": "private"}],
                     "systemPrompt": "Caller-controlled instructions",
                     "claude_model_access": "posthog-gateway",
                     "claude_subscription_user_id": self.user.id + 1,
@@ -6986,6 +6993,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         assert run.state["claude_model_access"] == "own-subscription"
         assert run.state["claude_subscription_user_id"] == self.user.id
+        assert run.state["analytics_query_context"] == []
         assert run.state["github_credential_source"] == "caller_token"
         assert run.state["pr_authorship_mode"] == "user"
         assert "dev_stack_preview" not in run.state
@@ -7046,6 +7054,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["analytics_query_context"] == []
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
@@ -7053,6 +7062,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             {
                 "state": {},
                 "state_remove_keys": [
+                    "analytics_query_context",
                     "systemPrompt",
                     "claude_model_access",
                     "claude_subscription_user_id",
@@ -7157,11 +7167,13 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["run_source"] == "manual"
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["analytics_query_context"] == []
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
                 "state_append": {
+                    "analytics_query_context": [{"kind": "private"}],
                     "systemPrompt": "Caller-controlled instructions",
                     "task_management_ci_idle_skips": 0,
                     "task_management_ci_wait_checks": 0,
@@ -7174,6 +7186,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["systemPrompt"] == system_prompt
+        assert run.state["analytics_query_context"] == []
         assert run.state["scratch"] == ["ok"]
         assert run.state["task_management_ci_idle_skips"] == 1
         assert run.state["task_management_ci_wait_checks"] == 10
@@ -10706,6 +10719,37 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(data, entries)
         self.assertEqual(response["X-Total-Count"], "3")
         self.assertEqual(response["X-Filtered-Count"], "3")
+
+    @parameterized.expand([("logs",), ("session_logs",), ("task_session",), ("stream_token",), ("",)])
+    def test_query_context_requires_analytics_scopes_on_every_trace_route(self, route: str) -> None:
+        task = self.create_task()
+        query = {
+            "kind": "InsightVizNode",
+            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        }
+        original = TaskRun.objects.create(task=task, team=self.team, state={"analytics_query_context": [query]})
+        run = task.create_run(extra_state={"resume_from_run_id": str(original.id)})
+        assert run.state["analytics_query_context"] == [query]
+        raw_key = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Trace reader", user=self.user, secure_value=hash_key_value(raw_key), scopes=["task:read"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{route + '/' if route else ''}"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        if route == "session_logs":
+            key.scopes = ["task:read", "query:read", "event_definition:read"]
+            key.save(update_fields=["scopes"])
+            self._seed_log(task, original, [self._make_posthog_entry("_posthog/user_message", "2026-01-01T00:00:00Z")])
+            allowed = self.client.get(url)
+            assert allowed.status_code == status.HTTP_200_OK
+            assert len(allowed.json()) == 1
+        detail = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["latest_run"]["log_url"] is None
+        assert "analytics_query_context" not in detail.json()["latest_run"]["state"]
 
     def test_session_logs_empty_log(self):
         task = self.create_task()

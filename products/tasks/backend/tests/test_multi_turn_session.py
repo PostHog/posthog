@@ -1477,9 +1477,12 @@ class TestCreateTaskAndTriggerForwardsContext:
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, runtime=runtime)
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
-            _, task_run = await create_task_and_trigger("prompt", context)
+            _, task_run = await create_task_and_trigger(
+                "prompt", context, analytics_query_context=[{"kind": "InsightVizNode"}]
+            )
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        assert persisted.state["analytics_query_context"] == [{"kind": "InsightVizNode"}]
         assert persisted.state.get("pending_user_message") == expected_pending_message
 
     @pytest.mark.asyncio

@@ -19,11 +19,18 @@ export function ReportCheckMetricSuggestionModal({
 }): JSX.Element {
     const [description, setDescription] = useState('')
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
+    const { aiConsentDisabledReason, metricCheckReplacementDisabledReason, isDiscussing, isCreatingPr } =
+        useValues(inboxTaskKickoffLogic)
 
     const submit = (): void => {
         const request = description.trim()
-        if (!request || isDiscussing || isCreatingPr || aiConsentDisabledReason) {
+        if (
+            !request ||
+            isDiscussing ||
+            isCreatingPr ||
+            aiConsentDisabledReason ||
+            metricCheckReplacementDisabledReason
+        ) {
             return
         }
         openReportDiscussion(report, reportUrl)
@@ -49,6 +56,7 @@ export function ReportCheckMetricSuggestionModal({
                         loading={isDiscussing}
                         disabledReason={
                             aiConsentDisabledReason ??
+                            metricCheckReplacementDisabledReason ??
                             (isCreatingPr ? 'An implementation is starting.' : undefined) ??
                             (!description.trim() ? 'Describe the outcome first.' : undefined)
                         }

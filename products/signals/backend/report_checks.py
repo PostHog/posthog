@@ -26,6 +26,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
@@ -371,6 +372,10 @@ class CheckSpec(BaseModel):
     """
 
     model_config = ConfigDict(extra="forbid")
+
+    existing_check_id: UUID | None = Field(
+        default=None, description="ID of the existing check being retained or revised. Omit for a new check."
+    )
 
     title: str = Field(
         max_length=MAX_CHECK_TITLE_LENGTH,

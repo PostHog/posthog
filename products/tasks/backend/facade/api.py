@@ -553,12 +553,23 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
+def _task_run_has_analytics_context(run: TaskRun) -> bool:
+    state = run.state or {}
+    return "analytics_query_context" in state or bool(
+        state.get("resume_from_run_id")
+        and any("analytics_query_context" in (ancestor.state or {}) for ancestor in run.get_resume_chain())
+    )
+
+
 def _task_run_log_url(run: TaskRun) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
+    # Protected traces must go through the permission-checked logs endpoint.
+    if _task_run_has_analytics_context(run):
+        return None
     cache_key = f"task_run_log_url:{run.id}"
     cached_url = get_tasks_cache().get(cache_key)
     if cached_url:
@@ -605,6 +616,7 @@ def _task_run_detail_to_dto(
     )
 
     state = parse_run_state(run.state)
+    protected_context = _task_run_has_analytics_context(run)
     can_read_summary = _can_read_task_run_summary(
         run, task=task, user_id=user_id, include_agent_state=include_agent_state
     )
@@ -620,12 +632,12 @@ def _task_run_detail_to_dto(
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
         log_url=_task_run_log_url(run) if include_log_url else None,
-        error_message=run.error_message,
-        output=run.output,
-        task_summary=run.task_summary if can_read_summary else None,
-        task_tags=run.task_tags if can_read_summary else [],
+        error_message=run.error_message if not protected_context else None,
+        output=run.output if not protected_context else None,
+        task_summary=run.task_summary if can_read_summary and not protected_context else None,
+        task_tags=run.task_tags if can_read_summary and not protected_context else [],
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
-        artifacts=run.artifacts or [],
+        artifacts=(run.artifacts or []) if not protected_context else [],
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
@@ -2612,6 +2624,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "analytics_query_context",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",

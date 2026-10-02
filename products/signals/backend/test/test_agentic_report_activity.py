@@ -1647,7 +1647,7 @@ async def test_run_multi_turn_research_survives_a_failed_supersede_turn(supersed
         "supersede": supersede_outcome,
     }
 
-    async def fake_send_followup(message, model, *, label=""):
+    async def fake_send_followup(message, model, *, label="", validation_context=None):
         outcome = by_label[label]
         if isinstance(outcome, Exception):
             raise outcome
@@ -1741,7 +1741,7 @@ async def test_run_multi_turn_research_only_asks_about_the_pr_when_actionable(ac
     }
     asked_labels: list[str] = []
 
-    async def fake_send_followup(message, model, *, label=""):
+    async def fake_send_followup(message, model, *, label="", validation_context=None):
         asked_labels.append(label)
         return by_label[label]
 

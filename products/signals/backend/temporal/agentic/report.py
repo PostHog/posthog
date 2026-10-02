@@ -271,6 +271,8 @@ def _load_previous_checks(team_id: int, report_id: str) -> list[dict]:
             if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
             else None,
             "soak_hours": max(1, round((check.soak_minutes or 60) / 60)),
+            "run_interval_minutes": check.run_interval_minutes,
+            "runs_remaining": check.runs_remaining,
             "approved": check.approved_at is not None,
         }
         for check in checks
@@ -1047,7 +1049,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             repository=repository,
             charts=charts_payload,
             metrics=metrics_payload,
-            checks=[check.model_dump(mode="json") for check in result.checks] if result.checks is not None else None,
+            checks=[check.model_dump(mode="json", exclude_none=True) for check in result.checks]
+            if result.checks is not None
+            else None,
             reconcile_checks=result.checks is not None,
             checks_snapshot=checks_snapshot,
             layers=[layer.model_dump(mode="json") for layer in result.layers],

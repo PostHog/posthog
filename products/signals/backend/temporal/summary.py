@@ -878,7 +878,11 @@ def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict
     for metric in metrics:
         query = metric.get("query")
         if not isinstance(query, Mapping) or not query_filter_shape_allows_read(query):
-            logger.warning("ignoring report metric with unreadable query shape", report_id=str(report.id))
+            logger.warning(
+                "ignoring report metric with unreadable query shape",
+                report_id=str(report.id),
+                metric_id=metric.get("metric_id"),
+            )
             continue
         observations.append({key: value for key, value in metric.items() if key not in REPORT_METRIC_GOAL_FIELDS})
     return observations

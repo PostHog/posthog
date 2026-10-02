@@ -257,24 +257,34 @@ def create_checks_from_specs(
             if not research_can_reconcile_checks(existing, checks_snapshot):
                 return []
             retained_ids: set[uuid.UUID] = set()
-            new_specs: list[CheckSpec] = []
+            new_specs: list[tuple[CheckSpec, SignalReportCheck | None]] = []
+            referenced_ids: set[uuid.UUID] = set()
             for spec, config in desired:
+                previous = next((check for check in existing if check.id == spec.existing_check_id), None)
+                if spec.existing_check_id is not None:
+                    if previous is None or previous.id in referenced_ids or previous.id in retained_ids:
+                        raise CheckCreationError("An existing check must be open on this report and referenced once.")
+                    referenced_ids.add(previous.id)
                 match = next(
                     (
                         check
                         for check in existing
                         if check.id not in retained_ids
+                        and (check.id not in referenced_ids or check.id == spec.existing_check_id)
+                        and (previous is None or check.id == previous.id)
                         and check.title == spec.title
                         and check.rationale == spec.rationale
                         and check.kind == spec.kind
                         and max(1, round((check.soak_minutes or 60) / 60)) == spec.soak_hours
-                        # Normalize legacy display fields so matching claims keep their approval.
-                        and _with_metric_display(report, check.config, check.config.get("metric_id")) == config
+                        and parse_check_config(
+                            check.kind, _with_metric_display(report, check.config, check.config.get("metric_id"))
+                        )
+                        == parse_check_config(spec.kind, config)
                     ),
                     None,
                 )
                 if match is None:
-                    new_specs.append(spec)
+                    new_specs.append((spec, previous))
                 else:
                     retained_ids.add(match.id)
             for replaced in existing:
@@ -288,11 +298,17 @@ def create_checks_from_specs(
                     kind=spec.kind,
                     config=spec.config,
                     attribution=attribution,
-                    soak_minutes=spec.soak_hours * 60,
+                    soak_minutes=(
+                        previous.soak_minutes if previous.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60
+                    )
+                    if previous is not None
+                    else spec.soak_hours * 60,
+                    run_interval_minutes=previous.run_interval_minutes if previous is not None else None,
+                    runs_remaining=previous.runs_remaining if previous is not None else 1,
                 )
-                for spec in new_specs
+                for spec, previous in new_specs
             ]
-    except CheckCreationError as error:
+    except (CheckCreationError, CheckConfigValidationError) as error:
         logger.warning(
             "signals.report_check.research_spec_dropped",
             report_id=str(report.id),

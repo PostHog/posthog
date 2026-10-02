@@ -21,7 +21,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
     const { reportChecks, reportChecksLoading, reportChecksError, reportArtefacts, approvingCheckIds } =
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
-    const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    const { currentProjectId, metricCheckReplacementDisabledReason } = useValues(inboxTaskKickoffLogic)
     const measurements = buildReportCheckRows(reportChecks ?? [], latestCheckExplanations(reportArtefacts ?? []))
         .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
         .flatMap((row) => {
@@ -149,7 +149,10 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                         data-attr="report-expected-impact-suggest-metrics"
                         type="secondary"
                         size="small"
-                        disabledReason={openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined}
+                        disabledReason={
+                            metricCheckReplacementDisabledReason ??
+                            (openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined)
+                        }
                         onClick={() => setModalOpen(true)}
                     >
                         Suggest different metrics

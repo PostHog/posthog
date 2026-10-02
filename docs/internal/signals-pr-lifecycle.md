@@ -141,6 +141,12 @@ This final request is optional: if generation or note conversion fails, research
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
 
+Verification proposals can name `existing_check_id` to revise an open check while preserving its exact soak and remaining recurrence. Equivalent default-valued config fields do not reset approval.
+
+Research traces that contain existing metric-check context require the same analytics permissions as the check query and baseline, including for resumed runs and trace analysis. Query provenance is private server-owned run state; direct storage links and unguarded output copies are withheld.
+
+Metric suggestions are available only when `signals-report-checks-replace` enables the replacement tool.
+
 The note names proposed follow-up checks without claiming they were scheduled. The Follow-up checks sidebar shows the stored checks. If any optional check spec is malformed, research keeps valid verification prose and skips check reconciliation, preserving existing checks. An explicitly empty, valid check list still retires omitted checks.
 
 The plan separates `Confirm the current state` guidance from `Confirm the outcome` guidance.

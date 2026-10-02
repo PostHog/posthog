@@ -1130,6 +1130,11 @@ class TestReportCheckAPI(APIBaseTest):
         assert check.status == SignalReportCheck.Status.ACTIVE
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
 
+        task = Task.objects.create(team=self.team, created_by=self.user, title="Research a report")
+        run = TaskRun.objects.create(task=task, team=self.team, state={"analytics_query_context": [_PAGEVIEWS]})
+        trace = self.client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/runs/{run.id}/session_logs/")
+        assert trace.status_code == status.HTTP_403_FORBIDDEN
+
     def test_task_write_key_without_query_access_cannot_replace_a_metric_check(self) -> None:
         check = self._create()
         raw_key = generate_random_token_personal()
@@ -2321,14 +2326,33 @@ class TestResearchAuthoredChecks(APIBaseTest):
             ("config_written_before_display_fields", True, "unchanged"),
             ("revise_approved", False, "revise"),
             ("retire_approved", False, "retire"),
+            ("omitted_metric_defaults", False, "unchanged", "metric_defaults"),
+            ("omitted_agent_defaults", False, "unchanged", "agent_defaults"),
+            ("revise_recurring", False, "revise", "recurring"),
         ]
     )
-    def test_research_reviews_approved_checks(self, _name: str, legacy_config: bool, action: str) -> None:
-        existing = create_checks_from_specs(
-            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
-        )[0]
+    def test_research_reviews_approved_checks(
+        self, _name: str, legacy_config: bool, action: str, variant: str = ""
+    ) -> None:
+        spec = self._spec()
+        if variant == "metric_defaults":
+            spec.config["baseline_value"] = None
+        elif variant == "agent_defaults":
+            spec = self._spec(kind="agent", config={"instructions": "Check the issue again."})
+        existing = create_checks_from_specs(report=self.report, specs=[spec], attribution=ArtefactAttribution.system())[
+            0
+        ]
         approved_at = timezone.now()
-        stored_config = existing.config
+        stored_config = dict(existing.config)
+        if variant == "metric_defaults":
+            stored_config["comparison"]["bounds"] = None
+            stored_config.pop("baseline_value")
+        elif variant == "agent_defaults":
+            stored_config.update(probe_hints=[], skill_name=None)
+        if variant == "recurring":
+            SignalReportCheck.objects.for_team(self.team.id).filter(id=existing.id).update(
+                soak_minutes=1450, run_interval_minutes=7 * 24 * 60, runs_remaining=3
+            )
         if legacy_config:
             stored_config = {
                 key: value for key, value in stored_config.items() if key not in {"metric_kind", "value_format", "unit"}
@@ -2339,7 +2363,11 @@ class TestResearchAuthoredChecks(APIBaseTest):
         existing.refresh_from_db()
         original_schedule = (existing.next_run_at, existing.expires_at, existing.updated_at)
         specs = (
-            [] if action == "retire" else [self._spec(title="Revised goal")] if action == "revise" else [self._spec()]
+            []
+            if action == "retire"
+            else [self._spec(title="Revised goal", existing_check_id=existing.id)]
+            if action == "revise"
+            else [spec]
         )
 
         written = create_checks_from_specs(
@@ -2360,6 +2388,9 @@ class TestResearchAuthoredChecks(APIBaseTest):
         if written:
             assert written[0].title == "Revised goal"
             assert written[0].approved_at is None
+            assert written[0].soak_minutes == existing.soak_minutes
+            assert written[0].run_interval_minutes == existing.run_interval_minutes
+            assert written[0].runs_remaining == existing.runs_remaining
         assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == (
             2 if action == "revise" else 1
         )
