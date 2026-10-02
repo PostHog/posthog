@@ -76,7 +76,7 @@ export function OfflineScoreTrendChart({
                         <div className="text-xs text-muted mb-2 flex flex-wrap gap-x-2 gap-y-1">
                             <span>{panel.label}</span>
                             {panel.passingRule && (
-                                <span>{`Score passes ${panel.passingRule.operator === 'gte' ? 'at or above' : 'at or below'} ${formatOfflineNumericScore(panel.passingRule.threshold)}`}</span>
+                                <span>{`Score passes ${panel.passingRule.operator === 'gte' ? 'at or above' : 'at or below'} ${panel.passingRule.threshold}`}</span>
                             )}
                         </div>
                     )}
@@ -125,7 +125,7 @@ export function OfflineScoreTrendChart({
                                                     <strong className="text-lg tabular-nums">
                                                         {meta.percentage
                                                             ? formatOfflinePercentage(point.y)
-                                                            : formatOfflineNumericScore(point.y)}
+                                                            : String(point.y)}
                                                     </strong>
                                                 </div>
                                                 {periods.length > 1 && <div className="opacity-70">{meta.period}</div>}
@@ -137,7 +137,7 @@ export function OfflineScoreTrendChart({
                                                 {summary.pass_count != null && summary.fail_count != null && (
                                                     <div className="mt-1">
                                                         {summary.pass_rate != null &&
-                                                            summary.scorer.kind === 'numeric' && (
+                                                            summary.scorer.kind !== 'boolean' && (
                                                                 <div>{`${formatOfflinePercentage(summary.pass_rate)} pass rate`}</div>
                                                             )}
                                                         <div>{`${summary.pass_count} passed · ${summary.fail_count} failed`}</div>
@@ -201,7 +201,7 @@ export function OfflineScoreTrendChart({
                                         />
                                         <ReferenceLine
                                             value={panel.passingRule.threshold}
-                                            label={`${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${formatOfflineNumericScore(panel.passingRule.threshold)}`}
+                                            label={`${panel.passingRule.operator === 'gte' ? '≥' : '≤'} ${panel.passingRule.threshold}`}
                                             fillSide={panel.passingRule.operator === 'gte' ? 'above' : 'below'}
                                             style={{
                                                 color: 'var(--color-text-success)',

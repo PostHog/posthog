@@ -15,13 +15,14 @@ export function OfflineResultTag({
     const passed = result.status === 'ok' ? offlineScorePasses(result.value, scorer) : null
     const error = result.status === 'error'
     const label = offlineResultLabel(result, scorer)
+    const fullLabel = result.status === 'ok' && typeof result.value === 'number' ? String(result.value) : label
     return (
         <LemonTag
             type={error || passed === false ? 'danger' : passed === true ? 'success' : 'muted'}
             icon={
                 error ? <IconWarning /> : passed === true ? <IconCheck /> : passed === false ? <IconX /> : <IconMinus />
             }
-            title={passed === null ? label : `${passed ? 'Pass' : 'Fail'}: ${label}`}
+            title={passed === null ? fullLabel : `${passed ? 'Pass' : 'Fail'}: ${fullLabel}`}
             className="max-w-full"
         >
             <span className="truncate" translate="no">

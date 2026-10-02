@@ -1,8 +1,10 @@
+import { useValues } from 'kea'
 import { useId } from 'react'
 
 import { IconCheck, IconX } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -11,7 +13,9 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     CATEGORICAL_SELECTION_MODE_OPTIONS,
@@ -19,6 +23,7 @@ import {
     formatNumericInputValue,
     getIntegerInputValue,
     getNumericInputValue,
+    getScoreDefinitionOptionKey,
     type ScoreDefinitionDraft,
 } from './scoreDefinitionModalUtils'
 
@@ -42,6 +47,7 @@ export function ScoreDefinitionForm({
     removeOption,
 }: ScoreDefinitionFormProps): JSX.Element {
     const id = useId()
+    const { featureFlags } = useValues(featureFlagLogic)
     const disabledReason = disabled ? 'Editing is unavailable right now' : undefined
     const threshold = getNumericInputValue(draft.numericPassingThreshold)
 
@@ -234,7 +240,7 @@ export function ScoreDefinitionForm({
                 )}
             </section>
 
-            {draft.kind !== 'categorical' && (
+            {featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] && (
                 <>
                     <LemonDivider />
                     <section className="space-y-4" aria-labelledby={`${id}-passing`}>
@@ -281,6 +287,47 @@ export function ScoreDefinitionForm({
                                         )
                                     })}
                                 </div>
+                            </>
+                        ) : draft.kind === 'categorical' ? (
+                            <>
+                                <LemonSwitch
+                                    label="Set a passing rule"
+                                    checked={draft.categoricalPassingEnabled}
+                                    onChange={(value) => setDraftField('categoricalPassingEnabled', value)}
+                                    disabledReason={disabledReason}
+                                    data-attr="llma-scorer-categorical-passing-rule"
+                                />
+                                {draft.categoricalPassingEnabled && (
+                                    <LemonField.Pure label="Passing categories">
+                                        <div className="flex flex-col gap-2">
+                                            {draft.options.map((option, index) => {
+                                                const key = getScoreDefinitionOptionKey(option)
+                                                return (
+                                                    <LemonCheckbox
+                                                        key={index}
+                                                        label={option.label || 'Unnamed category'}
+                                                        checked={draft.categoricalPassingCategories.includes(key)}
+                                                        disabled={disabled || !key}
+                                                        onChange={(checked) =>
+                                                            setDraftField(
+                                                                'categoricalPassingCategories',
+                                                                checked
+                                                                    ? [...draft.categoricalPassingCategories, key]
+                                                                    : draft.categoricalPassingCategories.filter(
+                                                                          (category) => category !== key
+                                                                      )
+                                                            )
+                                                        }
+                                                    />
+                                                )
+                                            })}
+                                        </div>
+                                        <p className="text-sm text-muted mb-0">
+                                            Every selected category must be marked as passing. Existing results keep
+                                            their scorer version's rule.
+                                        </p>
+                                    </LemonField.Pure>
+                                )}
                             </>
                         ) : (
                             <>

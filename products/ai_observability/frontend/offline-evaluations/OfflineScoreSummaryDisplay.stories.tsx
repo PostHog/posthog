@@ -25,3 +25,40 @@ export const Unconfigured: Story = {
         },
     },
 }
+
+export const NearThreshold: Story = {
+    args: {
+        summary: {
+            ...detailSummaries[0],
+            mean: 0.9999999,
+            scorer: { ...detailSummaries[0].scorer, config: { passing_rule: { operator: 'gte', threshold: 1 } } },
+        },
+    },
+}
+export const Categorical: Story = {
+    args: {
+        summary: {
+            ...detailSummaries[0],
+            mean: null,
+            scorer: {
+                ...detailSummaries[0].scorer,
+                kind: 'categorical',
+                config: {
+                    options: [
+                        { key: 'good', label: 'Good' },
+                        { key: 'bad', label: 'Bad' },
+                    ],
+                    passing_rule: { categories: ['good'] },
+                },
+            },
+            categories: [
+                { key: 'good', label: 'Good', count: 3, rate: 0.75 },
+                { key: 'bad', label: 'Bad', count: 1, rate: 0.25 },
+            ],
+            pass_count: 3,
+            fail_count: 1,
+            pass_rate: 0.75,
+            status_counts: { ok: 4 },
+        },
+    },
+}

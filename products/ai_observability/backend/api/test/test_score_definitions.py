@@ -63,6 +63,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
                         "selection_mode": "multiple",
                         "min_selections": 1,
                         "max_selections": 2,
+                        "passing_rule": {"categories": ["accurate", "helpful"]},
                     },
                 },
             ),
@@ -435,6 +436,35 @@ class TestScoreDefinitionsApi(APIBaseTest):
         # Scorer still at v2 — the stale request did not bump it.
         self.assertEqual(self._current_version(definition).version, 2)
         self.assertEqual((definition.name, definition.description), (original_name, original_description))
+
+    def test_new_version_rolls_back_when_metadata_persistence_fails(self) -> None:
+        definition = self._create_definition()
+        original_version_id = definition.current_version_id
+        original_metadata = (definition.name, definition.description)
+        original_count = ScoreDefinitionVersion.objects.filter(definition=definition).count()
+        save = ScoreDefinition.save
+
+        def save_then_fail(instance: ScoreDefinition, *, update_fields: list[str]) -> None:
+            save(instance, update_fields=update_fields)
+            if "name" in update_fields:
+                raise RuntimeError("Metadata persistence failed")
+
+        with patch.object(ScoreDefinition, "save", save_then_fail):
+            response = self.client.post(
+                f"{self._endpoint()}{definition.id}/new_version/",
+                {
+                    "name": "Updated name",
+                    "description": "Updated description",
+                    "config": self._current_version(definition).config,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        definition.refresh_from_db()
+        self.assertEqual(definition.current_version_id, original_version_id)
+        self.assertEqual((definition.name, definition.description), original_metadata)
+        self.assertEqual(ScoreDefinitionVersion.objects.filter(definition=definition).count(), original_count)
 
     def test_new_version_applies_metadata_written_concurrently_before_the_lock(self):
         definition = self._create_definition()

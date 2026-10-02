@@ -21270,6 +21270,14 @@ export namespace Schemas {
       Multiple: 'multiple',
     } as const;
 
+    export interface CategoricalScorePassingRule {
+      /**
+         * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+         * @items.maxLength 128
+         */
+      categories: string[];
+    }
+
     export interface CategoricalScoreDefinitionConfig {
       /** Ordered categorical options available to the scorer. */
       options: CategoricalScoreOption[];
@@ -21290,6 +21298,8 @@ export namespace Schemas {
          * @nullable
          */
       max_selections?: number | null;
+      /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+      passing_rule?: CategoricalScorePassingRule | null;
     }
 
     export interface CdcEnableResponse {

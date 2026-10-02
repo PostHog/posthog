@@ -55,6 +55,10 @@ describe('scorer editor', () => {
     })
 
     it.each<{ kind: ScoreDefinitionApi['kind']; config: ScoreDefinitionConfigApi; duplicateFrom?: string }>([
+        {
+            kind: 'categorical',
+            config: { options: [{ key: 'good', label: 'Good' }], passing_rule: { categories: ['good'] } },
+        },
         { kind: 'numeric', config: { min: 0, max: null, passing_rule: null } },
         { kind: 'numeric', config: {}, duplicateFrom: 'another-scorer' },
         { kind: 'boolean', config: { true_label: '', false_label: 'Needs work', true_is_failure: false } },
@@ -92,6 +96,18 @@ describe('scorer editor', () => {
             expect(logic.values.hasUnsavedChanges).toBe(false)
         }
     )
+
+    it('keeps categorical passing selections valid while editing unsaved options', () => {
+        const logic = scorerLogic({ scorerId: 'new' })
+        logic.mount()
+        logic.actions.addOption()
+        logic.actions.updateOptionLabel(2, 'Helpful')
+        logic.actions.setDraftField('categoricalPassingCategories', ['helpful'])
+        logic.actions.updateOptionLabel(2, 'Accurate')
+        expect(logic.values.draft.categoricalPassingCategories).toEqual(['accurate'])
+        logic.actions.removeOption(2)
+        expect(logic.values.draft.categoricalPassingCategories).toEqual([])
+    })
 
     it('saves metadata and passing rules together in a version guarded by the original version number', async () => {
         createVersion.mockResolvedValue({

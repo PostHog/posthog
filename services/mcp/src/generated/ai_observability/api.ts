@@ -2094,6 +2094,8 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax
 
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
@@ -2146,6 +2148,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
                     .nullish()
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
                     ),
             }),
             zod.object({
@@ -2234,6 +2257,8 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
     name: zod
         .string()
@@ -2280,6 +2305,27 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
                     .nullish()
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
                     ),
             }),
             zod.object({

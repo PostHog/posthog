@@ -47,6 +47,29 @@
                             "minItems": 1,
                             "type": "array"
                         },
+                        "passing_rule": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "categories": {
+                                            "description": "Passing category keys. Every returned category must be included.",
+                                            "items": {
+                                                "maxLength": 128,
+                                                "type": "string"
+                                            },
+                                            "type": "array"
+                                        }
+                                    },
+                                    "required": ["categories"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule."
+                        },
                         "selection_mode": {
                             "description": "Whether reviewers select one option or many. Defaults to \"single\".",
                             "enum": ["single", "multiple"],
@@ -129,7 +152,7 @@
                     "type": "object"
                 }
             ],
-            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
+            "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
         },
         "description": {
             "anyOf": [

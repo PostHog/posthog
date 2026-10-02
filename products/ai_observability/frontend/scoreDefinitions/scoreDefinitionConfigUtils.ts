@@ -25,7 +25,9 @@ export function getCategoricalConfig(config: ScoreDefinitionConfig): Categorical
 }
 
 export function getNumericConfig(config: ScoreDefinitionConfig): NumericScoreDefinitionConfig {
-    return isRecord(config) && ('min' in config || 'max' in config || 'step' in config || 'passing_rule' in config)
+    return isRecord(config) &&
+        !isCategoricalConfig(config) &&
+        ('min' in config || 'max' in config || 'step' in config || 'passing_rule' in config)
         ? config
         : {}
 }

@@ -522,6 +522,15 @@ class OfflineEvaluationReadService:
                     return Q(numeric_value__gte=rule["threshold"])
                 if rule.get("operator") == "lte":
                     return Q(numeric_value__lte=rule["threshold"])
+        elif version.definition.kind == "categorical":
+            rule = version.config.get("passing_rule")
+            if isinstance(rule, dict):
+                categories = rule["categories"]
+                return (
+                    Q(categorical_values__contained_by=categories) & ~Q(categorical_values=[])
+                    if categories
+                    else Q(categorical_values=[])
+                )
         return None
 
     def _aggregates(

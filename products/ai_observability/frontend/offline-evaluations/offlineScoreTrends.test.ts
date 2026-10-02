@@ -11,6 +11,18 @@ import { makeOfflineHistoryPoint } from './offlineScoreTrends.fixtures'
 
 describe('offline score trends', () => {
     it.each([
+        ['gte', 0.9999999, 1, '0.9999999'],
+        ['lte', 1.0000001, 1, '1.0000001'],
+        ['gte', 1.0000001, 1.0000001, '1.0000001'],
+        ['lte', -0.9999999, -1, '-0.9999999'],
+        ['gte', 1.23456789, 1, '1.23457'],
+    ] as const)('keeps the displayed mean consistent with %s for %s at %s', (operator, value, threshold, label) => {
+        const point = makeOfflineHistoryPoint(1, value)
+        point.summary.scorer.config = { passing_rule: { operator, threshold } }
+        expect(formatOfflineScore(point.summary)).toBe(label)
+    })
+
+    it.each([
         {
             label: 'unequal weights and unsuccessful experiments',
             samples: [
@@ -120,7 +132,7 @@ describe('offline score trends', () => {
         expect(summary.pass_rate).toBe(0.25)
     })
 
-    it('aggregates category counts by key while preserving unselected options and multiple-selection rates', () => {
+    it.each([false, true])('aggregates category counts and passing rules (graded: %s)', (graded) => {
         const points = [makeOfflineHistoryPoint(1), makeOfflineHistoryPoint(2)]
         for (const [index, point] of points.entries()) {
             point.summary.scorer = {
@@ -128,6 +140,7 @@ describe('offline score trends', () => {
                 kind: 'categorical',
                 config: {
                     selection_mode: 'multiple',
+                    ...(graded ? { passing_rule: { categories: ['complete'] } } : {}),
                     options: [
                         { key: 'complete', label: 'Complete' },
                         { key: 'clear', label: 'Clear' },
@@ -143,10 +156,19 @@ describe('offline score trends', () => {
                 { key: 'other', label: 'Other', count: 0, rate: 0 },
             ]
         }
+        if (graded) {
+            points[0].summary.pass_count = 0
+            points[0].summary.fail_count = 2
+            points[1].summary.pass_count = 4
+            points[1].summary.fail_count = 4
+        }
         points[1].summary.categories.reverse()
 
         const summary = aggregateOfflineScoreHistory(points)!
 
+        expect([summary.pass_count, summary.fail_count, summary.pass_rate]).toEqual(
+            graded ? [4, 6, 0.4] : [null, null, null]
+        )
         expect(summary.categories).toEqual([
             { key: 'complete', label: 'Complete', count: 10, rate: 1 },
             { key: 'clear', label: 'Clear', count: 6, rate: 0.6 },

@@ -1,5 +1,9 @@
 import type { OfflineScorerVersionReadApi, NumericScoreDefinitionConfigApi } from '../generated/api.schemas'
-import { getBooleanConfig, getNumericConfig } from '../scoreDefinitions/scoreDefinitionConfigUtils'
+import {
+    getBooleanConfig,
+    getCategoricalConfig,
+    getNumericConfig,
+} from '../scoreDefinitions/scoreDefinitionConfigUtils'
 
 type OfflineScorerConfig = Pick<OfflineScorerVersionReadApi, 'kind' | 'config'>
 
@@ -15,7 +19,15 @@ export function offlineNumericPassingRule(
 }
 
 export function offlineScoreHasPassingRule(scorer: OfflineScorerConfig): boolean {
-    return offlineBooleanPolarity(scorer) !== null || offlineNumericPassingRule(scorer) !== null
+    return (
+        offlineBooleanPolarity(scorer) !== null ||
+        offlineNumericPassingRule(scorer) !== null ||
+        offlineCategoricalPassingRule(scorer) !== null
+    )
+}
+
+export function offlineCategoricalPassingRule(scorer: OfflineScorerConfig): string[] | null {
+    return scorer.kind === 'categorical' ? (getCategoricalConfig(scorer.config).passing_rule?.categories ?? null) : null
 }
 
 export function offlineScorePasses(value: unknown, scorer: OfflineScorerConfig): boolean | null {
@@ -26,6 +38,14 @@ export function offlineScorePasses(value: unknown, scorer: OfflineScorerConfig):
     if (scorer.kind === 'numeric' && typeof value === 'number' && Number.isFinite(value)) {
         const rule = offlineNumericPassingRule(scorer)
         return rule ? (rule.operator === 'gte' ? value >= rule.threshold : value <= rule.threshold) : null
+    }
+    if (scorer.kind === 'categorical' && Array.isArray(value)) {
+        const categories = offlineCategoricalPassingRule(scorer)
+        return categories === null
+            ? null
+            : value.length === 0
+              ? categories.length === 0
+              : value.every((key) => categories.includes(key))
     }
     return null
 }

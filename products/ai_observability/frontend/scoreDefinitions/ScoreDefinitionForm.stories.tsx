@@ -1,13 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { ScoreDefinitionForm, type ScoreDefinitionFormProps } from './ScoreDefinitionForm'
 import { createDraft } from './scoreDefinitionModalUtils'
 
 const meta: Meta<typeof ScoreDefinitionForm> = {
     title: 'AI observability/Scorer form',
     component: ScoreDefinitionForm,
-    parameters: { layout: 'padded' },
+    parameters: { layout: 'padded', featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] },
     args: {
         isNew: false,
         disabled: false,
@@ -76,3 +78,21 @@ export const Narrow: Story = {
         ),
     ],
 }
+
+export const Categorical: Story = {
+    args: {
+        draft: {
+            ...createDraft('create'),
+            name: 'Response quality',
+            selectionMode: 'multiple',
+            categoricalMinSelections: '1',
+            categoricalMaxSelections: '2',
+            categoricalPassingEnabled: true,
+            categoricalPassingCategories: ['good'],
+        },
+    },
+}
+export const OfflineDisabled: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]: false } },
+}
+export const CategoricalNarrow: Story = { ...Categorical, decorators: Narrow.decorators }

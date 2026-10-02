@@ -22,6 +22,8 @@ export interface ScoreDefinitionDraft {
     selectionMode: CategoricalSelectionMode
     categoricalMinSelections: string
     categoricalMaxSelections: string
+    categoricalPassingEnabled: boolean
+    categoricalPassingCategories: string[]
     numericMin: string
     numericMax: string
     numericStep: string
@@ -67,6 +69,10 @@ function suggestKey(value: string): string {
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, '_')
         .replace(/^_+|_+$/g, '')
+}
+
+export function getScoreDefinitionOptionKey(option: ScoreDefinitionOption): string {
+    return option.key.trim() || suggestKey(option.label)
 }
 
 export function getCurrentProjectId(): string {
@@ -154,6 +160,8 @@ export function createDraft(
         kind,
         options: defaultOptions,
         selectionMode: categoricalConfig.selection_mode || 'single',
+        categoricalPassingEnabled: categoricalConfig.passing_rule != null,
+        categoricalPassingCategories: categoricalConfig.passing_rule?.categories ?? [],
         categoricalMinSelections:
             categoricalConfig.min_selections === undefined || categoricalConfig.min_selections === null
                 ? ''
@@ -178,7 +186,7 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
     if (draft.kind === 'categorical') {
         const categoricalConfig: CategoricalScoreDefinitionConfig = {
             options: draft.options.map((option) => ({
-                key: option.key.trim() || suggestKey(option.label),
+                key: getScoreDefinitionOptionKey(option),
                 label: option.label.trim(),
             })),
         }
@@ -198,6 +206,9 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
             }
         }
 
+        if (draft.categoricalPassingEnabled) {
+            categoricalConfig.passing_rule = { categories: [...draft.categoricalPassingCategories].sort() }
+        }
         return categoricalConfig
     }
 
@@ -268,6 +279,15 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
                 return 'Some option labels are too similar and would generate duplicate IDs. Please use more distinct labels.'
             }
             optionKeys.add(normalizedKey)
+        }
+
+        if (draft.categoricalPassingEnabled) {
+            if (draft.selectionMode === 'single' && draft.categoricalPassingCategories.length === 0) {
+                return 'Choose at least one passing category.'
+            }
+            if (draft.categoricalPassingCategories.some((key) => !optionKeys.has(key))) {
+                return 'Choose passing categories from the configured options.'
+            }
         }
 
         if (draft.selectionMode === 'multiple') {

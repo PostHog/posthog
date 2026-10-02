@@ -214,6 +214,28 @@ class TestOfflineEvaluationReads(TestCase):
                 [3, 2],
             ),
             (
+                "categorical",
+                [
+                    {
+                        "options": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+                        "selection_mode": "multiple",
+                        "passing_rule": {"categories": ["a"]},
+                    },
+                    {
+                        "options": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+                        "selection_mode": "multiple",
+                        "passing_rule": {"categories": ["a", "b"]},
+                    },
+                    {
+                        "options": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}],
+                        "selection_mode": "multiple",
+                        "passing_rule": {"categories": []},
+                    },
+                ],
+                [["a"], ["b"], ["a", "b"], ["a"]],
+                [2, 4, 0],
+            ),
+            (
                 "boolean",
                 [{"true_is_failure": False}, {"true_is_failure": True}],
                 [True, False, False, False],
@@ -228,7 +250,8 @@ class TestOfflineEvaluationReads(TestCase):
         versions = [definition.create_new_version(config=config, created_by=None) for config in configs]
         empty_version = definition.create_new_version(config=configs[0], created_by=None)
         unconfigured_version = definition.create_new_version(
-            config={"true_is_failure": None} if kind == "boolean" else {"passing_rule": None}, created_by=None
+            config={"true_is_failure": None} if kind == "boolean" else {**configs[0], "passing_rule": None},
+            created_by=None,
         )
         experiment = self._experiment()
         items = [self._item(experiment) for _ in range(8)]

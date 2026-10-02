@@ -11,6 +11,7 @@ import type {
 } from '../generated/api.schemas'
 import {
     offlineBooleanPolarity,
+    offlineCategoricalPassingRule,
     offlineNumericPassingRule,
     offlineScoreHasPassingRule,
 } from './offlineScoreInterpretation'
@@ -166,7 +167,9 @@ export function formatOfflineScore(summary: OfflineScoreSummary): string {
         return 'No successful results'
     }
     if (summary.scorer.kind === 'numeric') {
-        return summary.mean === null ? 'No score' : formatOfflineNumericScore(summary.mean)
+        return summary.mean === null
+            ? 'No score'
+            : formatOfflineNumericScore(summary.mean, offlineNumericPassingRule(summary.scorer))
     }
     if (summary.scorer.kind === 'boolean') {
         return summary.pass_rate == null ? 'No score' : formatOfflinePercentage(summary.pass_rate)
@@ -176,8 +179,19 @@ export function formatOfflineScore(summary: OfflineScoreSummary): string {
         .join(', ')
 }
 
-export function formatOfflineNumericScore(value: number): string {
-    return value.toLocaleString(undefined, { maximumSignificantDigits: 6 })
+export function formatOfflineNumericScore(
+    value: number,
+    rule: ReturnType<typeof offlineNumericPassingRule> = null
+): string {
+    let precision = 6
+    if (rule) {
+        const passes = (score: number): boolean =>
+            rule.operator === 'gte' ? score >= rule.threshold : score <= rule.threshold
+        while (precision < 17 && passes(Number(value.toPrecision(precision))) !== passes(value)) {
+            precision++
+        }
+    }
+    return value.toLocaleString(undefined, { maximumSignificantDigits: precision })
 }
 
 export function formatOfflinePercentage(rate: number): string {
@@ -194,7 +208,7 @@ export function offlineScoreConfigurationLabel(scorer: Pick<OfflineScorerVersion
         return `True: ${'true_label' in config ? config.true_label || 'True' : 'True'} · False: ${'false_label' in config ? config.false_label || 'False' : 'False'} · ${passingRule ?? 'No passing rule'}`
     }
     if ('options' in config) {
-        return `${config.selection_mode === 'multiple' ? 'Multiple selections' : 'Single selection'} · ${config.options.map(({ label, key }) => `${label} (${key})`).join(', ')}`
+        return `${config.selection_mode === 'multiple' ? 'Multiple selections' : 'Single selection'} · ${config.options.map(({ label, key }) => `${label} (${key})`).join(', ')}${passingRule ? ` · ${passingRule}` : ''}`
     }
     return ''
 }
@@ -207,9 +221,14 @@ export function offlineScorePassingRuleLabel(
         return `${polarity ? 'False' : 'True'} counts as a pass`
     }
     const rule = offlineNumericPassingRule(scorer)
-    return rule
-        ? `Pass when score ${rule.operator === 'gte' ? '≥' : '≤'} ${formatOfflineNumericScore(rule.threshold)}`
-        : null
+    const categories = offlineCategoricalPassingRule(scorer)
+    if (categories !== null) {
+        const options = 'options' in scorer.config ? scorer.config.options : []
+        return categories.length
+            ? `Pass when every selected category is one of: ${categories.map((key) => options.find((option) => option.key === key)?.label || key).join(', ')}`
+            : 'No selected categories count as a pass'
+    }
+    return rule ? `Pass when score ${rule.operator === 'gte' ? '≥' : '≤'} ${rule.threshold}` : null
 }
 
 export function getOfflineHistoryCoverage(page: OfflineHistoryPageApi, timezone: string = 'UTC'): string {

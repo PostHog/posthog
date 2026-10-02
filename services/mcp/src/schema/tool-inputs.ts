@@ -220,6 +220,18 @@ const CategoricalScoreDefinitionConfigSchema = z
             .min(1)
             .optional()
             .describe('Maximum selections allowed. Only valid when selection_mode is "multiple".'),
+        passing_rule: z
+            .object({
+                categories: z
+                    .array(z.string().max(128))
+                    .describe('Passing category keys. Every returned category must be included.'),
+            })
+            .strict()
+            .nullable()
+            .optional()
+            .describe(
+                'Optional passing categories. Omit or set null for neutral scores. Each version keeps its own rule.'
+            ),
     })
     .strict()
     .describe('Config shape used when kind is "categorical".')
@@ -264,7 +276,7 @@ export const ScoreDefinitionConfigSchema = z
         BooleanScoreDefinitionConfigSchema,
     ])
     .describe(
-        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
+        'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
 
 export const PromptListInputSchema = z.object({

@@ -9,6 +9,26 @@ from products.ai_observability.backend.score_definition_configs import build_sco
 class TestScoreDefinitionConfigValidation(unittest.TestCase):
     @parameterized.expand(
         [
+            ("unknown_category", {"categories": ["missing"]}),
+            ("duplicate_category", {"categories": ["good", "good"]}),
+            ("empty_single", {"categories": []}),
+            ("missing_categories", {}),
+            ("unknown_key", {"categories": ["good"], "operator": "any"}),
+        ]
+    )
+    def test_rejects_invalid_categorical_passing_rules(self, _name: str, rule: dict[str, list[str] | str]) -> None:
+        serializer = build_score_definition_config_serializer(
+            "categorical",
+            data={
+                "options": [{"key": "good", "label": "Good"}],
+                "passing_rule": rule,
+            },
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("passing_rule", serializer.errors)
+
+    @parameterized.expand(
+        [
             (
                 "categorical_requires_options",
                 "categorical",
@@ -113,6 +133,25 @@ class TestScoreDefinitionConfigValidation(unittest.TestCase):
                     "selection_mode": "multiple",
                     "min_selections": 1,
                     "max_selections": 2,
+                },
+            ),
+            (
+                "categorical_passing",
+                "categorical",
+                {"options": [{"key": "good", "label": "Good"}], "passing_rule": {"categories": ["good"]}},
+            ),
+            (
+                "categorical_neutral",
+                "categorical",
+                {"options": [{"key": "good", "label": "Good"}], "passing_rule": None},
+            ),
+            (
+                "categorical_no_passing_categories",
+                "categorical",
+                {
+                    "options": [{"key": "good", "label": "Good"}],
+                    "selection_mode": "multiple",
+                    "passing_rule": {"categories": []},
                 },
             ),
             ("numeric", "numeric", {"min": 0, "max": 5, "step": 1}),

@@ -17,7 +17,28 @@ const definition: ScoreDefinitionApi = {
 }
 
 describe('scorer form configuration', () => {
+    it.each([
+        ['single', [], 'Choose at least one passing category.'],
+        ['single', ['missing'], 'Choose passing categories from the configured options.'],
+        ['single', ['good'], undefined],
+        ['multiple', [], undefined],
+    ] as const)('validates categorical passing rules for %s with %j', (selectionMode, categories, error) => {
+        const draft = {
+            ...createDraft('create'),
+            name: 'Quality',
+            selectionMode,
+            categoricalPassingEnabled: true,
+            categoricalPassingCategories: [...categories],
+        }
+        expect(validateDraft('create', draft)).toBe(error)
+        expect(buildConfigFromDraft({ ...draft, categoricalPassingEnabled: false })).not.toHaveProperty('passing_rule')
+    })
+
     it.each<{ kind: ScoreDefinitionApi['kind']; config: ScoreDefinitionConfigApi }>([
+        {
+            kind: 'categorical',
+            config: { options: [{ key: 'good', label: 'Good' }], passing_rule: { categories: ['good'] } },
+        },
         { kind: 'boolean', config: { true_is_failure: false } },
         { kind: 'boolean', config: { true_is_failure: true } },
         { kind: 'boolean', config: { true_label: 'Flagged', false_label: 'Clear', true_is_failure: true } },

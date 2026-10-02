@@ -4,6 +4,7 @@ import { ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 
 describe('Scorer passing configuration', () => {
     it.each([
+        { options: [{ key: 'good', label: 'Good' }], passing_rule: { categories: ['good'] } },
         {},
         { true_is_failure: null },
         { true_is_failure: false },

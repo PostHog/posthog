@@ -29,3 +29,27 @@ export const UnconfiguredBoolean: Story = {
 }
 export const Skipped: Story = { args: { result: { ...result, status: 'skipped', value: null } } }
 export const Error: Story = { args: { result: { ...result, status: 'error', value: null } } }
+
+export const NearThreshold: Story = {
+    args: {
+        result: { ...result, value: 0.9999999 },
+        scorer: { ...result.scorer, kind: 'numeric', config: { passing_rule: { operator: 'gte', threshold: 1 } } },
+    },
+}
+export const CategoricalMixed: Story = {
+    args: {
+        result: { ...result, value: ['good', 'bad'] },
+        scorer: {
+            ...result.scorer,
+            kind: 'categorical',
+            config: {
+                options: [
+                    { key: 'good', label: 'Good' },
+                    { key: 'bad', label: 'Bad' },
+                ],
+                selection_mode: 'multiple',
+                passing_rule: { categories: ['good'] },
+            },
+        },
+    },
+}

@@ -35,6 +35,25 @@ class CategoricalScoreOptionSerializer(serializers.Serializer):
         return normalize_score_definition_key(value, field_name="key")
 
 
+class CategoricalScorePassingRuleSerializer(serializers.Serializer):
+    categories = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        help_text="Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.",
+    )
+
+    def to_internal_value(self, data: object) -> dict[str, list[str]]:
+        if isinstance(data, dict) and set(data) - self.fields.keys():
+            raise serializers.ValidationError(
+                {"non_field_errors": "Only category keys may be configured in this rule."}
+            )
+        return super().to_internal_value(data)
+
+    def validate_categories(self, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Select each passing category only once.")
+        return sorted(value)
+
+
 class CategoricalScoreDefinitionConfigSerializer(serializers.Serializer):
     options = CategoricalScoreOptionSerializer(
         many=True,
@@ -57,6 +76,11 @@ class CategoricalScoreDefinitionConfigSerializer(serializers.Serializer):
         min_value=1,
         help_text="Optional maximum number of options that can be selected when `selection_mode` is `multiple`.",
     )
+    passing_rule = CategoricalScorePassingRuleSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.",
+    )
 
     def validate_options(self, value: list[dict[str, str]]) -> list[dict[str, str]]:
         if len(value) == 0:
@@ -73,6 +97,15 @@ class CategoricalScoreDefinitionConfigSerializer(serializers.Serializer):
         minimum = attrs.get("min_selections")
         maximum = attrs.get("max_selections")
         option_count = len(attrs.get("options", []))
+
+        rule = attrs.get("passing_rule")
+        if rule is not None:
+            if selection_mode == "single" and not rule["categories"]:
+                raise serializers.ValidationError({"passing_rule": "Choose at least one passing category."})
+            if not set(rule["categories"]) <= {option["key"] for option in attrs.get("options", [])}:
+                raise serializers.ValidationError(
+                    {"passing_rule": "Choose passing categories from the configured options."}
+                )
 
         if selection_mode == "single":
             if minimum is not None:
