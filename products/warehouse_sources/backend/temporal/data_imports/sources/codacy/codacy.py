@@ -120,6 +120,76 @@ def _paginate(
             break
 
 
+def _issues_overview_rows(data: Any) -> list[dict[str, Any]]:
+    """Unnest the overview's parallel count arrays into one row per breakdown value.
+
+    The endpoint answers with a single object holding one count array per dimension (category,
+    severity level, language, author, tag, pattern). Kept nested, the table could not be grouped
+    or filtered by dimension, which is the only thing the counts are useful for.
+    """
+    counts = (data or {}).get("counts") or {}
+    rows: list[dict[str, Any]] = []
+    for dimension, entries in counts.items():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            # The `patterns` breakdown is keyed by pattern id with the title alongside; every
+            # other dimension carries a bare name.
+            name = entry.get("name") or entry.get("id")
+            if name is None:
+                continue
+            rows.append(
+                {
+                    "dimension": dimension,
+                    "name": name,
+                    "total": entry.get("total"),
+                    "title": entry.get("title"),
+                }
+            )
+    return rows
+
+
+def _expand_single_payload(endpoint: str, data: Any) -> list[dict[str, Any]]:
+    """Turn the `data` value of a one-shot response into the rows of the table."""
+    if endpoint == "issues_overview":
+        return _issues_overview_rows(data)
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        return [data]
+    return []
+
+
+def _iter_endpoint_pages(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    endpoint_config: CodacyEndpointConfig,
+    path: str,
+    max_pages: Optional[int] = None,
+    body: Optional[dict[str, Any]] = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield raw item lists for one endpoint call, whichever response style it uses."""
+    if endpoint_config.paginated:
+        yield from _paginate(
+            session,
+            headers,
+            logger,
+            path,
+            endpoint_config.method,
+            endpoint_config.extra_params,
+            max_pages=max_pages,
+            body=body,
+        )
+        return
+
+    url = _build_url(path, dict(endpoint_config.extra_params))
+    data = _fetch_page(session, endpoint_config.method, url, headers, logger, body).get("data")
+    items = _expand_single_payload(endpoint_config.name, data)
+    if items:
+        yield items
+
+
 def _normalize_item(endpoint: str, item: dict[str, Any], stamp: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Lift the envelope's entity object to the top level and stamp the fan-out parent's
     identifiers onto the row, so primary keys are plain top-level columns."""
@@ -136,6 +206,19 @@ def _normalize_item(endpoint: str, item: dict[str, Any], stamp: Optional[dict[st
     if endpoint == "commit_delta_issues":
         nested = item.pop("commitIssue", None) or {}
         return {**stamp, **nested, **item}
+    if endpoint == "category_overviews":
+        category = item.pop("category", None) or {}
+        return {
+            **stamp,
+            "categoryName": category.get("name"),
+            "categoryType": category.get("categoryType"),
+            "categoryDescription": category.get("description"),
+            **item,
+        }
+    if endpoint == "pull_request_coverage":
+        nested = item.pop("pullRequest", None) or {}
+        coverage = item.pop("coverage", None) or {}
+        return {**stamp, **nested, **coverage, **item}
     if endpoint == "metrics_timerange":
         group = item.pop("group", None) or {}
         return {
@@ -212,6 +295,34 @@ def _collect_commit_shas(
     return shas
 
 
+def _collect_pull_request_numbers(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+    repository: str,
+    limit: int,
+) -> list[int]:
+    # Analysed pull requests only: coverage is derived from the analysis, so the unanalysed ones
+    # the `pull_requests` table deliberately includes would only answer 404 here.
+    path = f"/analysis/organizations/{provider}/{organization}/repositories/{repository}/pull-requests"
+    numbers: list[int] = []
+    for page in _paginate(session, headers, logger, path):
+        for entry in page:
+            number = (entry.get("pullRequest") or {}).get("number")
+            if number is None:
+                continue
+            numbers.append(number)
+            if len(numbers) >= limit:
+                logger.warning(
+                    f"Codacy: pull request cap reached for repository={repository}, max_pull_requests={limit}; "
+                    "older pull requests are not expanded"
+                )
+                return numbers
+    return numbers
+
+
 def _list_ready_metrics(
     session: requests.Session,
     headers: dict[str, str],
@@ -255,13 +366,12 @@ def _fan_out_over_repositories(
     for repository in _iter_repository_names(session, headers, logger, provider, organization):
         path = endpoint_config.path.format(provider=provider, organization=organization, repository=repository)
         try:
-            for page in _paginate(
+            for page in _iter_endpoint_pages(
                 session,
                 headers,
                 logger,
+                endpoint_config,
                 path,
-                endpoint_config.method,
-                endpoint_config.extra_params,
                 max_pages=endpoint_config.max_pages_per_parent,
             ):
                 yield [_normalize_item(endpoint, item, {"repository": repository}) for item in page]
@@ -312,6 +422,51 @@ def _fan_out_over_commits(
                     ]
             except requests.HTTPError as exc:
                 _skip_missing_parent(exc, logger, endpoint, f"commit {sha} of repository {repository}")
+
+
+def _fan_out_over_pull_requests(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    provider: str,
+    organization: str,
+    endpoint_config: CodacyEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    endpoint = endpoint_config.name
+    for repository in _iter_repository_names(session, headers, logger, provider, organization):
+        try:
+            numbers = _collect_pull_request_numbers(
+                session,
+                headers,
+                logger,
+                provider,
+                organization,
+                repository,
+                endpoint_config.max_pull_requests_per_repository,
+            )
+        except requests.HTTPError as exc:
+            _skip_missing_parent(exc, logger, endpoint, f"repository {repository}")
+            continue
+
+        for number in numbers:
+            path = endpoint_config.path.format(
+                provider=provider, organization=organization, repository=repository, pull_request=number
+            )
+            try:
+                for page in _iter_endpoint_pages(
+                    session,
+                    headers,
+                    logger,
+                    endpoint_config,
+                    path,
+                    max_pages=endpoint_config.max_pages_per_parent,
+                ):
+                    yield [
+                        _normalize_item(endpoint, item, {"repository": repository, "pullRequestNumber": number})
+                        for item in page
+                    ]
+            except requests.HTTPError as exc:
+                _skip_missing_parent(exc, logger, endpoint, f"pull request {number} of repository {repository}")
 
 
 def _fan_out_over_tools(
@@ -379,12 +534,14 @@ def get_rows(
     # alive instead of re-handshaking per request. The token rides the custom `api-token`
     # header, which the capture pipeline's name-based denylist doesn't know, so redact it
     # by value.
-    session = make_tracked_session(redact_values=(api_token,))
+    session = make_tracked_session(redact_values=(api_token,), capture=endpoint_config.capture_http_samples)
 
     if endpoint_config.fan_out == "repository":
         yield from _fan_out_over_repositories(session, headers, logger, provider, organization, endpoint_config)
     elif endpoint_config.fan_out == "commit":
         yield from _fan_out_over_commits(session, headers, logger, provider, organization, endpoint_config)
+    elif endpoint_config.fan_out == "pull_request":
+        yield from _fan_out_over_pull_requests(session, headers, logger, provider, organization, endpoint_config)
     elif endpoint_config.fan_out == "tool":
         yield from _fan_out_over_tools(session, headers, logger, endpoint_config)
     elif endpoint_config.fan_out == "metric":

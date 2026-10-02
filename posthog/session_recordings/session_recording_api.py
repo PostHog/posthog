@@ -752,6 +752,16 @@ def get_replay_listing_throttle_error(request, view) -> str | None:
     return None
 
 
+class SessionRecordingAtCapacity(Throttled):
+    wait: int
+    default_detail = "ClickHouse is at capacity. Try again later."
+
+    def __init__(self, *, wait: int) -> None:
+        # Passing wait to Throttled's constructor also changes the response body.
+        super().__init__()
+        self.wait = wait
+
+
 class SharingTokenReplayThrottle(SimpleRateThrottle):
     """Per-token cap for replay endpoints reached via a sharing-token authenticator."""
 
@@ -918,6 +928,7 @@ class SessionRecordingViewSet(
                         # show explicitly selected sessions (e.g. a funnel drop-off handoff)
                         # even outside the date range
                         bypass_date_window_for_session_ids=True,
+                        allow_combined_event_filters=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -927,9 +938,9 @@ class SessionRecordingViewSet(
                     )
 
                     return response
-        except ClickHouseAtCapacity:
+        except ClickHouseAtCapacity as e:
             _count_session_recording_throttled(location="clickhouse_at_capacity", auth_type=auth_type)
-            raise Throttled(detail="ClickHouse is at capacity. Try again later.")
+            raise SessionRecordingAtCapacity(wait=e.wait) from e
         except (ExposedHogQLError, ExposedCHQueryError) as e:
             # A bad filter or query (e.g. a property referencing a field that doesn't exist on the
             # event) is the caller's problem, not a server error. Surface the actual reason as a 400
@@ -1017,7 +1028,8 @@ class SessionRecordingViewSet(
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
         try:
-            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+            user = request.user if isinstance(request.user, User) else None
+            properties = get_latest_session_event_properties(str(recording.session_id), self.team, user)
         except Exception as e:
             # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
             # it should just render empty like a session with no matching event would.
@@ -1121,6 +1133,13 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording deleted",
+            properties={"recording_id": recording.session_id},
+            team=self.team,
+            request=request,
+        )
         return Response(status=204)
 
     @extend_schema(
@@ -1185,6 +1204,13 @@ class SessionRecordingViewSet(
             team_id=self.team.id,
             deleted_count=deleted_count,
             total_requested=len(session_recording_ids),
+        )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recordings bulk deleted",
+            properties={"deleted_count": deleted_count, "total_requested": len(session_recording_ids)},
+            team=self.team,
+            request=request,
         )
 
         if deleted_count > 0:
@@ -1440,7 +1466,10 @@ class SessionRecordingViewSet(
                 status.HTTP_503_SERVICE_UNAVAILABLE if is_ch_error else status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-            return Response({"error": message}, status=response_status)
+            response = Response({"error": message}, status=response_status)
+            if isinstance(e, ClickHouseAtCapacity):
+                response["Retry-After"] = str(e.wait)
+            return response
 
     def _maybe_report_recording_list_filters_changed(self, request: request.Request, team: Team):
         """
@@ -1787,6 +1816,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
+    allow_combined_event_filters: bool = False,
 ) -> RecordingsListingResult:
     """
     Loads the listing from ClickHouse, then overlays any Postgres row (pins, shares) onto each result.
@@ -1848,6 +1878,7 @@ def list_recordings_from_query(
             allow_event_property_expansion=allow_event_property_expansion,
             session_ids_to_exclude=session_ids_to_exclude,
             bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+            allow_combined_event_filters=allow_combined_event_filters,
         ).run()
         ch_session_recordings = query_result.results
 

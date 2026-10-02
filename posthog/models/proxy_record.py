@@ -1,5 +1,7 @@
 import re
+from uuid import UUID
 
+from django.conf import settings
 from django.db import models
 
 from posthog.models import Organization
@@ -91,6 +93,31 @@ def is_reserved_proxy_domain(domain: str) -> bool:
     """
     domain = domain.lower()
     return any(domain == reserved or domain.endswith(f".{reserved}") for reserved in RESERVED_PROXY_DOMAINS)
+
+
+# The only reserved apex an allowlisted org may still register under: PostHog's own
+# customer-facing domain, for internal proxies such as internal-*.posthog.com. Every other
+# reserved entry (the shared Cloudflare/legacy CNAME targets other tenants already point at,
+# and PostHog's other apexes) stays unclaimable by everyone, so an allowlisted org cannot grab
+# a shared proxy hostname.
+RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES = frozenset({"posthog.com"})
+
+
+def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -> bool:
+    """Whether `organization_id` may register the reserved `domain`.
+
+    `is_reserved_proxy_domain` keeps every org from claiming a PostHog-owned hostname. This is
+    its only exception: an org listed in `POSTHOG_INTERNAL_ORG_IDS` (PostHog's
+    own org, set per environment) may register a domain under
+    `RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES` — i.e. a posthog.com subdomain, for internal
+    proxies. A domain under any other reserved apex, and every non-allowlisted org, is still
+    refused. The allowlist is empty by default, so the guard stays fully on everywhere unless a
+    deployment opts a specific org in.
+    """
+    domain = domain.lower()
+    if not any(domain.endswith(f".{apex}") for apex in RESERVED_PROXY_DOMAIN_EXCEPTION_APEXES):
+        return False
+    return str(organization_id) in settings.POSTHOG_INTERNAL_ORG_IDS
 
 
 class ProxyRecord(UUIDTModel):

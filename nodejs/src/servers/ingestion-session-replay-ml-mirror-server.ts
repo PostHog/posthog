@@ -15,6 +15,8 @@ import {
 } from '~/ingestion/pipelines/sessionreplay/consumer'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'
 import { DynamoDBCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/dynamodb-crawl-history'
+import { VersionedCrawlHistory } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/versioned-crawl-history'
+import { ML_BLOCK_COMPRESSION } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-compression'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
@@ -26,6 +28,7 @@ import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outpu
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
 import { S3SessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/s3-session-batch-writer'
 import { SessionConsoleLogStore } from '~/ingestion/pipelines/sessionreplay/sessions/session-console-log-store'
+import { CaptureWatermark } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { RedisPool } from '~/types'
@@ -74,10 +77,24 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
         const s3Client = buildSessionRecordingS3Client(this.config)
         const bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
         const prefix = this.config.AI_RESEARCH_REPLAY_S3_PREFIX
+        const v3Bucket = this.config.AI_RESEARCH_REPLAY_S3_BUCKET
+        const v3Prefix = this.config.AI_RESEARCH_REPLAY_S3_V3_PREFIX
+        if (!v3Bucket) {
+            throw new Error(
+                'AI_RESEARCH_REPLAY_S3_BUCKET must be set: sessions started after the v3 cutoff write there'
+            )
+        }
 
         const pseudonymSecret = await resolvePseudonymKey(this.config)
 
         // A session keeps its storage prefix across flushes and late arrivals.
+        const rawStorage = (month?: string) =>
+            new S3SessionBatchFileStorage(
+                s3Client!,
+                bucket,
+                month ? `${prefix}/${month}` : prefix,
+                this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
+            )
         const fileStorage = s3Client
             ? new SessionFormatFileStorage(
                   new S3SessionBatchFileStorage(
@@ -86,11 +103,12 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
                       this.config.SESSION_RECORDING_V2_S3_PREFIX,
                       this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                   ),
+                  rawStorage,
                   (month) =>
                       new S3SessionBatchFileStorage(
                           s3Client,
-                          bucket,
-                          month ? `${prefix}/${month}` : prefix,
+                          v3Bucket,
+                          month ? `${v3Prefix}/${month}` : v3Prefix,
                           this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS
                       )
               )
@@ -126,6 +144,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             featureStore: new SessionFeatureStore(outputs, false),
             keyStore: keyManager,
             encryptor: keyManager,
+            compression: ML_BLOCK_COMPRESSION,
             runner: new MlMirrorStagedBatchRunner(
                 {
                     keyManager,
@@ -161,6 +180,7 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane
             // would then fetch a missing key and record cleartext.
             redisKeyNamespace: 'ml-mirror',
+            captureWatermark: new CaptureWatermark('ml_mirror'),
         }
 
         const ingester = new SessionRecordingIngester(
@@ -203,7 +223,15 @@ export class IngestionSessionReplayMlMirrorServer extends MlMirrorConsumerServer
             maxAttempts: 5,
             requestHandler: new NodeHttpHandler(),
         })
-        return new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+        const legacy = new DynamoDBCrawlHistory(this.crawlHistoryClient, tableName, timeoutMs, timeoutMs)
+        const v3TableName = this.config.AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE
+        if (!v3TableName) {
+            return legacy
+        }
+        return new VersionedCrawlHistory(
+            legacy,
+            new DynamoDBCrawlHistory(this.crawlHistoryClient, v3TableName, timeoutMs, timeoutMs)
+        )
     }
 
     protected getCleanupResources(): CleanupResources {

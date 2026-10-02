@@ -26,7 +26,9 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+# Mutable to stay consistent with the other per-endpoint config objects in this package; these
+# are module-level constants that nothing reassigns.
+@dataclass(frozen=False)
 class LangfuseEndpointConfig:
     name: str
     path: str
@@ -49,6 +51,16 @@ class LangfuseEndpointConfig:
     # are on event/creation time, so rows that arrive late (ingestion lag) would otherwise be
     # skipped forever. Re-pulled rows are deduped on the primary key by merge.
     incremental_lookback: Optional[timedelta] = None
+    # Fields the API documents as fractional (USD costs, second-precision durations) but sends as
+    # plain JSON numbers, so a page holding only whole values infers an integer column. On an
+    # ascending backfill the first page is the oldest traffic, which is where costs are most often
+    # a flat 0. The table adopts int64, and every later fractional value then fails to cast.
+    float_fields: frozenset[str] = frozenset()
+    # Page the endpoint by keyset instead of by offset: after each page, move the from-filter up to
+    # the newest row seen and restart at page 1. Langfuse answers a deep offset with a 422 resource
+    # limit, which kills a backfill that walks far enough. Only safe on an endpoint that is pinned
+    # ascending on the field the from-filter applies to, so a later page never holds an earlier row.
+    keyset_pagination: bool = False
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -78,6 +90,8 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         partition_key="timestamp",
         sort_mode="asc",
         incremental_lookback=_DEFAULT_LOOKBACK,
+        float_fields=frozenset({"totalCost", "latency"}),
+        keyset_pagination=True,
     ),
     "observations": LangfuseEndpointConfig(
         name="observations",
@@ -92,6 +106,7 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         # v2 observations return newest-first (startTime descending) and accept no orderBy.
         sort_mode="desc",
         incremental_lookback=_DEFAULT_LOOKBACK,
+        float_fields=frozenset({"totalCost", "latency", "timeToFirstToken"}),
     ),
     "scores": LangfuseEndpointConfig(
         name="scores",
@@ -102,6 +117,8 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         default_incremental_field="timestamp",
         incremental_filter_param="fromTimestamp",
         extra_params={"fields": _SCORE_FIELDS},
+        # No float_fields: `value` is numeric only when dataType is NUMERIC, and carries a string
+        # for CATEGORICAL/TEXT scores, so widening it would hide a genuine mixed-type column.
         partition_key="timestamp",
         sort_mode="desc",
         incremental_lookback=_DEFAULT_LOOKBACK,

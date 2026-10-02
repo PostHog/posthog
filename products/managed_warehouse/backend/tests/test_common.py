@@ -11,6 +11,7 @@ from posthog.models import Organization
 from products.managed_warehouse.backend.common import (
     default_bucket_region,
     duckgres_data_imports_table_name,
+    get_trino_password_for_org,
     initialize_ducklake,
     is_version_mismatch,
     reset_ducklake_catalog,
@@ -39,6 +40,18 @@ class TestUpsertDuckgresServerForOrg:
         assert updated.host == "wh2.dw.us.postwh.com"
         assert updated.port == 6543
         assert updated.password == "pw2"
+
+    def test_trino_password_overrides_duckgres_password_when_configured(self):
+        org = Organization.objects.create(name="Test Org")
+        server = DuckgresServer.objects.create(
+            organization=org, host="warehouse.example.com", username="root", password="duckgres-secret"
+        )
+
+        with patch("products.managed_warehouse.backend.common.is_dev_mode", return_value=False):
+            assert get_trino_password_for_org(str(org.id)) == "duckgres-secret"
+            server.trino_password = "trino-secret"
+            server.save(update_fields=["trino_password"])
+            assert get_trino_password_for_org(str(org.id)) == "trino-secret"
 
 
 class TestDefaultBucketRegion:

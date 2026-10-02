@@ -21,6 +21,7 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunStatus,
     SuiteRunTrigger,
 )
+from products.data_quality.backend.logic import posthog_tables
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from products.data_quality.backend.temporal.activities import cleanup as cleanup_module
 from products.data_quality.backend.temporal.activities.cleanup import (
@@ -256,6 +257,38 @@ class TestRetentionSweep(BaseTest):
         assert DataQualityCheck.objects.for_team(self.team.id).filter(pk=check.pk).exists() == survives
         assert DataQualityCheckRun.objects.for_team(self.team.id).filter(pk=run.pk).exists() == survives
         assert DataQualitySuiteRun.objects.for_team(self.team.id).filter(pk=suite.pk).exists() == survives
+
+    def test_a_posthog_table_check_and_its_history_survive_the_sweep(self) -> None:
+        # The registry never loses an entry, so these subjects cannot die the way a warehouse object
+        # can. Reading them as dead would destroy a check an hour after it was authored.
+        events = posthog_tables.by_name("events")
+        assert events is not None
+        check = DataQualityCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            subject_type=SubjectType.POSTHOG_TABLE,
+            posthog_table=events.name,
+            subject_name=events.name,
+            check_type=CheckType.NOT_NULL,
+            column_name="distinct_id",
+            fingerprint=uuid4().hex,
+        )
+        self._age(DataQualityCheck, check, 1)
+        suite = self._suite(age_days=1, subject_type=SubjectType.POSTHOG_TABLE, subject_uuid=events.id)
+        run = self._run(
+            age_days=1,
+            quality_check=check,
+            suite_run=suite,
+            subject_type=SubjectType.POSTHOG_TABLE,
+            subject_uuid=events.id,
+            subject_name=events.name,
+        )
+
+        outcome = _cleanup()
+
+        assert outcome.checks_deleted == 0
+        assert DataQualityCheck.objects.unscoped().filter(id=check.id).exists()
+        assert DataQualityCheckRun.objects.unscoped().filter(id=run.id).exists()
+        assert DataQualitySuiteRun.objects.unscoped().filter(id=suite.id).exists()
 
     def test_rows_with_an_unknown_subject_type_are_treated_as_dead(self) -> None:
         suite = self._suite(age_days=1, subject_type=SubjectType.VIEW, subject_uuid=self.view.id)

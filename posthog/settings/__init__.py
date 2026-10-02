@@ -54,7 +54,9 @@ from posthog.settings.signals import *
 from posthog.settings.integrations import *
 from posthog.settings.payments import *
 from posthog.settings.personhog import *
+from posthog.settings.security_hub import *
 from posthog.settings.ses import *
+from posthog.settings.streamlit_apps import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
 

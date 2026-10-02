@@ -436,7 +436,7 @@ class TestTasksConfigAPI(APIBaseTest):
     def test_team_config_round_trip(self):
         response = self.client.get(f"/api/projects/{self.team.id}/tasks/config/")
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES}
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
 
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         assert response.status_code == 200
@@ -483,18 +483,19 @@ class TestTasksConfigAPI(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/tasks/config/", TEAM_TRIPLE)
         response = self.client.post(f"/api/projects/{self.team.id}/tasks/config/", EMPTY_PREFERENCES)
         assert response.status_code == 200
-        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES}
+        assert response.json() == {"ai_run_preferences": EMPTY_PREFERENCES, "agent_instructions": ""}
         assert self.client.get(f"/api/projects/{self.team.id}/tasks/config/").json() == {
-            "ai_run_preferences": EMPTY_PREFERENCES
+            "ai_run_preferences": EMPTY_PREFERENCES,
+            "agent_instructions": "",
         }
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
         for path in ("config", "@me/config"):
             url = f"/api/projects/{self.team.id}/tasks/{path}/"
-            # 403, not 401: DRF's SessionAuthentication denies without a WWW-Authenticate challenge.
-            assert self.client.get(url).status_code == 403
-            assert self.client.post(url, TEAM_TRIPLE).status_code == 403
+            # 401, not 403: PostHog's SessionAuthentication sets a WWW-Authenticate challenge.
+            assert self.client.get(url).status_code == 401
+            assert self.client.post(url, TEAM_TRIPLE).status_code == 401
 
     def test_an_outsider_cannot_reach_another_projects_config(self):
         outsider = User.objects.create_and_join(Organization.objects.create(name="other"), "out@posthog.com", None)

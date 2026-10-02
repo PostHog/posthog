@@ -63,9 +63,9 @@ pub fn is_image_ref(s: &str) -> bool {
 /// have it copied verbatim into anonymized output. Limit preserved refs to a numeric team ID
 /// or legacy pseudonym and a fixed-width hash.
 pub fn is_image_ref_strict(s: &str) -> bool {
-    if let Some(rest) = s
-        .strip_prefix("image:v2:")
-        .or_else(|| s.strip_prefix("imageurl:v2:"))
+    if let Some(rest) = ["image:v2:", "image:v3:", "imageurl:v2:", "imageurl:v3:"]
+        .iter()
+        .find_map(|prefix| s.strip_prefix(prefix))
     {
         let parts: Vec<&str> = rest.split(':').collect();
         return parts.len() == 3
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn ref_matches_consumer_shape() {
         let hash = hash_image_bytes(TEST_KEY, b"x");
-        for prefix in ["image:v2", "imageurl:v2"] {
+        for prefix in ["image:v2", "imageurl:v2", "image:v3", "imageurl:v3"] {
             assert!(is_image_ref_strict(&format!("{prefix}:42:2026-09:{hash}")));
             for invalid in [
                 "42:2026-13",

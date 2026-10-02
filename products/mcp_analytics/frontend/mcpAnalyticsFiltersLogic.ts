@@ -12,6 +12,18 @@ import type { TeamPublicType } from '../../../frontend/src/types'
 
 export type MCPSharedQueryFilters = Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>
 
+export interface MCPSharedFilterParams {
+    properties?: string
+    filter_test_accounts?: boolean
+}
+
+export function sharedFilterParams(filters: MCPSharedQueryFilters): MCPSharedFilterParams {
+    return {
+        properties: filters.properties.length > 0 ? JSON.stringify(filters.properties) : undefined,
+        filter_test_accounts: filters.filterTestAccounts || undefined,
+    }
+}
+
 export const MCP_ANALYTICS_FILTER_ROUTES = [
     urls.mcpAnalyticsActivity(),
     urls.mcpAnalyticsDashboard(),
@@ -28,15 +40,14 @@ interface UrlFilters {
     propertyFilters: AnyPropertyFilter[]
 }
 
+// kea-router may hand a boolean param back already coerced, or as its string form.
+export function parseUrlBoolean(raw: unknown): boolean | null {
+    return raw === true || raw === 'true' ? true : raw === false || raw === 'false' ? false : null
+}
+
 function parseUrlFilters(searchParams: Record<string, any>): UrlFilters {
-    const rawFilter = searchParams.filter_test_accounts
     return {
-        filterTestAccountsOverride:
-            rawFilter === true || rawFilter === 'true'
-                ? true
-                : rawFilter === false || rawFilter === 'false'
-                  ? false
-                  : null,
+        filterTestAccountsOverride: parseUrlBoolean(searchParams.filter_test_accounts),
         propertyFilters: Array.isArray(searchParams.properties) ? searchParams.properties : [],
     }
 }

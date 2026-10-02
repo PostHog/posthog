@@ -16,6 +16,8 @@ import { hogFunctionsList } from '../generated/api'
 export const destinationsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.PIPELINE_DESTINATIONS,
     path: ['products', 'cdp', 'frontend', 'emptyState', 'destinationsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const [hogFunctions, pluginDestinations, batchExports] = await Promise.all([
@@ -25,7 +27,7 @@ export const destinationsSetupLogic = createSetupDetectionLogic({
             }),
             // The legacy plugin config endpoints are not in the OpenAPI spec, so there is
             // no generated client to call here.
-            // nosemgrep: prefer-codegen-api
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
             api.get<CountedPaginatedResponse<unknown>>(
                 `api/projects/${projectId}/pipeline_destination_configs/?limit=1`
             ),

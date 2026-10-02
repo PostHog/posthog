@@ -1,3 +1,4 @@
+from products.canvas.backend.artifacts import create_canvas_sandbox_document_url as create_canvas_sandbox_document_url
 from products.canvas.backend.connectors import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,
@@ -18,6 +19,7 @@ from products.canvas.backend.layout import (
     validate_layout as validate_layout,
     validate_layout_references as validate_layout_references,
 )
+from products.canvas.backend.source_edits import apply_source_edits as apply_source_edits
 from products.canvas.backend.state_reads import CanvasStateReader as CanvasStateReader
 from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,

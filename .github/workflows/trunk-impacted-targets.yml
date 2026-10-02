@@ -122,6 +122,7 @@ jobs:
                   printf '%s\n' "$changed" > "$RUNNER_TEMP/changed-files.txt"
 
                   echo 'resolved=true' >> "$GITHUB_OUTPUT"
+                  echo "merge_base=$merge_base" >> "$GITHUB_OUTPUT"
                   if printf '%s\n' "$changed" | grep -qE '^(rust|proto)/'; then
                       echo 'rust_affected=true' >> "$GITHUB_OUTPUT"
                   fi
@@ -167,6 +168,7 @@ jobs:
                   # needs no special case: it fills `crates` with the whole
                   # workspace, which lands on the same target set.
                   RUST_AFFECTED_CRATES: ${{ steps.affected.outputs.crates }}
+                  LANE_MERGE_BASE: ${{ steps.changes.outputs.merge_base }}
               run: |
                   set -uo pipefail
 

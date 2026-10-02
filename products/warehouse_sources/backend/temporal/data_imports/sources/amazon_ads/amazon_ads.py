@@ -369,13 +369,14 @@ def _report_rows(
             if resumable_source_manager is not None:
                 # Persist before the first poll — a retry that created a second report would
                 # be answered with a 425 until this one finished anyway.
-                resumable_source_manager.save_state(
-                    AmazonAdsResumeConfig(
-                        profile_id=profile_id,
-                        window_start=window.start.isoformat(),
-                        report_id=report_id,
+                with resumable_source_manager.committing():
+                    resumable_source_manager.save_state(
+                        AmazonAdsResumeConfig(
+                            profile_id=profile_id,
+                            window_start=window.start.isoformat(),
+                            report_id=report_id,
+                        )
                     )
-                )
 
             url = client.await_report_url(report, profile_id, report_id)
             if not url:

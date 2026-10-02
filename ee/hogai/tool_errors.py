@@ -1,5 +1,7 @@
 from typing import Literal
 
+MaxToolErrorType = Literal["validation", "permission", "timeout", "memory_limit", "rate_limited", "api_5xx", "internal"]
+
 
 class MaxToolError(Exception):
     """
@@ -17,12 +19,16 @@ class MaxToolError(Exception):
     - What can be done about it (for retryable errors)
     """
 
-    def __init__(self, message: str):
+    error_type: MaxToolErrorType = "internal"
+
+    def __init__(self, message: str, *, error_type: MaxToolErrorType | None = None) -> None:
         """
         Args:
             message: Detailed, actionable error message that helps the LLM understand what went wrong
         """
         super().__init__(message)
+        if error_type is not None:
+            self.error_type = error_type
 
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
@@ -78,6 +84,8 @@ class MaxToolTransientError(MaxToolError):
     Transient error due to temporary service issues. Can be retried once without changes.
     """
 
+    error_type = "api_5xx"
+
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
         return "once"
@@ -87,6 +95,8 @@ class MaxToolRetryableError(MaxToolError):
     """
     Solvable error that can be fixed with adjusted inputs. Can be retried with corrections.
     """
+
+    error_type = "validation"
 
     @property
     def retry_strategy(self) -> Literal["never", "once", "adjusted"]:
@@ -98,6 +108,8 @@ class MaxToolAccessDeniedError(MaxToolFatalError):
     Access denied error when user doesn't have permission to use a tool or access a resource.
     This is a fatal error - the user needs to contact their admin to get access.
     """
+
+    error_type = "permission"
 
     def __init__(
         self,

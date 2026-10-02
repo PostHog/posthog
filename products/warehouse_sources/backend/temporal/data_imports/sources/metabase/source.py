@@ -46,7 +46,7 @@ class MetabaseSource(SimpleSource[MetabaseSourceConfig]):
             name=ExternalDataSourceType.METABASE,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Metabase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Metabase instance URL and credentials to pull your Metabase data into the PostHog Data warehouse.
 
 Create an API key in your Metabase under **Admin settings > Authentication > API keys** (Metabase v0.47+). Older instances can authenticate with a username and password instead.

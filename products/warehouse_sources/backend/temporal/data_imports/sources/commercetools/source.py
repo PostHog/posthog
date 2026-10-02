@@ -75,7 +75,9 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
             label="commercetools",
             caption="""Enter your commercetools API client credentials to pull your commerce data into the PostHog Data warehouse.
 
-Create an API client in the Merchant Center under Settings > Developer settings with the view scopes for the datasets you want to sync (`view_orders`, `view_customers`, `view_payments`, `view_products`, `view_categories`, `view_discount_codes`, `view_stores`, `view_channels`, `view_customer_groups`, `view_states`). Your project key and region are shown alongside the generated credentials.""",
+Create an API client in the Merchant Center under Settings > Developer settings with the view scopes for the datasets you want to sync (`view_orders`, `view_customers`, `view_payments`, `view_shopping_lists`, `view_products`, `view_product_types`, `view_categories`, `view_discount_codes`, `view_standalone_prices`, `view_stores`, `view_channels`, `view_customer_groups`, `view_states`, `view_messages`). Your project key and region are shown alongside the generated credentials.
+
+The messages table also needs the Messages Query feature turned on in your project settings. Without it commercetools keeps no messages and the table syncs empty. commercetools also deletes messages once they pass your project's retention period, so the table covers that window rather than all history.""",
             iconPath="/static/services/commercetools.png",
             docsUrl="https://posthog.com/docs/cdp/sources/commercetools",
             releaseStatus=ReleaseStatus.ALPHA,

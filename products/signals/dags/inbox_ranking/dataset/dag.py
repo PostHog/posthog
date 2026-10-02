@@ -21,7 +21,11 @@ from any later partition, choosing the label-maturity window at read time. Late-
 are never backfilled into old partitions.
 
 Point-in-time caveats, per source:
-- labels are fully point-in-time for any past day (explicit event-time bound);
+- labels are fully point-in-time for any past day (explicit event-time bound), except the
+  server-side action counts. Those read current artefact rows bounded by created_at. A report
+  merge moves the source's notes and linked PRs to the survivor and keeps their created_at, and a
+  note can be deleted. A partition rebuilt after either change gives the action to the survivor
+  or loses it;
 - embeddings are point-in-time within the underlying table's 3-month TTL (inserted_at bound), and
   the title snapshot carries the same guarantee and the same limit. The bound does not cover a
   re-embedded rendering: the source replaces on a key that includes the rendering and the document
@@ -47,7 +51,7 @@ import datetime
 from collections.abc import Iterator
 from typing import Any, cast
 
-from django.db.models import Q
+from django.db.models import Count, Min
 
 import dagster
 import pyarrow as pa
@@ -57,7 +61,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
+from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
     EMBEDDING_PRODUCT,
@@ -71,6 +76,7 @@ from products.signals.backend.signal_metadata import (
 )
 from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
+    HUMAN_ACTOR_KINDS,
     S3_BUCKET_ENV,
     dataset_bucket,
     dataset_unconfigured,
@@ -91,6 +97,7 @@ from products.signals.dags.inbox_ranking.common import (
     snapshot_bounds,
     write_parquet,
 )
+from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
@@ -98,6 +105,8 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABELS_TEAM_ID,
     REPORT_EMBEDDINGS_QUERY_SETTINGS,
     REPORT_EMBEDDINGS_SQL,
+    SERVER_ACTIONS_COLUMNS,
+    SERVER_ACTIONS_STREAM,
     SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
     SIGNAL_EMBEDDINGS_SQL,
     etl_workload,
@@ -107,17 +116,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 6
-
-# Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
-# and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
-# promotion. Suppressed and deleted are absent on purpose: authored-then-hidden is not inventory.
-BORN_VISIBLE_STATUSES = (
-    SignalReport.Status.READY,
-    SignalReport.Status.PENDING_INPUT,
-    SignalReport.Status.IN_PROGRESS,
-    SignalReport.Status.RESOLVED,
-)
+FEATURE_SCHEMA_VERSION = 7
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
@@ -267,6 +266,26 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("first_reviewer_removed_at", _TIMESTAMP),
     ("resolve_click_count", pa.int32()),
     ("first_resolve_clicked_at", _TIMESTAMP),
+    ("copy_prompt_count", pa.int32()),
+    ("first_prompt_copied_at", _TIMESTAMP),
+    ("implement_click_count", pa.int32()),
+    ("first_implement_clicked_at", _TIMESTAMP),
+    ("open_pr_click_count", pa.int32()),
+    ("first_open_pr_clicked_at", _TIMESTAMP),
+    ("view_diff_count", pa.int32()),
+    ("first_diff_viewed_at", _TIMESTAMP),
+    ("restore_count", pa.int32()),
+    ("first_restored_at", _TIMESTAMP),
+    ("reasoned_resolution_count", pa.int32()),
+    ("first_reasoned_resolved_at", _TIMESTAMP),
+    ("claim_count", pa.int32()),
+    ("first_claimed_at", _TIMESTAMP),
+    ("linked_pr_count", pa.int32()),
+    ("first_pr_linked_at", _TIMESTAMP),
+    ("note_count", pa.int32()),
+    ("first_noted_at", _TIMESTAMP),
+    ("slack_discussion_count", pa.int32()),
+    ("first_slack_discussed_at", _TIMESTAMP),
 ]
 
 _LABELS_FIELDS: list[tuple[str, pa.DataType]] = [
@@ -394,19 +413,56 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
     return judgments
 
 
-def spine_report_filter(snapshot_end: datetime.datetime) -> Q:
-    """Reports that were in the inbox before the cutoff.
+# The artefact types that count as a server-side action, with the label columns each one fills.
+_ACTION_ARTEFACT_COLUMNS: dict[str, tuple[str, str]] = {
+    SignalReportArtefact.ArtefactType.WORK_CLAIM: ("claim_count", "first_claimed_at"),
+    SignalReportArtefact.ArtefactType.PULL_REQUEST: ("linked_pr_count", "first_pr_linked_at"),
+    SignalReportArtefact.ArtefactType.NOTE: ("note_count", "first_noted_at"),
+}
 
-    Two ways in, because not every visible report was promoted: the pipeline promotes a `potential`
-    report and stamps promoted_at, but the scout and custom-agent authoring paths create a report
-    already in a visible status and never stamp it. Keying only on promotion dropped every
-    directly-authored report until a user happened to interact with it, biasing the inventory toward
-    reports that already had engagement — the wrong bias for a ranking model. A never-promoted report
-    is only eligible while it is still visible, so a promotion after the cutoff (promoted_at set, not
-    null) still cannot leak in through the second branch."""
-    return Q(promoted_at__isnull=False, promoted_at__lt=snapshot_end) | Q(
-        promoted_at__isnull=True, status__in=BORN_VISIBLE_STATUSES, created_at__lt=snapshot_end
-    )
+
+def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -> list[tuple[Any, ...]]:
+    """One `(report_id, *SERVER_ACTIONS_COLUMNS)` row per report with a server-side action before
+    the cutoff. Rows are counted, not the action row's own `count`, because that counter keeps
+    moving after the cutoff."""
+    entries: dict[str, dict[str, Any]] = {}
+
+    def entry(report_id: Any) -> dict[str, Any]:
+        return entries.setdefault(str(report_id), {column: LABEL_DEFAULTS[column] for column in SERVER_ACTIONS_COLUMNS})
+
+    for chunk in _chunked(report_ids):
+        artefacts = (
+            SignalReportArtefact.objects.filter(
+                report_id__in=chunk,
+                type__in=list(_ACTION_ARTEFACT_COLUMNS),
+                actor_kind__in=HUMAN_ACTOR_KINDS,
+                created_at__lt=snapshot_end,
+            )
+            .values("report_id", "type")
+            .annotate(row_count=Count("id"), earliest_at=Min("created_at"))
+        )
+        for row in artefacts.iterator(chunk_size=2000):
+            count_column, first_column = _ACTION_ARTEFACT_COLUMNS[row["type"]]
+            values = entry(row["report_id"])
+            values[count_column] = row["row_count"]
+            values[first_column] = row["earliest_at"]
+        # One row per (report, user), so the count is the number of people who discussed it.
+        discussions = (
+            SignalReportAction.all_teams.filter(
+                report_id__in=chunk,
+                type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+                first_at__lt=snapshot_end,
+            )
+            .values("report_id")
+            .annotate(row_count=Count("id"), earliest_at=Min("first_at"))
+        )
+        for row in discussions.iterator(chunk_size=2000):
+            values = entry(row["report_id"])
+            values["slack_discussion_count"] = row["row_count"]
+            values["first_slack_discussed_at"] = row["earliest_at"]
+    return [
+        (report_id, *(values[column] for column in SERVER_ACTIONS_COLUMNS)) for report_id, values in entries.items()
+    ]
 
 
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
@@ -431,18 +487,24 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     # it, so raw `potential` noise and reports that appeared after the cutoff stay out. Labeled ids
     # missing from Postgres (EU reports, hard-deleted rows) still get a model_data row downstream
     # via the labels asset.
-    spine_ids: set[str] = {
-        str(report_id)
-        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
+    spine_teams: dict[str, int] = {
+        str(report_id): team_id
+        for report_id, team_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list(
+            "id", "team_id"
+        )
     }
     for chunk in _chunked(sorted(labeled_ids)):
-        spine_ids |= {
-            str(report_id)
-            for report_id in SignalReport.objects.filter(id__in=chunk, created_at__lt=snapshot_end).values_list(
-                "id", flat=True
-            )
+        spine_teams |= {
+            str(report_id): team_id
+            for report_id, team_id in SignalReport.objects.filter(
+                id__in=chunk, created_at__lt=snapshot_end
+            ).values_list("id", "team_id")
         }
-    ordered_spine_ids = sorted(spine_ids)
+    # A report whose organization has not opted in to AI training never reaches the snapshot. Its
+    # label row still lands in model_data, with no state, and training skips such rows.
+    consent_team_ids = training_consent_team_ids()
+    excluded_teams = {team_id for team_id in spine_teams.values() if team_id not in consent_team_ids}
+    ordered_spine_ids = sorted(report_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids)
     judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
     rows: list[dict[str, Any]] = []
@@ -504,6 +566,10 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
         {
             "rows": dagster.MetadataValue.int(len(rows)),
             "labeled_report_ids": dagster.MetadataValue.int(len(labeled_ids)),
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(
+                len(spine_teams) - len(ordered_spine_ids)
+            ),
+            "excluded_no_training_consent_teams": dagster.MetadataValue.int(len(excluded_teams)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -519,21 +585,28 @@ def _snapshot_report_embeddings(
     partition_key = context.partition_key
     _, snapshot_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
+    consent_team_ids = training_consent_team_ids()
 
-    results = cast(
-        list[tuple[Any, ...]],
-        sync_execute(
-            REPORT_EMBEDDINGS_SQL,
-            {
-                "product": EMBEDDING_PRODUCT,
-                "document_type": EMBEDDING_DOCUMENT_TYPE,
-                "rendering": rendering,
-                "snapshot_end": snapshot_end.replace(tzinfo=None),
-            },
-            settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
-            workload=etl_workload(),
+    # With no consenting team there is no row to read, so the query is not sent.
+    results = (
+        cast(
+            list[tuple[Any, ...]],
+            sync_execute(
+                REPORT_EMBEDDINGS_SQL,
+                {
+                    "product": EMBEDDING_PRODUCT,
+                    "document_type": EMBEDDING_DOCUMENT_TYPE,
+                    "rendering": rendering,
+                    "snapshot_end": snapshot_end.replace(tzinfo=None),
+                    "team_ids": sorted(consent_team_ids),
+                },
+                settings=REPORT_EMBEDDINGS_QUERY_SETTINGS,
+                workload=etl_workload(),
+            )
+            or [],
         )
-        or [],
+        if consent_team_ids
+        else []
     )
 
     # Consumed column-wise straight into Arrow, and each source row is released as it is converted.
@@ -582,6 +655,7 @@ def _snapshot_report_embeddings(
         {
             "rows": dagster.MetadataValue.int(row_count),
             "tombstones": dagster.MetadataValue.int(tombstones),
+            "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -654,22 +728,28 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
     partition_key = context.partition_key
     window_start, window_end = snapshot_bounds(partition_key)
     snapshot_date = datetime.date.fromisoformat(partition_key)
+    consent_team_ids = training_consent_team_ids()
 
-    results = cast(
-        list[tuple[Any, ...]],
-        sync_execute(
-            SIGNAL_EMBEDDINGS_SQL,
-            {
-                "product": SIGNAL_DOCUMENT_PRODUCT,
-                "document_type": SIGNAL_DOCUMENT_TYPE,
-                "rendering": SIGNAL_DOCUMENT_RENDERING,
-                "window_start": window_start.replace(tzinfo=None),
-                "window_end": window_end.replace(tzinfo=None),
-            },
-            settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
-            workload=etl_workload(),
+    results = (
+        cast(
+            list[tuple[Any, ...]],
+            sync_execute(
+                SIGNAL_EMBEDDINGS_SQL,
+                {
+                    "product": SIGNAL_DOCUMENT_PRODUCT,
+                    "document_type": SIGNAL_DOCUMENT_TYPE,
+                    "rendering": SIGNAL_DOCUMENT_RENDERING,
+                    "window_start": window_start.replace(tzinfo=None),
+                    "window_end": window_end.replace(tzinfo=None),
+                    "team_ids": sorted(consent_team_ids),
+                },
+                settings=SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
+                workload=etl_workload(),
+            )
+            or [],
         )
-        or [],
+        if consent_team_ids
+        else []
     )
 
     # Column-wise into Arrow, releasing each source row as it is converted, for the same reason the
@@ -745,6 +825,7 @@ def inbox_signal_embeddings(context: dagster.AssetExecutionContext) -> None:
             "scanned": dagster.MetadataValue.int(row_count),
             "carried_over": dagster.MetadataValue.int(table.num_rows - row_count),
             "retracted": dagster.MetadataValue.int(deleted_count),
+            "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "reports": dagster.MetadataValue.int(len({report_id for report_id in columns["report_id"] if report_id})),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -770,6 +851,15 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
         )
         context.log.info(f"{stream_name}: {len(stream_rows[stream_name])} reports")
 
+    # The server-side actions are read for every report in the inbox before the cutoff, plus every
+    # report an event stream named, so an action from a surface that emits no event still lands.
+    action_report_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
+    } | valid_report_uuids({row[0] for rows in stream_rows.values() for row in rows})
+    stream_rows[SERVER_ACTIONS_STREAM] = server_action_rows(sorted(action_report_ids), snapshot_end)
+    context.log.info(f"{SERVER_ACTIONS_STREAM}: {len(stream_rows[SERVER_ACTIONS_STREAM])} reports")
+
     rows = merge_label_streams(stream_rows, datetime.date.fromisoformat(partition_key))
     bucket = dataset_bucket()
     key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, LABELS_TABLE, partition_key)
@@ -778,8 +868,8 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
         {
             "rows": dagster.MetadataValue.int(len(rows)),
             **{
-                f"{stream_name}_reports": dagster.MetadataValue.int(len(stream_rows[stream_name]))
-                for stream_name, _, _ in LABEL_STREAMS
+                f"{stream_name}_reports": dagster.MetadataValue.int(len(stream))
+                for stream_name, stream in stream_rows.items()
             },
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
@@ -951,7 +1041,6 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         MODEL_DATA_TABLE,
         TITLE_EMBEDDINGS_TABLE,
     ],
-    partitions_def=partition_def,
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH.

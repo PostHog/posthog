@@ -61,9 +61,7 @@ class TestSchemaGeneratorNode(BaseTest):
         config = RunnableConfig(configurable={"thread_id": self.conversation.id})
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
             generator_model_mock.return_value = RunnableLambda(
-                lambda _: DummySchema(
-                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
-                ).model_dump()
+                lambda _: DummySchema(query=self.basic_trends).model_dump()
             )
             new_state = await node(
                 AssistantState(
@@ -213,9 +211,7 @@ class TestSchemaGeneratorNode(BaseTest):
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
             patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
         ):
-            valid_output = DummySchema(
-                query=self.basic_trends, name="Test Query Name", description="Test Query Description"
-            ).model_dump()
+            valid_output = DummySchema(query=self.basic_trends).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
 
             quality_check_mock.side_effect = PydanticOutputParserException(
@@ -239,9 +235,7 @@ class TestSchemaGeneratorNode(BaseTest):
             patch.object(DummyGeneratorNode, "_model") as generator_model_mock,
             patch.object(DummyGeneratorNode, "_quality_check_output") as quality_check_mock,
         ):
-            valid_output = DummySchema(
-                query=self.basic_trends, name="Test Query Name", description="Test Query Description"
-            ).model_dump()
+            valid_output = DummySchema(query=self.basic_trends).model_dump()
             generator_model_mock.return_value = RunnableLambda(lambda _: valid_output)
 
             # Quality check always fails
@@ -276,11 +270,7 @@ class TestSchemaGeneratorNode(BaseTest):
         with patch.object(
             DummyGeneratorNode,
             "_model",
-            return_value=RunnableLambda(
-                lambda _: DummySchema(
-                    query=self.basic_trends, name="Test Query Name", description="Test Query Description"
-                ).model_dump()
-            ),
+            return_value=RunnableLambda(lambda _: DummySchema(query=self.basic_trends).model_dump()),
         ):
             new_state = await node(
                 AssistantState(

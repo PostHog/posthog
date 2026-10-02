@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -7,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -53,6 +55,8 @@ export interface dataWarehouseViewsLogicValues {
     views: DatabaseSchemaViewTable[] // databaseTableListLogic
     user: UserType | null // userLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
+    dataWarehouseSavedQueriesFailed: boolean
+    dataWarehouseSavedQueriesLoaded: boolean
     dataWarehouseSavedQueriesLoading: boolean
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     dataWarehouseSavedQueryFoldersById: Record<string, DataWarehouseSavedQueryFolder>
@@ -356,6 +360,21 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 loadDataWarehouseSavedQueriesFailure: () => false,
             },
         ],
+        dataWarehouseSavedQueriesLoaded: [
+            false,
+            {
+                loadDataWarehouseSavedQueriesSuccess: () => true,
+                loadDataWarehouseSavedQueriesFailure: () => false,
+            },
+        ],
+        dataWarehouseSavedQueriesFailed: [
+            false,
+            {
+                loadDataWarehouseSavedQueries: () => false,
+                loadDataWarehouseSavedQueriesSuccess: () => false,
+                loadDataWarehouseSavedQueriesFailure: () => true,
+            },
+        ],
         updatingDataWarehouseSavedQuery: [
             false,
             {
@@ -626,6 +645,19 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         updateDataWarehouseSavedQueryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.detail || 'Failed to update view')
             actions.loadDataWarehouseSavedQueries()
+        },
+        deleteDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+            // The blocked node's id rides on the response body's `extra`, and ApiError keeps the
+            // parsed body on `data` instead of lifting that key onto itself.
+            const nodeId = errorObject?.data?.extra?.node_id
+            lemonToast.error(errorObject?.detail || 'Failed to delete view', {
+                button: nodeId
+                    ? {
+                          label: 'Open lineage',
+                          action: () => router.actions.push(urls.nodeDetail(nodeId, 'lineage')),
+                      }
+                    : undefined,
+            })
         },
         deleteDataWarehouseSavedQuerySuccess: () => {
             lemonToast.success('View deleted')

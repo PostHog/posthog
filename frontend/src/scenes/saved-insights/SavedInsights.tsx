@@ -2,7 +2,6 @@ import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ComponentType } from 'react'
 
 import { IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
 
@@ -25,7 +24,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { isNonEmptyObject } from 'lib/utils/guards'
 import { SavedInsightsEmptyState, SavedInsightsErrorState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { projectLogic } from 'scenes/projectLogic'
@@ -38,25 +36,16 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    ActivityScope,
-    QueryBasedInsightModel,
-    SavedInsightsTabs,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
-
-export * from './insightTypesMetadata'
-
 import { ProductAnalyticsNotifications } from 'products/product_analytics/frontend/notifications/ProductAnalyticsNotifications'
 import { productAnalyticsNotificationsLogic } from 'products/product_analytics/frontend/notifications/productAnalyticsNotificationsLogic'
 
 import { isDraftInsightRow } from './draftInsight'
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
-import { QUERY_TYPES_METADATA } from './insightTypesMetadata'
+import { HomeTab } from './HomeTab'
+import { InsightIcon } from './InsightIcon'
 import { NewInsightButton } from './NewInsightMenu'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -65,24 +54,6 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
     emptyState: productAnalyticsEmptyState,
-}
-
-export function InsightIcon({
-    insight,
-    className,
-}: {
-    insight: QueryBasedInsightModel
-    className?: string
-}): JSX.Element | null {
-    let Icon: ComponentType<any> | null = null
-
-    if ('query' in insight && isNonEmptyObject(insight.query)) {
-        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
-        const insightMetadata = QUERY_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
-    }
-
-    return Icon ? <Icon className={className} /> : null
 }
 
 export function SavedInsights(): JSX.Element {
@@ -105,6 +76,7 @@ export function SavedInsights(): JSX.Element {
         usingFilters,
         bulkDeleteResponseLoading,
         draftInsightRow,
+        showHomeTab,
     } = useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
@@ -293,7 +265,7 @@ export function SavedInsights(): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Delete insight?',
                                                 description:
-                                                    'Are you sure you want to delete this insight? This action can be undone.',
+                                                    'Are you sure you want to delete this insight? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.',
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',
@@ -344,6 +316,7 @@ export function SavedInsights(): JSX.Element {
                     setSavedInsightsFilters({ tab })
                 }}
                 tabs={[
+                    ...(showHomeTab ? [{ key: SavedInsightsTabs.Home, label: 'Home' }] : []),
                     { key: SavedInsightsTabs.All, label: 'All insights' },
                     { key: SavedInsightsTabs.Yours, label: 'My insights' },
                     { key: SavedInsightsTabs.Alerts, label: 'Alerts' },
@@ -365,7 +338,9 @@ export function SavedInsights(): JSX.Element {
                 sceneInset
             />
 
-            {tab === SavedInsightsTabs.Notifications ? (
+            {tab === SavedInsightsTabs.Home && showHomeTab ? (
+                <HomeTab />
+            ) : tab === SavedInsightsTabs.Notifications ? (
                 <ProductAnalyticsNotifications />
             ) : tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />
@@ -448,7 +423,7 @@ export function SavedInsights(): JSX.Element {
                                             const noun = count === 1 ? 'insight' : 'insights'
                                             LemonDialog.open({
                                                 title: `Delete ${count} ${noun}?`,
-                                                description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
+                                                description: `Are you sure you want to delete ${count} ${noun}? Associated alerts and subscriptions will also be removed. Their removal cannot be undone.`,
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',

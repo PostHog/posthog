@@ -245,6 +245,15 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
             'The same complaint, flow, or failure described again and again across many distinct sessions, especially one that did not recur in prior weeks. Summaries are freeform, so never group on the raw text: read the recent summaries and name the theme yourself, then count the distinct sessions that show it.',
         skip: '- A theme resting on a handful of sessions, or one you can only see by reading the text loosely — say so rather than inflating it.\n- Themes that recur every week at the same rate; those are the baseline, not a shift.',
     },
+    // The experiment type is a summarizer over one experiment's exposed sessions, so it trends the same way.
+    experiment: {
+        description: "Watches for themes recurring across this scanner's summaries.",
+        metric: 'recurring themes across summaries',
+        seriesSelect: 'uniq(properties.session_id) AS sessions',
+        notable:
+            'The same complaint, flow, or failure described again and again across many distinct sessions, especially one that did not recur in prior weeks. Summaries are freeform, so never group on the raw text: read the recent summaries and name the theme yourself, then count the distinct sessions that show it.',
+        skip: '- A theme resting on a handful of sessions, or one you can only see by reading the text loosely — say so rather than inflating it.\n- Themes that recur every week at the same rate; those are the baseline, not a shift.',
+    },
 }
 
 /** The name the create form starts with. It leads with the scanner because the scout also lands in

@@ -60,7 +60,7 @@ Both are available under **Profile settings → API settings** in Freshsales.
 """,
             iconPath="/static/services/freshsales.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshsales",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
