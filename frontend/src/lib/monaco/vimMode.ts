@@ -2,6 +2,7 @@ import { editor as monacoEditor } from 'monaco-editor'
 import { VimMode, initVimMode } from 'monaco-vim'
 
 import { VimrcError, parseVimrc } from './vimrc'
+import { VimMappingContext, createNonrecursiveVimMapping } from './vimrcMappings'
 
 export interface VimModeHandle {
     vimMode: VimMode
@@ -29,8 +30,7 @@ function registerVimrcSupport(): void {
     }
     const Vim = (VimMode as any).Vim
 
-    // monaco-vim has no noremap ex commands. They map like `map` here, which covers common lines such as `inoremap jj <Esc>`.
-    const noremapContexts: [string, string | undefined][] = [
+    const noremapContexts: [string, VimMappingContext | undefined][] = [
         ['noremap', undefined],
         ['nnoremap', 'normal'],
         ['inoremap', 'insert'],
@@ -41,7 +41,7 @@ function registerVimrcSupport(): void {
             if (!params.args || params.args.length < 2) {
                 throw new Error(`Invalid mapping: ${params.input}`)
             }
-            Vim.map(params.args[0], params.args[1], context)
+            createNonrecursiveVimMapping(params.args[0], params.args[1], context)
         })
     }
 

@@ -14,12 +14,26 @@ describe('parseVimrc', () => {
         })
     })
 
+    it('allows mappings from the colon key and keys that run an ex command', () => {
+        expect(parseVimrc('map : <Esc>\nnmap S :sort')).toEqual({
+            commands: [
+                { lineNumber: 1, command: 'map : <Esc>' },
+                { lineNumber: 2, command: 'nmap S :sort' },
+            ],
+            errors: [],
+        })
+    })
+
     it.each([
         ['deletes every line', '%d'],
         ['deletes matching lines', 'g/select/d'],
         ['substitutes text', 's/select/SELECT/'],
         ['sorts lines', 'sort'],
         ['shares a prefix with an allowed command', 'setfoo'],
+        ['adds a suffix to an allowed command', 'set123'],
+        ['overrides an option command', 'map :set :sort'],
+        ['overrides a mapping command', 'noremap :map :sort'],
+        ['removes an ex-command mapping', 'unmap :set'],
     ])('rejects a command that %s', (_description, command) => {
         const { commands, errors } = parseVimrc(`set relativenumber\n${command}`)
 

@@ -31,11 +31,19 @@ export function parseVimrc(vimrc: string): ParsedVimrc {
         if (!command || command.startsWith('"')) {
             return
         }
-        const commandName = command.match(/^[a-z]+/i)?.[0]
+        const commandName = command.match(/^[a-z]+(?=\s|$)/i)?.[0]
         if (!commandName || !VIMRC_ALLOWED_COMMANDS.includes(commandName)) {
             errors.push({
                 lineNumber,
                 message: `"${command}" isn't supported. Use one of: ${VIMRC_ALLOWED_COMMANDS.join(', ')}.`,
+            })
+            return
+        }
+        const lhs = command.split(/\s+/)[1]
+        if (MAPPING_COMMANDS.includes(commandName) && lhs?.startsWith(':') && lhs !== ':') {
+            errors.push({
+                lineNumber,
+                message: `"${command}" maps an ex command. Map a key instead.`,
             })
             return
         }

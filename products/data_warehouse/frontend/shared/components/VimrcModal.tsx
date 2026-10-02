@@ -6,8 +6,8 @@ import { VIMRC_MAX_LENGTH } from 'lib/monaco/vimrc'
 
 import { sqlEditorVimLogic } from '../logics/sqlEditorVimLogic'
 
-export function VimrcModal(): JSX.Element {
-    const { isVimrcModalOpen, vimrcDraft, vimrcDraftErrors, vimrcTooLong, vimrcSaving } = useValues(sqlEditorVimLogic)
+export function VimrcModal({ editorKey }: { editorKey: string }): JSX.Element {
+    const { vimrcEditorKey, vimrcDraft, vimrcDraftErrors, vimrcTooLong, vimrcSaving } = useValues(sqlEditorVimLogic)
     const { closeVimrcModal, setVimrcDraft, saveVimrc } = useActions(sqlEditorVimLogic)
 
     return (
@@ -20,7 +20,7 @@ export function VimrcModal(): JSX.Element {
                     <code>set relativenumber</code>. Lines that start with <code>"</code> are comments.
                 </span>
             }
-            isOpen={isVimrcModalOpen}
+            isOpen={vimrcEditorKey === editorKey}
             onClose={closeVimrcModal}
             width={600}
             footer={

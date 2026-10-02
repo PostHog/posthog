@@ -125,7 +125,7 @@ export function QueryWindow({
     const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
     const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
-    const { vimModeEnabled, vimrc, isEditorSettingsMenuOpen } = useValues(sqlEditorVimLogic)
+    const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
@@ -245,7 +245,7 @@ export function QueryWindow({
                       ? [
                             {
                                 label: 'Edit vimrc',
-                                onClick: openVimrcModal,
+                                onClick: () => openVimrcModal(codeEditorKey),
                                 size: 'small' as const,
                                 'data-attr': 'sql-editor-vimrc-edit',
                             },
@@ -347,8 +347,8 @@ export function QueryWindow({
                                 items={editorSettingsItems}
                                 closeOnClickInside={false}
                                 placement="bottom-end"
-                                visible={isEditorSettingsMenuOpen}
-                                onVisibilityChange={setEditorSettingsMenuOpen}
+                                visible={editorSettingsMenuKey === codeEditorKey}
+                                onVisibilityChange={(open) => setEditorSettingsMenuOpen(codeEditorKey, open)}
                             >
                                 <LemonButton
                                     icon={<IconGear />}
@@ -359,7 +359,7 @@ export function QueryWindow({
                                 />
                             </LemonMenu>
                         ) : null}
-                        {vimModeFeatureEnabled ? <VimrcModal /> : null}
+                        {vimModeFeatureEnabled ? <VimrcModal editorKey={codeEditorKey} /> : null}
                         {mode === SQLEditorMode.Embedded && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"

@@ -63,7 +63,7 @@ describe('sqlEditorVimLogic', () => {
         setUp({ uiConfiguration: { version: 1, sidebar: { items: { data: { visible: false } } } } })
 
         await expectLogic(logic, () => {
-            logic.actions.openVimrcModal()
+            logic.actions.openVimrcModal('first-editor')
             logic.actions.setVimrcDraft('inoremap jj <Esc>')
             logic.actions.saveVimrc()
         }).toFinishAllListeners()
@@ -75,6 +75,28 @@ describe('sqlEditorVimLogic', () => {
         })
         expect(logic.values.isVimrcModalOpen).toBe(false)
         expect(logic.values.vimrcSaving).toBe(false)
+    })
+
+    it('keeps menus and the vimrc modal owned by one editor', () => {
+        setUp({ uiConfiguration: { version: 1 } })
+
+        logic.actions.setEditorSettingsMenuOpen('first-editor', true)
+        expect(logic.values.editorSettingsMenuKey).toBe('first-editor')
+
+        logic.actions.setEditorSettingsMenuOpen('second-editor', true)
+        logic.actions.setEditorSettingsMenuOpen('first-editor', false)
+        expect(logic.values.editorSettingsMenuKey).toBe('second-editor')
+
+        logic.actions.openVimrcModal('second-editor')
+        expect(logic.values.editorSettingsMenuKey).toBeNull()
+        expect(logic.values.vimrcEditorKey).toBe('second-editor')
+
+        logic.actions.openVimrcModal('first-editor')
+        expect(logic.values.vimrcEditorKey).toBe('first-editor')
+
+        logic.actions.closeVimrcModal()
+        expect(logic.values.isVimrcModalOpen).toBe(false)
+        expect(logic.values.vimrcEditorKey).toBeNull()
     })
 
     it('keeps an in-flight Vim mode change when the vimrc is saved before it returns', async () => {
