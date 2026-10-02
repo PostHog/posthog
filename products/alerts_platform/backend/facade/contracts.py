@@ -7,10 +7,11 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import field
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Final, NotRequired, TypedDict
+from typing import Any, Final, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -478,3 +479,11 @@ class AlertDelivery:
     template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp
+
+
+class DestinationResolver(Protocol):
+    """The lookup the product that owns destinations registers for native delivery."""
+
+    def __call__(
+        self, *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+    ) -> list[AlertDestinationGroup]: ...

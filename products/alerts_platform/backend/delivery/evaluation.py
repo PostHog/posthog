@@ -13,6 +13,7 @@ import posthoganalytics
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
@@ -24,7 +25,6 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EvaluationAnnouncement,
 )
-from products.alerts.backend.facade.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.logic.platform_alert_events import announcement
 
 logger = structlog.get_logger(__name__)

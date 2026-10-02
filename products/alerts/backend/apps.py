@@ -13,3 +13,10 @@ class AlertsConfig(AppConfig):
         # own module because the API module imports the alert detector stack (numpy) at module
         # scope — see activity_logging's docstring.
         from products.alerts.backend import activity_logging  # noqa: F401, PLC0415
+
+        # The platform cannot import this product, so native delivery reaches the destinations
+        # this product owns through the lookup registered here. Without it every live send raises.
+        from products.alerts.backend.facade.destinations import list_alert_destination_groups  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.delivery import register_destination_resolver  # noqa: PLC0415
+
+        register_destination_resolver(list_alert_destination_groups)
