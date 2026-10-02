@@ -158,6 +158,7 @@ export interface destinationModalLogicActions {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
     }

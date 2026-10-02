@@ -58,6 +58,7 @@ export interface organizationIntegrationsLogicValues {
             | 'stripe'
             | 'tiktok-ads'
             | 'twilio'
+            | 'twitter-ads'
             | 'vercel'
             | 'youtube-analytics'
         )[]
@@ -136,6 +137,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[],
@@ -196,6 +198,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
         }[]
@@ -254,6 +257,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'stripe'
                 | 'tiktok-ads'
                 | 'twilio'
+                | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
             )[]

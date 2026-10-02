@@ -241,7 +241,8 @@ export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
     return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
 }
 
-export function buildSummary(state: ScheduleState, startsAt: string | null): string {
+export function buildSummary(state: ScheduleState, startsAt: string | null, timezone?: string): string {
+    const start = startsAt ? (timezone ? dayjs(startsAt).tz(timezone) : dayjs(startsAt)) : null
     const freqLabel = state.frequency === 'daily' ? 'day' : state.frequency.replace('ly', '')
     const intervalStr = state.interval > 1 ? `${state.interval} ${freqLabel}s` : freqLabel
 
@@ -255,16 +256,16 @@ export function buildSummary(state: ScheduleState, startsAt: string | null): str
     if (state.frequency === 'monthly') {
         if (state.monthlyMode === 'last_day') {
             summary += ` on the last day`
-        } else if (state.monthlyMode === 'day_of_month' && startsAt) {
-            summary += ` on the ${dayjs(startsAt).format('Do')}`
-        } else if (state.monthlyMode === 'nth_weekday' && startsAt) {
-            const { n, weekday } = getNthWeekdayOfMonth(dayjs(startsAt))
+        } else if (state.monthlyMode === 'day_of_month' && start) {
+            summary += ` on the ${start.format('Do')}`
+        } else if (state.monthlyMode === 'nth_weekday' && start) {
+            const { n, weekday } = getNthWeekdayOfMonth(start)
             summary += ` on the ${NTH_LABELS[n - 1]} ${WEEKDAY_FULL_LABELS[weekday]}`
         }
     }
 
-    if (startsAt) {
-        summary += `, starting ${dayjs(startsAt).format('MMMM D')}`
+    if (start) {
+        summary += `, starting ${start.format('MMMM D')}`
     }
 
     if (state.endType === 'after_count') {

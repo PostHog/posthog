@@ -106,7 +106,6 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
             file_bytes,
             password=password,
         )
-        file_obj.seek(0)
     except ValueError as ssh_error:
         # A wrong passphrase on an OpenSSH key surfaces as a checksum/decrypt failure. Falling
         # through to the PEM loader masks it with a misleading "no BEGIN/END" error, so re-raise
@@ -117,18 +116,21 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
             file_bytes,
             password=password if passphrase is not None else None,
         )
-        encryption_algorithm: crypto_serialization.KeySerializationEncryption
-        if passphrase:
-            encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
-        else:
-            encryption_algorithm = crypto_serialization.NoEncryption()
-        file_obj = StringIO(
-            key.private_bytes(
-                crypto_serialization.Encoding.PEM,
-                crypto_serialization.PrivateFormat.OpenSSH,
-                encryption_algorithm,
-            ).decode("utf-8")
-        )
+    # paramiko's parser is stricter than cryptography's. An OpenSSH key pasted with leading
+    # whitespace, indented lines, or its line breaks joined loads above but fails in paramiko,
+    # so give paramiko a re-serialized copy of the key rather than the pasted text.
+    encryption_algorithm: crypto_serialization.KeySerializationEncryption
+    if passphrase:
+        encryption_algorithm = crypto_serialization.BestAvailableEncryption(password)
+    else:
+        encryption_algorithm = crypto_serialization.NoEncryption()
+    file_obj = StringIO(
+        key.private_bytes(
+            crypto_serialization.Encoding.PEM,
+            crypto_serialization.PrivateFormat.OpenSSH,
+            encryption_algorithm,
+        ).decode("utf-8")
+    )
     if isinstance(key, rsa.RSAPrivateKey):
         private_key = RSAKey.from_private_key(file_obj, passphrase)
     elif isinstance(key, ed25519.Ed25519PrivateKey):

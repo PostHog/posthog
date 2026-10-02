@@ -21,9 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_message,
     process_messages,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PendingBatch,
-)
+from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
 
 
 async def process_batch(batch: PendingBatch, verify_ownership: Callable[[], None] | None = None) -> None:

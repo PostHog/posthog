@@ -4780,6 +4780,7 @@ const api = {
                 stdout?: string
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
+                result_text?: string
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,
@@ -5022,6 +5023,8 @@ const api = {
             count_only?: 'true' | 'false'
             /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
             include_source_metadata?: 'true' | 'false'
+            /** ISO 8601 datetime. Keeps reports created at or after it. */
+            created_after?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },

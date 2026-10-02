@@ -57,11 +57,18 @@
             "intents": ["llm_prompts"]
         },
         {
+            "path": "Autoresearch",
+            "category": "Tools",
+            "iconType": "experiment",
+            "type": "autoresearch",
+            "intents": ["autoresearch"]
+        },
+        {
             "path": "Business knowledge",
             "category": "Data",
             "iconType": "business_knowledge",
             "type": null,
-            "intents": ["conversations"]
+            "intents": ["business_knowledge"]
         },
         {
             "path": "Web scripts",
@@ -277,7 +284,6 @@
             "type": null,
             "intents": ["web_analytics"]
         },
-        { "path": "Wizard", "category": "Tools", "iconType": "wizard", "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
             "category": "Messaging",

@@ -79,6 +79,12 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
 // rare cases it arrives as a top-level event property, and carries little cardinality weight.
 pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
 
+// Person property prefixes that should NOT generate PropertyDefinition rows. A push
+// subscription is stored under one person property per device, and the key embeds a hash of
+// the device token, so every registered device would otherwise add a definition that only
+// names one device and clutters the property picker.
+pub const SKIP_PERSON_PROPERTY_DEFINITION_PREFIXES: [&str; 1] = ["$device_push_subscription_"];
+
 // "timestamp" is deliberately absent: any key that contains it already contains "time".
 const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 6] =
     ["time", "date", "_at", "-at", "createdat", "updatedat"];
@@ -352,6 +358,19 @@ impl Event {
         let sanitized_event = sanitize_string(&self.event);
         for (key, value) in set {
             if SKIP_PROPERTIES.contains(&key.as_str()) && parent_type == PropertyParentType::Event {
+                continue;
+            }
+
+            if parent_type == PropertyParentType::Person
+                && SKIP_PERSON_PROPERTY_DEFINITION_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix))
+            {
+                metrics::counter!(
+                    UPDATES_SKIPPED,
+                    &[("reason", "push_subscription_person_property")]
+                )
+                .increment(1);
                 continue;
             }
 

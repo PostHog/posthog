@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
@@ -108,6 +108,10 @@ class ChangeEvent:
     # still hold their previous value — downstream must fill them from the last known
     # row state instead of writing NULL.
     omitted_columns: frozenset[str] = frozenset()
+    # Old values of the key columns an UPDATE changed, set only when the change stream sent the old
+    # value of every key column the reader was given (Postgres: the old key tuple, or the whole old
+    # row under REPLICA IDENTITY FULL). Capture uses them to remove the old key.
+    previous_values: Mapping[str, object] | None = None
 
 
 class CDCStreamReader(Protocol):
@@ -127,6 +131,10 @@ class CDCStreamReader(Protocol):
     def current_position(self) -> str | None: ...
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]: ...
+
+    def get_enforced_unique_keys(self, schema_name: str, table_names: list[str]) -> dict[str, list[frozenset[str]]]: ...
+
+    def set_key_change_columns(self, columns_by_table: Mapping[str, Iterable[str]]) -> None: ...
 
     def get_decoder_key_columns(self, table_name: str) -> list[str]: ...
 

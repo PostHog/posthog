@@ -61,6 +61,59 @@ export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = '
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
 }
 
+type ProjectTreeDrop =
+    | { type: 'reorder'; activeId: string; overId: string }
+    | { type: 'star'; item: FileSystemEntry }
+    | { type: 'move'; item: FileSystemEntry; folder: string }
+    | { type: 'move-shortcut'; item: FileSystemEntry; folder: string }
+
+export function resolveProjectTreeDrop(
+    activeId: string,
+    overId: string | null,
+    items: FileSystemEntry[],
+    shortcuts: FileSystemEntry[],
+    position: 'onto' | 'before' | 'after' = 'onto'
+): ProjectTreeDrop | null {
+    if (overId === null || activeId === overId) {
+        return null
+    }
+    const activeShortcut = shortcuts.find((item) => getItemId(item, 'shortcuts://') === activeId)
+    const overShortcut = shortcuts.find((item) => getItemId(item, 'shortcuts://') === overId)
+    const item = activeShortcut ?? items.find((entry) => getItemId(entry) === activeId)
+    if (!item) {
+        return null
+    }
+    if (overShortcut?.type === 'folder' && position === 'onto') {
+        // A shortcut's path is its label; ref points to the real folder, including unloaded home folders.
+        return overShortcut.ref && (!activeShortcut || activeShortcut.ref)
+            ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder: overShortcut.ref }
+            : null
+    }
+    const folder =
+        overId === '' || overId === 'project://'
+            ? ''
+            : items.find((entry) => entry.type === 'folder' && getItemId(entry) === overId)?.path
+    if (folder !== undefined) {
+        return !activeShortcut || activeShortcut.ref
+            ? { type: activeShortcut ? 'move-shortcut' : 'move', item, folder }
+            : null
+    }
+    if (activeShortcut) {
+        return overShortcut ? { type: 'reorder', activeId, overId } : null
+    }
+    if (overShortcut || overId === 'shortcuts://') {
+        const shortcut = shortcutFromEntry(item)
+        return shortcuts.some(
+            (entry) =>
+                entry.type === shortcut.type &&
+                (shortcut.ref ? entry.ref === shortcut.ref : entry.href === shortcut.href)
+        )
+            ? null
+            : { type: 'star', item }
+    }
+    return null
+}
+
 export function protocolTitle(str: string): string {
     return (str.charAt(0).toUpperCase() + str.slice(1)).replaceAll('-', ' ')
 }
@@ -165,7 +218,6 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
-            tags: starredProduct ? starredProduct.tags : item.tags,
             visualOrder: item.visualOrder,
         }
         if (item && disabledReason?.(item)) {
