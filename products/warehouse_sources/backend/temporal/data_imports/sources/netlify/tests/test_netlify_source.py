@@ -20,11 +20,11 @@ class TestNetlifyGetSchemas:
 
 class TestNetlifyValidateCredentials:
     def test_success(self) -> None:
-        with mock.patch.object(source_module, "validate_netlify_credentials", return_value=True):
+        with mock.patch.object(source_module, "validate_netlify_credentials", return_value=(True, None)):
             assert NetlifySource().validate_credentials(mock.Mock(), team_id=1) == (True, None)
 
     def test_failure(self) -> None:
-        with mock.patch.object(source_module, "validate_netlify_credentials", return_value=False):
+        with mock.patch.object(source_module, "validate_netlify_credentials", return_value=(False, "nope")):
             ok, error = NetlifySource().validate_credentials(mock.Mock(), team_id=1)
         assert ok is False
-        assert error is not None
+        assert error == "nope"

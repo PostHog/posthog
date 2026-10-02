@@ -53,7 +53,6 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
     ComputeTableStatisticsInputs,
     ComputeTableStatisticsWorkflow,
-    statistics_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _enrichment_pending,
@@ -155,9 +154,7 @@ def _enrichment_gate(gate: PostImportGateContext) -> bool:
 
 
 def _statistics_gate(gate: PostImportGateContext) -> bool:
-    return bool(
-        gate.team is not None and statistics_enabled(gate.team) and _statistics_stale(gate.team_id, gate.schema.table)
-    )
+    return bool(gate.team is not None and _statistics_stale(gate.team_id, gate.schema.table))
 
 
 def _always(gate: PostImportGateContext) -> bool:

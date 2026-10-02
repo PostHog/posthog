@@ -22,6 +22,7 @@ from products.replay_vision.backend.temporal.activities import (
     fetch_session_events_activity,
     fetch_session_network_activity,
     finalize_evaluation_activity,
+    finalize_observation_media_activity,
     finalize_observation_thumbnail_activity,
     find_backfill_candidates_activity,
     find_scanner_candidates_activity,
@@ -35,6 +36,7 @@ from products.replay_vision.backend.temporal.activities import (
     meter_scanner_read_bytes_activity,
     pause_backfill_schedule_activity,
     prepare_backfill_tick_activity,
+    prepare_observation_media_activity,
     prepare_observation_thumbnail_activity,
     reap_backfill_schedules_activity,
     reap_childless_inline_scanners_activity,
@@ -46,16 +48,28 @@ from products.replay_vision.backend.temporal.activities import (
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
+from products.replay_vision.backend.temporal.activities.benchmark import (
+    load_benchmark_cases_activity,
+    prepare_benchmark_case_activity,
+    record_benchmark_case_activity,
+    snapshot_benchmark_labels_activity,
+    write_benchmark_manifest_activity,
+)
 from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
 )
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
+from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
 from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
+)
+from products.replay_vision.backend.temporal.jev_watch_rank import (
+    ReplayVisionJevWatchRankWorkflow,
+    judge_watch_ranks_activity,
 )
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
@@ -74,6 +88,7 @@ from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflo
 WORKFLOWS = [
     ApplyScannerWorkflow,
     BackfillScannerWorkflow,
+    BuildBenchmarkWorkflow,
     EvaluatePromptSuggestionWorkflow,
     MeterScannerReadsWorkflow,
     ObservationMediaWorkflow,
@@ -81,6 +96,7 @@ WORKFLOWS = [
     RefreshScannerEstimatesWorkflow,
     RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
+    ReplayVisionJevWatchRankWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
@@ -107,7 +123,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     emit_observation_signals_activity,
     cleanup_gemini_file_activity,
     prepare_observation_thumbnail_activity,
+    prepare_observation_media_activity,
     finalize_observation_thumbnail_activity,
+    finalize_observation_media_activity,
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
@@ -133,8 +151,14 @@ ACTIVITIES: list[Callable[..., Any]] = [
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     sweep_gemini_files_activity,
+    judge_watch_ranks_activity,
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
+    snapshot_benchmark_labels_activity,
+    load_benchmark_cases_activity,
+    prepare_benchmark_case_activity,
+    record_benchmark_case_activity,
+    write_benchmark_manifest_activity,
 ]
 
 __all__ = [

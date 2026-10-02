@@ -207,6 +207,19 @@ REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
 )
 
 
+REPLAY_VISION_SEARCH_RERANK = Counter(
+    "replay_vision_search_rerank_total",
+    "Observation searches by rerank outcome",
+    ["outcome"],
+)
+
+REPLAY_VISION_SEARCH_RERANK_LATENCY = Histogram(
+    "replay_vision_search_rerank_latency_seconds",
+    "Wall-clock time a search waited on the rerank model",
+    buckets=(0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5),
+)
+
+
 def record_observation(status: str, scanner_type: str) -> None:
     labels = {"status": status, "scanner_type": scanner_type}
     REPLAY_VISION_OBSERVATIONS.labels(**labels).inc()
@@ -357,3 +370,10 @@ def record_enqueue_claim_failure(operation: str) -> None:
 def record_gemini_cleanup_backlog(count: int) -> None:
     REPLAY_VISION_GEMINI_CLEANUP_BACKLOG.set(count)
     _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
+
+
+def record_search_rerank(outcome: str, seconds: float) -> None:
+    REPLAY_VISION_SEARCH_RERANK.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SEARCH_RERANK, 1, {"outcome": outcome})
+    REPLAY_VISION_SEARCH_RERANK_LATENCY.observe(seconds)
+    _otel.record_histogram_twin(REPLAY_VISION_SEARCH_RERANK_LATENCY, seconds, {})

@@ -56,6 +56,7 @@ from products.tasks.backend.exceptions import (
 from products.tasks.backend.facade.api import ensure_task_run_session
 from products.tasks.backend.feature_flags import is_agent_otel_telemetry_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
     _get_debug_only_domains,
     _get_debug_only_ports,
@@ -87,10 +88,12 @@ from products.tasks.backend.temporal.process_task.utils import (
 )
 
 
-@dataclass
+@frozen
 class GetTaskProcessingContextInput:
     run_id: str
     create_pr: bool = True
+    resumed_sandbox_id: str | None = None
+    resumed_sandbox_backend: str | None = None
 
 
 @dataclass(frozen=False)
@@ -1361,8 +1364,16 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         store_skills = None
     if store_skills is not None:
         state_updates[STORE_SKILLS_STATE_KEY] = store_skills
+    # The sandbox writes these as the agent's user-level AGENTS.md / CLAUDE.md at session start.
+    # Best-effort for the same reason as store skills.
+    state_remove_keys: list[str] = []
     try:
-        TaskRun.update_state_atomic(task_run.id, updates=state_updates)
+        instruction_updates, state_remove_keys = agent_instructions_state_update(task, actor_user)
+        state_updates.update(instruction_updates)
+    except Exception as e:
+        log_with_activity_context("agent_instructions_resolve_failed", run_id=run_id, error=str(e))
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates=state_updates, remove_keys=state_remove_keys)
     except Exception as e:
         log_with_activity_context("run_state_stamp_failed", run_id=run_id, error=str(e))
 
@@ -1564,11 +1575,23 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
     )
+    sandbox_backend_state = state
+    resumed_backend = input.resumed_sandbox_backend
+    if (
+        resumed_backend not in ("modal", "hogland")
+        and input.resumed_sandbox_id is not None
+        and input.resumed_sandbox_id == state.get("sandbox_id")
+    ):
+        persisted_backend = state.get("sandbox_backend")
+        resumed_backend = persisted_backend if persisted_backend in ("modal", "hogland") else "modal"
+    if resumed_backend in ("modal", "hogland"):
+        sandbox_backend_state = {**state, "sandbox_backend": resumed_backend}
+
     sandbox_backend = _resolve_sandbox_backend(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
-        state=state,
+        state=sandbox_backend_state,
         task_runtime=task.runtime,
         # Only a real user/environment image is a hogland incapability. The org default
         # image (default_custom_image, applied when the user picked none) is not — hogland

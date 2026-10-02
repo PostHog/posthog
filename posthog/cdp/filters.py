@@ -466,6 +466,9 @@ _RUNTIME = json.loads((Path(__file__).parent / "filter_globals.json").read_text(
 # GET_GLOBAL path, so `arrayMap(lower, ...)` is a working filter rather than an unknown global.
 # Generated from the runtime by `pnpm --filter=@posthog/nodejs run build:filter-globals`.
 FILTER_GLOBALS: set[str] = set(_RUNTIME["roots"]) | set(_RUNTIME["callables"])
+# Stamped on every bytecode this module compiles. The runtime compares it with its own hash, so a
+# filter compiled against an older runtime can be told apart from one saved before the compiler checked.
+RUNTIME_CONTRACT: str = _RUNTIME["contract"]
 # The Python compiler knows its own standard library, which is not the one the Node VM runs.
 FILTER_FUNCTIONS: dict[str, tuple[int, Optional[int]]] = {
     name: (arity[0], arity[1]) for name, arity in _RUNTIME["functions"].items()
@@ -538,6 +541,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
             compiled = _compile_against_runtime(_resolve_warehouse_columns(filters, team, actions), team)
         filters["bytecode"] = compiled.bytecode
+        filters["bytecode_contract"] = RUNTIME_CONTRACT
         unknown = compiled.unknown_roots
         context = compiled.context
         if unknown:
@@ -572,6 +576,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         settings_url = _internal_user_settings_url(team.id)
         details = "; ".join(e.reasons)
         filters["bytecode"] = None
+        filters.pop("bytecode_contract", None)
         filters["bytecode_error"] = (
             f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
             f"{details}. "
@@ -594,6 +599,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             )
 
         filters["bytecode"] = None
+        filters.pop("bytecode_contract", None)
         filters["bytecode_error"] = error_msg
 
     return filters

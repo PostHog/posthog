@@ -65,6 +65,9 @@ SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 # Coordinator concurrency settings
 DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
 
+# The patch id keeps coordinator executions that started with fixed batches deterministic on replay.
+SLIDING_WINDOW_PATCH_ID = "llma-summarization-sliding-window-2026-09"
+
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 

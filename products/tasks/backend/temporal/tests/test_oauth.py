@@ -526,6 +526,7 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 @pytest.mark.parametrize(
     ("origin_product", "state", "requested", "granted"),
     [
+        (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, {"pending_dispatch": {"posthog_mcp_scopes": []}}, None, []),
         (Task.OriginProduct.SPACE_SETUP, {"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
         (
             Task.OriginProduct.SPACE_SETUP,

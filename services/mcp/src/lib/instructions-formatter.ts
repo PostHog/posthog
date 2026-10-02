@@ -8,6 +8,8 @@ import {
     type ToolInfo,
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
+import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
+import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
@@ -32,6 +34,7 @@ import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
+import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -60,6 +63,11 @@ export interface InstructionsContext {
      *  advertised to this client. Gates the Python-in-a-notebook section so we never
      *  tell an agent to put its analysis in a cell type it can't create. */
     notebookCellsEnabled?: boolean | undefined
+    /** Whether `notebooks-run` is advertised to this client. Gated separately from
+     *  the cell tools, because a connection can carry the cell tools without the
+     *  run tool, and naming a command the catalog withholds sends the agent to a
+     *  name `search` and `call` cannot resolve. */
+    notebookRunEnabled?: boolean | undefined
     /** Whether `docs-search` is advertised to this client. Gates every mention of
      *  the tool, so the prompt never names a command `search` and `call` cannot
      *  resolve. Carried as a field rather than derived from `tools`, which
@@ -72,6 +80,17 @@ function businessKnowledgeSearchLine(execSyntax: boolean): string {
         ? 'run `call business-knowledge-documents-search <json_input>`'
         : 'call `business-knowledge-documents-search`'
     return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
+}
+
+const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
+
+/** Knowledge search never reads the team's GitHub repositories, so code questions need the repo tools.
+ *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
+function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
+    if (execSyntax) {
+        return `- For this team's code: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+    }
+    return `- For a question about this team's code, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or identifiers, not a sentence. Read a hit with \`business-knowledge-repositories-file-retrieve\` and cite its permalink.`
 }
 
 /** Resolve the field, falling back to the advertised tool list for callers that
@@ -100,9 +119,13 @@ export class InstructionsFormatter {
         const businessKnowledgeSearchEnabled = ctx.tools?.some(
             ({ name }) => name === 'business-knowledge-documents-search'
         )
+        const businessKnowledgeRepoSearchEnabled = ctx.tools?.some(
+            ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
+        )
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
             businessKnowledgeSearchEnabled,
+            businessKnowledgeRepoSearchEnabled,
             execSyntax: false,
         })
     }
@@ -113,27 +136,49 @@ export class InstructionsFormatter {
     private knowledgeFirstSectionsForCapabilities(opts: {
         docsSearchEnabled?: boolean
         businessKnowledgeSearchEnabled?: boolean
+        businessKnowledgeRepoSearchEnabled?: boolean
         execSyntax: boolean
     }): string[] {
         if (!opts.docsSearchEnabled) {
             return []
         }
+        const businessKnowledgeLines = opts.businessKnowledgeSearchEnabled
+            ? [
+                  businessKnowledgeSearchLine(opts.execSyntax),
+                  ...(opts.businessKnowledgeRepoSearchEnabled
+                      ? [businessKnowledgeRepoSearchLine(opts.execSyntax)]
+                      : []),
+              ]
+            : []
         return [
             formatPrompt(BUSINESS_KNOWLEDGE_FIRST, {
                 docs_search_call: opts.execSyntax
                     ? 'Run `call docs-search <json_input>`'
                     : 'Call the `docs-search` tool',
-                business_knowledge_search: opts.businessKnowledgeSearchEnabled
-                    ? businessKnowledgeSearchLine(opts.execSyntax)
-                    : '',
+                business_knowledge_search: businessKnowledgeLines.join('\n'),
             }),
         ]
     }
 
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
-     *  Python-goes-in-a-cell rule when the notebook cell tools are available. */
+     *  Python-goes-in-a-cell rule when the notebook cell tools are available, and
+     *  the refresh-a-notebook rule when the run tool is. */
     private artifactSections(ctx: InstructionsContext): string[] {
-        return [ANALYSIS_ARTIFACTS, ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : [])]
+        return [
+            ANALYSIS_ARTIFACTS,
+            ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : []),
+            ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
+        ]
+    }
+
+    private activityHistorySections(ctx: InstructionsContext): string[] {
+        if (!ctx.tools?.some(({ name }) => name === 'advanced-activity-logs-list')) {
+            return []
+        }
+        return [
+            ACTIVITY_HISTORY,
+            ...(ctx.tools.some(({ name }) => name === 'execute-sql') ? [ACTIVITY_HISTORY_SQL] : []),
+        ]
     }
 
     /** Build the system prompt for tools-mode clients (each tool registered separately). */
@@ -148,6 +193,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 CATALOG_TRUST_DISCOVERY,
                 ...this.artifactSections(ctx),
+                ...this.activityHistorySections(ctx),
                 ...envContextSections(ctx),
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -195,6 +241,7 @@ export class InstructionsFormatter {
             skillsEnabled?: boolean
             docsSearchEnabled?: boolean
             businessKnowledgeSearchEnabled?: boolean
+            businessKnowledgeRepoSearchEnabled?: boolean
         } = {}
     ): string {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
@@ -227,6 +274,7 @@ export class InstructionsFormatter {
                         SCHEMA_WORKFLOW,
                         CATALOG_TRUST_DISCOVERY,
                         ...this.artifactSections(ctx),
+                        ...this.activityHistorySections(ctx),
                         EXAMPLES,
                     ],
                     ctx,
@@ -302,6 +350,7 @@ export class InstructionsFormatter {
                 // URL patterns live behind `learn urls` to protect the schema budget;
                 // with learn unavailable there is no topic to load, so stay inline.
                 ...(learnSection ? [] : [URL_PATTERNS]),
+                ...(learnSection ? [] : this.activityHistorySections(ctx)),
             ],
             renderCtx,
             {
@@ -335,6 +384,7 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             CATALOG_TRUST_DISCOVERY,
             ...this.artifactSections(ctx),
+            ...this.activityHistorySections(ctx),
             ...envContextSections(ctx),
             URL_PATTERNS,
             AGENT_FEEDBACK,

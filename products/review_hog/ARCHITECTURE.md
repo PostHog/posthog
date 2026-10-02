@@ -68,10 +68,13 @@ an unproven SHA posts the reply without the commit link and never auto-resolves.
 against the hard-floor **path backstop** (`commit_restricted_paths`): one touching `.github/`, CODEOWNERS, or
 dependency manifests delivers a human-review warning instead of the link and never auto-resolves either.
 
-**TODO (BLOCKING — before any rollout beyond the dogfood team / public release) — the three remaining
-injection-surface hardening items from the July e2e GO conditions.** The path backstop above is built; these
+**TODO (BLOCKING public release): the three remaining injection-surface hardening items from the July e2e
+GO conditions.** Manual review and resolution are available to explicitly enabled projects for
+repositories their teams own. This is a limited rollout; the feature flag does not establish repository or
+comment trust. Operators must assess both before enabling resolution. DECISIONS.md Stage 7 records the
+2026-09-30 decision to accept the existing risks for this limited manual rollout. The path backstop above is built; these
 are deliberately deferred (maintainer decisions 2026-08-06 and 2026-08-10, recorded in DECISIONS.md Stage 7)
-and MUST land before the resolution stage runs on PRs the team does not own:
+and MUST land before public release or resolution on untrusted PRs or repositories the team does not own:
 
 1. **Structural comment rendering** — thread comments still render as flat text in the resolution prompt, so a
    commenter can forge an "OWNER" header or a fake "SAFE TO FIX" verdict inside their own comment
@@ -150,10 +153,10 @@ The full roadmap — every open thread with its reasoning, the loop design, the 
 the experiment backlog — is in [DECISIONS.md](./DECISIONS.md) (start at its "🎯 NEXT" section) and `eval/`
 (`RUN_LOG.md`, `POTENTIAL_EXPERIMENTS.md`, `experiments/`).
 
-**Before real users:** settle the "ReviewHog Alpha" published-comment wording (see
+**Before public release:** settle the "ReviewHog Alpha" published-comment wording (see
 [Known issues](#known-issues--tech-debt)), and land the three BLOCKING resolution-stage hardening TODOs above
-(structural comment rendering + author-permission gate + pre-push restricted-paths enforcement) — they gate any
-rollout beyond the dogfood team.
+(structural comment rendering + author-permission gate + pre-push restricted-paths enforcement). Enabling another
+project for manual review does not clear these requirements for public or untrusted use.
 
 ---
 
@@ -384,6 +387,10 @@ because its tasks carry `origin_product=REVIEW_HOG` (see `SELF_DRIVING_ORIGIN_PR
 the app is resolved inside the Tasks provisioning activity. Same image and resources as any other run — the split
 only separates the fleet's Modal cost from user-driven runs.
 
+ReviewHog owns each session's lifecycle.
+Tasks with `origin_product=review_hog` do not expose the agent's `finish` tool, because it marks the TaskRun terminal and tears down the sandbox before the caller can validate the final JSON or send another validation turn.
+The agent returns JSON at the end of each turn; the caller validates it and ends the session when its work is complete.
+
 `run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
 1. Does **not** own concurrency — the caller bounds it: each fan-out child workflow wraps its per-unit sandbox
@@ -408,7 +415,7 @@ only separates the fleet's Modal cost from user-driven runs.
    persists the full agent log at `task_run.log_url` (S3 / Tasks UI), so the executor never copies it locally.
 
 The perspective review (the blind-spot sweep rides the same activity) runs on a different model family than the
-rest — **OpenAI Codex `gpt-6-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
+rest — **OpenAI Codex `gpt-6.1-sol`**, with `initial_permission_mode="full-access"`, at an effort set by the
 report's **review tier**. The pins are per **report**, not per process: each `ReviewReport` persists a **review
 arm** (adapter / model / effort / permission mode) plus the tier it was chosen from (`review_tier`, and for agent
 PRs the Signals priority that placed it there, `review_signal_priority`), decided once at report creation and kept
@@ -500,7 +507,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits
   `POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,REASONING_EFFORT}` env prefixed onto the agent launch command.
 
-**`@posthog/agent` — where they are consumed + applied** (`products/desktop/packages/agent` in this repo). The sandbox
+**`@posthog/agent` — where they are consumed + applied** (`packages/agent/packages/agent` in this repo). The sandbox
 image (`products/tasks/backend/sandbox/images/Dockerfile.sandbox-base`) installs the _published_ package by default, so
 an agent-side fix reaches reviews only once it is published and the image rebuilt; set
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` to build the local package into the image instead.
@@ -512,7 +519,7 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
   `{ mode, settings: { model, reasoning_effort } }` as the per-turn `collaborationMode` (codex applies a provided
   collaboration mode as is and ignores the turn's `effort` param when one is sent, so the pinned effort has to ride
   along here or every turn runs at the model's default effort — this is the line that applies a tier's effort to
-  `gpt-6-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
+  `gpt-6.1-sol`); Claude → the claude adapter's session config sets the model and effort (effort only for the claude
   adapter). Startup validation (`bin.ts` + `isSupportedReasoningEffort`) checks the model/effort combo against the
   registry, but **not** that the gateway actually serves the model. The sandbox reviewer path has no allow-list fallback:
   `_doInitializeSession` → `createAcpConnection` passes the pinned `model` straight to codex (no `gatewayModels`, so
@@ -523,7 +530,7 @@ an agent-side fix reaches reviews only once it is published and the image rebuil
 
 **Recipe — testing e.g. Sonnet.** Set `runtime_adapter = "claude"`, `model` to a catalog id, and an effort that model
 supports; provider auto-derives to `anthropic`. The same applies to a Codex model with `runtime_adapter = "codex"`.
-Every id and its efforts live in `model_catalog.py`; run `hogli build:task-model-catalog` after editing it, which
+Every id and its efforts live in `model_catalog.py`; run `hogli build:projections` after editing it, which
 updates the TypeScript projections the desktop app and the web composer read.
 
 ---
@@ -671,6 +678,17 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
 
 **Configuration read at runtime:**
 
+- **Project access** uses the existing boolean `review-hog` feature flag for the Code review menu, scene,
+  and all project ReviewHog APIs. Staff also need the flag; normal membership and scope checks still apply.
+  Set every release condition to the **project** group, match its **id** property against the allowed project
+  IDs, and use 100% rollout. Replace broader conditions and include existing projects before deployment.
+  This property identifies the **active environment** in both the browser and API. Include each environment
+  that should have access; enabling a parent does not enable its child environments. ReviewHog shares its
+  data under the parent project, but access remains independently flag-gated in each environment.
+  Use the `id` property rather than the group key: the browser
+  and MCP use the project's UUID as the group key, while the backend permission passes its numeric ID.
+  Newly enabled projects get manual review and resolution. Each project needs a GitHub App integration
+  covering the repository. Canonical skills seed on first configuration reads and each review run.
 - **GitHub auth** — the team's **GitHub App installation token**, resolved server-side per activity via
   `GitHubIntegration.first_for_team_repository(team_id, repo)` (`_installation_auth` returns
   `(get_access_token(), github_installation_id)`, auto-refreshing); resolution-thread deliveries re-resolve it
@@ -682,14 +700,22 @@ See [DECISIONS.md](./DECISIONS.md) for the "reuse the leaf, own the model" bound
   `kind="github"` `Integration` is validated up front by `validate_github_integration_activity`.
   The sandbox `repository` is the PR's own `owner/repo`, derived from the PR URL.
 - **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret),
-  `REVIEWHOG_TEAM_ID` (the run team), `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
+  the first `REVIEWHOG_TEAM_IDS` entry from the `REVIEWHOG_TEAM_ID` environment variable (the run team),
+  and `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
+  Enabling manual project access requires no changes to these settings or the shared secret.
 - **Automatic authored-PR trigger** uses the first `REVIEWHOG_TEAM_IDS` entry and requires a matching GitHub installation on that team.
   The PR author's linked GitHub identity must map to an active member of the team's organization with `review_authored_prs` enabled.
+- **Internal UI features** use `show_internal_features` in the settings response, true only for the first
+  `REVIEWHOG_TEAM_IDS` entry. That project retains Flash and all automation controls. Other enabled projects
+  show manual review and resolution without Flash or automation controls, except that saved Inbox or
+  Stamphog opt-ins remain visible until switched off. Their settings reads do not query Stamphog.
+  Existing automation routing and its configuration remain separate from the flag.
 
 **Triggers.** Six entry points feed the same per-PR `ReviewPRQueueWorkflow`: the `run_review` CLI (manual / eval), the
-`reviewhog` **label** on a `PostHog/posthog` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
+`reviewhog` **label** on a `PostHog/posthog` or `PostHog/ai-gateway` PR (a thin GitHub Action → `POST /api/review_hog/trigger`), a **UI**
 "Review this PR" field in the Code review scene (any installation-accessible PR; its split button's `run_mode`
-also carries the review-without-resolving, resolve-only, and **flash** variants; Flash pins resolution off), an **inbox** trigger (a
+also carries the review-without-resolving and resolve-only variants; the configured internal project also shows
+**Flash**, which pins resolution off), an **inbox** trigger (a
 `TaskRun` receiver auto-reviews self-driving Signals implementations once their PR exists — a pushed branch without
 a PR is not reviewed, and the PR must sit in the task's own repository because `output.pr_url` is written by
 whoever controls the run, the sandbox agent included), **MCP tools**
@@ -700,9 +726,10 @@ It accepts `opened` and `synchronize` for open `PostHog/posthog` PRs whose head 
 Enabling the setting performs no backfill; existing PRs become eligible on their next push.
 The turn rechecks the author's opt-in before starting and uses their saved severity threshold; Flash never starts resolution.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
-retrieve / perspective_stats, `review_hog:write` for trigger) rather than INTERNAL, and the trigger action keeps
-the `REVIEWHOG_TEAM_ID` dogfood gate and its synchronous URL / App-access / fork / open-state checks regardless of
-caller. See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
+retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
+and the trigger action checks the URL, GitHub App access, fork status, and open state regardless of caller.
+It refuses `run_mode=flash` with a 403 outside the project that has `show_internal_features`.
+See [DECISIONS.md](./DECISIONS.md) for each trigger's auth / scope / identity rules.
 
 The `review-pr-queue` workflow keeps the existing per-PR workflow ID and records requests through signals.
 It has at most one pending request each for Full, manual Flash, and automatic Flash, taking explicit requests before automatic ones.
@@ -724,6 +751,13 @@ fallback for pre-column rows — and its first tab reads "Published" only when t
 list — every 10s while a run is in progress or freshly triggered, every 30s otherwise, paused on hidden
 tabs with an immediate refresh on tab return — and a poll response that shows a run finishing also
 refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsLogic`).
+
+An active review stays visible while its report or working artefacts have activity within `IN_PROGRESS_STALE_AFTER` (30 minutes).
+Long-running chunking, selection, review, deduplication, and validation activities also refresh `ReviewReport.updated_at` every minute, so an agent can keep working without producing an artefact during that window.
+Each refresh is scoped to the team, report, active status, and reviewed commit.
+These refreshes stop when the activity exits, and stale reviews still expire after the same quiet window.
+Temporal heartbeats continue independently of the database refresh.
+The list selects running candidates by their latest report update, so newer stale runs cannot push a live run off the page.
 
 ---
 
@@ -780,10 +814,11 @@ refreshes the perspective stats and an open drawer's detail (`reviewHogSettingsL
   "valid"/"invalid" (`reviewer/tools/publish_review.py`, the `post_promo` block). Publish is now live
   per-run (the trigger endpoint posts with `publish=true`), so settle the prod wording before real users
   see it.
-- **TODO (BLOCKING public release) — resolution-stage injection hardening, deferred by decision.** Structural
+- **TODO (BLOCKING public release): resolution-stage injection hardening.** Structural
   (JSON) comment rendering in the resolution prompt, the author-permission gate, and pre-push restricted-paths
   enforcement in the signed-commit tooling are NOT built; only the prompt floors + the post-push delivery
-  backstop stand between a hostile PR comment and a write turn (and the backstop cannot un-push — the commit is
-  on the branch, and CI has seen it, before the check runs). Do not widen `REVIEWHOG_TEAM_IDS` or ship the
-  resolution stage publicly before all three land — see the BLOCKING TODO in
+  backstop stand between a hostile PR comment and a write turn. The backstop cannot retract a push: the commit
+  is on the branch, and CI has seen it, before the check runs. Explicitly enabled projects can use
+  manual resolution for repositories their teams own. Public release and resolution on untrusted PRs or
+  unowned repositories remain blocked until all three protections land. See the BLOCKING TODO in
   [Status & next](#status--next) and DECISIONS.md Stage 7.
