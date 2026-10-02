@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
@@ -1103,6 +1104,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
