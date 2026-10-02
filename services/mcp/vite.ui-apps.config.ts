@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 
 import { discoverApps } from './scripts/utils'
 
+// Vite injects these values into each app bundle at build time.
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
 const POSTHOG_UI_APPS_TOKEN = process.env.POSTHOG_UI_APPS_TOKEN || ''
 
@@ -13,6 +14,7 @@ const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL =
 
 const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
+// UI_APP selects a single app bundle for the build script.
 const appName = process.env.UI_APP
 
 const ALL_APPS = discoverApps()
@@ -72,13 +74,14 @@ export default defineConfig({
         outDir: 'public/ui-apps',
         emptyOutDir: false, // Handled by build script
         cssCodeSplit: false,
-        chunkSizeWarningLimit: 1000, // Each bundle includes React
+        chunkSizeWarningLimit: 1000, // Suppress warnings because each bundle includes React
         rollupOptions: {
             input: appName
                 ? resolve(APPS_DIR, `${appName}.tsx`)
                 : Object.fromEntries(ALL_APPS.map((name) => [name, resolve(APPS_DIR, `${name}.tsx`)])),
             output: appName
                 ? {
+                      // Single-app bundles cannot rely on shared chunks.
                       inlineDynamicImports: true,
                       // IIFE format avoids CORS issues when loading scripts cross-origin from sandboxed iframes
                       format: 'iife' as const,
