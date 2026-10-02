@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import type {
     TaskRunArtifactResponseApi,
     TaskRunLivingArtifactResponseApi,
@@ -5,6 +7,20 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 export type TaskRunTab = 'conversation' | 'artifacts'
+
+// pinned: URL search params. Shared links and the space feed's file chips use them.
+// A link opens the tab on one file, and on one version when it is not the latest.
+export const ARTIFACT_PARAM = 'artifact'
+export const VERSION_PARAM = 'artifact_version'
+
+/** The path that opens a task's Artifacts tab on one file. `fileKey` is an `ArtifactFile` key. */
+export function taskArtifactPath(taskId: string, fileKey: string, versionId?: string | null): string {
+    const params: Record<string, string> = { task: taskId, [ARTIFACT_PARAM]: fileKey }
+    if (versionId) {
+        params[VERSION_PARAM] = versionId
+    }
+    return combineUrl('/ai', params).url
+}
 
 export type ArtifactPreviewKind = 'markdown' | 'html' | 'image' | 'video' | 'csv' | 'text' | 'reference' | 'none'
 
