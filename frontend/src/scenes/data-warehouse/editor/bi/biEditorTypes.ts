@@ -4,7 +4,12 @@ import {
     DatabaseSerializedFieldType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapeHogQLString, escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import {
+    escapeDottedHogQLIdentifier,
+    escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
+    escapeRawPropertyAsHogQLIdentifier,
+} from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 export enum BIEditorView {
@@ -77,6 +82,7 @@ export interface BIValue {
     field: BIField
     aggregation: BIAggregation
     customExpression?: string
+    label?: string
 }
 
 export interface BIFilter {
@@ -437,6 +443,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               if (
                   !field ||
                   !BI_AGGREGATIONS.has(valueCandidate.aggregation as BIAggregation) ||
+                  (valueCandidate.label !== undefined && typeof valueCandidate.label !== 'string') ||
                   (valueCandidate.customExpression !== undefined && typeof valueCandidate.customExpression !== 'string')
               ) {
                   return null
@@ -445,6 +452,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
                   field,
                   aggregation: valueCandidate.aggregation as BIAggregation,
                   customExpression: valueCandidate.customExpression,
+                  label: valueCandidate.label,
               }
           })
         : null
@@ -549,6 +557,9 @@ interface BIPivotAxis {
 }
 
 function aggregationAlias(value: BIValue, index: number): string {
+    if (value.aggregation === 'custom' && value.label?.trim()) {
+        return `${value.label.trim()}${index > 0 ? `_${index + 1}` : ''}`
+    }
     return `${value.aggregation}_${sanitizeAlias(value.field.name)}${index > 0 ? `_${index + 1}` : ''}`
 }
 
@@ -680,7 +691,7 @@ const SORT_AGGREGATION_LABELS: Record<Exclude<BIAggregation, 'custom'>, string> 
 
 function sortValueLabel(value: BIValue): string {
     if (value.aggregation === 'custom') {
-        return value.customExpression?.trim() || 'Custom value'
+        return value.label?.trim() || value.customExpression?.trim() || 'Custom value'
     }
 
     return `${SORT_AGGREGATION_LABELS[value.aggregation]} of ${value.field.name || value.field.expression}`
@@ -718,7 +729,7 @@ export function getBISortOptions(config: BIConfig): BISortOption[] {
                   return {
                       key: occurrence === 0 ? `values:${value.field.id}` : `values:${value.field.id}:${occurrence + 1}`,
                       label: sortValueLabel(value),
-                      expression: escapePropertyAsHogQLIdentifier(aggregationAlias(value, index)),
+                      expression: escapeRawPropertyAsHogQLIdentifier(aggregationAlias(value, index)),
                   }
               })
             : [{ key: 'values:count', label: 'Count', expression: 'count' }]),
@@ -765,7 +776,7 @@ export function getBIFieldPillLabel(field: BIField): string {
 
 export function getBIValuePillLabel(value: BIValue): string {
     if (value.aggregation === 'custom') {
-        return value.customExpression?.trim() || 'New calculation'
+        return value.label?.trim() || value.customExpression?.trim() || 'New calculation'
     }
     return `${PILL_AGGREGATION_PREFIXES[value.aggregation]}(${getBIFieldPillLabel(value.field)})`
 }
@@ -794,7 +805,7 @@ function buildOrderByExpression(
 
     const firstValueAlias =
         configuredValues.length > 0
-            ? escapePropertyAsHogQLIdentifier(aggregationAlias(configuredValues[0].value, 0))
+            ? escapeRawPropertyAsHogQLIdentifier(aggregationAlias(configuredValues[0].value, 0))
             : 'count'
     return `${firstValueAlias} DESC`
 }
@@ -819,7 +830,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         configuredValues.length > 0
             ? configuredValues.map(
                   ({ value, expression }, index) =>
-                      `${expression} AS ${escapePropertyAsHogQLIdentifier(aggregationAlias(value, index))}`
+                      `${expression} AS ${escapeRawPropertyAsHogQLIdentifier(aggregationAlias(value, index))}`
               )
             : ['count(*) AS count']
     const selectExpressions = [...dimensionSelectExpressions, ...valueExpressions]

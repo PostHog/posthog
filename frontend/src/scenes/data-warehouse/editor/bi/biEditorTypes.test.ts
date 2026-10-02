@@ -14,6 +14,7 @@ import {
     getBIFieldId,
     getBISortOptions,
     getBIValueSortKey,
+    getBIValuePillLabel,
     isBIFieldCompatible,
     isBIMeasureField,
     parseBIEditorState,
@@ -189,7 +190,13 @@ describe('BI editor query generation', () => {
         )
     })
 
-    it('keeps nested object paths and explicit SQL expressions in the generated query', () => {
+    test.each([
+        [undefined, 'custom_revenue'],
+        ['ARPU', 'ARPU'],
+        ['Revenue per user', '"Revenue per user"'],
+        ['`Revenue`', '"`Revenue`"'],
+        ['Revenue"quoted`', '`Revenue"quoted```'],
+    ])('keeps SQL expressions and measure label %s through persistence', (label, alias) => {
         const browserField: BIField = {
             id: 'warehouse:events:properties',
             name: 'properties',
@@ -197,7 +204,7 @@ describe('BI editor query generation', () => {
             type: 'json',
             source: { table: 'events' },
         }
-        const result = buildBIQuery({
+        const config: BIConfig = {
             source: { table: 'events' },
             chartType: ChartDisplayType.ActionsBar,
             rows: [browserField],
@@ -207,6 +214,7 @@ describe('BI editor query generation', () => {
                     field: revenueField,
                     aggregation: 'custom',
                     customExpression: "sumIf(properties.revenue, event = 'purchase')",
+                    label,
                 },
             ],
             filters: [
@@ -219,10 +227,14 @@ describe('BI editor query generation', () => {
                 },
             ],
             limit: 100,
-        })
+        }
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(config))!.config
+        const result = buildBIQuery(restored)
 
         expect(result?.query).toContain('properties.$browser')
-        expect(result?.query).toContain("sumIf(properties.revenue, event = 'purchase') AS custom_revenue")
+        expect(result?.query).toContain(`sumIf(properties.revenue, event = 'purchase') AS ${alias}`)
+        expect(getBIValuePillLabel(restored.values[0])).toBe(label ?? "sumIf(properties.revenue, event = 'purchase')")
+        expect(getBISortOptions(restored).at(-1)?.label).toBe(label ?? "sumIf(properties.revenue, event = 'purchase')")
         expect(result?.query).toContain("timestamp > '2026-08-04 09:30:00'")
         expect(result?.query).toContain("properties.$browser != 'HeadlessChrome'")
     })

@@ -2591,6 +2591,53 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
+        it('creates and edits a calculated measure without applying canceled drafts or losing its sort', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.editCalculatedMeasure()
+            biLogic.actions.setCalculatedMeasureDraft({
+                index: null,
+                name: 'ARPU',
+                expression: 'sum(revenue) / nullIf(count(DISTINCT user_id), 0)',
+            })
+            biLogic.actions.updateTab({
+                ...biLogic.values.activeTab!,
+                biEditorState: { editorView: BIEditorView.BI, config },
+            })
+            expect(biLogic.values.calculatedMeasureDraft?.name).toBe('ARPU')
+            expect(biLogic.values.config.values).toEqual([])
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.calculatedMeasureDraft).toBeNull()
+            expect(biLogic.values.generatedQuery?.query).toContain(
+                'sum(revenue) / nullIf(count(DISTINCT user_id), 0) AS ARPU'
+            )
+            const value = biLogic.values.config.values[0]
+            biLogic.actions.setSort({ key: `values:${value.field.id}`, direction: 'asc' })
+            biLogic.actions.editCalculatedMeasure(0)
+            biLogic.actions.setCalculatedMeasureDraft({ index: 0, name: 'Canceled name', expression: 'avg(revenue)' })
+            biLogic.actions.setCalculatedMeasureDraft(null)
+            expect(biLogic.values.config.values[0]).toEqual(value)
+            biLogic.actions.editCalculatedMeasure(0)
+            expect(biLogic.values.calculatedMeasureDraft?.name).toBe('ARPU')
+            biLogic.actions.setCalculatedMeasureDraft({ index: 0, name: 'Average revenue', expression: 'avg(revenue)' })
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.config.values).toHaveLength(1)
+            expect(biLogic.values.config.values[0].field.id).toBe(value.field.id)
+            expect(biLogic.values.generatedQuery?.query).toContain('avg(revenue) AS "Average revenue"')
+            expect(biLogic.values.generatedQuery?.query).toContain('ORDER BY\n    "Average revenue" ASC')
+            biLogic.actions.moveFieldToShelf('values', 0, 'filters')
+            expect(biLogic.values.config.values).toHaveLength(1)
+            expect(biLogic.values.config.filters).toEqual(config.filters)
+            biLogic.actions.editCalculatedMeasure(0)
+            biLogic.actions.setDataSource({ table: 'other_table' })
+            expect(biLogic.values.calculatedMeasureDraft).toBeNull()
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.config.values).toEqual([])
+            biLogic.unmount()
+        })
+
         it('keeps field labels consistent with edited expressions', () => {
             const biLogic = biEditorLogic({ tabId: TAB_ID })
             biLogic.mount()
