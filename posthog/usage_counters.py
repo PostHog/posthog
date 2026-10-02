@@ -155,7 +155,7 @@ class UsageCounterPlan:
 @frozen
 class UsageCounterComparisonRows:
     legacy_by_team: dict[int, int]
-    realtime_by_org: dict[str, int]
+    realtime_by_team: dict[int, dict[str, int]]
 
 
 class UsageCounterComparison(TypedDict):
@@ -360,20 +360,17 @@ class UsageCounterService:
             logger.exception("usage_counter_shadow_scan_failed", caller=plan.caller)
             record_shadow_failure(plan.caller, "scan")
             return UsageCounterReport(counts=counts, usage_sources=sources)
-        by_team: dict[str, dict[int, int]] = {RECORD_USAGE_KEYS[counter]: {} for counter in record_counters}
-        by_org: dict[str, dict[str, int]] = {key: {} for key in by_team}
+        by_team: dict[str, dict[int, dict[str, int]]] = {RECORD_USAGE_KEYS[counter]: {} for counter in record_counters}
         for row in rows:
-            teams = by_team[row.usage_key]
-            teams[row.team_id] = teams.get(row.team_id, 0) + row.quantity
-            orgs = by_org[row.usage_key]
+            orgs = by_team[row.usage_key].setdefault(row.team_id, {})
             orgs[row.organization_id] = orgs.get(row.organization_id, 0) + row.quantity
         comparisons: dict[str, UsageCounterComparisonRows] = {}
         for counter in record_counters:
-            key = RECORD_USAGE_KEYS[counter]
+            teams = by_team[RECORD_USAGE_KEYS[counter]]
             if counter.value in counts:
                 comparisons[counter.value.removeprefix("teams_with_")] = UsageCounterComparisonRows(
-                    legacy_by_team=dict(counts[counter.value]), realtime_by_org=by_org[key]
+                    legacy_by_team=dict(counts[counter.value]), realtime_by_team=teams
                 )
             if plan.modes[counter] == UsageCounterMode.REALTIME:
-                counts[counter.value] = list(by_team[key].items())
+                counts[counter.value] = [(team_id, sum(orgs.values())) for team_id, orgs in teams.items()]
         return UsageCounterReport(counts=counts, usage_sources=sources, counter_comparisons=comparisons or None)

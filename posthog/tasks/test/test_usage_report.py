@@ -3418,8 +3418,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             plan = UsageCounterService().resolve_plan(period, caller="daily_report", complete=True)
         counter_report = UsageCounterService().fetch_report(period, plan=plan)
         assert counter_report.counter_comparisons is not None
-        assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_org == {
-            str(self.org_1.id): 10
+        assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_team == {
+            3: {str(self.org_1.id): 7},
+            4: {str(self.org_1.id): 3},
         }
         apply_usage_counter_metadata(
             all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()

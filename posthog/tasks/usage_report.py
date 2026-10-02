@@ -3567,17 +3567,25 @@ def apply_usage_counter_metadata(
         return
 
     reported = {org_id for org_id, report in org_reports.items() if has_non_zero_usage(report)}
+    report_teams = {int(team_id) for report in org_reports.values() for team_id in report.teams}
     missing: dict[str, dict[str, UsageCounterComparison]] = {}
     for field, rows in counter_report.counter_comparisons.items():
-        legacy_by_org = {
-            org_id: sum(rows.legacy_by_team.get(int(team_id), 0) for team_id in report.teams)
+        realtime_by_team = {team_id: sum(orgs.values()) for team_id, orgs in rows.realtime_by_team.items()}
+        by_org: dict[str, UsageCounterComparison] = {
+            org_id: {
+                "legacy": sum(rows.legacy_by_team.get(int(team_id), 0) for team_id in report.teams),
+                "realtime": sum(realtime_by_team.get(int(team_id), 0) for team_id in report.teams),
+            }
             for org_id, report in org_reports.items()
         }
-        for org_id in legacy_by_org.keys() | rows.realtime_by_org.keys():
-            comparison: UsageCounterComparison = {
-                "legacy": legacy_by_org.get(org_id, 0),
-                "realtime": rows.realtime_by_org.get(org_id, 0),
-            }
+        # A team in no report keeps the organization on its records, so deleted organizations still show as missing.
+        for team_id, orgs in rows.realtime_by_team.items():
+            if team_id in report_teams:
+                continue
+            for org_id, quantity in orgs.items():
+                if org_id not in org_reports:
+                    by_org.setdefault(org_id, {"legacy": 0, "realtime": 0})["realtime"] += quantity
+        for org_id, comparison in by_org.items():
             if org_id in org_reports:
                 comparisons = org_reports[org_id].counter_comparisons
                 assert comparisons is not None

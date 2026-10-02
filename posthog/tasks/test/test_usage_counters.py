@@ -159,7 +159,7 @@ class TestUsageCounterReport(SimpleTestCase):
             if fails
             else {
                 "cdp_billable_invocations_in_period": UsageCounterComparisonRows(
-                    legacy_by_team={1: 12}, realtime_by_org={} if empty else {"org-a": 9}
+                    legacy_by_team={1: 12}, realtime_by_team={} if empty else {1: {"org-a": 4}, 2: {"org-a": 5}}
                 )
             }
         )
@@ -280,7 +280,7 @@ class TestUsageCounterReport(SimpleTestCase):
         assert report.counter_comparisons == (
             {
                 "cdp_billable_invocations_in_period": UsageCounterComparisonRows(
-                    legacy_by_team={1: 12}, realtime_by_org={"org-a": 9}
+                    legacy_by_team={1: 12}, realtime_by_team={1: {"org-a": 9}}
                 )
             }
             if compares
@@ -321,7 +321,7 @@ class TestUsageCounterReport(SimpleTestCase):
             assert report.counts[UsageCounter.CDP_INVOCATIONS.value] == []
             assert report.counter_comparisons == {
                 counter.value.removeprefix("teams_with_"): UsageCounterComparisonRows(
-                    legacy_by_team={}, realtime_by_org={}
+                    legacy_by_team={}, realtime_by_team={}
                 )
                 for counter in COUNTER_FLAG_NAMES
             }
@@ -355,12 +355,12 @@ class TestUsageCounterReport(SimpleTestCase):
             assert report.counts[UsageCounter.WORKFLOW_EMAILS.value] == [(1, 3)]
             expected = {
                 "cdp_billable_invocations_in_period": UsageCounterComparisonRows(
-                    legacy_by_team={1: 12}, realtime_by_org={"org-a": 9}
+                    legacy_by_team={1: 12}, realtime_by_team={1: {"org-a": 9}}
                 )
             }
             if failure != "legacy_comparison":
                 expected["workflow_emails_sent_in_period"] = UsageCounterComparisonRows(
-                    legacy_by_team={1: 5}, realtime_by_org={"org-a": 3}
+                    legacy_by_team={1: 5}, realtime_by_team={1: {"org-a": 3}}
                 )
             assert report.counter_comparisons == expected
             assert report.usage_sources is not None
@@ -410,7 +410,7 @@ class TestUsageCounterReport(SimpleTestCase):
             self.records.assert_called_once_with(period, tuple(dict(counter_keys.values())), "daily_report")
             assert report.counter_comparisons == {
                 counter.value.removeprefix("teams_with_"): UsageCounterComparisonRows(
-                    legacy_by_team={1: index + 1}, realtime_by_org={"org-a": quantity}
+                    legacy_by_team={1: index + 1}, realtime_by_team={1: {"org-a": quantity}}
                 )
                 for index, (counter, (_, quantity)) in enumerate(counter_keys.items())
             }
@@ -439,10 +439,10 @@ class TestUsageCounterReport(SimpleTestCase):
         }
         assert report.counter_comparisons == {
             "mobile_recording_count_in_period": UsageCounterComparisonRows(
-                legacy_by_team={1: 5}, realtime_by_org={"org-a": 7}
+                legacy_by_team={1: 5}, realtime_by_team={1: {"org-a": 7}}
             ),
             "mobile_billable_recording_count_in_period": UsageCounterComparisonRows(
-                legacy_by_team={1: 3}, realtime_by_org={"org-a": 7}
+                legacy_by_team={1: 3}, realtime_by_team={1: {"org-a": 7}}
             ),
         }
         assert report.usage_sources == {
@@ -494,7 +494,7 @@ class TestUsageCounterReport(SimpleTestCase):
                 if fails or caller == "quota_limiting"
                 else {
                     "exceptions_captured_in_period": UsageCounterComparisonRows(
-                        legacy_by_team={1: 3}, realtime_by_org={"org-a": 7}
+                        legacy_by_team={1: 3}, realtime_by_team={1: {"org-a": 7}}
                     )
                 }
             )

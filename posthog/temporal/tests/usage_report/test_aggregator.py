@@ -32,7 +32,7 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import UsageCounterService
+from posthog.usage_counters import UsageCounterComparisonRows, UsageCounterMode, UsageCounterReport, UsageCounterService
 from posthog.utils import DayRange
 
 
@@ -179,7 +179,7 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
             "usage_sources": {"cdp_billable_invocations_in_period": "both"},
             "counter_comparisons": None
             if state == "failed_scan"
-            else {"cdp_billable_invocations_in_period": {"legacy_by_team": {1: 12}, "realtime_by_org": {}}},
+            else {"cdp_billable_invocations_in_period": {"legacy_by_team": {1: 12}, "realtime_by_team": {}}},
         }
     ).encode()
     with patch(
@@ -210,6 +210,31 @@ def test_shadow_coverage_distinguishes_zero_from_failure(state: str) -> None:
     assert org.counter_comparisons == (
         {"cdp_billable_invocations_in_period": {"legacy": 12, "realtime": 0}} if state in {"zero", "partial"} else None
     )
+
+
+def test_counter_comparisons_follow_current_team_ownership() -> None:
+    previous_owner = _empty_org_report("org-a")
+    previous_owner.teams["1"] = _empty_org_report("org-a")
+    current_owner = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
+    current_owner.teams["2"] = _empty_org_report("org-b", cdp_billable_invocations_in_period=100)
+    counter_report = UsageCounterReport(
+        counts={},
+        usage_sources={"cdp_billable_invocations_in_period": UsageCounterMode.BOTH},
+        counter_comparisons={
+            "cdp_billable_invocations_in_period": UsageCounterComparisonRows(
+                legacy_by_team={2: 100}, realtime_by_team={2: {"org-a": 60, "org-b": 40}}
+            )
+        },
+    )
+
+    with patch("posthog.tasks.usage_report.ph_scoped_capture") as capture:
+        apply_usage_counter_metadata(
+            {"org-a": previous_owner, "org-b": current_owner}, counter_report, caller="daily_report", date="2026-05-04"
+        )
+
+    assert previous_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 0, "realtime": 0}}
+    assert current_owner.counter_comparisons == {"cdp_billable_invocations_in_period": {"legacy": 100, "realtime": 100}}
+    capture.assert_not_called()
 
 
 # ---- iter_chunk_lines ----------------------------------------------------
