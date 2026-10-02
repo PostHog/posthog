@@ -138,10 +138,13 @@ def bounded_progress_query(query: dict[str, Any], *, start: datetime, end: datet
     source = bounded["source"]
     source["dateRange"] = {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True}
     source["interval"] = "hour" if end - start <= timedelta(days=2) else "day"
-    # Display modifiers must not turn an interim rate into a sum of bucket rates.
+    # Display modifiers must not change the interim values. Cumulative mode turns an interim rate into a sum of
+    # bucket rates, and smoothing floors a rolling average of each bucket count before formulas apply.
     trends_filter = source.get("trendsFilter") or {}
     source["trendsFilter"] = {
-        key: value for key, value in trends_filter.items() if key not in ("cumulative", "aggregationAxisFormat")
+        key: value
+        for key, value in trends_filter.items()
+        if key not in ("cumulative", "smoothingIntervals", "aggregationAxisFormat")
     }
     return bounded
 

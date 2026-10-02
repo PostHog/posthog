@@ -95,6 +95,7 @@ class TestProgressEvaluation(SimpleTestCase):
 
     def test_absolute_bounds_do_not_mutate_the_final_check(self) -> None:
         query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_event"}])
+        query["source"]["trendsFilter"] = {"formula": "A", "cumulative": True, "smoothingIntervals": 3}
         original = deepcopy(query)
         start = datetime(2026, 10, 1, 12, 23, tzinfo=UTC)
         end = start + timedelta(hours=3)
@@ -104,6 +105,7 @@ class TestProgressEvaluation(SimpleTestCase):
             {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
         )
         self.assertEqual(derived["source"]["interval"], "hour")
+        self.assertEqual(derived["source"]["trendsFilter"], {"formula": "A"})
         self.assertEqual(query, original)
         comparison = interim_comparison(
             CheckComparison(operator="between", bounds={"lower": 14, "upper": 28}),
