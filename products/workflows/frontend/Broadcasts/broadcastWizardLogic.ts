@@ -1173,6 +1173,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 router.actions.replace(urls.broadcast(values.broadcastId), { step: values.currentStep })
             }
         },
+        setEmailSettings: () => {
+            // Tracking and category live on the email step, so they share its autosave and pending flag.
+            actions.setEmail(values.email)
+        },
         setEmail: async (_, breakpoint) => {
             // Keeps the saved draft in step with the editor, so an AI edit starts from what the user
             // sees rather than from the last Continue.
