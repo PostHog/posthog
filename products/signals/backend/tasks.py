@@ -7,6 +7,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
@@ -1168,4 +1169,9 @@ def autostart_scout_report(team_id: int, report_id: str) -> None:
         _maybe_autostart_report,  # noqa: PLC0415 - breaks the task/report cycle
     )
 
-    async_to_sync(_maybe_autostart_report)(team_id=team_id, report_id=report_id)
+    try:
+        async_to_sync(_maybe_autostart_report)(team_id=team_id, report_id=report_id)
+    finally:
+        # Autostart reports its skip, steering and billing events on the global client, and a worker
+        # child can exit before that client's background flush runs.
+        posthoganalytics.flush()
