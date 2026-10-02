@@ -131,6 +131,7 @@ _CAUGHT_UP_BUCKETS: Final[tuple[tuple[str, float], ...]] = (
 _NEVER_CAUGHT_UP = "never"
 _CAUGHT_UP_LATER = "beyond_1h"
 _PENDING = "pending"
+_SOURCE_SUPPRESSED = "source_suppressed"
 
 # How long a check needs to sit before "the source never caught up" means anything. Three times
 # the five-minute cadence logs runs at; pass a source's own interval when it differs.
@@ -150,7 +151,8 @@ class ComparisonRun:
     asks whether the source went on to reach the platform's verdict, and how long after. A run
     whose `real` sits mostly in the short buckets is measuring phase skew rather than disagreement.
     `never` is the share worth chasing. `pending` is neither: those checks are too recent for the
-    source to have answered them, and a shorter window makes that share larger.
+    source to have answered them, and a shorter window makes that share larger. `source_suppressed`
+    is the platform checking an alert its source excluded, which is drift rather than a lag.
     """
 
     source: SourceKind
@@ -266,6 +268,9 @@ def _caught_up_bucket(check: PlatformCheck, verdict: SourceVerdict, *, settles_b
     silence is pending rather than disagreement. Without that split, every run of a window ending
     now books its last few minutes of checks into the one bucket worth acting on.
     """
+    if verdict.coverage is SourceCoverage.SUPPRESSED:
+        # The source made no check to catch up with, so its next move into the state dates nothing.
+        return _SOURCE_SUPPRESSED
     if verdict.caught_up_at is None:
         return _PENDING if check.occurred_at > settles_by else _NEVER_CAUGHT_UP
     lag = (verdict.caught_up_at - check.occurred_at).total_seconds()
