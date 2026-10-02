@@ -1,32 +1,35 @@
+import type { AgentRuntime } from "@posthog/shared";
+import type { RunView } from "./runs";
+import { transcriptFrom } from "./transcript";
+
 export interface TurnState {
-  // The chat mid-turn in each pane, by pane id.
-  working: Map<string, string>;
-  // Chats whose turn ended while the reader was on another pane, until they visit.
+  // Chats mid-turn.
+  working: Set<string>;
+  // Chats whose turn ended while the reader was on another chat, until they visit.
   waiting: Set<string>;
 }
 
-export const noTurns: TurnState = { working: new Map(), waiting: new Set() };
+export const noTurns: TurnState = { working: new Set(), waiting: new Set() };
 
-// A pane says on every render which chat it shows and whether that chat is mid-turn; an unchanged report returns the same state.
-export function reportTurn(
+// A chat's turn opened or closed; an unchanged report returns the same state.
+export function settle(
   state: TurnState,
-  paneId: string,
-  taskId: string | null,
+  taskId: string,
   working: boolean,
-  focused: boolean,
+  seen: boolean,
 ): TurnState {
-  const was = state.working.get(paneId);
-  const now = working && taskId ? taskId : undefined;
-  if (was === now) return state;
+  if (state.working.has(taskId) === working) return state;
   const next = {
-    working: new Map(state.working),
+    working: new Set(state.working),
     waiting: new Set(state.waiting),
   };
-  if (now) {
-    next.working.set(paneId, now);
-    next.waiting.delete(now);
-  } else next.working.delete(paneId);
-  if (was && !now && was === taskId && !focused) next.waiting.add(was);
+  if (working) {
+    next.working.add(taskId);
+    next.waiting.delete(taskId);
+  } else {
+    next.working.delete(taskId);
+    if (!seen) next.waiting.add(taskId);
+  }
   return next;
 }
 
@@ -35,4 +38,16 @@ export function visit(state: TurnState, taskId: string | null): TurnState {
   const waiting = new Set(state.waiting);
   waiting.delete(taskId);
   return { ...state, waiting };
+}
+
+// The run is up and has a prompt it has not finished answering.
+export function midTurn(
+  view: RunView,
+  runtime: AgentRuntime | undefined,
+): boolean {
+  return (
+    view.loaded &&
+    (view.status === "queued" || view.status === "in_progress") &&
+    transcriptFrom(runtime, view.entries).turnOpen
+  );
 }
