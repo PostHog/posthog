@@ -179,53 +179,55 @@ async function leaveClub($, closePane) {
     }
 }
 
-function tileAt(currentWorld, currentSnapshot, x, y) {
+// The server sends a map of text characters. One character covers 1 unit from west to east
+// and textMap.unitsPerRow units from north to south.
+function tileAt(currentWorld, currentSnapshot, column, row) {
+    const isHere = (player) =>
+        Math.floor(player.x) === column && Math.floor(player.y / currentWorld.textMap.unitsPerRow) === row
     const you = currentSnapshot.you
-    if (you && you.x === x && you.y === y) {
+    if (you && isHere(you)) {
         return { char: '@', fg: 0x151515, bg: 0xf54e00 }
     }
-    const player = currentSnapshot.players.find((candidate) => candidate.x === x && candidate.y === y)
+    const player = currentSnapshot.players.find(isHere)
     if (player) {
         return { char: '@', fg: SKIN_COLORS[player.skin] || 0xffffff, bg: DEFAULT_COLOR }
     }
-    const object = currentWorld.objects.find(
-        (candidate) =>
-            x >= candidate.x && x < candidate.x + candidate.w && y >= candidate.y && y < candidate.y + candidate.h
-    )
+    const char = currentWorld.textMap.rows[row][column]
+    const object = currentWorld.objects.find((candidate) => candidate.glyph === char)
     if (object) {
-        return { char: object.glyph, fg: 0x151515, bg: Number.parseInt(object.color.slice(1), 16) }
+        return { char, fg: 0x151515, bg: Number.parseInt(object.color.slice(1), 16) }
     }
-    const tile = currentWorld.rows[y][x]
-    if (tile === '#') {
+    if (char === '#') {
         return { char: '█', fg: 0x9a9a9a, bg: DEFAULT_COLOR }
     }
-    if (tile === '~') {
-        return { char: '~', fg: 0x1d4aff, bg: DEFAULT_COLOR }
+    if (char === '~') {
+        return { char: '~', fg: 0x7fd4ff, bg: DEFAULT_COLOR }
+    }
+    if (char === '^') {
+        return { char: '^', fg: 0xff9a3c, bg: DEFAULT_COLOR }
     }
     return { char: '.', fg: currentSnapshot.objects.lightsOn ? 0x6b6b6b : 0x2e2e2e, bg: DEFAULT_COLOR }
 }
 
 function mapCells(currentWorld, currentSnapshot) {
     const words = []
-    for (let y = 0; y < currentWorld.height; y++) {
-        for (let x = 0; x < currentWorld.width; x++) {
-            const tile = tileAt(currentWorld, currentSnapshot, x, y)
+    currentWorld.textMap.rows.forEach((line, row) => {
+        for (let column = 0; column < line.length; column++) {
+            const tile = tileAt(currentWorld, currentSnapshot, column, row)
             words.push(tile.char.codePointAt(0), tile.fg, tile.bg)
         }
-    }
+    })
     return new Uint8Array(Uint32Array.from(words).buffer).toBase64()
 }
 
 function mapLines(currentWorld, currentSnapshot) {
-    const lines = []
-    for (let y = 0; y < currentWorld.height; y++) {
-        let line = ''
-        for (let x = 0; x < currentWorld.width; x++) {
-            line += tileAt(currentWorld, currentSnapshot, x, y).char
+    return currentWorld.textMap.rows.map((line, row) => {
+        let text = ''
+        for (let column = 0; column < line.length; column++) {
+            text += tileAt(currentWorld, currentSnapshot, column, row).char
         }
-        lines.push(line)
-    }
-    return lines
+        return text
+    })
 }
 
 export function register(on) {
@@ -330,8 +332,8 @@ export function register(on) {
             e.surface === 'terminal'
                 ? Raster({
                       key: 'map',
-                      columns: world.width,
-                      rows: world.height,
+                      columns: world.textMap.rows[0].length,
+                      rows: world.textMap.rows.length,
                       cells: mapCells(world, snapshot),
                   })
                 : Box({

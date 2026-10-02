@@ -1,13 +1,22 @@
 import { randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readdir, readFile } from 'node:fs/promises'
+import { dirname, extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { Analytics } from './analytics.ts'
-import { createClubHoguinServer, type StaticFile, trackDeparture } from './server.ts'
+import { createClubHoguinServer, type StaticFile, trackDeparture, trackPoke } from './server.ts'
 import { World } from './world.ts'
 
-const TICK_MS = 120
+const TICK_MS = 50
+
+const CONTENT_TYPES: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.png': 'image/png',
+    '.json': 'application/json',
+}
 
 async function loadStaticFiles(): Promise<Map<string, StaticFile>> {
     const webDir = fileURLToPath(new URL('../web/', import.meta.url))
@@ -15,13 +24,24 @@ async function loadStaticFiles(): Promise<Map<string, StaticFile>> {
         dirname(fileURLToPath(import.meta.resolve('@posthog/hedgehog-mode/package.json'))),
         'assets'
     )
+    const threeDir = dirname(fileURLToPath(import.meta.resolve('three')))
     const files: Array<[string, string, string, string]> = [
-        ['/', join(webDir, 'index.html'), 'text/html; charset=utf-8', 'no-cache'],
-        ['/client.js', join(webDir, 'client.js'), 'text/javascript; charset=utf-8', 'no-cache'],
-        ['/style.css', join(webDir, 'style.css'), 'text/css; charset=utf-8', 'no-cache'],
         ['/assets/sprites.png', join(spritesDir, 'sprites.png'), 'image/png', 'public, max-age=86400'],
         ['/assets/sprites.json', join(spritesDir, 'sprites.json'), 'application/json', 'public, max-age=86400'],
+        // three.module.min.js imports three.core.min.js from its own folder, so the two files keep their names.
+        ...['three.module.min.js', 'three.core.min.js'].map((name): [string, string, string, string] => [
+            `/vendor/three/${name}`,
+            join(threeDir, name),
+            'text/javascript; charset=utf-8',
+            'public, max-age=86400',
+        ]),
     ]
+    for (const name of await readdir(webDir)) {
+        const contentType = CONTENT_TYPES[extname(name)]
+        if (contentType) {
+            files.push([name === 'index.html' ? '/' : `/${name}`, join(webDir, name), contentType, 'no-cache'])
+        }
+    }
     const loaded = await Promise.all(
         files.map(async ([route, path, contentType, cacheControl]) => {
             const file: StaticFile = { body: await readFile(path), contentType, cacheControl }
@@ -52,9 +72,9 @@ async function main(): Promise<void> {
     })
 
     setInterval(() => {
-        for (const departed of world.tick(Date.now())) {
-            trackDeparture(analytics, departed)
-        }
+        const { departed, poked } = world.tick(Date.now())
+        departed.forEach((player) => trackDeparture(analytics, player))
+        poked.forEach((event) => trackPoke(analytics, event))
     }, TICK_MS)
 
     server.listen(port, host, () => {

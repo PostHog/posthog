@@ -1,8 +1,33 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 
 import type { Analytics } from './analytics.ts'
-import { MAP_HEIGHT, MAP_ROWS, MAP_WIDTH, OBJECTS, PHRASES, SKINS, SPAWN } from './content.ts'
-import { type DepartedPlayer, isClientKind, type World } from './world.ts'
+import {
+    CAMPFIRE,
+    DECORATIONS,
+    EMOTES,
+    EXPERIMENT_SIGNIFICANCE_VOTES,
+    LAB_FOOTPRINT,
+    OBJECTS,
+    PHRASES,
+    POND,
+    SKINS,
+    SPAWN,
+    TEXT_MAP_ROWS,
+    TEXT_MAP_UNITS_PER_ROW,
+    WALK_BOUNDS,
+    WALK_SPEED,
+    WORLD_DEPTH,
+    WORLD_WIDTH,
+} from './content.ts'
+import {
+    type ClientKind,
+    type DepartedPlayer,
+    isClientKind,
+    isSkin,
+    LIMITS,
+    type PokeEvent,
+    type World,
+} from './world.ts'
 
 const MAX_BODY_BYTES = 2_048
 const TOKEN_HEADER = 'x-hoguin-token'
@@ -112,6 +137,13 @@ export function trackDeparture(analytics: Analytics, departed: DepartedPlayer): 
     })
 }
 
+export function trackPoke(analytics: Analytics, poked: PokeEvent): void {
+    analytics.capture(poked.playerId, 'club hoguin object poked', {
+        client: poked.client,
+        object_id: poked.objectId,
+    })
+}
+
 export function createClubHoguinServer({
     world,
     analytics,
@@ -120,16 +152,25 @@ export function createClubHoguinServer({
     trustedProxyHops,
 }: ServerDependencies): Server {
     const worldDescription = JSON.stringify({
-        width: MAP_WIDTH,
-        height: MAP_HEIGHT,
-        rows: MAP_ROWS,
+        width: WORLD_WIDTH,
+        depth: WORLD_DEPTH,
+        walkBounds: WALK_BOUNDS,
+        walkSpeed: WALK_SPEED,
         spawn: SPAWN,
+        pond: POND,
+        campfire: CAMPFIRE,
+        decorations: DECORATIONS,
+        lab: LAB_FOOTPRINT,
         objects: OBJECTS,
         phrases: PHRASES,
+        emotes: EMOTES,
         skins: SKINS,
+        pokeReach: LIMITS.pokeReach,
+        significanceVotes: EXPERIMENT_SIGNIFICANCE_VOTES,
+        textMap: { rows: TEXT_MAP_ROWS, unitsPerRow: TEXT_MAP_UNITS_PER_ROW },
     })
 
-    function requirePlayer(request: IncomingMessage): { token: string; id: string; client: string } {
+    function requirePlayer(request: IncomingMessage): { token: string; id: string; client: ClientKind } {
         const token = readToken(request)
         const player = token ? world.touch(token, now()) : null
         if (!token || !player) {
@@ -170,7 +211,10 @@ export function createClubHoguinServer({
                 if (!isClientKind(body.client)) {
                     fail('invalid_client')
                 }
-                const joined = world.join(body.client, clientAddress(request, trustedProxyHops), now())
+                if (body.skin !== undefined && !isSkin(body.skin)) {
+                    fail('invalid_skin')
+                }
+                const joined = world.join(body.client, clientAddress(request, trustedProxyHops), now(), body.skin)
                 if (!joined.ok) {
                     fail(joined.error)
                 }
@@ -180,10 +224,27 @@ export function createClubHoguinServer({
             }
             case '/api/move': {
                 const player = requirePlayer(request)
-                const result = world.moveTo(player.token, body.x, body.y)
+                // A move to an object walks to it and uses it. A move to a point only walks.
+                const result =
+                    body.objectId === undefined
+                        ? world.moveTo(player.token, body.x, body.y)
+                        : world.walkToUse(player.token, body.objectId)
                 if (!result.ok) {
                     fail(result.error)
                 }
+                sendJson(response, 200, { ok: true })
+                return
+            }
+            case '/api/emote': {
+                const player = requirePlayer(request)
+                const result = world.emote(player.token, body.emoteId, now())
+                if (!result.ok) {
+                    fail(result.error)
+                }
+                analytics.capture(player.id, 'club hoguin emote sent', {
+                    client: player.client,
+                    emote_id: String(body.emoteId),
+                })
                 sendJson(response, 200, { ok: true })
                 return
             }
@@ -206,10 +267,7 @@ export function createClubHoguinServer({
                 if (!result.ok) {
                     fail(result.error)
                 }
-                analytics.capture(player.id, 'club hoguin object poked', {
-                    client: player.client,
-                    object_id: result.objectId,
-                })
+                trackPoke(analytics, { playerId: player.id, client: player.client, objectId: result.objectId })
                 sendJson(response, 200, { ok: true, objectId: result.objectId })
                 return
             }

@@ -2,10 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 
 const WORLD = {
     width: 6,
-    height: 4,
-    rows: ['######', '#....#', '#....#', '######'],
-    spawn: { x: 3, y: 2 },
-    objects: [{ id: 'ship', name: 'Ship it button', glyph: 'S', color: '#2BA84A', x: 1, y: 1, w: 1, h: 1 }],
+    depth: 8,
+    textMap: { rows: ['######', '#S...#', '#....#', '######'], unitsPerRow: 2 },
+    objects: [{ id: 'ship', name: 'Ship it button', glyph: 'S', color: '#2BA84A' }],
     phrases: [{ id: 'hi', text: 'Hi hogs! 👋' }],
     skins: ['default'],
 }
@@ -15,8 +14,9 @@ const YOU = {
     name: 'Test Hog',
     skin: 'default',
     client: 'mod',
-    x: 3,
-    y: 2,
+    x: 4.4,
+    y: 3,
+    path: [],
     facing: 'left',
     moving: false,
     bubble: null,
@@ -24,7 +24,7 @@ const YOU = {
 
 const STATE = {
     you: YOU,
-    players: [YOU, { ...YOU, id: 'p2', name: 'Other Hog', client: 'web', x: 4, y: 1 }],
+    players: [YOU, { ...YOU, id: 'p2', name: 'Other Hog', client: 'web', x: 3.2, y: 5 }],
     feed: [{ id: 1, at: 0, text: 'Test Hog waddled in' }],
     objects: { lightsOn: true, doorA: 0, doorB: 0, bugsCaught: 0, deploys: 0 },
     online: 2,
@@ -119,7 +119,7 @@ test('/hoguin joins the club, draws the room, and sends preset phrases and moves
     await ui.press({ key: 'say-hi' })
     await ui.press({ key: 'up' })
     expect(posts(calls, '/api/say')).toEqual([{ phraseId: 'hi' }])
-    expect(posts(calls, '/api/move')).toEqual([{ x: 3, y: -1 }])
+    expect(posts(calls, '/api/move')).toEqual([{ x: 4.4, y: 0 }])
 
     await $.command.run({ command: 'hoguin', args: '' })
     expect(posts(calls, '/api/leave')).toEqual([{}])

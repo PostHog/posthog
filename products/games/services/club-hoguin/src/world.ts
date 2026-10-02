@@ -1,21 +1,24 @@
 import {
     BUG_SPECIES,
+    COLLIDERS,
+    EMOTES,
     EXPERIMENT_SIGNIFICANCE_VOTES,
-    MAP_HEIGHT,
-    MAP_ROWS,
-    MAP_WIDTH,
+    isInsideEllipse,
+    isInsideRect,
     MAX_JOKES,
     NAMES,
     OBJECTS,
     type ObjectId,
     PHRASES,
+    type Rect,
     REPLAY_REELS,
     SKINS,
     SPAWN,
     type Skin,
-    WALL,
-    WATER,
-    type WorldObject,
+    WALK_BOUNDS,
+    WALK_SPEED,
+    WORLD_DEPTH,
+    WORLD_WIDTH,
 } from './content.ts'
 
 export const CLIENT_KINDS = ['web', 'embed', 'mod'] as const
@@ -27,10 +30,17 @@ export const LIMITS = {
     maxPlayersPerAddress: 10,
     idleTimeoutMs: 20_000,
     sayCooldownMs: 1_500,
+    emoteCooldownMs: 800,
     pokeCooldownMs: 1_000,
     bubbleMs: 6_000,
+    emoteMs: 2_500,
     feedSize: 20,
-    pokeReach: 2,
+    pokeReach: 2.2,
+}
+
+export interface Point {
+    x: number
+    y: number
 }
 
 interface Player {
@@ -42,12 +52,17 @@ interface Player {
     address: string
     x: number
     y: number
-    path: Array<{ x: number; y: number }>
+    path: Point[]
+    // The object the hedgehog uses when it gets to the end of its path.
+    intent: ObjectId | null
     facing: Facing
     joinedAt: number
     lastSeenAt: number
+    lastStepAt: number
     bubble: { text: string; until: number } | null
+    emote: { emoji: string; until: number; seq: number } | null
     lastSayAt: number
+    lastEmoteAt: number
     lastPokeAt: number
 }
 
@@ -58,15 +73,23 @@ export interface PlayerView {
     client: ClientKind
     x: number
     y: number
+    // The points the hedgehog still walks through, in order. Clients move the hedgehog along them between polls.
+    path: Point[]
     facing: Facing
     moving: boolean
     bubble: string | null
+    emote: { emoji: string; seq: number } | null
 }
+
+export type FeedKind = 'join' | 'leave' | 'say' | 'poke'
 
 export interface FeedEntry {
     id: number
     at: number
     text: string
+    kind: FeedKind
+    playerId: string
+    objectId?: ObjectId
 }
 
 export interface ObjectState {
@@ -75,6 +98,8 @@ export interface ObjectState {
     doorB: number
     bugsCaught: number
     deploys: number
+    nowPlaying: string | null
+    maxSays: string | null
 }
 
 export interface Snapshot {
@@ -99,6 +124,12 @@ export interface DepartedPlayer {
     durationMs: number
 }
 
+export interface PokeEvent {
+    playerId: string
+    client: ClientKind
+    objectId: ObjectId
+}
+
 export type JoinResult =
     | { ok: true; player: JoinedPlayer }
     | { ok: false; error: 'club_full' | 'too_many_from_address' }
@@ -114,62 +145,163 @@ export function isClientKind(value: unknown): value is ClientKind {
     return typeof value === 'string' && (CLIENT_KINDS as readonly string[]).includes(value)
 }
 
-export function isWalkable(x: number, y: number): boolean {
-    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= MAP_WIDTH || y >= MAP_HEIGHT) {
+export function isSkin(value: unknown): value is Skin {
+    return typeof value === 'string' && (SKINS as readonly string[]).includes(value)
+}
+
+// A hedgehog is a circle of this radius. It keeps this far from a wall, the pond, and every object.
+const BODY_RADIUS = 0.45
+// The side of one cell of the grid that the path search uses.
+const CELL = 0.5
+const COLUMNS = Math.ceil(WORLD_WIDTH / CELL)
+const ROWS = Math.ceil(WORLD_DEPTH / CELL)
+
+// With slack, a point that is up to that far inside a wall or an object still counts as walkable.
+// A path is checked at points 0.1 units apart and a position is rounded to 0.01 units,
+// so a walking hedgehog can be a few hundredths of a unit inside.
+export function isWalkable(x: number, y: number, slack = 0): boolean {
+    if (
+        !Number.isFinite(x) ||
+        !Number.isFinite(y) ||
+        x < WALK_BOUNDS.minX - slack ||
+        x > WALK_BOUNDS.maxX + slack ||
+        y < WALK_BOUNDS.minY - slack ||
+        y > WALK_BOUNDS.maxY + slack
+    ) {
         return false
     }
-    const tile = MAP_ROWS[y]?.[x]
-    if (tile === WALL || tile === WATER) {
-        return false
-    }
-    return !OBJECTS.some(
-        (object) => x >= object.x && x < object.x + object.w && y >= object.y && y < object.y + object.h
+    return !COLLIDERS.some((collider) =>
+        collider.shape === 'rect'
+            ? isInsideRect(collider, x, y, BODY_RADIUS - slack)
+            : isInsideEllipse(collider, x, y, BODY_RADIUS - slack)
     )
 }
 
-function distanceToObject(x: number, y: number, object: WorldObject): number {
-    const dx = Math.max(object.x - x, 0, x - (object.x + object.w - 1))
-    const dy = Math.max(object.y - y, 0, y - (object.y + object.h - 1))
-    return Math.max(dx, dy)
+const cellCenter = (column: number, row: number): Point => ({ x: (column + 0.5) * CELL, y: (row + 0.5) * CELL })
+
+function isLineWalkable(from: Point, to: Point): boolean {
+    const length = Math.hypot(to.x - from.x, to.y - from.y)
+    const steps = Math.max(1, Math.ceil(length / 0.1))
+    for (let step = 0; step <= steps; step++) {
+        const t = step / steps
+        if (!isWalkable(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)) {
+            return false
+        }
+    }
+    return true
 }
 
-// Breadth-first search over the tile grid. When the target is blocked or unreachable,
-// the path ends on the reachable tile closest to it, so a click on an object walks up to it.
-export function findPath(
-    from: { x: number; y: number },
-    to: { x: number; y: number }
-): Array<{ x: number; y: number }> {
-    const index = (x: number, y: number): number => y * MAP_WIDTH + x
-    const distance = (x: number, y: number): number => Math.abs(x - to.x) + Math.abs(y - to.y)
-    const parents = new Map<number, number>([[index(from.x, from.y), -1]])
-    const queue: Array<[number, number]> = [[from.x, from.y]]
-    let best: [number, number] = [from.x, from.y]
-    for (let head = 0; head < queue.length; head++) {
-        const [x, y] = queue[head] as [number, number]
-        if (distance(x, y) < distance(best[0], best[1])) {
-            best = [x, y]
+function distanceToRect(x: number, y: number, rect: Rect): number {
+    const dx = Math.max(rect.x - x, 0, x - (rect.x + rect.w))
+    const dy = Math.max(rect.y - y, 0, y - (rect.y + rect.h))
+    return Math.hypot(dx, dy)
+}
+
+const NEIGHBORS: ReadonlyArray<readonly [number, number]> = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [1, -1],
+    [-1, 1],
+    [-1, -1],
+]
+
+// For each cell, the neighbors that a hedgehog can walk to in a straight line from the center of the cell.
+// A cell with a walkable center can still have a blocked corner, so each step between two cells is checked.
+const OPEN_NEIGHBORS: ReadonlyArray<readonly number[]> = Array.from({ length: COLUMNS * ROWS }, (_cell, index) => {
+    const column = index % COLUMNS
+    const row = Math.floor(index / COLUMNS)
+    const center = cellCenter(column, row)
+    if (!isWalkable(center.x, center.y)) {
+        return []
+    }
+    return NEIGHBORS.filter(([dx, dy]) => {
+        const nextColumn = column + dx
+        const nextRow = row + dy
+        return (
+            nextColumn >= 0 &&
+            nextRow >= 0 &&
+            nextColumn < COLUMNS &&
+            nextRow < ROWS &&
+            isLineWalkable(center, cellCenter(nextColumn, nextRow))
+        )
+    }).map(([dx, dy]) => (row + dy) * COLUMNS + column + dx)
+})
+
+// The cells that a hedgehog at this point can walk to in a straight line: the cell it is in, or one next to it.
+function cellsInReach(from: Point): number[] {
+    const column = Math.min(COLUMNS - 1, Math.max(0, Math.floor(from.x / CELL)))
+    const row = Math.min(ROWS - 1, Math.max(0, Math.floor(from.y / CELL)))
+    const cells: number[] = []
+    for (const [dx, dy] of [[0, 0], ...NEIGHBORS] as Array<[number, number]>) {
+        const nextColumn = column + dx
+        const nextRow = row + dy
+        if (nextColumn < 0 || nextRow < 0 || nextColumn >= COLUMNS || nextRow >= ROWS) {
+            continue
         }
-        if (x === to.x && y === to.y) {
+        const cell = nextRow * COLUMNS + nextColumn
+        if (
+            (OPEN_NEIGHBORS[cell] as readonly number[]).length > 0 &&
+            isLineWalkable(from, cellCenter(nextColumn, nextRow))
+        ) {
+            cells.push(cell)
+        }
+    }
+    return cells
+}
+
+// Breadth-first search over the cell grid, then the path is cut down to the corners that a straight walk needs.
+// When the target is blocked or unreachable, the path ends on the reachable point closest to it,
+// so a click on an object or on the pond walks up to it.
+export function findPath(from: Point, to: Point): Point[] {
+    if (isWalkable(to.x, to.y) && isLineWalkable(from, to)) {
+        return [{ x: to.x, y: to.y }]
+    }
+    const parents = new Map<number, number>()
+    const queue: number[] = cellsInReach(from)
+    queue.forEach((cell) => parents.set(cell, -1))
+    let best = -1
+    let bestDistance = Math.hypot(from.x - to.x, from.y - to.y)
+    for (let head = 0; head < queue.length; head++) {
+        const cell = queue[head] as number
+        const center = cellCenter(cell % COLUMNS, Math.floor(cell / COLUMNS))
+        const distance = Math.hypot(center.x - to.x, center.y - to.y)
+        if (distance < bestDistance) {
+            best = cell
+            bestDistance = distance
+        }
+        if (distance < CELL * 0.75) {
             break
         }
-        for (const [nx, ny] of [
-            [x + 1, y],
-            [x - 1, y],
-            [x, y + 1],
-            [x, y - 1],
-        ] as Array<[number, number]>) {
-            if (isWalkable(nx, ny) && !parents.has(index(nx, ny))) {
-                parents.set(index(nx, ny), index(x, y))
-                queue.push([nx, ny])
+        for (const next of OPEN_NEIGHBORS[cell] as readonly number[]) {
+            if (!parents.has(next)) {
+                parents.set(next, cell)
+                queue.push(next)
             }
         }
     }
-    const path: Array<{ x: number; y: number }> = []
-    for (let at = index(best[0], best[1]); at !== index(from.x, from.y); at = parents.get(at) as number) {
-        path.unshift({ x: at % MAP_WIDTH, y: Math.floor(at / MAP_WIDTH) })
+    const cells: Point[] = []
+    for (let at = best; at !== -1; at = parents.get(at) as number) {
+        cells.unshift(cellCenter(at % COLUMNS, Math.floor(at / COLUMNS)))
+    }
+    if (isWalkable(to.x, to.y) && cells.length > 0 && isLineWalkable(cells[cells.length - 1] as Point, to)) {
+        cells.push({ x: to.x, y: to.y })
+    }
+    const path: Point[] = []
+    let anchor = from
+    for (let index = 0; index < cells.length; index++) {
+        const next = cells[index + 1]
+        if (!next || !isLineWalkable(anchor, next)) {
+            anchor = cells[index] as Point
+            path.push(anchor)
+        }
     }
     return path
 }
+
+const round = (value: number): number => Math.round(value * 100) / 100
 
 export class World {
     private readonly makeId: () => string
@@ -177,7 +309,16 @@ export class World {
     private readonly players = new Map<string, Player>()
     private feed: FeedEntry[] = []
     private nextFeedId = 1
-    private objects: ObjectState = { lightsOn: true, doorA: 0, doorB: 0, bugsCaught: 0, deploys: 0 }
+    private nextEmoteSeq = 1
+    private objects: ObjectState = {
+        lightsOn: true,
+        doorA: 0,
+        doorB: 0,
+        bugsCaught: 0,
+        deploys: 0,
+        nowPlaying: null,
+        maxSays: null,
+    }
 
     constructor(options: WorldOptions) {
         this.makeId = options.makeId
@@ -185,7 +326,7 @@ export class World {
     }
 
     // The address is the network address of the client. The cap per address stops one client from taking every place.
-    join(client: ClientKind, address: string, now: number): JoinResult {
+    join(client: ClientKind, address: string, now: number, skin?: Skin): JoinResult {
         if (this.players.size >= LIMITS.maxPlayers) {
             return { ok: false, error: 'club_full' }
         }
@@ -198,21 +339,25 @@ export class World {
             id: this.makeId(),
             token: this.makeId(),
             name: this.uniqueName(),
-            skin: this.pick(SKINS),
+            skin: skin ?? this.pick(SKINS),
             client,
             address,
             x: spawn.x,
             y: spawn.y,
             path: [],
+            intent: null,
             facing: this.random() < 0.5 ? 'left' : 'right',
             joinedAt: now,
             lastSeenAt: now,
+            lastStepAt: now,
             bubble: null,
+            emote: null,
             lastSayAt: -Infinity,
+            lastEmoteAt: -Infinity,
             lastPokeAt: -Infinity,
         }
         this.players.set(player.token, player)
-        this.post(now, `${player.name} waddled in`)
+        this.post(now, 'join', player, `${player.name} waddled in`)
         return { ok: true, player: { id: player.id, token: player.token, name: player.name, skin: player.skin } }
     }
 
@@ -231,10 +376,26 @@ export class World {
         if (!player) {
             return { ok: false, error: 'unknown_player' }
         }
-        if (typeof x !== 'number' || typeof y !== 'number' || !Number.isInteger(x) || !Number.isInteger(y)) {
+        if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
             return { ok: false, error: 'invalid_target' }
         }
         player.path = findPath(player, { x, y })
+        player.intent = null
+        return { ok: true }
+    }
+
+    // Walks the hedgehog to the object. The hedgehog uses the object when it gets there.
+    walkToUse(token: string, objectId: unknown): ActionResult {
+        const player = this.players.get(token)
+        if (!player) {
+            return { ok: false, error: 'unknown_player' }
+        }
+        const object = OBJECTS.find((candidate) => candidate.id === objectId)
+        if (!object) {
+            return { ok: false, error: 'unknown_object' }
+        }
+        player.path = findPath(player, object.stand)
+        player.intent = object.id
         return { ok: true }
     }
 
@@ -252,7 +413,24 @@ export class World {
         }
         player.lastSayAt = now
         player.bubble = { text: phrase.text, until: now + LIMITS.bubbleMs }
-        this.post(now, `${player.name}: ${phrase.text}`)
+        this.post(now, 'say', player, `${player.name}: ${phrase.text}`)
+        return { ok: true }
+    }
+
+    emote(token: string, emoteId: unknown, now: number): ActionResult {
+        const player = this.players.get(token)
+        if (!player) {
+            return { ok: false, error: 'unknown_player' }
+        }
+        const emote = EMOTES.find((candidate) => candidate.id === emoteId)
+        if (!emote) {
+            return { ok: false, error: 'unknown_emote' }
+        }
+        if (now - player.lastEmoteAt < LIMITS.emoteCooldownMs) {
+            return { ok: false, error: 'cooldown' }
+        }
+        player.lastEmoteAt = now
+        player.emote = { emoji: emote.emoji, until: now + LIMITS.emoteMs, seq: this.nextEmoteSeq++ }
         return { ok: true }
     }
 
@@ -268,8 +446,10 @@ export class World {
         const inReach = OBJECTS.filter(
             (object) =>
                 (objectId === undefined || object.id === objectId) &&
-                distanceToObject(player.x, player.y, object) <= LIMITS.pokeReach
-        ).sort((a, b) => distanceToObject(player.x, player.y, a) - distanceToObject(player.x, player.y, b))
+                distanceToRect(player.x, player.y, object.footprint) <= LIMITS.pokeReach
+        ).sort(
+            (a, b) => distanceToRect(player.x, player.y, a.footprint) - distanceToRect(player.x, player.y, b.footprint)
+        )
         const object = inReach[0]
         if (!object) {
             return { ok: false, error: 'too_far' }
@@ -278,7 +458,7 @@ export class World {
             return { ok: false, error: 'cooldown' }
         }
         player.lastPokeAt = now
-        this.post(now, this.pokeObject(object.id, player.name))
+        this.post(now, 'poke', player, this.pokeObject(object.id, player.name), object.id)
         return { ok: true, objectId: object.id }
     }
 
@@ -288,16 +468,17 @@ export class World {
             return null
         }
         this.players.delete(token)
-        this.post(now, `${player.name} waddled off`)
+        this.post(now, 'leave', player, `${player.name} waddled off`)
         return { id: player.id, client: player.client, reason: 'left', durationMs: now - player.joinedAt }
     }
 
-    tick(now: number): DepartedPlayer[] {
+    tick(now: number): { departed: DepartedPlayer[]; poked: PokeEvent[] } {
         const departed: DepartedPlayer[] = []
+        const poked: PokeEvent[] = []
         for (const player of this.players.values()) {
             if (now - player.lastSeenAt > LIMITS.idleTimeoutMs) {
                 this.players.delete(player.token)
-                this.post(now, `${player.name} wandered off`)
+                this.post(now, 'leave', player, `${player.name} wandered off`)
                 departed.push({
                     id: player.id,
                     client: player.client,
@@ -309,9 +490,19 @@ export class World {
             if (player.bubble && player.bubble.until <= now) {
                 player.bubble = null
             }
-            this.step(player)
+            if (player.emote && player.emote.until <= now) {
+                player.emote = null
+            }
+            this.step(player, now)
+            if (player.intent && player.path.length === 0) {
+                const objectId = player.intent
+                player.intent = null
+                if (this.poke(player.token, objectId, now).ok) {
+                    poked.push({ playerId: player.id, client: player.client, objectId })
+                }
+            }
         }
-        return departed
+        return { departed, poked }
     }
 
     snapshot(token: string | null): Snapshot {
@@ -326,30 +517,43 @@ export class World {
         }
     }
 
-    private step(player: Player): void {
-        const next = player.path.shift()
-        if (!next) {
-            return
+    // Moves the hedgehog along its path by the distance it walks in the time since the last step.
+    private step(player: Player, now: number): void {
+        let budget = (WALK_SPEED * Math.max(0, now - player.lastStepAt)) / 1000
+        player.lastStepAt = now
+        while (budget > 0 && player.path.length > 0) {
+            const next = player.path[0] as Point
+            const distance = Math.hypot(next.x - player.x, next.y - player.y)
+            if (Math.abs(next.x - player.x) > 0.01) {
+                player.facing = next.x < player.x ? 'left' : 'right'
+            }
+            if (distance <= budget) {
+                player.x = next.x
+                player.y = next.y
+                player.path.shift()
+                budget -= distance
+            } else {
+                player.x += ((next.x - player.x) / distance) * budget
+                player.y += ((next.y - player.y) / distance) * budget
+                budget = 0
+            }
         }
-        if (next.x !== player.x) {
-            player.facing = next.x < player.x ? 'left' : 'right'
-        }
-        player.x = next.x
-        player.y = next.y
     }
 
     private pokeObject(objectId: ObjectId, name: string): string {
         switch (objectId) {
             case 'flag':
                 this.objects.lightsOn = !this.objects.lightsOn
-                return `${name} set cozy-lighting to ${this.objects.lightsOn ? 'true' : 'false'} for 100% of hogs`
+                return `${name} set night-mode to ${this.objects.lightsOn ? 'false' : 'true'} for 100% of hogs`
             case 'replay':
-                return `Now playing in the replay cinema: ${this.pick(REPLAY_REELS)}`
+                this.objects.nowPlaying = this.pick(REPLAY_REELS)
+                return `Now playing in the replay cinema: ${this.objects.nowPlaying}`
             case 'max':
-                return `Max says: ${this.pick(MAX_JOKES)}`
+                this.objects.maxSays = this.pick(MAX_JOKES)
+                return `Max says: ${this.objects.maxSays}`
             case 'bugs':
                 this.objects.bugsCaught += 1
-                return `${name} caught a ${this.pick(BUG_SPECIES)} and assigned it to themselves (${this.objects.bugsCaught} in the jar)`
+                return `${name} caught a ${this.pick(BUG_SPECIES)} (${this.objects.bugsCaught} in the jar)`
             case 'door-a':
             case 'door-b':
                 return this.voteDoor(objectId === 'door-a' ? 'A' : 'B', name)
@@ -379,25 +583,27 @@ export class World {
             name: player.name,
             skin: player.skin,
             client: player.client,
-            x: player.x,
-            y: player.y,
+            x: round(player.x),
+            y: round(player.y),
+            path: player.path.map((point) => ({ x: round(point.x), y: round(point.y) })),
             facing: player.facing,
             moving: player.path.length > 0,
             bubble: player.bubble?.text ?? null,
+            emote: player.emote ? { emoji: player.emote.emoji, seq: player.emote.seq } : null,
         }
     }
 
-    private post(now: number, text: string): void {
-        this.feed.push({ id: this.nextFeedId++, at: now, text })
+    private post(now: number, kind: FeedKind, player: Player, text: string, objectId?: ObjectId): void {
+        this.feed.push({ id: this.nextFeedId++, at: now, text, kind, playerId: player.id, objectId })
         if (this.feed.length > LIMITS.feedSize) {
             this.feed = this.feed.slice(-LIMITS.feedSize)
         }
     }
 
-    private spawnPoint(): { x: number; y: number } {
+    private spawnPoint(): Point {
         for (let attempt = 0; attempt < 20; attempt++) {
-            const x = SPAWN.x + Math.floor(this.random() * 7) - 3
-            const y = SPAWN.y + Math.floor(this.random() * 5) - 2
+            const x = SPAWN.x + (this.random() - 0.5) * 8
+            const y = SPAWN.y + (this.random() - 0.5) * 4
             if (isWalkable(x, y)) {
                 return { x, y }
             }

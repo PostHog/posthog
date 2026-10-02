@@ -13,7 +13,8 @@
         "test:mod": "cd mod && claude plugin validate . && claude plugin test"
     },
     "dependencies": {
-        "@posthog/hedgehog-mode": "^0.0.60"
+        "@posthog/hedgehog-mode": "^0.0.60",
+        "three": "^0.180.0"
     },
     "devDependencies": {
         "@types/node": "catalog:",
