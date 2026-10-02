@@ -36,7 +36,7 @@ export type ConfigurationFetchReason =
     | 'cross_domain_redirect'
     | 'invalid_redirect'
     | 'missing_location'
-    | 'http_429'
+    | `http_${number}`
     | 'http_5xx'
     | 'unexpected_status'
     | 'body_limit'
