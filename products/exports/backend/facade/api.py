@@ -4,6 +4,7 @@ from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db.models import Q, QuerySet
 from django.http.response import HttpResponseBase
 
 import structlog
@@ -135,6 +136,50 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
         Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
             "dashboard_id", flat=True
         )
+    )
+
+
+def _verified_subscriptions(team_id: int) -> QuerySet[Subscription]:
+    # A disabled or deleted subscription delivers nothing, and enabling or restoring it runs the
+    # save-time table-access check again. AI prompt subscriptions never have the timestamp.
+    return Subscription.objects.filter(
+        team_id=team_id, deleted=False, enabled=True, query_access_verified_at__isnull=False
+    )
+
+
+def verified_subscription_delivers_insight(*, team_id: int, insight_id: int) -> bool:
+    """Whether a subscription that passed the save-time table-access check delivers this insight.
+
+    A subscription delivers the insight when it targets the insight, when its dashboard selection
+    names the insight, or when it has no selection and the insight is a live tile of its dashboard.
+    A selected insight counts even while it is not a live tile, because the selection keeps it and
+    delivers it again when the tile comes back.
+    """
+    verified = _verified_subscriptions(team_id)
+    if verified.filter(insight_id=insight_id).exists():
+        return True
+    if verified.filter(dashboard_export_insights=insight_id).exists():
+        return True
+    # The tile conditions stay in one filter() call so that they match the same joined row.
+    return verified.filter(
+        Q(dashboard__tiles__deleted__isnull=True) | Q(dashboard__tiles__deleted=False),
+        dashboard__tiles__insight_id=insight_id,
+        dashboard__deleted=False,
+        dashboard_export_insights__isnull=True,
+    ).exists()
+
+
+def verified_subscription_delivers_whole_dashboard(*, team_id: int, dashboard_id: int) -> bool:
+    """Whether a subscription that passed the save-time table-access check delivers every insight
+    on this dashboard, which includes an insight added after the check.
+
+    A subscription with an insight selection does not count, because it does not deliver a tile
+    that is outside its selection.
+    """
+    return (
+        _verified_subscriptions(team_id)
+        .filter(dashboard_id=dashboard_id, dashboard_export_insights__isnull=True)
+        .exists()
     )
 
 

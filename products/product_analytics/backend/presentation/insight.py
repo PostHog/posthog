@@ -44,7 +44,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
+from posthog.api.sharing_publish_gate import blocked_access_for_user, exposure_without_viewer_check
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -869,7 +869,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Shared links execute without access checks, so an edit that adds a table
         # the editor can't run must not reach a publicly shared surface.
-        # Unshared insights save without any access query.
+        # The same holds for an insight that a checked subscription delivers.
+        # Other insights save without any access query.
         new_query = validated_data.get("query")
         if (
             isinstance(new_query, dict)
@@ -877,14 +878,13 @@ class InsightSerializer(InsightBasicSerializer):
             and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
             and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and is_publicly_shared(instance)
+            and (exposure := exposure_without_viewer_check(instance))
         ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:
                 blocked_list = ", ".join(f"`{name}`" for name in blocked)
                 raise serializers.ValidationError(
-                    f"Can't save this query: you don't have access to {blocked_list}, "
-                    "and this insight is publicly shared."
+                    f"Can't save this query: you don't have access to {blocked_list}, and {exposure}."
                 )
 
         with transaction.atomic():
