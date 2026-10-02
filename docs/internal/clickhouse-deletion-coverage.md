@@ -177,7 +177,7 @@ Neither restores what earlier runs left behind. That needs a backfill sweep over
 `person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
 Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
 
-The events property-removal path copies each shard's matching rows to S3 with the keys dropped and each affected materialized column reset to `''`, then deletes the originals and inserts the cleaned copy back.
+The events property-removal path copies each shard's matching rows to S3 with the keys dropped and each affected materialized column reset (`NULL` when nullable, `''` otherwise), then deletes the originals and inserts the cleaned copy back.
 That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
 
 All of that machinery (column discovery, staged rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.

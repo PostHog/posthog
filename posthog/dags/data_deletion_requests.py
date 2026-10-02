@@ -1106,6 +1106,19 @@ def _cleaned_select_list(
     return names, expressions, params
 
 
+def _sync_replica(client: Client, target: PropertyRemovalTarget, log: QueryLogger) -> None:
+    """Fetch every part other replicas of this shard hold before the next read.
+
+    The delete is a replicated mutation, so it removes matching rows on every replica. A host that has
+    not fetched a part inserted elsewhere would copy and count without those rows, and the delete would
+    then remove rows no copy holds. LIGHTWEIGHT waits only for part fetches already queued, not for
+    merges, so it stays bounded on a table that keeps ingesting.
+    """
+    sql = f"SYSTEM SYNC REPLICA {django_settings.CLICKHOUSE_DATABASE}.{target.table} LIGHTWEIGHT"
+    log("sync-replica", sql)
+    client.execute(sql)
+
+
 def _run_on_shard(cluster: ClickhouseCluster, target: PropertyRemovalTarget, fn: Callable[[Client], T]) -> T:
     """Run ``fn`` on one host of the target's shard and return its result."""
     try:
@@ -1186,6 +1199,7 @@ def copy_property_removal_shard(
             log("skip", "copy already finished")
             return steps[_COPIED]
 
+        _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
         names, expressions, select_params = _cleaned_select_list(
             client, deletion_request, target, predicate.mat_cols, marker_str
@@ -1268,6 +1282,7 @@ def delete_property_removal_shard(
                 f"expected={copied['months']}, staged={staged}. Do not delete; investigate."
             )
 
+        _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
         count_sql = f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}"
         log("count-originals", count_sql)
@@ -1413,6 +1428,7 @@ def verify_property_removal_shard(
             log("skip", "verify already finished")
             return stats
 
+        _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
         remaining = client.execute(
             f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}",
