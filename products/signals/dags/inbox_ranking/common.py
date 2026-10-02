@@ -37,6 +37,13 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
 
+# Artefact actors whose writes count as a person acting on a report. `agent` is an external MCP
+# client that authenticates as a real user, so a person drove it. `task` is a self-driving sandbox
+# (scouts, implementation runs) and `system` is the pipeline: their claims, notes and PRs are
+# internal operational writes, far more frequent than the human ones, and say nothing about intent.
+# A null actor is a legacy or system write, so it is also excluded.
+HUMAN_ACTOR_KINDS = ("user", "agent")
+
 partition_def = dagster.DailyPartitionsDefinition(start_date="2026-04-01")
 
 owner_tags: dict[str, str] = {"owner": JobOwners.TEAM_SELF_DRIVING.value}

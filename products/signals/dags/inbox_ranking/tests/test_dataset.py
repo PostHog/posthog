@@ -12,7 +12,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
@@ -30,6 +30,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_STREAMS,
     LABELED_REPORT_IDS_SQL,
     OUTCOME_FIRST_EVENT_COLUMNS,
+    SERVER_ACTIONS_COLUMNS,
     STATUS_COLUMNS,
     STATUS_SQL,
     hogql_rows,
@@ -189,14 +190,15 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
         "impressions": [(UUID_A, T1.replace(tzinfo=None), 5, 2, 3, 1, ["error_tracking"])],
         "opens": [(UUID_A.upper(), T2, 4, 2), (UUID_B, T2, 1, 1)],
         "actions": [
-            ("bogus-id", 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1, 1, T1),
+            ("bogus-id", *([1, T1] * 12)),
             # Distinct values per column, so a shifted or swapped ACTIONS_SQL/ACTIONS_COLUMNS
             # position lands a wrong value in some asserted field below.
-            (UUID_B, 5, T1, 0, None, 6, T2, 7, T1, 2, T1, 3, T2, 4, T1),
+            (UUID_B, 5, T1, 0, None, 6, T2, 7, T1, 2, T1, 3, T2, 4, T1, 8, T2, 9, T1, 10, T2, 11, T1, 12, T2),
         ],
         "feedback": [(UUID_B, 2, T1, 1, T2, T1, "negative")],
         "status_changes": [],
         "pr_events": [(UUID_B, 1, T1, 1, T2, 1, T2)],
+        "server_actions": [(UUID_B, 13, T1, 14, T2, 15, T1, 16, T2)],
     }
     rows = {row["report_id"]: row for row in merge_label_streams(stream_rows, SNAPSHOT_DATE)}
 
@@ -231,6 +233,19 @@ def test_merge_label_streams_fills_defaults_and_maps_columns():
     assert r2["first_reviewer_removed_at"] == T2
     assert r2["resolve_click_count"] == 4
     assert r2["first_resolve_clicked_at"] == T1
+    assert r2["copy_prompt_count"] == 8
+    assert r2["first_prompt_copied_at"] == T2
+    assert r2["implement_click_count"] == 9
+    assert r2["open_pr_click_count"] == 10
+    assert r2["view_diff_count"] == 11
+    assert r2["restore_count"] == 12
+    assert r2["first_restored_at"] == T2
+    assert r2["claim_count"] == 13
+    assert r2["first_claimed_at"] == T1
+    assert r2["linked_pr_count"] == 14
+    assert r2["note_count"] == 15
+    assert r2["slack_discussion_count"] == 16
+    assert r2["first_slack_discussed_at"] == T2
 
 
 @pytest.mark.parametrize("alias_first", [True, False])
@@ -257,6 +272,7 @@ def test_stream_row_width_mismatch_fails_loudly():
 def test_label_stream_columns_all_exist_in_defaults():
     for _name, _sql, columns in LABEL_STREAMS:
         assert set(columns) <= set(LABEL_DEFAULTS)
+    assert set(SERVER_ACTIONS_COLUMNS) <= set(LABEL_DEFAULTS)
 
 
 def test_every_outcome_count_is_paired_with_a_first_event_timestamp():
@@ -439,6 +455,56 @@ class TestSpineInclusion(BaseTest):
         assert metadata["excluded_no_training_consent_teams"].value == 2
 
 
+class TestServerActions(BaseTest):
+    def test_only_actions_a_person_or_an_external_agent_wrote_before_the_cutoff_count(self):
+        snapshot_end = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="t", summary="s")
+        claims = {
+            kind: SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.WORK_CLAIM,
+                content="{}",
+                actor_kind=kind,
+            )
+            for kind in ("user", "agent", "task", "system", None)
+        }
+        for kind in ("task", "user"):
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.NOTE,
+                content="{}",
+                actor_kind=kind,
+            )
+        late_note = SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=SignalReportArtefact.ArtefactType.NOTE, content="{}", actor_kind="user"
+        )
+        SignalReportArtefact.objects.filter(id=late_note.id).update(
+            created_at=snapshot_end + datetime.timedelta(hours=1)
+        )
+        SignalReportAction.all_teams.create(
+            team=self.team,
+            report=report,
+            user=self.user,
+            type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+            count=5,
+            last_at=snapshot_end,
+        )
+
+        rows = dag.server_action_rows([str(report.id)], snapshot_end)
+
+        assert len(rows) == 1
+        row = dict(zip(("report_id", *SERVER_ACTIONS_COLUMNS), rows[0], strict=True))
+        assert row["report_id"] == str(report.id)
+        assert row["claim_count"] == 2
+        assert row["first_claimed_at"] == claims["user"].created_at
+        assert row["note_count"] == 1
+        assert row["linked_pr_count"] == 0
+        assert row["first_pr_linked_at"] is None
+        assert row["slack_discussion_count"] == 1
+
+
 class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
     def test_impressions_survive_a_numeric_property_definition(self, _name, sql):
@@ -559,6 +625,17 @@ class TestStatusStream(ClickhouseTestMixin, BaseTest):
         # The forged dismissal is the only one in the later_bucket case, so an unscoped min() dates
         # a dismissal the report's tenant never made.
         assert row["first_dismissed_server_at"] != T1
+
+    @parameterized.expand([("reasoned", "fixed_outside_posthog", 1), ("reasonless", None, 0), ("empty", "", 0)])
+    def test_only_a_reasoned_resolve_counts_as_a_reasoned_resolution(self, _name, reason, expected_count):
+        # A reason-less resolve is the automatic resolve after a tracked PR merges, not a person
+        # acting on the report.
+        self._transition(T1, "ready", "resolved", reason)
+
+        row = self._status_row()
+        assert row["first_resolved_at"] == T1
+        assert row["reasoned_resolution_count"] == expected_count
+        assert row["first_reasoned_resolved_at"] == (T1 if expected_count else None)
 
     def test_no_status_column_reads_an_event_from_another_tenant(self):
         # Forged-event invariance: transitions naming another team, all earlier than the genuine
