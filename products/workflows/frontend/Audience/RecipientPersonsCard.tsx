@@ -34,7 +34,9 @@ export function RecipientPersonsCard({ recipient }: { recipient: RecipientApi })
                                 <Link to={urls.personByUUID(person.uuid)} className="font-medium wrap-anywhere">
                                     {person.name ?? person.distinct_id}
                                 </Link>
-                                <span className="text-xs text-secondary wrap-anywhere">{person.distinct_id}</span>
+                                {person.name && (
+                                    <span className="text-xs text-secondary wrap-anywhere">{person.distinct_id}</span>
+                                )}
                             </div>
                         ))}
                     </div>

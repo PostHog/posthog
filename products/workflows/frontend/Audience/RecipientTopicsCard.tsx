@@ -61,7 +61,7 @@ export function RecipientTopicsCard({ recipient }: { recipient: RecipientApi }):
                         Last changed <TZLabel time={recipient.preferences_updated_at} />
                     </>
                 ) : (
-                    'No preference recorded yet, so marketing email is sent by default.'
+                    'No preference recorded yet.'
                 )}
             </p>
         </LemonCard>

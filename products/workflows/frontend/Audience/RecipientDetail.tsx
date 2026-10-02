@@ -1,10 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconExternal } from '@posthog/icons'
+import { IconArrowLeft, IconCopy, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
@@ -37,11 +37,18 @@ function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Eleme
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="m-0 text-xl font-semibold wrap-anywhere min-w-0">
-                    <CopyToClipboardInline explicitValue={recipient.email} description="email address">
-                        <span translate="no">{recipient.email}</span>
-                    </CopyToClipboardInline>
-                </h2>
+                <div className="flex items-center gap-1 min-w-0">
+                    <h2 className="m-0 text-xl font-semibold wrap-anywhere min-w-0" translate="no">
+                        {recipient.email}
+                    </h2>
+                    <LemonButton
+                        size="small"
+                        icon={<IconCopy />}
+                        onClick={() => void copyToClipboard(recipient.email, 'email address')}
+                        tooltip="Copy email address"
+                        data-attr="audience-recipient-copy-email"
+                    />
+                </div>
                 <OpenPreferencesPageButton />
             </div>
             {recipient.suppression && <RecipientSuppressionBanner suppression={recipient.suppression} />}
