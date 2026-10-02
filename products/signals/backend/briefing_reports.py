@@ -1,13 +1,15 @@
 """Reports that matter to one person, for the Today briefing.
 
-The briefing ranks items across products, so this module only answers "which reports relate to this
-person, and how". It does not order across relations; the caller does that.
+This module answers "which reports relate to this person, and how", and orders them with the
+served ranking model. The Today briefing and the inbox `for_you` list share this order.
 """
 
 import re
+import math
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
+from fractions import Fraction
 
 from django.db.models import Count, Q, QuerySet
 
@@ -38,6 +40,19 @@ _SUMMARY_LIMIT = 300
 # The hover card shows more of the summary than the briefing writer reads.
 SUMMARY_LEAD_LIMIT = 450
 PR_MERGED_HEAD = "pr_merged"
+ACTION_HEAD = "action"
+DISMISS_WRONG_HEAD = "dismiss_wrong"
+# A report the model expects to be dismissed as wrong at this many times the head's base rate is
+# left out. The rule only applies to a model that saved a classification threshold for the head,
+# because a raw probability is not calibrated and changes meaning with each model version.
+DISMISS_WRONG_HIDE_LIFT = 3.0
+# The share of the slots after P0 that goes to the reports waiting for the person, rounded up so the
+# first slot is always theirs. The rest goes to the reports most likely to end with a merged PR, so
+# the input queue cannot fill the whole list. A Fraction keeps the rounding exact.
+NEEDS_YOU_SHARE = Fraction(2, 5)
+# A bound on the reports each relation reads, so one person with a very large inbox cannot make
+# the briefing slow. It is far above the number of open reports a person usually has.
+_CANDIDATES_PER_RELATION = 200
 
 
 class BriefingReportRelation(StrEnum):
@@ -118,17 +133,27 @@ def _priorities(report_ids: Sequence[str]) -> dict[str, str]:
     return latest
 
 
-def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
-    """The served model's `pr_merged` probability from each report's latest score.
+@frozen
+class _ServedScores:
+    """The readable heads of a report's latest served score that the briefing ranks on."""
+
+    pr_merged: float | None
+    action: float | None
+    dismiss_wrong_lift: float | None
+
+
+def _served_scores(report_ids: Sequence[str]) -> dict[str, _ServedScores]:
+    """The served model's probabilities from each report's latest score.
 
     A head without a holdout AUC is not readable, so its probability is left out rather than
     trusted. The inbox serializer applies the same readability rule.
     """
     from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the facade import path
+        head_lifts,
         readable_head_names,
     )
 
-    probabilities: dict[str, float] = {}
+    scores: dict[str, _ServedScores] = {}
     for report_id, content in _latest_artefacts(report_ids, SignalReportArtefact.ArtefactType.RANKING_SCORE).items():
         try:
             score = RankingScore.model_validate_json(content)
@@ -136,10 +161,15 @@ def _pr_merged_probabilities(report_ids: Sequence[str]) -> dict[str, float]:
             logger.warning("signals.briefing.ranking_score_unreadable", report_id=report_id)
             continue
         served = score.results[score.served_key]
-        probability = served.scores.get(PR_MERGED_HEAD)
-        if probability is not None and PR_MERGED_HEAD in readable_head_names(served.metadata):
-            probabilities[report_id] = probability
-    return probabilities
+        readable = readable_head_names(served.metadata)
+        # A score written before lifts were stored carries the metadata to compute them.
+        lifts = served.lifts or head_lifts(served.scores, served.metadata)
+        scores[report_id] = _ServedScores(
+            pr_merged=served.scores.get(PR_MERGED_HEAD) if PR_MERGED_HEAD in readable else None,
+            action=served.scores.get(ACTION_HEAD) if ACTION_HEAD in readable else None,
+            dismiss_wrong_lift=lifts.get(DISMISS_WRONG_HEAD) if DISMISS_WRONG_HEAD in readable else None,
+        )
+    return scores
 
 
 def _open_reports(team_id: int) -> QuerySet[SignalReport]:
@@ -175,30 +205,72 @@ def _source_products(team_id: int, report_ids: Sequence[str]) -> dict[str, list[
     return {report_id: meta.source_products for report_id, meta in metadata.items()}
 
 
-def _briefing_order(
-    relation: BriefingReportRelation, priority: str | None, merge_chance: float | None, updated_at: datetime
-) -> tuple[float, ...]:
-    """Relation first. Inside a relation: P0, then the higher chance of a merged PR, then priority,
-    then newest. A report without a score follows the scored ones, so with no scores at all the
-    order falls back to priority."""
+_NO_SCORES = _ServedScores(pr_merged=None, action=None, dismiss_wrong_lift=None)
+
+
+@frozen
+class _BriefingCandidate:
+    report_id: str
+    relation: BriefingReportRelation
+    priority: str | None
+    updated_at: datetime
+    scores: _ServedScores
+
+
+def _lane_order(priority: str | None, chance: float | None, updated_at: datetime) -> tuple[float, ...]:
+    """The higher chance first, then priority, then newest. A report without a score follows the
+    scored ones, so with no scores at all the order falls back to priority."""
     return (
-        _RELATION_ORDER[relation],
-        0 if priority == "P0" else 1,
-        0 if merge_chance is not None else 1,
-        -(merge_chance or 0.0),
+        0 if chance is not None else 1,
+        -(chance or 0.0),
         _PRIORITY_ORDER.get(priority or "", 5),
         -updated_at.timestamp(),
     )
 
 
-def reports_for_briefing(
-    *, team_id: int, user_id: int, limit_per_relation: int = 5, limit: int | None = None
-) -> list[BriefingReport]:
+def _likely_dismissed_as_wrong(candidate: _BriefingCandidate) -> bool:
+    # A P0 always shows, because a missed real P0 costs more than one wrong item in the list.
+    lift = candidate.scores.dismiss_wrong_lift
+    return candidate.priority != "P0" and lift is not None and lift >= DISMISS_WRONG_HIDE_LIFT
+
+
+def _briefing_pick(candidates: Sequence[_BriefingCandidate], limit: int | None) -> list[_BriefingCandidate]:
+    """P0 reports first. Then the reports that wait for the person's input, by the chance that they
+    act on it. Then the reports they can ship, by the chance of a merged PR.
+
+    A report waiting for input needs a decision, not a merge, so its merge chance says little about
+    it. With a `limit`, the waiting reports get `NEEDS_YOU_SHARE` of the slots left after P0, and a
+    lane with too few reports gives its free slots to the other lane.
+    """
+    kept = [c for c in candidates if not _likely_dismissed_as_wrong(c)]
+    urgent = sorted(
+        (c for c in kept if c.priority == "P0"),
+        key=lambda c: (_RELATION_ORDER[c.relation], *_lane_order(c.priority, c.scores.pr_merged, c.updated_at)),
+    )
+    needs_you = sorted(
+        (c for c in kept if c.priority != "P0" and c.relation == BriefingReportRelation.WAITING_FOR_YOU),
+        key=lambda c: _lane_order(c.priority, c.scores.action, c.updated_at),
+    )
+    to_ship = sorted(
+        (c for c in kept if c.priority != "P0" and c.relation != BriefingReportRelation.WAITING_FOR_YOU),
+        key=lambda c: _lane_order(c.priority, c.scores.pr_merged, c.updated_at),
+    )
+    if limit is None:
+        return urgent + needs_you + to_ship
+    free = max(limit - len(urgent), 0)
+    to_ship_slots = min(len(to_ship), free - math.ceil(free * NEEDS_YOU_SHARE))
+    needs_you_slots = min(len(needs_you), free - to_ship_slots)
+    to_ship_slots = min(len(to_ship), free - needs_you_slots)
+    return (urgent + needs_you[:needs_you_slots] + to_ship[:to_ship_slots])[:limit]
+
+
+def reports_for_briefing(*, team_id: int, user_id: int, limit: int | None = None) -> list[BriefingReport]:
     """Open, actionable reports for one person, in briefing order, each tagged with its strongest relation.
 
-    A report appears once, under the first `BriefingReportRelation` that matches. Each relation
-    contributes its newest `limit_per_relation` rows (more for urgent-unowned, which is filtered to
-    P0 afterwards) to the candidate set; `limit` then keeps the best of the ranked set.
+    A report appears once, under the first `BriefingReportRelation` that matches. Every open report
+    of a relation is a candidate, up to `_CANDIDATES_PER_RELATION`, so the model ranks the whole
+    set and not only the newest reports. Urgent-unowned keeps only P0. `_briefing_pick` orders the
+    candidates and `limit` keeps the best of them.
     """
     open_reports = _open_reports(team_id)
     names_me = _names_person(team_id, User.objects.get(id=user_id))
@@ -219,56 +291,63 @@ def reports_for_briefing(
             ),
         ),
     ]
-    seen: set[str] = set()
-    picked: list[tuple[BriefingReportRelation, SignalReport]] = []
+    relations: dict[str, BriefingReportRelation] = {}
+    updated: dict[str, datetime] = {}
     for relation, condition in buckets:
-        # Urgent-unowned is only meaningful at P0, which is filtered after the priority lookup,
-        # so it reads a wider page than the other buckets.
-        page = limit_per_relation * 4 if relation == BriefingReportRelation.URGENT_UNOWNED else limit_per_relation
-        for report in open_reports.filter(condition).order_by("-updated_at")[:page]:
-            key = str(report.id)
-            if key not in seen:
-                seen.add(key)
-                picked.append((relation, report))
-    # Priorities decide which urgent-unowned rows survive, so they load for every picked row; the
-    # other lookups only feed the rows that make it into the result.
-    priorities = _priorities([str(report.id) for _, report in picked])
-    chosen = [
-        (relation, report)
-        for relation, report in picked
-        if relation != BriefingReportRelation.URGENT_UNOWNED or priorities.get(str(report.id)) == "P0"
-    ]
-    merge_chances = _pr_merged_probabilities([str(report.id) for _, report in chosen])
-    # Rank the whole candidate set before any limit, so a sixth report that waits for the person
-    # outranks the first claimed one instead of falling off its own bucket.
-    chosen.sort(
-        key=lambda pair: _briefing_order(
-            pair[0], priorities.get(str(pair[1].id)), merge_chances.get(str(pair[1].id)), pair[1].updated_at
+        rows = (
+            open_reports.filter(condition)
+            .order_by("-updated_at")
+            .values_list("id", "updated_at")[:_CANDIDATES_PER_RELATION]
         )
+        for report_id, updated_at in rows:
+            key = str(report_id)
+            if key not in relations:
+                relations[key] = relation
+                updated[key] = updated_at
+    priorities = _priorities(list(relations))
+    eligible = [
+        report_id
+        for report_id, relation in relations.items()
+        if relation != BriefingReportRelation.URGENT_UNOWNED or priorities.get(report_id) == "P0"
+    ]
+    scores = _served_scores(eligible)
+    chosen = _briefing_pick(
+        [
+            _BriefingCandidate(
+                report_id=report_id,
+                relation=relations[report_id],
+                priority=priorities.get(report_id),
+                updated_at=updated[report_id],
+                scores=scores.get(report_id, _NO_SCORES),
+            )
+            for report_id in eligible
+        ],
+        limit,
     )
-    if limit is not None:
-        chosen = chosen[:limit]
-    chosen_ids = [str(report.id) for _, report in chosen]
+    chosen_ids = [candidate.report_id for candidate in chosen]
+    reports = {str(report.id): report for report in SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)}
     source_products = _source_products(team_id, chosen_ids)
-    with_pr = set(
-        SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)
+    with_pr = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team_id=team_id, id__in=chosen_ids)
         .filter(implementation_pr_report_filter(team_id=team_id))
         .values_list("id", flat=True)
-    )
+    }
     return [
         BriefingReport(
-            report_id=str(report.id),
-            relation=relation,
+            report_id=candidate.report_id,
+            relation=candidate.relation,
             title=_trimmed(report.title, 200) or "Untitled report",
             summary=_trimmed(report.summary, _SUMMARY_LIMIT),
             status=report.status,
-            priority=priorities.get(str(report.id)),
-            has_implementation_pr=report.id in with_pr,
-            source_products=source_products.get(str(report.id), []),
+            priority=candidate.priority,
+            has_implementation_pr=candidate.report_id in with_pr,
+            source_products=source_products.get(candidate.report_id, []),
             updated_at=report.updated_at,
-            pr_merged_probability=merge_chances.get(str(report.id)),
+            pr_merged_probability=candidate.scores.pr_merged,
         )
-        for relation, report in chosen
+        for candidate in chosen
+        if (report := reports.get(candidate.report_id)) is not None
     ]
 
 
