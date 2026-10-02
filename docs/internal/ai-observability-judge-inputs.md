@@ -71,9 +71,10 @@ Turning the flag off stops subsequent runs, including queued work, without disab
 Keep the experimental flag limited to staff projects during rollout.
 OpenRouter decision models, including Jev, appear under an existing OpenRouter key in the evaluation model picker when this flag is enabled.
 They use OpenRouter's alpha `/api/alpha/decisions` endpoint with that key; no custom endpoint or System One connection is needed.
-The picker requires both the catalogue's `decisions` output modality and verified support for Noul, Choice, and Score questions.
-Supported models are `typesafe/jev-1.13`, `~typesafe/jev-latest`, `upstage/solar-decide`, `togethercomputer/tev1-4b-experimental`, `liquid/d1`, `inception/mercury-decide:free`, and `jaredpalmer/kev-4b`.
-New decision models need this compatibility check before joining the supported set. Respan models are excluded because they only accept Noul questions.
+The picker discovers models through the catalogue's `decisions` output modality, so new models and versions appear without a code change.
+It excludes `respan/span-01`, `respan/span-01-lite`, and `respan/span-01-lite:free` because they only accept Noul questions.
+These exclusions apply to exact model IDs, not the entire provider.
+The catalogue does not expose supported question types. If another model rejects a question type, the run is skipped with a request-rejected reason, without retrying.
 Chat models such as Jev Router keep using chat completions.
 Decision models are excluded from the playground and tagger model pickers.
 For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry rather than guess which API to call.

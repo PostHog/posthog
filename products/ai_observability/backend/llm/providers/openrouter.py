@@ -27,16 +27,12 @@ logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_DECISIONS_BASE_URL = "https://openrouter.ai/api/alpha"
 
-# The decisions modality alone does not guarantee support for Noul, Choice, and Score questions.
-SUPPORTED_DECISION_MODELS = frozenset(
+# These models reject Choice and Score questions despite advertising the decisions modality.
+UNSUPPORTED_DECISION_MODELS = frozenset(
     {
-        "liquid/d1",
-        "togethercomputer/tev1-4b-experimental",
-        "inception/mercury-decide:free",
-        "upstage/solar-decide",
-        "jaredpalmer/kev-4b",
-        "~typesafe/jev-latest",
-        "typesafe/jev-1.13",
+        "respan/span-01",
+        "respan/span-01-lite",
+        "respan/span-01-lite:free",
     }
 )
 
@@ -94,7 +90,7 @@ def decision_model_ids() -> frozenset[str] | None:
         frozenset(
             model
             for model, modalities in models.items()
-            if "decisions" in modalities and model in SUPPORTED_DECISION_MODELS
+            if "decisions" in modalities and model not in UNSUPPORTED_DECISION_MODELS
         )
         if models is not None
         else None
