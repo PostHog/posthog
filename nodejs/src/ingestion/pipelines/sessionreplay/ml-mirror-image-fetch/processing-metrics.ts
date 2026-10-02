@@ -42,6 +42,7 @@ export type ConfigurationFetchReason =
     | 'body_limit'
     | 'invalid_utf8'
     | 'invalid_document'
+    | 'not_json_array'
 
 export class ImageFetchProcessingMetrics {
     private static readonly active = new Map<ProcessingStage, Map<symbol, number>>()
