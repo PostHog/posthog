@@ -97,7 +97,9 @@ real recalculation for each eligible experiment, on one hourly schedule
 
 That schedule fires at `:30`, after the timeseries schedules at `:00`, and carries no input.
 Discovery reads the hour and selects the teams configured for it, so one schedule serves all 24
-hours. The coordinator selects experiments with the same rules the daily discovery uses, plus a
+hours. A team may configure up to two times, at least 6 hours apart, and gets a run at each.
+Both this discovery and the timeseries one call `recalculation_hour_filter`, so the two always
+agree on which teams belong to a given hour. The coordinator selects experiments with the same rules the daily discovery uses, plus a
 12-hour minimum age, an organization feature flag, and a 50-exposure floor. It then starts an
 ordinary `ExperimentMetricsRecalculationWorkflow` per experiment, through the same function the
 API uses.
