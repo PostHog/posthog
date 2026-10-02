@@ -123,7 +123,55 @@ describe("cloud context selection", () => {
       history: "Earlier conversation summary",
       history_source: "resume_prompt",
     });
+    await selector.dispatch("r", "next", [{ type: "text", text: "Yes" }], send);
+    expect(api.prepareContextSelection.mock.calls[1][0].history).toContain(
+      "Earlier conversation summary",
+    );
+    selector.resetHistory("r");
+    await selector.dispatch("r", "cleared", prompt, send);
+    expect(api.prepareContextSelection.mock.calls[2][0].history).toBe("");
   });
+
+  it("uses native resume history on subsequent turns", async () => {
+    const { api, selector, send } = fixture();
+    selector.resetHistory("r", "Earlier native conversation");
+    await selector.dispatch("r", "m", prompt, send);
+    await selector.dispatch("r", "m2", prompt, send);
+    expect(api.prepareContextSelection.mock.calls[0][0].history).toBe(
+      "Earlier native conversation",
+    );
+    expect(api.prepareContextSelection.mock.calls[1][0].history).toContain(
+      "Earlier native conversation",
+    );
+  });
+
+  it("does not select or retain slash commands", async () => {
+    const { api, selector, send } = fixture();
+    await selector.dispatch(
+      "r",
+      "clear",
+      [{ type: "text", text: "/clear" }],
+      send,
+    );
+    expect(api.prepareContextSelection).not.toHaveBeenCalled();
+    await selector.dispatch("r", "m", prompt, send);
+    expect(api.prepareContextSelection.mock.calls[0][0].history).toBe("");
+  });
+
+  it.each([true, false])(
+    "validates Unicode code points at the context boundary: %s",
+    (withinBudget) => {
+      const context = "😀".repeat(withinBudget ? 8_000 : 8_001);
+      expect(
+        contextSelectionResponseSchema.safeParse({
+          selection_id: "s",
+          context,
+          mode: "treatment",
+          reason: "selected",
+        }).success,
+      ).toBe(withinBudget);
+    },
+  );
 
   it("resets history for another run and ignores late results from the old run", async () => {
     const { api, selector, send } = fixture();

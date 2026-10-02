@@ -541,6 +541,8 @@ export class AgentServer {
   private app: Hono;
   private posthogAPI: PostHogAPIClient;
   private contextSelection: ContextSelection;
+  private contextSelectionApiKey: string;
+  private readonly cancellationVersions = new WeakMap<ActiveSession, number>();
   private eventStreamSender: TaskRunEventStreamSender | null = null;
   private readonly nextEventId = createEventIdSource();
   private rtkSavingsAttempted = false;
@@ -705,8 +707,14 @@ export class AgentServer {
       getApiKey: () => config.apiKey,
       userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
     });
+    this.contextSelectionApiKey = config.apiKey;
     this.contextSelection = new ContextSelection(
-      this.posthogAPI,
+      new PostHogAPIClient({
+        apiUrl: config.apiUrl,
+        projectId: config.projectId,
+        getApiKey: () => this.contextSelectionApiKey,
+        userAgent: `posthog/cloud.hog.dev; version: ${config.version ?? packageJson.version}`,
+      }),
       (event) =>
         this.emitConsoleLog(
           "debug",
@@ -1618,11 +1626,20 @@ export class AgentServer {
             } else {
               const runPrompt = () => {
                 this.emitFirstCommandDispatched();
+                const cancellationVersion =
+                  this.cancellationVersions.get(commandSession) ?? 0;
                 return this.contextSelection.dispatch(
                   commandSession.payload.run_id,
                   manualCompactPrompt ? undefined : messageId,
                   prompt,
                   (selectedPrompt) => {
+                    if (
+                      this.session !== commandSession ||
+                      (this.cancellationVersions.get(commandSession) ?? 0) !==
+                        cancellationVersion
+                    ) {
+                      return Promise.resolve({ stopReason: "cancelled" });
+                    }
                     const result = commandSession.clientConnection.prompt({
                       sessionId: commandSession.acpSessionId,
                       prompt: selectedPrompt,
@@ -1781,6 +1798,10 @@ export class AgentServer {
 
       case POSTHOG_NOTIFICATIONS.CANCEL:
       case "cancel": {
+        this.cancellationVersions.set(
+          this.session,
+          (this.cancellationVersions.get(this.session) ?? 0) + 1,
+        );
         this.logger.debug("Cancel requested", {
           acpSessionId: this.session.acpSessionId,
         });
@@ -1830,6 +1851,21 @@ export class AgentServer {
           : [];
         const authorship =
           typeof params.authorship === "string" ? params.authorship : "";
+
+        if (mcpServers.length > 0) {
+          const posthog = toAcpMcpServers(mcpServers).find(
+            (server) => server.name === "posthog" && "headers" in server,
+          );
+          const authorization =
+            posthog && "headers" in posthog
+              ? posthog.headers.find(
+                  (header) => header.name.toLowerCase() === "authorization",
+                )?.value
+              : undefined;
+          this.contextSelectionApiKey = authorization?.startsWith("Bearer ")
+            ? authorization.slice(7)
+            : "";
+        }
 
         if (refreshedCredentials.length > 0) {
           const owner = authorship ? ` (${authorship})` : "";
@@ -2836,6 +2872,7 @@ export class AgentServer {
                 : request.prompt,
           };
       try {
+        const cancellationVersion = this.cancellationVersions.get(session) ?? 0;
         const response = contextMessageId
           ? await this.contextSelection.dispatch(
               session.payload.run_id,
@@ -2846,6 +2883,12 @@ export class AgentServer {
                   throw new Error(
                     "Agent session changed during context selection",
                   );
+                }
+                if (
+                  (this.cancellationVersions.get(session) ?? 0) !==
+                  cancellationVersion
+                ) {
+                  return Promise.resolve({ stopReason: "cancelled" });
                 }
                 return session.clientConnection.prompt({ ...attempt, prompt });
               },
@@ -3304,6 +3347,12 @@ export class AgentServer {
     }
 
     if (this.nativeResume) {
+      if (this.resumeState) {
+        this.contextSelection.resetHistory(
+          payload.run_id,
+          formatConversationForResume(this.resumeState.conversation),
+        );
+      }
       this.logger.debug("Applying deferred native resume to user message", {
         taskId: payload.task_id,
         sessionId: this.nativeResume.sessionId,
@@ -3415,6 +3464,12 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    if (this.resumeState) {
+      this.contextSelection.resetHistory(
+        payload.run_id,
+        formatConversationForResume(this.resumeState.conversation),
+      );
+    }
     await this.runStartupTurn(() =>
       this.runResumeTurn(
         payload,
@@ -5706,6 +5761,15 @@ export class AgentServer {
   }
 
   private handleAcpTransportMessage(message: unknown, eventId?: string): void {
+    if (
+      this.session &&
+      typeof message === "object" &&
+      message !== null &&
+      "method" in message &&
+      message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
+    ) {
+      this.contextSelection.resetHistory(this.session.payload.run_id);
+    }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
       this.lastBudgetSnapshot = budget;

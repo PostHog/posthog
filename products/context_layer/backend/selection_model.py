@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 
 from django.conf import settings
 
@@ -20,11 +21,19 @@ RELEVANCE = NoulQuestion(
 
 
 class SelectionJudge:
-    def __init__(self, selection_id: str, distinct_id: str, deadline: float, properties: dict[str, str]) -> None:
+    def __init__(
+        self,
+        selection_id: str,
+        distinct_id: str,
+        deadline: float,
+        properties: dict[str, str],
+        report_error: Callable[[str, str], None] | None = None,
+    ) -> None:
         self.selection_id = selection_id
         self.distinct_id = distinct_id
         self.deadline = deadline
         self.properties = properties
+        self.report_error = report_error
 
     def judge(self, prompt: str, history: str, candidate: Candidate | None = None) -> float | None:
         remaining = self.deadline - time.monotonic()
@@ -54,5 +63,7 @@ class SelectionJudge:
             if not isinstance(answer, NoulAnswer):
                 raise ValueError("invalid_selector_answer")
             return answer.probability
-        except Exception:
+        except Exception as error:
+            if self.report_error is not None:
+                self.report_error(candidate.id if candidate else "", type(error).__name__)
             return None

@@ -707,6 +707,13 @@ It can cite the underlying sources and explain verification failures, but must n
 
 Control skips retrieval. Shadow records the selected bundle without injecting it. Treatment injects the bundle.
 Selection has a three-second budget by default. Saturation, timeout, and selection failures leave the ordinary prompt flow available.
+Business Knowledge retrieval uses at most half the budget remaining after local retrieval, leaving time to score ready skills and catalog sources.
+Knowledge candidates are ranked anchor passages, without neighbor expansion, and child environments use the canonical project's knowledge and permissions.
+Skill access filtering happens before the retrieval limit. Catalog selection skips projects with customized warehouse access and checks system-table denials without building the full catalog.
+The agent validates the context budget in Unicode code points, matching the backend renderer.
+Native and summary resumes preserve bounded prior conversation history for later turns; a successful `/clear` resets selection history.
+Actor refreshes update the selection credential, and cancellation during preparation prevents the prepared prompt from reaching the model.
+Selection spans retain scorer error types and candidate identifiers for failed gate or relevance calls.
 
 A best-effort `Context selection` LLM span records the outcome, scores, retrieval time, and exact bounded bundle.
 Its `selection_id`, `task_id`, `task_run_id`, and `message_id` connect it to System One calls and the hidden marker in downstream model input.

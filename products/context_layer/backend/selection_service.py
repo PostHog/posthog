@@ -1,6 +1,6 @@
 import time
 from concurrent.futures import ThreadPoolExecutor, wait
-from threading import BoundedSemaphore
+from threading import BoundedSemaphore, Lock
 from uuid import uuid4
 
 from django.conf import settings
@@ -140,7 +140,16 @@ def _select(
     observation: dict[str, object],
 ) -> tuple[str, str]:
     check_deadline(deadline)
-    judge = SelectionJudge(selection_id, str(actor.distinct_id), deadline, properties)
+    errors: list[dict[str, str]] = []
+    error_lock = Lock()
+
+    def report_error(candidate_id: str, error_type: str) -> None:
+        with error_lock:
+            errors.append({"candidate_id": candidate_id, "error_type": error_type})
+            observation["scorer_errors"] = list(errors)
+
+    observation["scorer_errors"] = []
+    judge = SelectionJudge(selection_id, str(actor.distinct_id), deadline, properties, report_error)
     gate = judge.judge(selection.prompt, selection.history)
     observation["gate_probability"] = gate
     if gate is None:
@@ -160,7 +169,8 @@ def _select(
         candidates = search_sources(run.team, actor, selection.prompt + "\n" + selection.history, scopes)
         if knowledge is not None:
             try:
-                candidates.extend(knowledge.result(timeout=max(0, deadline - time.monotonic())))
+                # Reserve half the remaining budget for scoring sources that are already ready.
+                candidates.extend(knowledge.result(timeout=max(0, (deadline - time.monotonic()) / 2)))
             except Exception as error:
                 observation["knowledge_error"] = type(error).__name__
     finally:

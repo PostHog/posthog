@@ -24,12 +24,18 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.business_knowledge.backend.logic import create_text_source
+from products.business_knowledge.backend.models import KnowledgeDocument, SafetyVerdict
 from products.context_layer.backend.facade.api import context_selection_enabled_for_run
 from products.context_layer.backend.selection_execution import SelectionUnavailable, bounded_request
 from products.context_layer.backend.selection_model import SelectionJudge
 from products.context_layer.backend.selection_search import render
 from products.context_layer.backend.selection_service import prepare, selection_mode
-from products.context_layer.backend.selection_sources import search_sources
+from products.context_layer.backend.selection_sources import (
+    search_business_knowledge,
+    search_sources,
+    validate_candidates,
+)
 from products.context_layer.backend.selection_types import (
     MAX_CONTEXT_CHARS,
     Candidate,
@@ -194,7 +200,12 @@ class TestLiveSelection(BaseTest):
         )
 
     def select(
-        self, *, mode: str = "treatment", probability: float = 0.9, decide: Callable[..., SystemOneResult] | None = None
+        self,
+        *,
+        mode: str = "treatment",
+        probability: float = 0.9,
+        decide: Callable[..., SystemOneResult] | None = None,
+        scopes: set[str] | None = None,
     ) -> PreparedContext:
         with (
             override_settings(CONTEXT_SELECTION_ALLOWED_TEAM_IDS=[self.team.id], CONTEXT_SELECTION_TIMEOUT_SECONDS=10),
@@ -207,7 +218,10 @@ class TestLiveSelection(BaseTest):
             )
             client.return_value.decide.side_effect = decide
             return prepare(
-                self.task_run, self.user, SelectionInput(message_id="m", prompt="activation"), {"llm_skill:read"}
+                self.task_run,
+                self.user,
+                SelectionInput(message_id="m", prompt="activation"),
+                scopes if scopes is not None else {"llm_skill:read"},
             )
 
     def test_live_search_sees_edits_and_deletions_without_refresh(self) -> None:
@@ -240,6 +254,56 @@ class TestLiveSelection(BaseTest):
             )
             self.assertEqual(search_sources(self.team, self.user, "activation", {"llm_skill:read"}), [])
 
+    def test_restricted_matches_do_not_displace_shared_skills(self) -> None:
+        for i in range(18):
+            skill = LLMSkill.objects.create(
+                team=self.team, name=f"activation {i}", description="activation " * 20, body="guide"
+            )
+            AccessControl.objects.create(
+                team=self.team, resource="llm_skill", resource_id=str(skill.id), access_level="viewer"
+            )
+        shared = LLMSkill.objects.create(team=self.team, name="guide", description="activation", body="guide")
+        with team_scope(self.team.id):
+            results = search_sources(self.team, self.user, "activation", {"llm_skill:read"})
+        self.assertEqual([c.id for c in results], [str(shared.id)])
+
+    @parameterized.expand([("warehouse_objects",), ("warehouse_view",), ("warehouse_table",)])
+    def test_catalog_skips_customized_shared_resource_access(self, resource: str) -> None:
+        catalog.Metric.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="activation",
+            description="activation",
+            definition={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+        )
+        AccessControl.objects.create(team=self.team, resource=resource, resource_id=None, access_level="viewer")
+        with team_scope(self.team.id):
+            self.assertEqual(search_sources(self.team, self.user, "activation", {"data_catalog:read"}), [])
+
+    def test_child_environment_uses_parent_knowledge_and_permissions(self) -> None:
+        child = self.organization.teams.create(name="Environment", parent_team=self.team)
+        source = create_text_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Activation guide",
+            text="activation means completing onboarding",
+        )
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(source=source).update(safety_verdict=SafetyVerdict.SAFE)
+        with (
+            patch("products.context_layer.backend.selection_sources.posthog_feature_flag_enabled", return_value=True),
+            patch("products.business_knowledge.backend.logic.generate_embedding", side_effect=RuntimeError("offline")),
+            team_scope(child.id),
+        ):
+            results = search_business_knowledge(child, self.user, "activation")
+            self.assertEqual(len(results), 1)
+            self.assertIn(f"/projects/{self.team.id}/", results[0].reference)
+            self.assertEqual(validate_candidates(child, self.user, results), results)
+            AccessControl.objects.create(
+                team=self.team, resource="business_knowledge", resource_id=None, access_level="viewer"
+            )
+            self.assertEqual(search_business_knowledge(child, self.user, "activation"), [])
+            self.assertEqual(validate_candidates(child, self.user, results), [])
+
     def test_catalog_search_reads_current_definitions_and_marks_drift(self) -> None:
         metric = catalog.Metric.objects.for_team(self.team.id).create(
             team=self.team,
@@ -253,6 +317,7 @@ class TestLiveSelection(BaseTest):
         self.assertEqual([c.id for c in results], [str(metric.id)])
         self.assertEqual(results[0].status, "drifted")
         self.assertIn("activation", results[0].text)
+        self.assertEqual(results[0].reference, f"/api/projects/{self.team.id}/data_catalog/metrics/onboarding_rate/")
         with team_scope(self.team.id):
             catalog.Metric.objects.for_team(self.team.id).filter(id=metric.id).update(deleted=True)
             self.assertEqual(search_sources(self.team, self.user, "activation", {"data_catalog:read"}), [])
@@ -302,9 +367,32 @@ class TestLiveSelection(BaseTest):
         self.assertIn("activation guide", result.context)
         self.assertIn("activation checklist", result.context)
 
+    def test_slow_knowledge_does_not_suppress_ready_skills(self) -> None:
+        skill = LLMSkill.objects.create(team=self.team, name="activation", description="activation", body="guide")
+        elapsed = 0.0
+
+        def knowledge_timeout(*, timeout: float) -> list[Candidate]:
+            nonlocal elapsed
+            elapsed += timeout
+            raise TimeoutError("knowledge deadline")
+
+        with (
+            patch("products.context_layer.backend.selection_service.time.monotonic", side_effect=lambda: elapsed),
+            patch("products.context_layer.backend.selection_service._SEARCH_EXECUTOR.submit") as submit,
+            patch("products.context_layer.backend.selection_service._SEARCH_CAPACITY", BoundedSemaphore(1)),
+            patch("products.context_layer.backend.selection_service.ph_background_capture") as capture,
+        ):
+            submit.return_value.result.side_effect = knowledge_timeout
+            result = self.select(scopes={"llm_skill:read", "business_knowledge:read"})
+        self.assertEqual(result.reason, "selected")
+        self.assertIn(str(skill.id), result.context)
+        self.assertEqual(
+            capture.return_value.call_args.kwargs["properties"]["$ai_output_state"]["knowledge_error"], "TimeoutError"
+        )
+
     def test_gate_skip_and_model_failure_leave_prompt_without_context(self) -> None:
         with (
-            patch("products.context_layer.backend.selection_service.ph_background_capture"),
+            patch("products.context_layer.backend.selection_service.ph_background_capture") as capture,
             patch("httpx.Client.post", side_effect=httpx.ReadTimeout("offline")),
         ):
             self.assertEqual(self.select(probability=0.1).reason, "gate_skipped")
@@ -320,6 +408,10 @@ class TestLiveSelection(BaseTest):
                 )
         self.assertEqual(result.context, "")
         self.assertEqual(result.reason, "gate_error")
+        errors = capture.return_value.call_args.kwargs["properties"]["$ai_output_state"]["scorer_errors"]
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0]["candidate_id"], "")
+        self.assertTrue(errors[0]["error_type"])
 
 
 class TestSelectionDeadline(SimpleTestCase):

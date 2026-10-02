@@ -2278,6 +2278,47 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
+    it("does not deliver a prompt cancelled during context preparation", async () => {
+      const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+      const testServer = createRetryTestServer(prompt);
+      let finishPreparation!: (value: unknown) => void;
+      let started!: () => void;
+      const preparing = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const api = {
+        prepareContextSelection: vi.fn(() => {
+          started();
+          return new Promise((resolve) => {
+            finishPreparation = resolve;
+          });
+        }),
+      };
+      testServer.contextSelection = new ContextSelection(
+        api as unknown as PostHogAPIClient,
+      );
+      testServer.contextSelection.enabled = true;
+      const result = testServer.runStartupTurn(() =>
+        testServer.promptWithUpstreamRetry(
+          {
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "Define activation" }],
+          },
+          true,
+          "human-message",
+        ),
+      );
+      await preparing;
+      await testServer.executeCommand("cancel", {});
+      finishPreparation({
+        selection_id: "s",
+        context: "definition",
+        mode: "treatment",
+      });
+      await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
+      expect(prompt).not.toHaveBeenCalled();
+    });
+
     it("continues an unattended turn after a transient upstream stream death", async () => {
       vi.useFakeTimers();
       try {
@@ -3382,6 +3423,8 @@ describe("AgentServer HTTP Mode", () => {
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
         posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        contextSelection: ContextSelection;
+        handleAcpTransportMessage(message: unknown): void;
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -3406,6 +3449,79 @@ describe("AgentServer HTTP Mode", () => {
         }),
       };
     }
+
+    it("uses the refreshed PostHog actor credential and clears selection history at the adapter boundary", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const requests: Array<{ authorization: string | null; history: string }> =
+        [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { history: string };
+            requests.push({
+              authorization: request.headers.get("authorization"),
+              history: body.history,
+            });
+            return HttpResponse.json({
+              selection_id: "s",
+              context: "",
+              mode: "control",
+              reason: "control",
+            });
+          },
+        ),
+      );
+      testServer.contextSelection.enabled = true;
+      const send = vi.fn(async () => ({ stopReason: "end_turn" as const }));
+      const prompt: ContentBlock[] = [
+        { type: "text", text: "Define activation" },
+      ];
+      await testServer.contextSelection.dispatch(
+        "test-run-id",
+        "first",
+        prompt,
+        send,
+      );
+      await testServer.executeCommand("refresh_session", {
+        mcpServers: [
+          {
+            type: "http",
+            name: "posthog",
+            url: "https://mcp.example.com",
+            headers: [
+              { name: "Authorization", value: "Bearer refreshed-actor-token" },
+            ],
+          },
+        ],
+      });
+      await testServer.contextSelection.dispatch(
+        "test-run-id",
+        "second",
+        prompt,
+        send,
+      );
+      expect(requests.map((request) => request.authorization)).toEqual([
+        "Bearer test-api-key",
+        "Bearer refreshed-actor-token",
+      ]);
+      expect(requests[1].history).toContain("Define activation");
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED,
+      });
+      await testServer.contextSelection.dispatch(
+        "test-run-id",
+        "third",
+        prompt,
+        send,
+      );
+      expect(requests[2].history).toBe("");
+      testServer.session = null;
+    });
 
     it("re-appends the loopback relay entries so a refresh doesn't drop them", async () => {
       const testServer = exposeRefresh(createServer());
@@ -3955,6 +4071,50 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(turnCompleteEvents).toHaveLength(1);
     }, 20000);
+
+    it("honors cancellation while preparing a human follow-up", async () => {
+      const s = createServer();
+      await s.start();
+      const internals = s as unknown as {
+        session: { clientConnection: { prompt: ReturnType<typeof vi.fn> } };
+        contextSelection: ContextSelection;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
+      internals.session.clientConnection.prompt = prompt;
+      internals.contextSelection.enabled = true;
+      const preparing = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async () => {
+            preparing.resolve();
+            await release.promise;
+            return HttpResponse.json({
+              selection_id: "s",
+              context: "definition",
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      const delivery = internals.executeCommand("user_message", {
+        content: "Define activation",
+        messageId: "cancelled-followup",
+      });
+      await preparing.promise;
+      await internals.executeCommand("cancel", {});
+      release.resolve();
+      await expect(delivery).resolves.toMatchObject({
+        stopReason: "cancelled",
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    });
 
     it("retries only the continuation after compact follow-up failure", async () => {
       const s = createServer();
@@ -5407,6 +5567,22 @@ describe("AgentServer HTTP Mode", () => {
         const s = createServer();
         await s.start();
 
+        const selections: Array<{ history: string }> = [];
+        mswServer.use(
+          http.post(
+            "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+            async ({ request }) => {
+              selections.push((await request.json()) as { history: string });
+              return HttpResponse.json({
+                selection_id: "s",
+                context: "",
+                mode: "control",
+                reason: "control",
+              });
+            },
+          ),
+        );
+
         const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
         const payload: JwtPayload = {
           run_id: "test-run-id",
@@ -5425,6 +5601,7 @@ describe("AgentServer HTTP Mode", () => {
               ? { warm_activated: true }
               : { await_user_message: true }),
             resume_from_run_id: "previous-run",
+            context_selection_eligible: true,
           },
         });
         const internals = s as unknown as {
@@ -5508,6 +5685,9 @@ describe("AgentServer HTTP Mode", () => {
         );
 
         expect(response.status).toBe(200);
+        expect(selections).toHaveLength(1);
+        expect(selections[0].history).toContain("original request");
+        expect(selections[0].history).toContain("work completed so far");
         if (beforeStartup) {
           await startup.sendInitialTaskMessage(payload, prepared);
         }
