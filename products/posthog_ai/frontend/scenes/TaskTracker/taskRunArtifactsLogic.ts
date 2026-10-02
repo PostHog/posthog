@@ -82,6 +82,7 @@ export interface taskRunArtifactsLogicValues {
     artifacts: RunArtifact[]
     chainRuns: TaskRunDetailDTOApi[]
     chainRunsLoading: boolean
+    commentsOpen: boolean
     files: ArtifactFile[]
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
@@ -202,6 +203,9 @@ export interface taskRunArtifactsLogicActions {
     setActiveTab: (tab: TaskRunTab) => {
         tab: TaskRunTab
     }
+    setCommentsOpen: (open: boolean) => {
+        open: boolean
+    }
     stepArtifact: (delta: number) => {
         delta: number
     }
@@ -287,6 +291,7 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         openFromUrl: (fileKey: string, versionId: string | null) => ({ fileKey, versionId }),
         reportLinkCopied: true,
         reportObjectOpened: (objectKind: string) => ({ objectKind }),
+        setCommentsOpen: (open: boolean) => ({ open }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
@@ -396,6 +401,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             'conversation' as TaskRunTab,
             { setActiveTab: (_, { tab }) => tab, openFromUrl: () => 'artifacts' },
         ],
+        // The panel stays open across files, so a reviewer can read the comments on each one in turn.
+        commentsOpen: [false, { setCommentsOpen: (_, { open }) => open }],
         selectedFileKey: [
             null as string | null,
             { selectArtifact: (_, { fileKey }) => fileKey, openFromUrl: (_, { fileKey }) => fileKey },
@@ -592,6 +599,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                     kind: values.selectedKind,
                     is_latest_version: values.selectedVersionIndex === 0,
                 })
+            },
+            setCommentsOpen: ({ open }) => {
+                if (open) {
+                    // pinned: analytics event name and properties. Renaming them breaks insights.
+                    posthog.capture('task artifact comments opened', { kind: values.selectedKind })
+                }
             },
             openFromUrl: ({ versionId }) => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
