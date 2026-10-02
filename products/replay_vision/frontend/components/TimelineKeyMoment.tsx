@@ -5,12 +5,24 @@ import type { TimelineMarker } from '../utils/recordingTimeline'
 import { scannerTypeIcon } from './ScannerTypeBadge'
 
 /** One scan's key moment on the rail: which scanner it came from and what it answered. */
-export function TimelineKeyMoment({ marker, onClick }: { marker: TimelineMarker; onClick: () => void }): JSX.Element {
+export function TimelineKeyMoment({
+    marker,
+    onClick,
+    className,
+}: {
+    marker: TimelineMarker
+    onClick: () => void
+    className?: string
+}): JSX.Element {
     return (
         <button
             type="button"
             onClick={onClick}
-            className="flex items-center gap-1.5 min-w-0 w-full text-left cursor-pointer rounded px-1 -mx-1 hover:bg-surface-secondary"
+            className={cn(
+                'inline-flex items-center gap-1.5 min-w-0 max-w-full text-left cursor-pointer rounded border bg-surface-primary px-1.5 py-0.5 hover:bg-surface-secondary',
+                marker.flagged ? 'border-accent' : 'border-primary',
+                className
+            )}
             data-attr="vision-timeline-marker"
         >
             {marker.scannerType && (

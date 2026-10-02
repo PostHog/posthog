@@ -235,7 +235,15 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                     passedBelow={passedBelow}
                                     isCurrent={isCurrent}
                                 />
-                                <span className={cn('min-w-0 py-0.5', row.inChapter && 'pl-4')}>
+                                <span className="flex items-center min-w-0 py-0.5">
+                                    {/* Ties the card to its dot; reaches back over the column gap, further when nested under a chapter. */}
+                                    <span
+                                        className={cn(
+                                            'h-0.5 shrink-0 -ml-2.5',
+                                            row.inChapter ? 'w-7' : 'w-3',
+                                            passedAbove ? 'bg-accent' : 'bg-border'
+                                        )}
+                                    />
                                     <TimelineKeyMoment
                                         marker={row.marker}
                                         onClick={() => {

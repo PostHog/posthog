@@ -82,10 +82,10 @@ describe('recordingTimeline', () => {
             expected: ['boundary start', 'marker'],
         },
         {
-            name: 'a breakdown needs no boundaries',
+            name: 'a breakdown sits between the same start and end',
             observations: [summary({ chapters: [chapter(0, 10_000, 'A')] })],
             durationMs: 60_000,
-            expected: ['chapter'],
+            expected: ['boundary start', 'chapter', 'boundary end'],
         },
     ])('$name', ({ observations, durationMs, expected }) => {
         const rows = timelineRows(recordingTimeline(observations), durationMs)
@@ -125,6 +125,7 @@ describe('recordingTimeline', () => {
                     : `boundary ${row.edge}`
         )
         expect(rows).toEqual([
+            'boundary start',
             'chapter Browses',
             'inactive 20000-90000',
             'marker in-gap',

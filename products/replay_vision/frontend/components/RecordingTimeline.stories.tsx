@@ -41,8 +41,9 @@ export default meta
 
 type Story = StoryObj<{ observations: ReplayObservationApi[]; currentTimeMs?: number; durationMs?: number }>
 
-const render: Story['render'] = ({ observations, currentTimeMs = 0, durationMs = 5 * MIN }) => {
+const render: Story['render'] = ({ observations, currentTimeMs = 0, durationMs }) => {
     const timeline = recordingTimeline(observations)
+    durationMs ??= Math.max(5 * MIN, ...timeline.chapters.map((c) => c.endMs))
     return (
         <RecordingTimeline
             timeline={timeline}

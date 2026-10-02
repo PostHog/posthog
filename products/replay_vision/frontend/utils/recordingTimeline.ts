@@ -186,12 +186,9 @@ export function recordingTimeline(observations: ReplayObservationApi[]): Recordi
 /** The rows the sidebar lists, in time order: chapters, the key moments inside them, idle gaps, and loose key moments. */
 export function timelineRows(timeline: RecordingTimeline, durationMs: number | null = null): TimelineRow[] {
     const rows: { atMs: number; order: number; row: TimelineRow }[] = []
-    // Without chapters the rail would float between a few key moments, so it gets the session's two ends.
-    if (timeline.summaryState !== 'ready') {
-        rows.push({ atMs: 0, order: -1, row: { kind: 'boundary', edge: 'start', atMs: 0 } })
-        if (durationMs !== null && durationMs > 0) {
-            rows.push({ atMs: durationMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: durationMs } })
-        }
+    rows.push({ atMs: 0, order: -1, row: { kind: 'boundary', edge: 'start', atMs: 0 } })
+    if (durationMs !== null && durationMs > 0) {
+        rows.push({ atMs: durationMs, order: 3, row: { kind: 'boundary', edge: 'end', atMs: durationMs } })
     }
     for (const chapter of timeline.chapters) {
         rows.push({ atMs: chapter.startMs, order: 0, row: { kind: 'chapter', chapter } })
