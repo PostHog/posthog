@@ -3912,18 +3912,18 @@ Note: Harvey publishes six OpenAPI specs (listed in https://developers.harvey.ai
 
 ## Hatchet — gaps
 
-Today (4): `event_keys`, `events`, `tasks`, `workflow_runs`
+Today (8): `event_keys`, `events`, `task_events`, `task_timings`, `tasks`, `workers`, `workflow_runs`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
-- [ ] `workflows (GET /api/v1/tenants/{tenant}/workflows, GET /api/v1/workflows/{workflow}/versions)` — lookup resolving the workflow ID and version carried on every synced workflow run and task (high)
-- [ ] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
-- [ ] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
+- [x] `workflows (GET /api/v1/tenants/{tenant}/workflows, GET /api/v1/workflows/{workflow}/versions)` — lookup resolving the workflow ID and version carried on every synced workflow run and task (high)
+- [x] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
+- [x] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
 - [ ] `task metrics (GET /api/v1/stable/tenants/{tenant}/task-metrics, /task-point-metrics, /task-stats)` — the vendor's headline throughput and status-count series for queue health dashboards (medium)
 - [ ] `queue metrics (GET /api/v1/tenants/{tenant}/queue-metrics, /step-run-queue-metrics)` — backlog depth per queue - the standard capacity-planning metric (medium)
 - [ ] `scheduled runs (GET /api/v1/tenants/{tenant}/workflows/scheduled)` — upcoming and past scheduled triggers, joinable to workflow_runs (medium)
 - [ ] `crons (GET /api/v1/tenants/{tenant}/workflows/crons)` — cron definitions that explain the trigger source of recurring runs (medium)
-- [ ] `task timings (GET /api/v1/stable/workflow-runs/{id}/task-timings)` — per-task duration breakdown within a run - latency attribution (medium)
+- [x] `task timings (GET /api/v1/stable/workflow-runs/{id}/task-timings)` — per-task duration breakdown within a run - latency attribution (medium)
 - [ ] `tenant members (GET /api/v1/tenants/{tenant}/members)` — membership table for the tenant whose runs are synced (medium)
 - [ ] `logs (GET /api/v1/stable/tenants/{tenant}/logs, /tasks/{task}/logs)` — task log lines for failure triage alongside run rows (medium)
 - [ ] `workflow run metrics (GET /api/v1/tenants/{tenant}/workflows/runs/metrics, GET /api/v1/workflows/{workflow}/metrics)` — success/failure counts per workflow without re-aggregating raw runs (low)
