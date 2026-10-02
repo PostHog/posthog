@@ -278,7 +278,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     snapshots = {
         # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
         # b: already opened at D0 -> excluded; c: never opened -> negative;
-        # d: never impressed -> outside the cohort.
+        # d: never impressed, opened by D0+3 from another surface -> positive.
         D0: Snapshot(
             date=D0,
             state=state,
@@ -287,14 +287,14 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
         later: Snapshot(
             date=later,
             state=state,
-            labels=_labels(ids, open_count=[2, 3, 0, 0], impression_unit_count=[1, 1, 1, 0]),
+            labels=_labels(ids, open_count=[2, 3, 0, 1], impression_unit_count=[1, 1, 1, 0]),
         ),
         # A snapshot with no horizon partner contributes nothing.
         later + datetime.timedelta(days=1): Snapshot(date=later, state=state, labels=_labels(ids)),
     }
     examples = build_examples(snapshots, open_head, _at_grain(TABULAR_FEATURE_SET, SCORING_MOMENT_GRAIN))
     assert list(examples.columns) == list(example_columns(TABULAR_FEATURE_SET))
-    assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0}
+    assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0, "d": 1}
     assert (examples["snapshot_date"] == D0).all()
     assert (examples["age_hours"] == 12.0).all()
 
@@ -894,12 +894,12 @@ def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
     scores = _scores(["a", "b", "c", "d", "e"], label_at_scoring=[False, True, False, False, False])
     labels = _labels(["a", "b", "c", "e"], open_count=[1, 1, 1, 0], impression_unit_count=[1, 1, 0, 1])
     graded = graded_rows(scores, labels, head, pool=POOL_NAME).set_index("report_id")
-    # c was never impressed and d has no labels row at all; b was opened on its birth day, which
-    # the newborn pool grades rather than drops.
-    assert graded["in_cohort"].to_dict() == {"a": True, "b": True, "c": False, "d": False, "e": True}
-    assert (graded.loc["a", "outcome"], graded.loc["b", "outcome"], graded.loc["e", "outcome"]) == (True, True, False)
+    # c was opened with no impression and d has no labels row at all; b was opened on its birth
+    # day, which the newborn pool grades rather than drops.
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": True, "c": True, "d": False, "e": True}
+    assert graded.loc[["a", "b", "c", "e"], "outcome"].tolist() == [True, True, True, False]
     # An excluded row keeps its score with no outcome, so a calibration read can filter on the flag.
-    assert graded.loc[["c", "d"], "outcome"].isna().all()
+    assert pd.isna(graded.loc["d", "outcome"])
 
 
 def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
@@ -1047,7 +1047,7 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
 
 @pytest.mark.parametrize("impressions", [0, 1])
 def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(impressions):
-    head = HEADS_BY_NAME["open"]
+    head = HEADS_BY_NAME["action"]
     graded = graded_rows(
         _scores(["pending"], head_readable=[False], classification_threshold=[0.2]),
         _labels(["pending"], impression_unit_count=[impressions]),

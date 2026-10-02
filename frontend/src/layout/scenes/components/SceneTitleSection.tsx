@@ -283,7 +283,10 @@ export function SceneTitleSection({
     const { zenMode } = useValues(navigation3000Logic)
     const { activeSceneId } = useValues(sceneLogic)
     const releaseStageSceneId = sceneId ?? activeSceneId
-    const releaseStageProduct = useMemo(() => releaseStageProductForScene(releaseStageSceneId), [releaseStageSceneId])
+    const releaseStageProduct = useMemo(
+        () => releaseStageProductForScene(releaseStageSceneId, name),
+        [releaseStageSceneId, name]
+    )
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
@@ -416,6 +419,7 @@ export function SceneTitleSection({
                                         </>
                                     }
                                 />
+                                {forceEdit && nameSuffix}
                             </>
                         )}
                     </div>
