@@ -270,11 +270,12 @@ const rankingArtefacts = [
                     feature_schema_version: 3,
                     status: 'scored',
                     scores: { action: 0.78, pr_merged: 0.52, dismiss_wrong: 0.14, reviewer_fix: 0.04 },
+                    lifts: { action: 1.3, pr_merged: 2.6, dismiss_wrong: 0.7 },
                     metadata: {
                         heads: [
-                            { head: 'action', readable: true },
-                            { head: 'pr_merged', readable: true },
-                            { head: 'dismiss_wrong', readable: true },
+                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
                             { head: 'reviewer_fix', readable: false },
                         ],
                     },
@@ -289,9 +290,9 @@ const rankingArtefacts = [
                     scores: { action: 0.74, pr_merged: 0.55, dismiss_wrong: 0.11 },
                     metadata: {
                         heads: [
-                            { head: 'action', readable: true },
-                            { head: 'pr_merged', readable: true },
-                            { head: 'dismiss_wrong', readable: true },
+                            { head: 'action', readable: true, refit_classification_threshold: 0.6 },
+                            { head: 'pr_merged', readable: true, refit_classification_threshold: 0.2 },
+                            { head: 'dismiss_wrong', readable: true, refit_classification_threshold: 0.2 },
                         ],
                     },
                 },
