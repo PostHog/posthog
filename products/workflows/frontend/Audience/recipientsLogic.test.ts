@@ -91,6 +91,19 @@ describe('recipientsLogic', () => {
         expect(requests.map((params) => params.get('search'))).toEqual([null, 'jamie'])
     })
 
+    it('sends no request for a search cleared while it waits for its debounce', async () => {
+        await mountLogic()
+        jest.useFakeTimers()
+
+        logic.actions.setSearchValue(textSearch('ja'))
+        logic.actions.clearSearch()
+        jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests.map((params) => params.get('search'))).toEqual([null])
+    })
+
     it('pages forward with the returned cursor and back to the first page', async () => {
         await mountLogic()
 

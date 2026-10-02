@@ -113,6 +113,32 @@ describe('AudienceRecipients', () => {
         expect(pills()).toEqual(['Suppressed: Bounces', 'Person: No person'])
     })
 
+    it('names the filter the API rejects instead of offering a retry', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_recipients/': ({ request }) =>
+                    new URL(request.url).searchParams.getAll('filter').includes('person:non')
+                        ? [
+                              400,
+                              { type: 'validation_error', attr: 'filter', detail: 'Unknown value `non` for `person`.' },
+                          ]
+                        : [200, { results: [recipient('alex@example.com')], next_cursor: null }],
+            },
+        })
+        startAt(urls.audience('recipients'))
+        const user = userEvent.setup()
+
+        await user.click(input())
+        await user.keyboard('person:non ')
+
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="audience-recipients"]')).toHaveTextContent(
+                'Unknown value "non" for "person". Remove that filter, or pick a value from the suggestions.'
+            )
+        )
+        expect(document.querySelector('[data-attr="audience-recipients-retry"]')).toBeNull()
+    })
+
     it('sends each pill as its own filter from the first page, and restores the pills from the URL', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         startAt(urls.audience('recipients'))
