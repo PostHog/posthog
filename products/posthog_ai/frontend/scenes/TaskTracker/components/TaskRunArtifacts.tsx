@@ -2,35 +2,17 @@ import { useActions, useValues } from 'kea'
 import { KeyboardEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import {
-    IconBolt,
     IconCheck,
     IconChevronLeft,
     IconChevronRight,
-    IconCode,
     IconCollapse45,
     IconCopy,
-    IconCursor,
-    IconDashboard,
-    IconDatabase,
     IconDocument,
     IconDownload,
     IconExpand45,
     IconExternal,
-    IconFlask,
-    IconGraph,
-    IconImage,
-    IconListCheck,
     IconLock,
-    IconMessage,
-    IconNotebook,
-    IconPeople,
-    IconPerson,
-    IconRewindPlay,
     IconShare,
-    IconSparkles,
-    IconToggle,
-    IconVideoCamera,
-    IconWarning,
 } from '@posthog/icons'
 import {
     Badge,
@@ -89,7 +71,6 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { withStrictCsp } from '../artifactHtml'
 import {
     ArtifactFile,
-    ArtifactPreviewKind,
     RunArtifact,
     TaskRunTab,
     artifactPreviewKind,
@@ -102,6 +83,7 @@ import {
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
+import { ArtifactIcon } from './ArtifactIcon'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
 
 const MAX_CSV_ROWS = 500
@@ -111,48 +93,6 @@ const ArtifactObjectEmbed = lazy(() =>
 )
 
 type PreviewMode = 'rendered' | 'source'
-
-function KindIcon({ kind, className }: { kind: ArtifactPreviewKind; className?: string }): JSX.Element {
-    const Icon =
-        kind === 'html'
-            ? IconCode
-            : kind === 'image'
-              ? IconImage
-              : kind === 'video'
-                ? IconVideoCamera
-                : kind === 'csv'
-                  ? IconDatabase
-                  : IconDocument
-    return <Icon className={className} />
-}
-
-const OBJECT_KIND_ICONS: Record<string, typeof IconGraph> = {
-    insight: IconGraph,
-    hogql: IconDatabase,
-    dashboard: IconDashboard,
-    error: IconWarning,
-    replay: IconRewindPlay,
-    flag: IconToggle,
-    experiment: IconFlask,
-    survey: IconMessage,
-    ticket: IconMessage,
-    report: IconNotebook,
-    trace: IconSparkles,
-    eval: IconListCheck,
-    event: IconBolt,
-    cohort: IconPeople,
-    action: IconCursor,
-    person: IconPerson,
-}
-
-function ArtifactIcon({ artifact, className }: { artifact: RunArtifact; className?: string }): JSX.Element {
-    const ref = postHogObjectRef(artifact)
-    if (ref) {
-        const Icon = OBJECT_KIND_ICONS[ref.objectKind] ?? IconExternal
-        return <Icon className={className} />
-    }
-    return <KindIcon kind={artifactPreviewKind(artifact)} className={className} />
-}
 
 /** Size for a file, the object kind for a cited PostHog object, where the agent sent a living document. */
 function artifactDetail(artifact: RunArtifact): string {

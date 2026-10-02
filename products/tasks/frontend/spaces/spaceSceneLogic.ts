@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
@@ -22,6 +23,7 @@ import { canvasesDestroy, canvasesList, canvasesPartialUpdate } from 'products/c
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { EmbeddedTaskComposerProps } from 'products/posthog_ai/frontend/api/runner'
+import type { ArtifactPreviewKind } from 'products/posthog_ai/frontend/api/taskArtifacts'
 
 import {
     taskChannelsDestroy,
@@ -304,6 +306,15 @@ export interface spaceSceneLogicActions {
         space: ChannelDTOApi | null
         payload?: any
     }
+    reportArtifactChipClicked: (
+        kind: ArtifactPreviewKind,
+        inOverflow: boolean,
+        fileCount: number
+    ) => {
+        fileCount: number
+        inOverflow: boolean
+        kind: ArtifactPreviewKind
+    }
     saveAutoArchiveCustomDays: () => {
         value: true
     }
@@ -477,6 +488,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         canvasDeleteStarted: true,
         canvasDeleted: (canvasId: string) => ({ canvasId }),
         canvasDeleteFailed: true,
+        reportArtifactChipClicked: (kind: ArtifactPreviewKind, inOverflow: boolean, fileCount: number) => ({
+            kind,
+            inOverflow,
+            fileCount,
+        }),
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -856,6 +872,15 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         applySuggestion: ({ prompt }) => {
             actions.setSeed({ prompt, autoSubmit: false })
             actions.focusComposer()
+        },
+        reportArtifactChipClicked: ({ kind, inOverflow, fileCount }) => {
+            // pinned: analytics event name and properties. Renaming them breaks insights.
+            posthog.capture('task artifact chip clicked', {
+                kind,
+                in_overflow: inOverflow,
+                file_count: fileCount,
+                surface: 'space_feed',
+            })
         },
         setTypes: () => {
             actions.ensureCanvases()
