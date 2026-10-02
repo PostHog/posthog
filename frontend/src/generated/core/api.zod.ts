@@ -684,7 +684,7 @@ export const DataDeletionRequestsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Validate a one-column HogQL query and count the selected event UUIDs.
+ * Validate a one-column HogQL query, count the selected event UUIDs, and count the event rows the deletion removes.
  */
 export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object({
     query: zod.string().describe('HogQL query that selects one event UUID column.'),

@@ -16,6 +16,7 @@ from posthog.hogql.query import EmbeddedClickHouseQuery, HogQLQueryExecutor
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
@@ -90,20 +91,35 @@ def compile_event_uuid_query(
     return selected
 
 
-def preview_event_deletion(*, query: str, variables: dict[str, object], team: Team, user: User) -> int:
+@frozen
+class EventDeletionPreview:
+    count: int
+    event_row_count: int
+
+
+# deletes_job removes every event row whose (team_id, uuid) is queued, not only the rows the query
+# returned. Rows that share a uuid, for example after an import, go together, so the preview counts
+# them too. GLOBAL IN builds the uuid set once on the initiator, not once per shard.
+def preview_event_deletion(*, query: str, variables: dict[str, object], team: Team, user: User) -> EventDeletionPreview:
     validate_payload_size(query, variables)
     selected = compile_event_uuid_query(query=query, variables=variables, team=team, user=user)
-    count_sql = f"SELECT count() FROM ({selected.sql}) AS selected"  # nosemgrep: clickhouse-injection-taint
+    count_sql = (  # nosemgrep: clickhouse-injection-taint
+        f"SELECT (SELECT count() FROM ({selected.sql}) AS selected), "
+        "(SELECT count() FROM events WHERE team_id = %(_preview_team_id)s "
+        f"AND uuid GLOBAL IN (SELECT selected.* FROM ({selected.sql}) AS selected))"
+    )
     result = sync_execute(
         count_sql,
-        selected.context.values,
+        {**selected.context.values, "_preview_team_id": team.id},
         workload=Workload.OFFLINE,
         team_id=team.id,
         readonly=True,
         settings=selected.settings,
         external_tables=list(selected.context.external_tables.values()) or None,
     )
-    return int(result[0][0]) if result else 0
+    if not result:
+        return EventDeletionPreview(count=0, event_row_count=0)
+    return EventDeletionPreview(count=int(result[0][0]), event_row_count=int(result[0][1]))
 
 
 def create_event_deletion_request(

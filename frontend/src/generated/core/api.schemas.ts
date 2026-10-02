@@ -3903,6 +3903,8 @@ export interface DataDeletionRequestInputApi {
 export interface DataDeletionPreviewApi {
     /** Number of event UUIDs selected when the preview ran. */
     readonly count: number
+    /** Number of event rows the deletion removes when the preview ran. The deletion removes every event row with a selected UUID, so this is higher than count when rows share a UUID. */
+    readonly event_row_count: number
 }
 
 export interface EmojiSuggestionApi {

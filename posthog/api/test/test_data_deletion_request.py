@@ -1,7 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
@@ -10,6 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.data_deletion import EventDeletionPreview, preview_event_deletion
 from posthog.models import OrganizationMembership, Team
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -152,7 +153,10 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert response.json()["attr"] == "variables"
         assert response.json()["detail"] == "Query variables must be a JSON object."
 
-    @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=123)
+    @patch(
+        "posthog.api.data_deletion_request.preview_event_deletion",
+        return_value=EventDeletionPreview(count=123, event_row_count=125),
+    )
     def test_preview_returns_the_server_count(self, preview, _feature_flag) -> None:
         response = self.client.post(
             f"{self.url}/preview/",
@@ -161,7 +165,7 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"count": 123}
+        assert response.json() == {"count": 123, "event_row_count": 125}
         preview.assert_called_once()
 
     @parameterized.expand(
@@ -173,7 +177,10 @@ class TestDataDeletionRequestAPI(APIBaseTest):
             ("oauth", ["data_deletion:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
-    @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=7)
+    @patch(
+        "posthog.api.data_deletion_request.preview_event_deletion",
+        return_value=EventDeletionPreview(count=7, event_row_count=7),
+    )
     def test_preview_with_scoped_token_requires_write_scope(
         self, auth: str, scopes: list[str], expected_status: int, _preview, _feature_flag
     ) -> None:
@@ -212,7 +219,10 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=1)
+    @patch(
+        "posthog.api.data_deletion_request.preview_event_deletion",
+        return_value=EventDeletionPreview(count=1, event_row_count=1),
+    )
     def test_preview_throttles_session_requests(self, _preview, _rate_limit, _feature_flag) -> None:
         responses = [
             self.client.post(
@@ -269,8 +279,31 @@ class TestDataDeletionRequestAPIAccess(APIBaseTest):
 
         with (
             patch(FEATURE_FLAG, return_value=True),
-            patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=1),
+            patch(
+                "posthog.api.data_deletion_request.preview_event_deletion",
+                return_value=EventDeletionPreview(count=1, event_row_count=1),
+            ),
         ):
             response = self.client.post(url, {"query": "SELECT uuid FROM events"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
+
+
+class TestPreviewEventDeletion(ClickhouseTestMixin, APIBaseTest):
+    def test_preview_counts_every_event_row_that_shares_a_selected_uuid(self) -> None:
+        shared_uuid = str(uuid4())
+        other_team = Team.objects.create(organization=self.organization)
+        _create_event(team=self.team, event="duplicate", distinct_id="user", event_uuid=shared_uuid)
+        _create_event(team=self.team, event="imported", distinct_id="user", event_uuid=shared_uuid)
+        _create_event(team=self.team, event="imported", distinct_id="user")
+        _create_event(team=other_team, event="imported", distinct_id="user", event_uuid=shared_uuid)
+        flush_persons_and_events()
+
+        preview = preview_event_deletion(
+            query="SELECT uuid FROM events WHERE event = 'duplicate'",
+            variables={},
+            team=self.team,
+            user=self.user,
+        )
+
+        assert preview == EventDeletionPreview(count=1, event_row_count=2)

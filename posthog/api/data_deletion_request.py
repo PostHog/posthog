@@ -102,6 +102,13 @@ class DataDeletionPreviewSerializer(serializers.Serializer):
         read_only=True,
         help_text="Number of event UUIDs selected when the preview ran.",
     )
+    event_row_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of event rows the deletion removes when the preview ran. The deletion removes every "
+            "event row with a selected UUID, so this is higher than count when rows share a UUID."
+        ),
+    )
 
 
 class DataDeletionConflictSerializer(serializers.Serializer):
@@ -222,7 +229,7 @@ class DataDeletionRequestViewSet(
 
     @validated_request(
         request_serializer=DataDeletionRequestInputSerializer,
-        description="Validate a one-column HogQL query and count the selected event UUIDs.",
+        description="Validate a one-column HogQL query, count the selected event UUIDs, and count the event rows the deletion removes.",
         responses={200: DataDeletionPreviewSerializer},
     )
     @action(
@@ -234,7 +241,7 @@ class DataDeletionRequestViewSet(
     def preview(self, request: ValidatedRequest, **kwargs: object) -> Response:
         data = request.validated_data
         try:
-            count = preview_event_deletion(
+            preview = preview_event_deletion(
                 query=data["query"],
                 variables=data["variables"],
                 team=self.team,
@@ -242,7 +249,7 @@ class DataDeletionRequestViewSet(
             )
         except DjangoValidationError as error:
             raise ValidationError(error.message_dict) from error
-        return Response(DataDeletionPreviewSerializer({"count": count}).data)
+        return Response(DataDeletionPreviewSerializer(preview).data)
 
 
 def self_service_data_deletion_enabled(team: Team) -> bool:
