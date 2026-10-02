@@ -1,5 +1,4 @@
 import datetime
-from datetime import time
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -53,7 +52,6 @@ class TestRecalculationTimeFilter:
         user = User.objects.create(email="custom@test.com")
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
-        config.experiment_recalculation_time = time(5, 0, 0)
         config.experiment_recalculation_times = ["05:00:00"]
         config.save()
 
@@ -74,7 +72,6 @@ class TestRecalculationTimeFilter:
         user = User.objects.create(email="twotimes@test.com")
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
-        config.experiment_recalculation_time = time(8, 0, 0)
         config.experiment_recalculation_times = ["08:00:00", "20:00:00"]
         config.save()
 
@@ -92,7 +89,6 @@ class TestRecalculationTimeFilter:
         user = User.objects.create(email="savedtwotimes@test.com")
 
         config = get_or_create_team_extension(team, TeamExperimentsConfig)
-        config.experiment_recalculation_time = time(8, 0, 0)
         config.experiment_recalculation_times = ["08:00:00", "20:00:00"]
         config.save()
 

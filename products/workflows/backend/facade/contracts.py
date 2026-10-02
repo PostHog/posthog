@@ -181,6 +181,14 @@ class WorkflowTemplate:
     variables: list[dict[str, Any]] | None
 
 
+@frozen
+class FunctionTemplateSchema:
+    """The parts of a cdp function template that a workflow step validates its inputs against."""
+
+    type: str
+    inputs_schema: list[dict[str, Any]] | None
+
+
 # The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint
 # returns them as JSON without a serializer, so the keys are the API response keys.
 
