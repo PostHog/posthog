@@ -913,7 +913,11 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
                 )}
             </section>
             <Dialog open={expanded} onOpenChange={setExpanded}>
-                <DialogContent size="full" showCloseButton={false} className="flex h-full flex-col gap-0 p-0">
+                {/* Full page covers the whole window, so the dialog drops its inset, corners and shadow. */}
+                <DialogContent
+                    showCloseButton={false}
+                    className="inset-0 flex h-dvh max-h-none w-screen max-w-none translate-none flex-col gap-0 rounded-none p-0 shadow-none"
+                >
                     <DialogTitle className="sr-only">{selectedArtifact.name}</DialogTitle>
                     {/* The toolbar hides parts by container width, so the dialog gets its own container. */}
                     <div className="@container/main-content flex min-h-0 flex-1 flex-col">
