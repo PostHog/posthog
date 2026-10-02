@@ -2337,13 +2337,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null.
-        # A pre-existing non-object value (from before validation required an object) can't be
-        # merged with `**`, so treat it as empty rather than raising.
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = (
-                instance.conversations_settings if isinstance(instance.conversations_settings, dict) else {}
-            )
+            existing_settings = conversations_settings_as_dict(instance.conversations_settings)
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
@@ -3179,15 +3175,22 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
+def conversations_settings_as_dict(value: object) -> dict[str, Any]:
+    """Coerce a conversations_settings value to a dict for merging or diffing.
+
+    A row written before validation required an object/null can hold a stray array or scalar;
+    treat it as empty rather than raising.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
     """
-    # A pre-existing non-object value (from before validation required an object) can't be
-    # diffed with `.keys()`, so treat it as empty rather than raising.
-    old_settings = before_settings if isinstance(before_settings, dict) else {}
-    new_settings = team.conversations_settings if isinstance(team.conversations_settings, dict) else {}
+    old_settings = conversations_settings_as_dict(before_settings)
+    new_settings = conversations_settings_as_dict(team.conversations_settings)
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
