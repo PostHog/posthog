@@ -2324,9 +2324,14 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
         if conversations_lock_applied:
-            merge_conversations_settings_locked(instance, validated_data, patch_conversations_settings)
+            locked_conversations = merge_conversations_settings_locked(
+                instance, validated_data, patch_conversations_settings
+            )
+            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+            before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+            before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
@@ -3201,6 +3206,9 @@ MANAGED_CONVERSATIONS_SETTINGS = (
     "teams_channel_id",
     "teams_channel_name",
     "teams_channels",
+    "github_enabled",
+    "github_integration_id",
+    "github_repos",
 )
 
 
@@ -3218,8 +3226,10 @@ def merge_conversations_settings_locked(
     silently restore the state that update had just replaced. Keyed on the columns this
     request writes, not on which key the client sent: the token handler can inject
     conversations_settings into a payload that only sent conversations_enabled.
-    Returns the conversation keys this request wrote, so the caller's generic save can
-    exclude them (they are already persisted here, and the caller's snapshot is stale).
+    Returns the locked row's pre-merge conversations_settings and conversations_enabled,
+    so the caller can correct its before-snapshot: that snapshot was taken before this
+    lock re-read the row, and a concurrent integration write in between would otherwise
+    get attributed to this request in the activity log and the settings-changed event.
     """
     with transaction.atomic():
         locked_team = (
@@ -3237,15 +3247,15 @@ def merge_conversations_settings_locked(
         team.conversations_settings = validated_data.get("conversations_settings", locked_team.conversations_settings)
         if "conversations_enabled" in validated_data:
             team.conversations_enabled = validated_data["conversations_enabled"]
-            team.save(update_fields=["conversations_settings", "conversations_enabled"])
+            team.save(update_fields=["conversations_settings", "conversations_enabled", "updated_at"])
         else:
-            team.save(update_fields=["conversations_settings"])
+            team.save(update_fields=["conversations_settings", "updated_at"])
         validated_data.pop("conversations_settings", None)
         validated_data.pop("conversations_enabled", None)
 
     return {
-        "conversations_settings": team.conversations_settings,
-        "conversations_enabled": team.conversations_enabled,
+        "conversations_settings": locked_team.conversations_settings,
+        "conversations_enabled": locked_team.conversations_enabled,
     }
 
 
