@@ -41,6 +41,7 @@ import { TaskFile, VISIBLE_FILE_COUNT, taskFiles } from './taskFiles'
 import { TASK_CHIP_CLASS, TaskPullRequestChip } from './TaskPullRequestChip'
 import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
+import { useSpaceFeedBulkSelection } from './useSpaceFeedBulkSelection'
 
 function TaskFileChip({ file }: { file: TaskFile }): JSX.Element {
     return (
@@ -85,6 +86,7 @@ export function SpaceFeedCard({ spaceId, task, pinned, unread, repository }: Spa
     const author = task.created_by
     const authorName = author ? taskUserName(author) : null
     const source = getOriginProductMeta(item.originProduct ?? undefined)
+    const selection = useSpaceFeedBulkSelection(spaceId)
 
     const card = (
         <Card
@@ -246,7 +248,7 @@ export function SpaceFeedCard({ spaceId, task, pinned, unread, repository }: Spa
     // The dialogs sit outside the right-click area, so a right-click inside one does not reach the card's menu.
     return (
         <>
-            <TodaySessionContextMenu target={menu} surface="feed">
+            <TodaySessionContextMenu target={menu} surface="feed" selection={selection}>
                 {card}
             </TodaySessionContextMenu>
             <TodaySessionDialogs target={menu} />

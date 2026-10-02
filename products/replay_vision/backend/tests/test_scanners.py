@@ -99,6 +99,9 @@ class TestPreamble:
         assert "<masking>" in rendered
         assert "asterisks" in rendered
         assert "not a bug" in rendered.lower()
+        # A masked image or video can fill a whole player, so the model must judge a real failure from the evidence.
+        assert "scrubber" in rendered
+        assert "real failure" in rendered
 
     def test_preamble_forbids_reproducing_personal_data_verbatim(self) -> None:
         # Masking hides PII in the video, but the events tool / navigation URLs can expose it in the clear;
