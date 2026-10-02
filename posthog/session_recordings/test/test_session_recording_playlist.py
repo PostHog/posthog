@@ -481,23 +481,35 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ["from_the_app", {"name": "pinned", "type": "collection", "creation_method": "pin"}, "pin"],
-            ["from_another_surface", {"name": "api made", "type": "collection"}, None],
+            ["from_the_app", {"creation_method": "pin"}, {}, "pin", "web"],
+            ["without_creation_method", {}, {}, None, "web"],
+            ["from_mcp", {}, {"HTTP_X_POSTHOG_CLIENT": "mcp"}, None, "mcp"],
         ]
     )
     @patch("posthoganalytics.capture")
     def test_create_reports_a_stamped_event(
-        self, _name: str, playlist_data: dict, expected_creation_method: str | None, mock_capture: MagicMock
+        self,
+        _name: str,
+        extra_data: dict,
+        headers: dict,
+        expected_creation_method: str | None,
+        expected_source: str,
+        mock_capture: MagicMock,
     ) -> None:
-        response = self._create_playlist(playlist_data, status.HTTP_201_CREATED)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists",
+            {"name": "stamped", "type": "collection", **extra_data},
+            **headers,
+        )
 
+        assert response.status_code == status.HTTP_201_CREATED
         created = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "recording playlist created"]
         assert len(created) == 1
         properties = created[0].kwargs["properties"]
         assert properties["playlist_id"] == response.json()["short_id"]
         assert properties["playlist_type"] == "collection"
         assert properties["creation_method"] == expected_creation_method
-        assert "source" in properties
+        assert properties["source"] == expected_source
         assert "creation_method" not in response.json()
 
     @patch("posthoganalytics.capture")
@@ -515,7 +527,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         properties = updated[0].kwargs["properties"]
         assert properties["playlist_id"] == short_id
         assert properties["updated_fields"] == ["name", "pinned"]
-        assert "source" in properties
+        assert properties["source"] == "web"
 
     def test_updates_playlist(self):
         create_response = self._create_playlist(
