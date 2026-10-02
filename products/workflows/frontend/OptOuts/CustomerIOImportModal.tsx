@@ -90,7 +90,7 @@ function Step1Content(): JSX.Element {
                             </LemonTag>
                         </div>
                         <div className="flex items-center justify-between">
-                            <span>Globally unsubscribed users:</span>
+                            <span>{words.customerIOImport.unsubscribedFromAllMarketing}</span>
                             <LemonTag>
                                 {(
                                     displayResult?.globally_unsubscribed_count ??
@@ -259,8 +259,7 @@ function Step2Content(): JSX.Element {
     return (
         <div className="space-y-4">
             <p className="text-sm text-muted">
-                Export a CSV from Customer.io containing users with subscription preferences. This is not supported via
-                the API. You can upload multiple times to update existing users.
+                {words.customerIOImport.csvExportHelp}
                 <br />
                 <Link
                     to="https://posthog.com/docs/workflows/import-customerio-optouts"

@@ -62,6 +62,8 @@ export interface TopicVocabulary {
         rerunIsSafe: string
         recipientsWithUnsubscribes: string
         recipientsSkipped: string
+        unsubscribedFromAllMarketing: string
+        csvExportHelp: string
         webhookDescription: string
         outboundSyncDescription: string
     }
@@ -138,6 +140,9 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
         rerunIsSafe: 'Safe to rerun, existing categories and users will be updated.',
         recipientsWithUnsubscribes: 'Users with opt-outs:',
         recipientsSkipped: 'Users skipped (no opt-outs):',
+        unsubscribedFromAllMarketing: 'Globally unsubscribed users:',
+        csvExportHelp:
+            'Export a CSV from Customer.io containing users with subscription preferences. This is not supported via the API. You can upload multiple times to update existing users.',
         webhookDescription:
             'Configure Customer.io to send a webhook when a user unsubscribes, so PostHog automatically records the opt-out.',
         outboundSyncDescription:
@@ -161,7 +166,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
     topicForm: {
         newTitle: 'New topic',
         editTitle: 'Edit topic',
-        keyInfo: 'Your app sends preferences by this key. It follows the name until you change it.',
+        keyInfo: 'Your app sends preferences by this key.',
         keyPlaceholder: 'e.g., product-updates',
         messageTypeInfo:
             'Recipients can unsubscribe from marketing topics. Transactional topics ignore recipient preferences.',
@@ -176,7 +181,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
     },
     unsubscribedList: {
         heading: 'Unsubscribed from all marketing',
-        description: 'Recipients who left every marketing topic at once. They still get transactional email.',
+        description: 'Recipients who left every marketing topic at once. They still get transactional messages.',
         dateColumn: 'Unsubscribed on',
         unsubscribe: 'Unsubscribe recipient',
         resubscribe: 'Resubscribe',
@@ -211,6 +216,9 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         rerunIsSafe: 'You can run this again. Existing topics and recipients are updated.',
         recipientsWithUnsubscribes: 'Recipients with unsubscribes:',
         recipientsSkipped: 'Recipients skipped (no unsubscribes):',
+        unsubscribedFromAllMarketing: 'Recipients unsubscribed from all marketing:',
+        csvExportHelp:
+            "Export a CSV of recipients' subscription preferences from Customer.io. The Customer.io API doesn't provide this. You can upload again to update recipients.",
         webhookDescription:
             'Set up Customer.io to send a webhook when a recipient unsubscribes, so PostHog records it automatically.',
         outboundSyncDescription:
