@@ -52,7 +52,7 @@ jobs:
             # parses. Checkout and install failures are CI noise, so they do not post. A PR run
             # has an author watching it, so only unattended runs post.
             - name: Notify Slack on canary failure
-              if: failure() && steps.live.outcome == 'failure' && github.event_name != 'pull_request'
+              if: failure() && steps.live.outcome == 'failure' && github.event_name == 'schedule'
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
