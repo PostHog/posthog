@@ -24,6 +24,7 @@ import {
   type WorkspaceMode,
 } from "@posthog/shared";
 import type { ExecutionMode, Task } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import { getCurrentBrowserTabId } from "@posthog/ui/features/browser-tabs/imperativeTabNavigation";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
@@ -64,7 +65,10 @@ import { useTaskInputHistoryStore } from "../../message-editor/taskInputHistoryS
 import type { EditorHandle } from "../../message-editor/types";
 import { toastError } from "../../notifications/errorDetails";
 import { useProvisioningStore } from "../../provisioning/store";
-import { cloudTaskCarriesLocalInstructions } from "../../settings/serverAgentInstructions";
+import {
+  cloudTaskCarriesLocalInstructions,
+  getLocalInstructionsContent,
+} from "../../settings/serverAgentInstructions";
 import {
   getEffectiveCustomInstructions,
   useSettingsStore,
@@ -509,15 +513,19 @@ export function useTaskCreation({
             channelName,
             channelId: channelId ?? defaultedChannelId,
             channelContextId,
+            // The server adds "My instructions" to cloud runs, so a cloud
+            // task in sync carries only the Simplified Technical English line.
             customInstructions:
               workspaceMode === "cloud" &&
               !cloudTaskCarriesLocalInstructions({
                 flagEnabled: serverInstructionsEnabled,
                 projectId: currentProjectId,
-                onServerProjectIds:
-                  settings.customInstructionsOnServerProjectIds,
+                onServer: settings.customInstructionsOnServer,
+                local: getLocalInstructionsContent(settings),
               })
-                ? undefined
+                ? settings.ste100Enabled
+                  ? SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION
+                  : undefined
                 : getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
