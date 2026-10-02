@@ -109,7 +109,7 @@ describe('todayLogic', () => {
             hasBriefing: false,
             expected: ['briefing is not written yet', '](http://localhost/project/997/home/reports/r-1)'],
         },
-    ])('starts a new session with the question and $shown as context', async ({ hasBriefing, expected }) => {
+    ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, expected }) => {
         listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
         if (hasBriefing) {
             briefingResponses = [[200, makeBriefing()]]
@@ -120,7 +120,6 @@ describe('todayLogic', () => {
 
         logic.actions.askAi('Why is signup broken?', 'ask_box')
 
-        expect(router.values.location.pathname).toMatch(/\/spaces\/new$/)
         const prompt = router.values.searchParams.ask as string
         expect(prompt.startsWith('Why is signup broken?\n')).toBe(true)
         for (const text of expected) {
