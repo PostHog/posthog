@@ -21,6 +21,7 @@ import {
     BIEditorState,
     BIEditorView,
     BIField,
+    BIFilter,
     BIFilterOperator,
     BIQueryBuildResult,
     BIQueryLimit,
@@ -29,6 +30,7 @@ import {
     BISortOption,
     DEFAULT_BI_CONFIG,
     buildBIQuery,
+    changeBIFilterOperator,
     createDefaultDateFilter,
     defaultAggregationForField,
     getBIChartFit,
@@ -127,7 +129,10 @@ function addFieldToConfig(config: BIConfig, field: BIField, shelf: BIShelf): BIC
             return {
                 ...sourceConfig,
                 source,
-                filters: [...sourceConfig.filters, { field, operator: 'equals', value: '' }],
+                filters: [
+                    ...sourceConfig.filters,
+                    { field, operator: field.type === 'string' ? 'in' : 'equals', value: '' },
+                ],
             }
     }
 }
@@ -436,6 +441,13 @@ export interface biEditorLogicActions {
     syncGeneratedQuery: () => {
         value: true
     }
+    updateFilter: (
+        index: number,
+        update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+    ) => {
+        index: number
+        update: Partial<Pick<BIFilter, 'enabled' | 'values' | 'valueTo'>>
+    }
     upsertCalculatedMeasure: (draft: BICalculatedMeasureDraft) => {
         draft: BICalculatedMeasureDraft
         fieldId: string
@@ -539,6 +551,10 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
+        updateFilter: (index: number, update: Partial<Pick<BIFilter, 'values' | 'valueTo' | 'enabled'>>) => ({
+            index,
+            update,
+        }),
         setLimit: (limit: BIQueryLimit) => ({ limit }),
         setSort: (sort: BISort | null) => ({ sort }),
         setFieldExpression: (shelf: BIShelf, index: number, expression: string) => ({ shelf, index, expression }),
@@ -663,13 +679,19 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 setFilterOperator: (config, { index, operator }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
-                        filterIndex === index ? { ...filter, operator } : filter
+                        filterIndex === index ? changeBIFilterOperator(filter, operator) : filter
                     ),
                 }),
                 setFilterValue: (config, { index, value }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
                         filterIndex === index ? { ...filter, value } : filter
+                    ),
+                }),
+                updateFilter: (config, { index, update }) => ({
+                    ...config,
+                    filters: config.filters.map((filter, filterIndex) =>
+                        filterIndex === index ? { ...filter, ...update } : filter
                     ),
                 }),
                 setLimit: (config, { limit }) => normalizeBIConfig({ ...config, limit }),
@@ -894,6 +916,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setValueAggregation: () => actions.runAfterChange(),
         setFilterOperator: () => actions.runAfterChange(),
         setFilterValue: () => actions.runAfterChange(),
+        updateFilter: () => actions.runAfterChange(),
         setLimit: () => actions.runAfterChange(),
         setSort: () => actions.runAfterChange(),
         setFieldExpression: () => actions.runAfterChange(),

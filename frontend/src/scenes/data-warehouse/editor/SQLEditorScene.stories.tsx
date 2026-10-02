@@ -429,6 +429,75 @@ export const BICalculatedMeasureEditor: Story = {
     },
 }
 
+const BI_QUICK_FILTERS_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    columns: [],
+    values: [
+        {
+            field: biEventsField('revenue', 'float'),
+            aggregation: 'custom',
+            label: 'ARPU',
+            customExpression: 'sum(revenue) / nullIf(count(DISTINCT user_id), 0)',
+        },
+    ],
+    filters: [
+        { field: biEventsField('event', 'string'), operator: 'in', value: '', values: ['purchase', 'renewal'] },
+        {
+            field: biEventsField('timestamp', 'datetime'),
+            operator: 'between',
+            value: '2026-06-01 00:00:00',
+            valueTo: '2026-06-07 23:59:59',
+        },
+    ],
+}
+
+export const BIQuickFilters: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({ q: buildBIQuery(BI_QUICK_FILTERS_CONFIG)?.query ?? '', mode: 'bi', bi: JSON.stringify(BI_QUICK_FILTERS_CONFIG) })}`,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: { request: Request }) => {
+                        const { query } = await request.json()
+                        return [
+                            200,
+                            query.query.startsWith('SELECT DISTINCT')
+                                ? {
+                                      columns: ['value'],
+                                      types: ['String'],
+                                      results: [['purchase'], ['renewal'], ['refund'], ['trial_started']],
+                                      hasMore: false,
+                                  }
+                                : {
+                                      columns: ['toStartOfDay(timestamp)', 'ARPU'],
+                                      types: ['DateTime', 'Float64'],
+                                      hasMore: false,
+                                      results: [24, 28, 26, 31, 35, 33, 38].map((value, index) => [
+                                          `2026-06-0${index + 1} 00:00:00`,
+                                          value,
+                                      ]),
+                                  },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BIQuickFiltersNarrow: Story = {
+    ...BIQuickFilters,
+    parameters: {
+        ...BIQuickFilters.parameters,
+        testOptions: { waitForSelector: '[data-attr="bi-filter-control"]', viewport: { width: 1050, height: 900 } },
+    },
+}
+
 export const LazySchema: Story = {
     parameters: {
         pageUrl: urls.sqlEditor({ query: 'SELECT * FROM events LIMIT 100' }),

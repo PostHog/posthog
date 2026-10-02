@@ -23,6 +23,20 @@ Cancel discards the draft. Names and formulas persist with the worksheet's BI co
 Calculated measures cannot become dimensions or row filters.
 If a measure name conflicts with a field or another result column, the generated query adds a numeric suffix to its column name. The worksheet keeps the name you entered on the measure pill and sort menu.
 
+## Filters in BI mode
+
+Drop a field onto the Filters shelf to adjust it alongside the results. String fields start with
+**Is any of**: select several values, or type a value and press Enter. **Is none of** excludes the
+selected values. An empty selection leaves all values included. Suggestions load when the picker
+opens, respect the other applied filters, and show up to 100 distinct values; additional values can
+always be entered manually.
+
+Use **Between** for numeric or date fields. Both bounds are inclusive, and either can be left empty
+for an open-ended range. Date-time fields include the time. Uncheck **Apply filter** to temporarily
+ignore a filter without losing its settings. Click the field pill to edit the field expression, date
+part, or custom SQL condition, or to remove the filter. Filter changes respect the worksheet's
+auto-update setting and are preserved with its saved configuration.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.

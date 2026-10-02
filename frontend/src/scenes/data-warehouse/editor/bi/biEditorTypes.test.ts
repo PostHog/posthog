@@ -5,7 +5,9 @@ import {
     BIConfig,
     BIEditorView,
     BIField,
+    BIFilter,
     DEFAULT_BI_CONFIG,
+    buildBIFilterOptionsQuery,
     buildBIQuery,
     createDefaultDateFilter,
     defaultAggregationForField,
@@ -62,6 +64,90 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    test.each<{ filter: BIFilter; expected: string | null }>([
+        {
+            filter: { field: eventField, operator: 'in', value: '', values: ["sign'up", 'a,b', ''] },
+            expected: "event IN ('sign\\'up', 'a,b', '')",
+        },
+        {
+            filter: { field: revenueField, operator: 'not_in', value: '', values: ['0', '12.5'] },
+            expected: 'properties.revenue NOT IN (0, 12.5)',
+        },
+        { filter: { field: eventField, operator: 'in', value: '', values: [] }, expected: null },
+        {
+            filter: { field: revenueField, operator: 'between', value: '0', valueTo: '20.5' },
+            expected: '(properties.revenue >= 0 AND properties.revenue <= 20.5)',
+        },
+        {
+            filter: { field: revenueField, operator: 'between', value: '', valueTo: '20' },
+            expected: '(properties.revenue <= 20)',
+        },
+        { filter: { field: revenueField, operator: 'between', value: '5' }, expected: '(properties.revenue >= 5)' },
+        { filter: { field: revenueField, operator: 'between', value: '' }, expected: null },
+        {
+            filter: {
+                field: timestampField,
+                operator: 'between',
+                value: '2026-06-01 00:00:00',
+                valueTo: '2026-06-07 23:59:59',
+            },
+            expected: "(timestamp >= '2026-06-01 00:00:00' AND timestamp <= '2026-06-07 23:59:59')",
+        },
+        {
+            filter: { field: eventField, operator: 'custom', value: '', customExpression: '1 = 0', enabled: false },
+            expected: null,
+        },
+        { filter: { field: timestampField, operator: 'last_7_days', value: '', enabled: false }, expected: null },
+    ])('builds and restores quick filter $filter.operator ($expected)', ({ filter, expected }) => {
+        const config = { ...DEFAULT_BI_CONFIG, source: eventField.source, filters: [filter] }
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(config))
+        expect(restored?.config.filters).toEqual([filter])
+        const query = buildBIQuery(restored!.config)!.query
+        if (expected) {
+            expect(query).toContain(`WHERE\n    ${expected}`)
+        } else {
+            expect(query).not.toContain('WHERE')
+        }
+    })
+
+    it('scopes value suggestions to other enabled filters and the selected connection', () => {
+        const source = { table: 'orders', connectionId: 'example-connection' }
+        const config: BIConfig = {
+            ...DEFAULT_BI_CONFIG,
+            source,
+            filters: [
+                { field: { ...eventField, source }, operator: 'in', value: '', values: ['purchase'] },
+                { field: { ...revenueField, source }, operator: 'between', value: '10', valueTo: '100' },
+                { field: { ...timestampField, source }, operator: 'last_7_days', value: '', enabled: false },
+            ],
+        }
+        expect(buildBIFilterOptionsQuery(config, 0)).toEqual({
+            kind: NodeKind.HogQLQuery,
+            connectionId: source.connectionId,
+            query: 'SELECT DISTINCT toString(event) AS value\nFROM orders\nWHERE (event IS NOT NULL) AND ((properties.revenue >= 10 AND properties.revenue <= 100))\nLIMIT 100',
+        })
+        config.filters.push({
+            field: { ...eventField, expression: '', name: '', source },
+            operator: 'custom',
+            value: '',
+            customExpression: 'revenue > 20 OR revenue = 0',
+        })
+        expect(buildBIFilterOptionsQuery(config, 0)?.query).toContain('AND (revenue > 20 OR revenue = 0)')
+    })
+
+    test.each([{ values: [1] }, { values: 'purchase' }, { valueTo: 10 }, { enabled: 'false' }])(
+        'rejects malformed quick filter state %j',
+        (invalid) => {
+            expect(
+                parseBIEditorState(BIEditorView.BI, {
+                    ...DEFAULT_BI_CONFIG,
+                    source: eventField.source,
+                    filters: [{ field: eventField, operator: 'in', value: '', ...invalid }],
+                })
+            ).toBeNull()
+        }
+    )
+
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
             'SELECT',

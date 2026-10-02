@@ -2851,6 +2851,24 @@ describe('sqlEditorLogic', () => {
                 filters: [{ ...persistedConfig.filters[0], value: 'purchase' }],
             })
 
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'in')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].values).toEqual(['purchase'])
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { values: ['purchase', 'renewal'] })
+            ).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: false })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            expect(router.values.hashParams.bi.filters[0]).toEqual(
+                expect.objectContaining({ enabled: false, values: ['purchase', 'renewal'] })
+            )
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: true })).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { values: [] })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'equals')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].value).toBe('')
+
             biLogic.unmount()
         })
 

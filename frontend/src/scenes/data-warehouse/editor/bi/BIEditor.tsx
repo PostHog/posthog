@@ -49,7 +49,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 <BICalculatedMeasureModal />
                 <div className="flex min-h-0 flex-1">
                     <div
-                        className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @4xl/bi-editor:w-[calc(var(--bi-side-pane-width)+12rem)] @4xl/bi-editor:flex-row"
+                        className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @4xl/bi-editor:w-[calc(var(--bi-side-pane-width)+16rem)] @4xl/bi-editor:flex-row"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ '--bi-side-pane-width': `${biSidePaneWidth}px` } as React.CSSProperties}
                     >
@@ -57,7 +57,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                         <div ref={biEditorResizerProps.containerRef} className="flex min-h-0 min-w-0 flex-1 flex-col">
                             <BIDataPane />
                         </div>
-                        <div className="flex max-h-[50%] shrink-0 flex-col overflow-y-auto border-t @4xl/bi-editor:max-h-none @4xl/bi-editor:w-48 @4xl/bi-editor:border-l @4xl/bi-editor:border-t-0">
+                        <div className="flex max-h-[60%] shrink-0 flex-col overflow-y-auto border-t @4xl/bi-editor:max-h-none @4xl/bi-editor:w-64 @4xl/bi-editor:border-l @4xl/bi-editor:border-t-0">
                             <BIFiltersCard />
                             <BIMarksCard />
                         </div>
