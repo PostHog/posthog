@@ -2,9 +2,10 @@ import { dayjs } from 'lib/dayjs'
 import posthog from 'lib/posthog-typed'
 import type { ExperimentWarningKey } from 'scenes/experiments/experimentLogic'
 
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
 
@@ -103,16 +104,26 @@ export function captureExperimentHealthFindingActedOn(
  * The exposure warnings render on one tab only, so a "shown" event cannot give the exposure state of
  * every load. `experiment results refresh completed` follows the exposure load on every tab.
  */
-export function exposureHealthEventProperties(exposures: ExperimentExposureQueryResponse | null | undefined): {
+export function exposureHealthEventProperties(
+    exposures: ExperimentExposureQueryResponse | null | undefined,
+    multipleVariantHandling: ExperimentExposureCriteria['multiple_variant_handling']
+): {
     exposures_total: number | null
+    exposures_multiple: number | null
     has_srm: boolean | null
     has_bias_risk: boolean | null
 } {
     if (!exposures) {
-        return { exposures_total: null, has_srm: null, has_bias_risk: null }
+        return { exposures_total: null, exposures_multiple: null, has_srm: null, has_bias_risk: null }
     }
     return {
         exposures_total: getTotalExposures(exposures),
+        // With "first seen" handling the exposure query gives each person their first variant and
+        // counts no `$multiple`, so the number of people in several variants is unknown there.
+        exposures_multiple:
+            multipleVariantHandling === 'first_seen'
+                ? null
+                : Number(exposures.total_exposures?.[EXPERIMENT_VARIANT_MULTIPLE] || 0),
         has_srm: hasSampleRatioMismatch(exposures),
         has_bias_risk: exposures.bias_risk != null,
     }
