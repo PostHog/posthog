@@ -137,6 +137,9 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
                 "preferences_updated_at": "2026-09-15T10:00:00Z",
             }
         ]
+        assert self._emails(filter=["subscribed:newsletter"]) == []
+        assert self._emails(filter=["unsubscribed:newsletter"]) == ["jamie@example.com"]
+        assert self._emails(filter=["unsubscribed:all-marketing"]) == ["jamie@example.com"]
 
     def _seed_facet_audience(self) -> None:
         newsletter = self._topic("newsletter")
@@ -334,26 +337,30 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("list", "", None),
-            ("coverage", "coverage/", None),
-            ("list_with_a_workflow_grant", "", "flow-granted"),
-            ("coverage_with_a_workflow_grant", "coverage/", "flow-granted"),
+            ("list_without_a_grant", "", [], status.HTTP_403_FORBIDDEN),
+            ("coverage_without_a_grant", "coverage/", [], status.HTTP_403_FORBIDDEN),
+            ("list_with_only_a_workflow_grant", "", ["flow-granted"], status.HTTP_403_FORBIDDEN),
+            ("coverage_with_only_a_workflow_grant", "coverage/", ["flow-granted"], status.HTTP_403_FORBIDDEN),
+            ("list_as_a_workflows_viewer", "", [None], status.HTTP_200_OK),
+            ("coverage_as_a_workflows_viewer", "coverage/", [None], status.HTTP_200_OK),
         ]
     )
-    def test_denies_users_without_hog_flow_access(self, _name: str, path: str, granted_flow_id: str | None) -> None:
+    def test_needs_hog_flow_viewer_access(
+        self, _name: str, path: str, viewer_grants: list[str | None], expected_status: int
+    ) -> None:
         self._deny_hog_flow_access()
-        if granted_flow_id is not None:
+        for resource_id in viewer_grants:
             AccessControl.objects.create(
                 team=self.team,
                 resource="hog_flow",
-                resource_id=granted_flow_id,
+                resource_id=resource_id,
                 access_level="viewer",
                 organization_member=self.organization_membership,
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/{path}")
 
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == expected_status
 
     @parameterized.expand(
         [
