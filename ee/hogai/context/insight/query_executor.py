@@ -96,6 +96,16 @@ logger = structlog.get_logger(__name__)
 
 TIMING_LOG_PREFIX = "[QUERY_EXECUTOR]"
 
+ASYNC_QUERY_MAX_WAIT_S = 60 * 5
+
+
+class QueryStillRunningError(MaxToolRetryableError):
+    """The async query did not finish inside the wait budget. It keeps running under `query_id`."""
+
+    def __init__(self, message: str, query_id: str):
+        super().__init__(message)
+        self.query_id = query_id
+
 
 @frozen
 class FormattedQueryResult:
@@ -152,11 +162,13 @@ class AssistantQueryExecutor:
         utc_now_datetime: datetime,
         user: "User",
         event_source: EventSource = EventSource.POSTHOG_AI,
+        max_wait_s: float = ASYNC_QUERY_MAX_WAIT_S,
     ):
         self._team = team
         self._utc_now_datetime = utc_now_datetime
         self._user = user
         self._event_source = event_source
+        self._max_wait_s = max_wait_s
 
     async def arun_format_and_capture(
         self,
@@ -385,26 +397,25 @@ class AssistantQueryExecutor:
             if query_status := response_dict.get("query_status"):
                 if not query_status["complete"]:
                     polling_start = time.time()
+                    deadline = time.monotonic() + self._max_wait_s
                     poll_count = 0
-                    total_wait_s = 0.0
 
                     if debug_timing:
                         logger.warning(
                             f"{TIMING_LOG_PREFIX} Query returned incomplete, starting async polling (query_id={query_status['id']})"
                         )
 
-                    # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
-                    while total_wait_s <= 60 * 5:
+                    # Poll until completion. The deadline uses elapsed time, so event loop delays and slow
+                    # status checks count against the budget. The last poll runs at the deadline.
+                    while True:
                         poll_count += 1
-                        total_wait_s += self.WAIT_TIME_S
 
                         if poll_count % 10 == 0 and debug_timing:  # Log every 10 polls
                             logger.warning(
-                                f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, total wait: {total_wait_s:.1f}s"
+                                f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, elapsed: {time.time() - polling_start:.1f}s"
                             )
 
-                        await asyncio.sleep(self.WAIT_TIME_S)  # wait in seconds
+                        await asyncio.sleep(min(self.WAIT_TIME_S, max(deadline - time.monotonic(), 0)))
 
                         status_check_start = time.time()
                         # Fast operation–Redis access
@@ -412,7 +423,6 @@ class AssistantQueryExecutor:
                             team_id=self._team.pk, query_id=query_status["id"]
                         )
                         status_check_elapsed = time.time() - status_check_start
-                        total_wait_s += status_check_elapsed
 
                         query_status = query_status_res.model_dump(mode="json")
 
@@ -427,16 +437,17 @@ class AssistantQueryExecutor:
                                     f"total polling time: {polling_elapsed:.3f}s"
                                 )
                             break
-                    else:
-                        # Query timed out after maximum wait time
-                        polling_elapsed = time.time() - polling_start
-                        if debug_timing:
-                            logger.error(
-                                f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
+
+                        if time.monotonic() >= deadline:
+                            polling_elapsed = time.time() - polling_start
+                            if debug_timing:
+                                logger.error(
+                                    f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
+                                )
+                            raise QueryStillRunningError(
+                                "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range.",
+                                query_id=query_status["id"],
                             )
-                        raise APIException(
-                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
-                        )
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
@@ -447,6 +458,8 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
+        except QueryStillRunningError:
+            raise
         except (
             APIException,
             ExposedHogQLError,
@@ -626,6 +639,7 @@ async def execute_and_format_query(
     truncate_results: bool = True,
     include_prompt_framing: bool = True,
     event_source: EventSource = EventSource.POSTHOG_AI,
+    max_wait_s: float = ASYNC_QUERY_MAX_WAIT_S,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -644,12 +658,15 @@ async def execute_and_format_query(
         include_prompt_framing: When False, return only the formatted results table without the
             example-format description and the surrounding `QUERY_RESULTS_PROMPT` system reminder.
             Used by the MCP `execute_sql` tool, which returns data straight to an external agent.
+        max_wait_s: How long to poll an async query before raising `QueryStillRunningError`.
     Returns:
         The formatted query results.
     """
     query = validate_assistant_query(query_model.model_dump(mode="json"))
     utc_now_datetime = timezone.now().astimezone(UTC)
-    query_runner = AssistantQueryExecutor(team, utc_now_datetime, user=user, event_source=event_source)
+    query_runner = AssistantQueryExecutor(
+        team, utc_now_datetime, user=user, event_source=event_source, max_wait_s=max_wait_s
+    )
 
     results, used_fallback = await query_runner.arun_and_format_query(
         query, execution_mode, insight_id, truncate_results=truncate_results
