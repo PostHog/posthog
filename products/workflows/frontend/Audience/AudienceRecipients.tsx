@@ -8,29 +8,30 @@ import { recipientsLogic } from './recipientsLogic'
 import { RecipientsTable } from './RecipientsTable'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
+function LoadFailedBanner(): JSX.Element {
+    const { retryLoadRecipients } = useActions(recipientsLogic)
+    return (
+        <LemonBanner
+            type="error"
+            action={{ children: 'Try again', onClick: retryLoadRecipients, 'data-attr': 'audience-recipients-retry' }}
+        >
+            Couldn't load recipients. Search for part of an address to load fewer, or try again in a moment.
+        </LemonBanner>
+    )
+}
+
 function RecipientsBody(): JSX.Element {
-    const { recipientsView } = useValues(recipientsLogic)
-    const { setSearch, retryLoadRecipients } = useActions(recipientsLogic)
+    const { recipientsView, loadFailed } = useValues(recipientsLogic)
+    const { setSearch } = useActions(recipientsLogic)
 
     switch (recipientsView) {
         case 'error':
-            return (
-                <LemonBanner
-                    type="error"
-                    action={{
-                        children: 'Try again',
-                        onClick: retryLoadRecipients,
-                        'data-attr': 'audience-recipients-retry',
-                    }}
-                >
-                    Couldn't load recipients. Try a narrower search, or try again in a moment.
-                </LemonBanner>
-            )
+            return <LoadFailedBanner />
         case 'empty':
             return (
                 <EmptyMessage
                     title="No recipients yet"
-                    description="An address shows up here once your app records a topic preference for it, it's added to the suppression list, or a person has it as their email property."
+                    description="An address shows up here once your app records a topic preference for it or it's on the suppression list. Persons with an email property show up too."
                 />
             )
         case 'no-match':
@@ -45,7 +46,12 @@ function RecipientsBody(): JSX.Element {
             )
         case 'loading':
         case 'results':
-            return <RecipientsTable />
+            return (
+                <>
+                    {loadFailed && <LoadFailedBanner />}
+                    <RecipientsTable />
+                </>
+            )
     }
 }
 

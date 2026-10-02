@@ -22,7 +22,7 @@ export interface TopicStatusTagProps {
 export function TopicStatusTag({ status, topicName }: TopicStatusTagProps): JSX.Element {
     const label = topicName ? `${topicName}: ${STATUS_LABELS[status]}` : STATUS_LABELS[status]
     return (
-        <LemonTag type={STATUS_TAG_TYPES[status]} size="small" className="whitespace-nowrap">
+        <LemonTag type={STATUS_TAG_TYPES[status]} size="small" wrap>
             {label}
         </LemonTag>
     )
