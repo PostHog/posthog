@@ -53,8 +53,8 @@ export function Views(): JSX.Element {
 }
 
 function ViewsContent(): JSX.Element {
-    const { views, visibleViews, viewsLoading, loadFailed, search, typeFilter } = useValues(viewsLogic)
-    const { setSearch, setTypeFilter, loadViews } = useActions(viewsLogic)
+    const { views, visibleViews, hasMoreViews, viewsLoading, loadFailed, search, typeFilter } = useValues(viewsLogic)
+    const { setSearch, setTypeFilter, showMoreViews, loadViews } = useActions(viewsLogic)
     const failedTypes = views?.failedTypes ?? []
 
     const newViewButton = (
@@ -62,6 +62,11 @@ function ViewsContent(): JSX.Element {
             <IconPlus />
             New view
         </NewViewMenu>
+    )
+    const showMoreButton = hasMoreViews && (
+        <Button variant="outline" size="sm" onClick={showMoreViews} data-attr="views-show-more">
+            Show more
+        </Button>
     )
 
     const renderList = (): JSX.Element => {
@@ -119,11 +124,14 @@ function ViewsContent(): JSX.Element {
             )
         }
         return (
-            <ItemGroup combined>
-                {visibleViews.map((view) => (
-                    <ViewRow key={`${view.type}-${view.id}`} view={view} />
-                ))}
-            </ItemGroup>
+            <>
+                <ItemGroup combined>
+                    {visibleViews.map((view) => (
+                        <ViewRow key={`${view.type}-${view.id}`} view={view} />
+                    ))}
+                </ItemGroup>
+                {showMoreButton}
+            </>
         )
     }
 
