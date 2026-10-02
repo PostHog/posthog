@@ -778,7 +778,6 @@ def query_dora_overview(
     deploy_sources = curated.deploy_sources()
     members_source = curated.members_source()
     has_membership_data = members_source is not None
-    github_teams = _query_github_teams(curated, members_source)
 
     if deploy_sources is None:
         return _empty_overview(
@@ -786,7 +785,7 @@ def query_dora_overview(
             environment_scope=", ".join(validated_environments) if validated_environments else "persistent",
             environments=[],
             has_membership_data=has_membership_data,
-            github_teams=github_teams,
+            github_teams=_query_github_teams(curated, members_source),
             granularity=granularity,
         )
 
@@ -796,6 +795,8 @@ def query_dora_overview(
         curated, deploy_sources, date_from=date_from, date_to=date_to, validated_environments=validated_environments
     )
     with curated.concurrent_reads() as reads:
+        github_teams_read = reads.submit(lambda: _query_github_teams(curated, members_source))
+        environments_read = reads.submit(lambda: scan.environment_catalog.options)
         outcomes_read = reads.submit(lambda: _query_deploy_outcomes(scan))
         lead_read = reads.submit(
             lambda: _query_lead_time(
@@ -808,10 +809,10 @@ def query_dora_overview(
     return DoraOverview(
         deploy_data_available=True,
         environment_scope=scan.environment_scope.scope,
-        environments=scan.environment_catalog.options,
+        environments=environments_read.result(),
         selected_environments=scan.environment_scope.values or [],
         has_membership_data=has_membership_data,
-        github_teams=github_teams,
+        github_teams=github_teams_read.result(),
         deployment_count=outcomes.deployment_count,
         deployment_count_prev=outcomes.deployment_count_prev,
         deployments_per_day=outcomes.deployment_count / window_days,
