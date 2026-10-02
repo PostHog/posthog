@@ -610,7 +610,7 @@ module "metrics4_series_family" {
     ttl          = var.ttl ? "original_expiry_timestamp" : null
     settings     = "index_granularity = 1024, ttl_only_drop_parts = 1, deduplicate_merge_projection_mode = 'rebuild'"
     projections = [{
-      name = "services_by_hour"
+      name  = "services_by_hour"
       query = "SELECT team_id, time_bucket, service_name, uniqExact(metric_name), uniq(series_fingerprint), max(timestamp) GROUP BY team_id, time_bucket, service_name"
     }]
     indexes = [
