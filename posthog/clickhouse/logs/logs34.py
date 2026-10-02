@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `pattern` String,
     `pattern_version` UInt8,
     `internal_source` LowCardinality(String) DEFAULT '',
+    `_source_topic` String,
+    `_source_partition` UInt32,
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -149,7 +151,9 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_record_count` UInt64,
     `pattern` String,
     `pattern_version` UInt8,
-    `internal_source` LowCardinality(String) DEFAULT ''
+    `internal_source` LowCardinality(String) DEFAULT '',
+    `_source_topic` String,
+    `_source_partition` UInt32
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1
@@ -300,12 +304,21 @@ SETTINGS
 # database that upgrades through them. 0361 adds it to every table and then rebuilds each view.
 _INTERNAL_SOURCE_TYPE = "    `internal_source` LowCardinality(String)"
 
+# Migrations before 0367 pass `source_partition=False` for the same reason. 0367 adds the columns.
+_SOURCE_PARTITION_TYPES = "    `_source_topic` String,\n    `_source_partition` UInt32"
 
-def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
+
+def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True, source_partition: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # The logs consumer removes any incoming `internal-source` header and sets it only on a batch whose signature it verified.
     internal_source_column = (
         ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
+    )
+    source_partition_columns = (
+        ",\n    _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,"
+        "\n    toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition"
+        if source_partition
+        else ""
     )
     return f"""SELECT
     uuid,
@@ -331,11 +344,11 @@ def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version{internal_source_column}
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version{internal_source_column}{source_partition_columns}
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
-def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME, *, internal_source: bool = True):
+def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME, *, internal_source: bool = True, source_partition: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
     # logs nodes, where `logs34` is local) keeps working when replayed. Migrations 0305, 0359 and 0361 pass
@@ -367,9 +380,9 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64),
     `pattern` String,
-    `pattern_version` UInt8{"," + chr(10) + _INTERNAL_SOURCE_TYPE if internal_source else ""}
+    `pattern_version` UInt8{"," + chr(10) + _INTERNAL_SOURCE_TYPE if internal_source else ""}{"," + chr(10) + _SOURCE_PARTITION_TYPES if source_partition else ""}
 )
-AS {KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=internal_source)}
+AS {KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=internal_source, source_partition=source_partition)}
 """
 
 
@@ -503,6 +516,35 @@ AS {LOGS34_TO_PATTERN_BUCKETS_MV_SELECT(internal_source=internal_source)}
 """
 
 
+def KAFKA_LOGS_AVRO_KAFKA_METRICS_MV_SELECT():
+    db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # Each row counts toward the clickhouse_logs partition and the logs_ingestion partition it came
+    # from, because both topics use random partitioning and the lag checkpoint needs both. A row
+    # without the source header has an empty source topic, and the WHERE skips it. The source
+    # offset is not known, so it counts as 0.
+    return f"""SELECT
+    kafka_partition AS _partition,
+    kafka_topic AS _topic,
+    maxSimpleState(kafka_offset) AS max_offset,
+    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
+    maxSimpleState(timestamp) AS max_timestamp,
+    maxSimpleState(now()) AS max_created_at,
+    maxSimpleState(now() - observed_timestamp) AS max_lag
+FROM
+(
+    SELECT
+        kafka_source.1 AS kafka_topic,
+        kafka_source.2 AS kafka_partition,
+        kafka_source.3 AS kafka_offset,
+        observed_timestamp,
+        timestamp
+    FROM {db}.{TABLE_NAME}
+    ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+)
+GROUP BY kafka_partition, kafka_topic"""
+
+
 def KAFKA_LOGS_AVRO_KAFKA_METRICS_MV():
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     return f"""
@@ -516,16 +558,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs_avro_kafka_metrics_mv TO 
     `max_created_at` SimpleAggregateFunction(max, DateTime),
     `max_lag` SimpleAggregateFunction(max, Decimal(18, 6))
 )
-AS SELECT
-    _partition,
-    _topic,
-    maxSimpleState(_offset) AS max_offset,
-    maxSimpleState(observed_timestamp) AS max_observed_timestamp,
-    maxSimpleState(timestamp) AS max_timestamp,
-    maxSimpleState(now()) AS max_created_at,
-    maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM {db}.{TABLE_NAME}
-GROUP BY _partition, _topic
+AS {KAFKA_LOGS_AVRO_KAFKA_METRICS_MV_SELECT()}
 """
 
 

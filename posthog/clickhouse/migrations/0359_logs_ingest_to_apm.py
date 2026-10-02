@@ -30,7 +30,7 @@ operations = (
         run_sql_with_exceptions(WRITABLE_LOGS34_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
         run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
         run_sql_with_exceptions(
-            KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", internal_source=False),
+            KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", internal_source=False, source_partition=False),
             node_roles=[NodeRole.APM],
             require_hosts=True,
         ),

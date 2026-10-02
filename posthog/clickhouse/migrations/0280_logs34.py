@@ -136,7 +136,9 @@ operations = [
     run_sql_with_exceptions(LOGS34_TO_LOG_ATTRIBUTES_MV(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(LOGS34_TO_RESOURCE_ATTRIBUTES_MV(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.LOGS]),
-    run_sql_with_exceptions(KAFKA_LOGS34_AVRO_MV(internal_source=False), node_roles=[NodeRole.LOGS]),
+    run_sql_with_exceptions(
+        KAFKA_LOGS34_AVRO_MV(internal_source=False, source_partition=False), node_roles=[NodeRole.LOGS]
+    ),
     run_sql_with_exceptions(KAFKA_LOGS_AVRO_KAFKA_METRICS_MV(), node_roles=[NodeRole.LOGS]),
     run_sql_with_exceptions(KAFKA_LOGS_AVRO_BILLING_METRICS_MV(), node_roles=[NodeRole.LOGS]),
 ]
