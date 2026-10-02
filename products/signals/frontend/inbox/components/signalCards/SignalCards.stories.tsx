@@ -33,6 +33,7 @@ function makeSignal(
 ): SignalNode {
     return {
         signal_id: `sig-${overrides.source_product}`,
+        total_spend: null,
         content: 'The user retried the upload three times before leaving the page.',
         source_type: 'issue',
         source_id: 'src-1',

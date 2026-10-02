@@ -16,6 +16,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ml_inference.backend.facade.contracts import JsonValue
 from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
+from products.signals.backend.spend import track_report_spend
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
@@ -249,6 +250,7 @@ class SafetyJudgeOutput:
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_report_spend
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:

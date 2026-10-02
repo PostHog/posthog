@@ -13,6 +13,7 @@ jest.mock('lib/components/TZLabel', () => ({
 function makeSignal(extra: Record<string, unknown>): SignalNode {
     return {
         signal_id: 'signal-1',
+        total_spend: null,
         content: 'The upload progress bar reaches 100% but the file never appears.',
         source_product: 'conversations',
         source_type: 'ticket',

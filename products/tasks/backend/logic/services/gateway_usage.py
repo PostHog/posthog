@@ -16,8 +16,10 @@ import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_usage import GatewayRequestCost, fetch_gateway_cost
 
 from products.tasks.backend.facade.contracts import TaskRunCost
+from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.sandbox_pricing import COMPUTE_RATE_CARDS, calculate_sandbox_compute_cost
 from products.tasks.backend.models import SandboxSession, TaskRun
 
@@ -26,15 +28,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 _REQUEST_ID = re.compile(r"[a-zA-Z0-9_-]{1,255}\Z")
-_USD_AMOUNT = re.compile(r"[0-9]{1,12}(?:\.[0-9]{1,6})?\Z")
 _PROCESSING_SECONDS = 10
-
-
-@frozen
-class GatewayRequestCost:
-    model: str
-    provider: str
-    cost_microusd: int
 
 
 @frozen
@@ -68,6 +62,7 @@ def _save_accounting_state(run: TaskRun) -> None:
     # Accounting can finish after completion; it must not emit completion signals again.
     # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
     TaskRun.objects.filter(id=run.id, team_id=run.team_id).update(state=run.state)
+    task_run_cost_updated.send(sender=TaskRun, run_id=run.id, team_id=run.team_id)
 
 
 def record_gateway_routing(*, run_id: UUID | str, team_id: int, uses_gateway: bool) -> None:
@@ -207,52 +202,28 @@ def get_task_cost(*, team_id: int, task_id: UUID) -> TaskRunCost:
 
 
 async def _fetch_gateway_cost(request_id: str) -> GatewayRequestCost | None:
-    import aiohttp  # noqa: PLC0415 - keeps aiohttp off Django's startup path
+    return await fetch_gateway_cost(
+        request_id, base_url=settings.SANDBOX_AI_GATEWAY_URL or "", api_key=settings.SANDBOX_AI_GATEWAY_MINT_KEY or ""
+    )
 
-    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
-    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
-    if not base_url or not mint_key:
+
+def get_task_run_token_cost_microusd(*, run_id: UUID, team_id: int) -> int | None:
+    return _token_cost_microusd(TaskRun.objects.get(id=run_id, team_id=team_id))
+
+
+def _token_cost_microusd(run: TaskRun) -> int | None:
+    if (
+        not gateway_usage_enabled(run)
+        or (run.state or {}).get("token_cost_incomplete")
+        or (run.state or {}).get("unprocessed_request_ids")
+    ):
         return None
-    try:
-        async with (
-            aiohttp.ClientSession(trust_env=True) as session,
-            session.get(
-                f"{base_url}/v1/usage/{request_id}",
-                headers={"Authorization": f"Bearer {mint_key}"},
-                timeout=aiohttp.ClientTimeout(total=15, connect=2, sock_read=3),
-                allow_redirects=False,
-            ) as response,
-        ):
-            if response.status != 200:
-                logger.warning("task_gateway_usage.cost_pending", status_code=response.status)
-                return None
-            body = await response.json()
-        if not isinstance(body, dict) or body.get("request_id") != request_id:
-            return None
-        amount = body.get("cost_usd")
-        model, provider = body.get("model") or "unknown", body.get("provider") or "unknown"
-        if (
-            not isinstance(amount, str)
-            or not _USD_AMOUNT.fullmatch(amount)
-            or not isinstance(model, str)
-            or len(model) > 255
-            or not isinstance(provider, str)
-            or len(provider) > 255
-        ):
-            return None
-        return GatewayRequestCost(model=model, provider=provider, cost_microusd=int(Decimal(amount) * 1_000_000))
-    except (aiohttp.ClientError, TimeoutError, ValueError, TypeError):
-        logger.warning("task_gateway_usage.lookup_failed")
-        return None
+    return sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(run.state or {}))
 
 
 def _cost_sources(run: TaskRun, *, sessions: list[SandboxSession] | None = None) -> _CostSources:
     return _CostSources(
-        token_cost_microusd=sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(run.state or {}))
-        if gateway_usage_enabled(run)
-        and not (run.state or {}).get("token_cost_incomplete")
-        and not (run.state or {}).get("unprocessed_request_ids")
-        else None,
+        token_cost_microusd=_token_cost_microusd(run),
         compute_cost_usd=_compute_cost_source(run, sessions=sessions),
     )
 

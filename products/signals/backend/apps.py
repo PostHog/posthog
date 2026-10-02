@@ -14,9 +14,11 @@ class SignalsConfig(AppConfig):
         from . import (
             activity_logging,  # noqa: F401
             receivers,  # noqa: F401
+            spend_receivers,
         )
 
         receivers.connect_task_run_assignment_sync()
+        spend_receivers.connect_spend_receivers()
         self._register_signal_emission_gate()
 
     def _register_signal_emission_gate(self) -> None:

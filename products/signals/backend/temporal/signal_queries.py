@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -27,6 +28,7 @@ from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_TYPE,
     _deduped_signals_subquery,
 )
+from products.signals.backend.spend import signal_spend_totals
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
@@ -602,6 +604,12 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         )
 
         signals = [_parse_signal_row(row) for row in (result.results or [])]
+        totals = await database_sync_to_async(signal_spend_totals)(
+            team_id=input.team_id, signal_ids=[s.signal_id for s in signals]
+        )
+        for signal in signals:
+            if signal.signal_id in totals:
+                signal.metadata["total_spend"] = totals[signal.signal_id]
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",
@@ -629,6 +637,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
         placeholders=_report_placeholders(report_id),
     )
 
+    totals = signal_spend_totals(team_id=team.id, signal_ids=[row[0] for row in result.results or []])
     signals_list = []
     for row in result.results or []:
         document_id, content, metadata_str, timestamp, _inserted_at = row
@@ -644,6 +653,7 @@ def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
                 "timestamp": timestamp,
                 "extra": metadata.get("extra", {}),
                 "match_metadata": metadata.get("match_metadata"),
+                "total_spend": totals.get(document_id, metadata.get("total_spend")),
             }
         )
 

@@ -21,6 +21,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.facade.api import _telemetry_props_from_extra
+from products.signals.backend.spend import track_signal_spend
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -157,7 +158,7 @@ def _safe_verdict_cache_key(team_id: int, mode: ModelMode, signal_prompt: str, p
     return f"signals:safety:safe:v1:{team_id}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyFilterInput:
     description: str
     # Optional with a default for deploy-time backward compatibility: a batch scheduled before this
@@ -171,6 +172,7 @@ class SafetyFilterInput:
     source_id: str | None = None
     weight: float | None = None
     extra: dict = field(default_factory=dict)
+    signal_id: str | None = None
 
 
 @dataclass
@@ -339,6 +341,7 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
 @activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_signal_spend
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Filter out unsafe signals before passing them through the pipeline."""
     try:

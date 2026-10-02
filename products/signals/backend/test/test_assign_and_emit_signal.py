@@ -213,6 +213,7 @@ async def test_potential_promotes_when_weight_crosses_threshold(ateam):
     assert refreshed.total_weight == pytest.approx(WEIGHT_THRESHOLD * 1.2)
     assert refreshed.signal_count == 2
     assert refreshed.promoted_at is not None
+    assert str(refreshed.triggering_signal_id) == input_.signal_id
 
 
 @pytest.mark.asyncio
@@ -268,8 +269,10 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam):
     - leave status at CANDIDATE
     - increment weight + signal_count atomically
     """
+    original_driver = uuid.uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
+        triggering_signal_id=original_driver,
         status=SignalReport.Status.CANDIDATE,
         total_weight=2.0,
         signal_count=3,
@@ -283,6 +286,8 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam):
     assert refreshed.status == SignalReport.Status.CANDIDATE
     assert refreshed.total_weight == pytest.approx(2.5)
     assert refreshed.signal_count == 4
+
+    assert refreshed.triggering_signal_id == original_driver
 
 
 @pytest.mark.asyncio
@@ -1207,3 +1212,29 @@ async def test_daily_limit_gate_emits_no_event_when_signal_would_not_promote(ate
 
     events = [call.kwargs.get("event") for call in patch_side_effects["capture"].call_args_list]
     assert "signal_report_daily_limit_paused" not in events
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam):
+    original_driver = uuid.uuid4()
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=2,
+        researching_signal_count=2,
+        triggering_signal_id=original_driver,
+    )
+    for _ in range(3):
+        signal = _build_input(ateam.id, _existing_match(str(report.id)))
+        await assign_and_emit_signal_activity(signal)
+        await database_sync_to_async(report.refresh_from_db)()
+        assert report.triggering_signal_id == original_driver
+        if report.signal_count == 3:
+            assert report.pending_triggering_signal_id is None
+        elif report.signal_count == 4:
+            next_driver = signal.signal_id
+            assert str(report.pending_triggering_signal_id) == next_driver
+        else:
+            assert str(report.pending_triggering_signal_id) == next_driver

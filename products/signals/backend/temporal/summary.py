@@ -787,7 +787,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
-            report.save(update_fields=updated_fields)
+            report.pending_triggering_signal_id = None
+            report.researching_signal_count = input.signal_count
+            report.save(update_fields=[*updated_fields, "pending_triggering_signal_id", "researching_signal_count"])
             return report.run_count, False
 
         run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
@@ -977,7 +979,8 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=candidate_fields)
+                report.triggering_signal_id = report.pending_triggering_signal_id
+                report.save(update_fields=[*candidate_fields, "triggering_signal_id"])
             else:
                 # Only a pass that settles writes its checks. A pass about to be re-researched is
                 # an intermediate one, and its checks would describe prose the next pass replaces.

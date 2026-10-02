@@ -72,6 +72,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.spend import track_report_spend
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -942,6 +943,7 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_report_spend
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:

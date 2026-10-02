@@ -5,7 +5,11 @@ which may only import ``products.tasks`` through the facade (see tach.toml).
 """
 
 from products.tasks.backend.facade.contracts import TaskRunCost
-from products.tasks.backend.logic.services.gateway_usage import get_task_cost, get_task_run_cost
+from products.tasks.backend.logic.services.gateway_usage import (
+    get_task_cost,
+    get_task_run_cost,
+    get_task_run_token_cost_microusd,
+)
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
     SandboxComputeUsageByTeam,
@@ -39,4 +43,5 @@ __all__ = [
     "get_task_usage",
     "get_task_run_cost",
     "get_task_cost",
+    "get_task_run_token_cost_microusd",
 ]

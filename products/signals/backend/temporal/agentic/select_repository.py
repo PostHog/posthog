@@ -19,6 +19,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
+from products.signals.backend.spend import track_report_spend
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -88,6 +89,7 @@ def _capture_repo_research_event(
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@track_report_spend
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals.
 

@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 import pytest
 from unittest.mock import patch
 
@@ -33,11 +35,13 @@ CHART_PAYLOAD = {
     [(True, [CHART_PAYLOAD], 1), (False, None, 0)],
 )
 async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, charts, expected_chart_count):
+    driver = uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.CANDIDATE,
         signal_count=2,
         total_weight=1.2,
+        triggering_signal_id=driver,
     )
     report_id = str(report.id)
     source_products = ["conversations", "zendesk"]
@@ -84,6 +88,9 @@ async def test_started_and_ready_fire_expected_captures(ateam, charts_enabled, c
     # chart, so the count only reads as a rate next to the rollout state the run saw.
     assert events[1]["properties"]["charts_enabled"] is charts_enabled
     assert "charts_enabled" not in events[0]["properties"]
+    await database_sync_to_async(report.refresh_from_db)()
+    assert report.triggering_signal_id == driver
+    assert report.researching_signal_count == 2
 
 
 @pytest.mark.asyncio
@@ -153,6 +160,7 @@ async def test_failed_is_idempotent_when_already_failed(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_in_progress_is_idempotent_when_already_in_progress(ateam):
+    pending_driver = uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -160,6 +168,8 @@ async def test_in_progress_is_idempotent_when_already_in_progress(ateam):
         total_weight=1.0,
         run_count=4,
         signals_at_run=5,
+        researching_signal_count=1,
+        pending_triggering_signal_id=pending_driver,
     )
     report_id = str(report.id)
 
@@ -179,6 +189,8 @@ async def test_in_progress_is_idempotent_when_already_in_progress(ateam):
     # Run count and signals_at_run must not be advanced again on retry.
     assert refreshed.run_count == 4
     assert refreshed.signals_at_run == 5
+    assert refreshed.researching_signal_count == 1
+    assert refreshed.pending_triggering_signal_id == pending_driver
 
 
 @pytest.mark.asyncio
@@ -349,12 +361,15 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     ateam, run_count: int, processed_signal_count: int, signal_count: int, expected_loop: bool
 ):
+    driver, pending_driver = uuid4(), uuid4()
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
         signal_count=signal_count,
         run_count=run_count,
         total_weight=2.0,
+        triggering_signal_id=driver,
+        pending_triggering_signal_id=pending_driver if expected_loop else None,
     )
     report_id = str(report.id)
 
@@ -387,6 +402,7 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
     expected_status = SignalReport.Status.CANDIDATE if expected_loop else SignalReport.Status.READY
     assert refreshed.status == expected_status
+    assert refreshed.triggering_signal_id == (pending_driver if expected_loop else driver)
     # Stamped by the pass that just completed, so the next bucket is measured against what this run
     # actually covered rather than against how many times the workflow has started.
     assert refreshed.signals_researched == processed_signal_count

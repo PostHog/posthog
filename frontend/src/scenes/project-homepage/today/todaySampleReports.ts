@@ -452,6 +452,7 @@ export function sampleSignals(reportId: string, now: number = Date.now()): Signa
     const spec = SAMPLE_SPECS.find((candidate) => candidate.id === reportId)
     return (spec?.signals ?? []).map((signal, index) => ({
         signal_id: `${reportId}-signal-${index}`,
+        total_spend: null,
         content: signal.content,
         source_product: signal.sourceProduct,
         source_type: signal.sourceType,
