@@ -8,8 +8,11 @@ from posthog.models import Organization, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.experiments.activities import (
     _get_experiment_regular_metrics_for_hour_sync,
+    _get_experiment_regular_metrics_page_sync,
     _get_experiment_saved_metrics_for_hour_sync,
+    _get_experiment_saved_metrics_page_sync,
 )
+from posthog.temporal.experiments.models import MetricsPageInput
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -32,6 +35,8 @@ def _create_running_experiment(team, user, flag_key, metrics=None):
 # Access the underlying sync functions, patching out close_old_connections which kills the test DB connection
 _raw_sync = _get_experiment_regular_metrics_for_hour_sync.func  # type: ignore[attr-defined]
 _raw_saved_sync = _get_experiment_saved_metrics_for_hour_sync.func  # type: ignore[attr-defined]
+_raw_page_sync = _get_experiment_regular_metrics_page_sync.func  # type: ignore[attr-defined]
+_raw_saved_page_sync = _get_experiment_saved_metrics_page_sync.func  # type: ignore[attr-defined]
 
 
 def _get_metrics_sync(hour):
@@ -42,6 +47,18 @@ def _get_metrics_sync(hour):
 def _get_saved_metrics_sync(hour):
     with patch("posthog.temporal.experiments.activities.close_old_connections"):
         return _raw_saved_sync(hour)
+
+
+def _get_metrics_page_sync(hour, after_experiment_id, page_size):
+    with patch("posthog.temporal.experiments.activities.close_old_connections"):
+        return _raw_page_sync(MetricsPageInput(hour=hour, after_experiment_id=after_experiment_id, page_size=page_size))
+
+
+def _get_saved_metrics_page_sync(hour, after_experiment_id, page_size):
+    with patch("posthog.temporal.experiments.activities.close_old_connections"):
+        return _raw_saved_page_sync(
+            MetricsPageInput(hour=hour, after_experiment_id=after_experiment_id, page_size=page_size)
+        )
 
 
 @pytest.mark.django_db
@@ -134,6 +151,63 @@ class TestRecalculationTimeFilter:
 
         assert inline == ["inline-mean"]
         assert saved == ["saved-mean"]
+
+    def test_paged_discovery_covers_the_hour_without_skips_or_overlap(self):
+        org = Organization.objects.create(name="Test Org Paged")
+        team = Team.objects.create(organization=org, name="Team Paged")
+        user = User.objects.create(email="paged@test.com")
+
+        def two_metrics(key: str) -> list[dict]:
+            return [
+                {"metric_type": "mean", "uuid": f"{key}-a", "source": {"kind": "EventsNode", "event": "test"}},
+                {"metric_type": "mean", "uuid": f"{key}-b", "source": {"kind": "EventsNode", "event": "test"}},
+            ]
+
+        experiments = [
+            _create_running_experiment(team, user, f"paged-{i}", metrics=two_metrics(f"paged-{i}")) for i in range(3)
+        ]
+        for i, experiment in enumerate(experiments):
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=team,
+                name=f"Saved {i}",
+                query={
+                    "metric_type": "mean",
+                    "uuid": f"saved-paged-{i}",
+                    "source": {"kind": "EventsNode", "event": "test"},
+                },
+                created_by=user,
+            )
+            ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=saved_metric)
+
+        our_ids = {e.id for e in experiments}
+
+        for pager, unpaged in (
+            (_get_metrics_page_sync, _get_metrics_sync),
+            (_get_saved_metrics_page_sync, _get_saved_metrics_sync),
+        ):
+            pages = []
+            cursor = 0
+            while True:
+                page = pager(hour=2, after_experiment_id=cursor, page_size=2)
+                pages.append(page)
+                if page.next_after_experiment_id is None:
+                    break
+                assert page.next_after_experiment_id > cursor
+                cursor = page.next_after_experiment_id
+
+            paged = [m for page in pages for m in page.metrics if m.experiment_id in our_ids]
+            expected = [m for m in unpaged(hour=2) if m.experiment_id in our_ids]
+            # The unpaged query has no ordering, so compare contents: equal sets and equal lengths
+            # together prove no metric was skipped and none was returned twice.
+            assert set(paged) == set(expected)
+            assert len(paged) == len(expected)
+            # Pages split on whole experiments: an experiment whose metrics straddled two pages would
+            # publish with only the first page's points.
+            page_id_sets = [{m.experiment_id for m in page.metrics if m.experiment_id in our_ids} for page in pages]
+            for i, id_set in enumerate(page_id_sets):
+                for other in page_id_sets[i + 1 :]:
+                    assert id_set.isdisjoint(other)
+            assert page_id_sets[0] == {experiments[0].id, experiments[1].id}
 
     def test_team_with_no_config_row_defaults_to_hour_2(self):
         org = Organization.objects.create(name="Test Org 2")

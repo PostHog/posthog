@@ -29,6 +29,9 @@ from posthog.temporal.experiments.models import (
     ExperimentRegularMetricResult,
     ExperimentSavedMetricInput,
     ExperimentSavedMetricResult,
+    MetricsPageInput,
+    RegularMetricsPage,
+    SavedMetricsPage,
 )
 from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
@@ -70,13 +73,8 @@ def _build_metric_validated(
         raise ValidationError(str(e)) from e
 
 
-@database_sync_to_async
-def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
-    close_old_connections()
-
-    experiment_metrics: list[ExperimentRegularMetricInput] = []
-
-    experiments = Experiment.objects.filter(
+def _regular_metrics_queryset(hour: int):
+    return Experiment.objects.filter(
         recalculation_hour_filter(hour),
         deleted=False,
         status=Experiment.Status.RUNNING,
@@ -86,37 +84,50 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
         Q(metrics_secondary__isnull=True) | Q(metrics_secondary=[]),
     )
 
-    for experiment in experiments:
-        all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
 
-        for metric in all_metrics:
-            metric_uuid = metric.get("uuid")
-            if not metric_uuid:
-                logger.warning(
-                    "Metric has no UUID, skipping",
-                    experiment_id=experiment.id,
-                )
-                continue
-            if not is_scheduled_metric(metric):
-                continue
+def _regular_metric_inputs(experiment: Experiment) -> list[ExperimentRegularMetricInput]:
+    experiment_metrics: list[ExperimentRegularMetricInput] = []
+    all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
 
-            fingerprint = compute_metric_fingerprint(
-                metric,
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
+    for metric in all_metrics:
+        metric_uuid = metric.get("uuid")
+        if not metric_uuid:
+            logger.warning(
+                "Metric has no UUID, skipping",
+                experiment_id=experiment.id,
             )
+            continue
+        if not is_scheduled_metric(metric):
+            continue
 
-            experiment_metrics.append(
-                ExperimentRegularMetricInput(
-                    experiment_id=experiment.id,
-                    metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
-                    team_id=experiment.team_id,
-                )
+        fingerprint = compute_metric_fingerprint(
+            metric,
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
+        )
+
+        experiment_metrics.append(
+            ExperimentRegularMetricInput(
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                team_id=experiment.team_id,
             )
+        )
+
+    return experiment_metrics
+
+
+@database_sync_to_async
+def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentRegularMetricInput]:
+    close_old_connections()
+
+    experiment_metrics: list[ExperimentRegularMetricInput] = []
+    for experiment in _regular_metrics_queryset(hour):
+        experiment_metrics.extend(_regular_metric_inputs(experiment))
 
     logger.info(
         "Discovered experiment metrics for hour",
@@ -129,8 +140,50 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
 
 @temporalio.activity.defn
 async def get_experiment_regular_metrics_for_hour(hour: int) -> list[ExperimentRegularMetricInput]:
-    """Discover experiment-metrics that need calculation for teams scheduled at this hour."""
+    """Discover experiment-metrics that need calculation for teams scheduled at this hour.
+
+    Unpaged. Kept only so executions started before the chunked workflow replay deterministically;
+    new executions use get_experiment_regular_metrics_page."""
     return await _get_experiment_regular_metrics_for_hour_sync(hour)
+
+
+@database_sync_to_async
+def _get_experiment_regular_metrics_page_sync(inputs: MetricsPageInput) -> RegularMetricsPage:
+    close_old_connections()
+
+    # Pages are whole experiments so an experiment's metrics and its publish always land in the
+    # same workflow leg. The explicit id ordering is what makes the cursor correct: the model has
+    # no default ordering, so an unordered query could skip or repeat experiments between pages.
+    experiments = list(
+        _regular_metrics_queryset(inputs.hour)
+        .filter(id__gt=inputs.after_experiment_id)
+        .order_by("id")[: inputs.page_size]
+    )
+
+    experiment_metrics: list[ExperimentRegularMetricInput] = []
+    for experiment in experiments:
+        experiment_metrics.extend(_regular_metric_inputs(experiment))
+
+    # The cursor advances by experiments scanned, not metrics returned, so a page of experiments
+    # whose metrics are all filtered out still makes progress.
+    next_cursor = experiments[-1].id if len(experiments) == inputs.page_size else None
+
+    logger.info(
+        "Discovered a page of experiment metrics for hour",
+        hour=inputs.hour,
+        after_experiment_id=inputs.after_experiment_id,
+        experiment_count=len(experiments),
+        metric_count=len(experiment_metrics),
+        next_after_experiment_id=next_cursor,
+    )
+
+    return RegularMetricsPage(metrics=experiment_metrics, next_after_experiment_id=next_cursor)
+
+
+@temporalio.activity.defn
+async def get_experiment_regular_metrics_page(inputs: MetricsPageInput) -> RegularMetricsPage:
+    """Discover one page of experiment-metrics for teams scheduled at this hour."""
+    return await _get_experiment_regular_metrics_page_sync(inputs)
 
 
 @database_sync_to_async
@@ -375,54 +428,63 @@ async def calculate_experiment_regular_metric(
     )
 
 
-@database_sync_to_async
-def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSavedMetricInput]:
-    close_old_connections()
-
-    experiment_metrics: list[ExperimentSavedMetricInput] = []
-
-    experiments = Experiment.objects.filter(
+def _saved_metrics_queryset(hour: int):
+    return Experiment.objects.filter(
         recalculation_hour_filter(hour),
         deleted=False,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
     ).prefetch_related("experimenttosavedmetric_set__saved_metric")
 
-    for experiment in experiments:
-        for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
-            saved_metric = exp_to_saved_metric.saved_metric
-            metric_uuid = saved_metric.query.get("uuid")
 
-            if not metric_uuid:
-                logger.warning(
-                    "Saved metric has no UUID, skipping",
-                    experiment_id=experiment.id,
-                    saved_metric_id=saved_metric.id,
-                )
-                continue
-            if not is_scheduled_metric(saved_metric.query):
-                continue
+def _saved_metric_inputs(experiment: Experiment) -> list[ExperimentSavedMetricInput]:
+    experiment_metrics: list[ExperimentSavedMetricInput] = []
 
-            # Fingerprint the effective definition (with the link overrides), the same dict the calc
-            # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file override-configured metrics under a hash no reader looks up.
-            fingerprint = compute_metric_fingerprint(
-                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
-                experiment.start_date,
-                get_experiment_stats_method(experiment),
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
+    for exp_to_saved_metric in experiment.experimenttosavedmetric_set.all():
+        saved_metric = exp_to_saved_metric.saved_metric
+        metric_uuid = saved_metric.query.get("uuid")
+
+        if not metric_uuid:
+            logger.warning(
+                "Saved metric has no UUID, skipping",
+                experiment_id=experiment.id,
+                saved_metric_id=saved_metric.id,
             )
+            continue
+        if not is_scheduled_metric(saved_metric.query):
+            continue
 
-            experiment_metrics.append(
-                ExperimentSavedMetricInput(
-                    experiment_id=experiment.id,
-                    metric_uuid=metric_uuid,
-                    fingerprint=fingerprint,
-                    team_id=experiment.team_id,
-                )
+        # Fingerprint the effective definition (with the link overrides), the same dict the calc
+        # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
+        # saved query here would file override-configured metrics under a hash no reader looks up.
+        fingerprint = compute_metric_fingerprint(
+            resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=experiment.excluded_variants,
+        )
+
+        experiment_metrics.append(
+            ExperimentSavedMetricInput(
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+                team_id=experiment.team_id,
             )
+        )
+
+    return experiment_metrics
+
+
+@database_sync_to_async
+def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSavedMetricInput]:
+    close_old_connections()
+
+    experiment_metrics: list[ExperimentSavedMetricInput] = []
+    for experiment in _saved_metrics_queryset(hour):
+        experiment_metrics.extend(_saved_metric_inputs(experiment))
 
     logger.info(
         "Discovered experiment saved metrics for hour",
@@ -435,8 +497,47 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
 
 @temporalio.activity.defn
 async def get_experiment_saved_metrics_for_hour(hour: int) -> list[ExperimentSavedMetricInput]:
-    """Discover experiment-saved metrics that need calculation for teams scheduled at this hour."""
+    """Discover experiment-saved metrics that need calculation for teams scheduled at this hour.
+
+    Unpaged. Kept only so executions started before the chunked workflow replay deterministically;
+    new executions use get_experiment_saved_metrics_page."""
     return await _get_experiment_saved_metrics_for_hour_sync(hour)
+
+
+@database_sync_to_async
+def _get_experiment_saved_metrics_page_sync(inputs: MetricsPageInput) -> SavedMetricsPage:
+    close_old_connections()
+
+    # Same paging contract as _get_experiment_regular_metrics_page_sync: whole experiments per page,
+    # explicit id ordering because the model has none, cursor advanced by experiments scanned.
+    experiments = list(
+        _saved_metrics_queryset(inputs.hour)
+        .filter(id__gt=inputs.after_experiment_id)
+        .order_by("id")[: inputs.page_size]
+    )
+
+    experiment_metrics: list[ExperimentSavedMetricInput] = []
+    for experiment in experiments:
+        experiment_metrics.extend(_saved_metric_inputs(experiment))
+
+    next_cursor = experiments[-1].id if len(experiments) == inputs.page_size else None
+
+    logger.info(
+        "Discovered a page of experiment saved metrics for hour",
+        hour=inputs.hour,
+        after_experiment_id=inputs.after_experiment_id,
+        experiment_count=len(experiments),
+        metric_count=len(experiment_metrics),
+        next_after_experiment_id=next_cursor,
+    )
+
+    return SavedMetricsPage(metrics=experiment_metrics, next_after_experiment_id=next_cursor)
+
+
+@temporalio.activity.defn
+async def get_experiment_saved_metrics_page(inputs: MetricsPageInput) -> SavedMetricsPage:
+    """Discover one page of experiment-saved metrics for teams scheduled at this hour."""
+    return await _get_experiment_saved_metrics_page_sync(inputs)
 
 
 @database_sync_to_async

@@ -4,7 +4,9 @@ from posthog.temporal.experiments.activities import (
     calculate_experiment_saved_metric,
     create_recalculation_from_timeseries,
     get_experiment_regular_metrics_for_hour,
+    get_experiment_regular_metrics_page,
     get_experiment_saved_metrics_for_hour,
+    get_experiment_saved_metrics_page,
 )
 from posthog.temporal.experiments.workflows import (
     ExperimentRegularMetricsWorkflow,
@@ -19,8 +21,10 @@ WORKFLOWS = [
 ]
 ACTIVITIES = [
     get_experiment_regular_metrics_for_hour,
+    get_experiment_regular_metrics_page,
     calculate_experiment_regular_metric,
     get_experiment_saved_metrics_for_hour,
+    get_experiment_saved_metrics_page,
     calculate_experiment_saved_metric,
     create_recalculation_from_timeseries,
     backfill_experiment_metric,
@@ -33,8 +37,10 @@ __all__ = [
     "ExperimentSavedMetricsWorkflow",
     "ExperimentTimeseriesRecalculationWorkflow",
     "get_experiment_regular_metrics_for_hour",
+    "get_experiment_regular_metrics_page",
     "calculate_experiment_regular_metric",
     "get_experiment_saved_metrics_for_hour",
+    "get_experiment_saved_metrics_page",
     "calculate_experiment_saved_metric",
     "create_recalculation_from_timeseries",
     "backfill_experiment_metric",

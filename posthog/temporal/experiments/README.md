@@ -31,10 +31,17 @@ There are two parallel workflow systems:
 
 When a schedule triggers, it starts a workflow that:
 
-1. Discovers which experiment-metric pairs need calculation. It skips the metrics that `is_scheduled_metric` rejects, the same as recalculation discovery: legacy metrics without a `metric_type`, and metrics without a uuid
+1. Discovers one page of experiments (100, ordered by id) for teams scheduled at this hour, and their metric pairs. It skips the metrics that `is_scheduled_metric` rejects, the same as recalculation discovery: legacy metrics without a `metric_type`, and metrics without a uuid
 2. Calculates each experiment's metrics in parallel, under one hour-wide concurrency limit
 3. Stores results in the database
 4. Assembles one completed metrics recalculation per experiment as soon as that experiment's own metrics finish (see below)
+5. Fetches the next page and repeats, continuing-as-new between pages when Temporal suggests it
+
+### Why the run is paged and continues-as-new
+
+Temporal Cloud terminates a workflow whose history exceeds 51,200 events, and the termination records no failure anywhere. At roughly 6 history events per activity, one execution can hold about 8,500 activities; the big hours need more than that, so the single-execution shape got terminated mid-batch every day and every experiment past the cutoff was silently skipped. The run therefore rotates executions with `continue_as_new` between pages: the discovery cursor (`after_experiment_id`), the original run start, and the accumulated totals travel in the continuation inputs, so each leg starts from an empty history. Legs are sequential and share one `MAX_CONCURRENT_METRICS` semaphore per leg, so ClickHouse concurrency is identical to the unpaged shape. The final leg returns the chain-wide summary and emits the publish-outcome counter exactly once.
+
+Pages split on whole experiments, never mid-experiment, so an experiment's publish always runs in the same leg as its metrics. The cursor advances by experiments scanned rather than metrics returned, so a page whose experiments all get filtered out still makes progress.
 
 ### Handing fresh points to the recalculation reader
 
@@ -52,13 +59,13 @@ Each run ends by emitting the `experiment_timeseries_publish_runs` Prometheus co
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                    ExperimentRegularMetricsWorkflow                        │
+│             ExperimentRegularMetricsWorkflow (one leg of the run)          │
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │  Activity: get_experiment_regular_metrics_for_hour                   │  │
+│  │  Activity: get_experiment_regular_metrics_page                       │  │
 │  │                                                                      │  │
-│  │  Find all experiments for teams scheduled at this hour               │  │
-│  │  Returns: [(exp_id, metric_uuid, fingerprint), ...]                  │  │
+│  │  Next 100 experiments by id for teams scheduled at this hour         │  │
+│  │  Returns: metrics [(exp_id, metric_uuid, fingerprint), ...] + cursor │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                       │
 │                                    ▼                                       │
@@ -74,17 +81,22 @@ Each run ends by emitting the `experiment_timeseries_publish_runs` Prometheus co
 │  │  1. Load experiment config                                           │  │
 │  │  2. Run ExperimentQueryRunner                                        │  │
 │  │  3. Store result in ExperimentMetricResult table                     │  │
+│  │                                                                      │  │
+│  │  + create_recalculation_from_timeseries per finished experiment      │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 │                                    │                                       │
-│                                    ▼                                       │
-│                         Return summary stats                               │
-│                    (total, succeeded, failed counts)                       │
+│                     cursor left? ──┤                                       │
+│                          │ yes     │ no                                    │
+│                          ▼         ▼                                       │
+│              continue-as-new    Return chain summary                       │
+│              (cursor, run      (total, succeeded, failed counts)           │
+│               start, totals)                                               │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The `ExperimentSavedMetricsWorkflow` follows the same structure but:
 
-- Uses `get_experiment_saved_metrics_for_hour` to discover metrics from `experimenttosavedmetric_set`
+- Uses `get_experiment_saved_metrics_page` to discover metrics from `experimenttosavedmetric_set`
 - Uses `calculate_experiment_saved_metric` to process each saved metric
 - Does not filter on empty `metrics`/`metrics_secondary` arrays (saved metrics are separate)
 

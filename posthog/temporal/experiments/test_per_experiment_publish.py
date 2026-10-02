@@ -14,11 +14,21 @@ from posthog.temporal.experiments.models import (
     ExperimentSavedMetricInput,
     ExperimentSavedMetricResult,
     ExperimentSavedMetricsWorkflowInputs,
+    MetricsPageInput,
+    SavedMetricsPage,
 )
 from posthog.temporal.experiments.workflows import ExperimentSavedMetricsWorkflow, _record_publish_outcome
 
 FAST_EXPERIMENT = 101
 SLOW_EXPERIMENT = 102
+
+
+def _single_page(metrics: list[ExperimentSavedMetricInput]):
+    @activity.defn(name="get_experiment_saved_metrics_page")
+    async def mock_discover(inputs: MetricsPageInput) -> SavedMetricsPage:
+        return SavedMetricsPage(metrics=metrics, next_after_experiment_id=None)
+
+    return mock_discover
 
 
 async def _run_workflow(activities: list) -> dict:
@@ -47,9 +57,8 @@ async def test_an_experiment_publishes_before_the_whole_batch_finishes():
     fast_published = asyncio.Event()
     publish_calls: list[int] = []
 
-    @activity.defn(name="get_experiment_saved_metrics_for_hour")
-    async def mock_discover(hour: int) -> list[ExperimentSavedMetricInput]:
-        return [
+    mock_discover = _single_page(
+        [
             ExperimentSavedMetricInput(
                 experiment_id=FAST_EXPERIMENT, metric_uuid="m-fast", fingerprint="f1", team_id=1
             ),
@@ -57,6 +66,7 @@ async def test_an_experiment_publishes_before_the_whole_batch_finishes():
                 experiment_id=SLOW_EXPERIMENT, metric_uuid="m-slow", fingerprint="f2", team_id=1
             ),
         ]
+    )
 
     @activity.defn(name="calculate_experiment_saved_metric")
     async def mock_calculate(experiment_id: int, metric_uuid: str, fingerprint: str) -> ExperimentSavedMetricResult:
@@ -96,20 +106,20 @@ async def test_publish_does_not_wait_in_the_metric_semaphore_queue():
     experiment's publish, so a queued-behind-metrics publish deadlocks and fails via the timeout guard."""
     fast_published = asyncio.Event()
 
-    @activity.defn(name="get_experiment_saved_metrics_for_hour")
-    async def mock_discover(hour: int) -> list[ExperimentSavedMetricInput]:
-        slow = [
-            ExperimentSavedMetricInput(
-                experiment_id=SLOW_EXPERIMENT, metric_uuid=f"m-slow-{i}", fingerprint=f"s{i}", team_id=1
-            )
-            for i in range(14)
-        ]
-        return [
+    slow = [
+        ExperimentSavedMetricInput(
+            experiment_id=SLOW_EXPERIMENT, metric_uuid=f"m-slow-{i}", fingerprint=f"s{i}", team_id=1
+        )
+        for i in range(14)
+    ]
+    mock_discover = _single_page(
+        [
             ExperimentSavedMetricInput(
                 experiment_id=FAST_EXPERIMENT, metric_uuid="m-fast", fingerprint="f1", team_id=1
             ),
             *slow,
         ]
+    )
 
     @activity.defn(name="calculate_experiment_saved_metric")
     async def mock_calculate(experiment_id: int, metric_uuid: str, fingerprint: str) -> ExperimentSavedMetricResult:
@@ -138,9 +148,8 @@ async def test_a_failed_publish_skips_only_its_own_experiment():
     """One experiment's publish failing after its retries must not fail the workflow or block the other
     experiments' publishes, or a single bad row would lose the whole hour's freshness."""
 
-    @activity.defn(name="get_experiment_saved_metrics_for_hour")
-    async def mock_discover(hour: int) -> list[ExperimentSavedMetricInput]:
-        return [
+    mock_discover = _single_page(
+        [
             ExperimentSavedMetricInput(
                 experiment_id=FAST_EXPERIMENT, metric_uuid="m-fast", fingerprint="f1", team_id=1
             ),
@@ -148,6 +157,7 @@ async def test_a_failed_publish_skips_only_its_own_experiment():
                 experiment_id=SLOW_EXPERIMENT, metric_uuid="m-slow", fingerprint="f2", team_id=1
             ),
         ]
+    )
 
     @activity.defn(name="calculate_experiment_saved_metric")
     async def mock_calculate(experiment_id: int, metric_uuid: str, fingerprint: str) -> ExperimentSavedMetricResult:
@@ -164,6 +174,68 @@ async def test_a_failed_publish_skips_only_its_own_experiment():
     result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
 
     assert result == {"hour": 2, "total": 2, "succeeded": 2, "failed": 0, "recalculations_synced": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("force_continue_as_new", [False, True])
+async def test_the_run_covers_every_page_and_carries_state_across_legs(force_continue_as_new):
+    """The hour used to run as one execution and Temporal Cloud terminated it at the history cap, so
+    experiments past the cutoff were silently skipped. The run must cover every discovery page: within
+    one execution, and equally when forced to continue-as-new on every page boundary, where a dropped
+    cursor skips a page, a re-stamped run_started_at breaks the publish window, dropped totals corrupt
+    the summary, and a per-leg counter emission double-counts the run. The middle page is empty with a
+    cursor still set, which is what a page of all-filtered-out experiments returns: a run that stops on
+    the empty metrics list instead of the cursor silently drops the rest of the batch."""
+    pages = {
+        0: SavedMetricsPage(
+            metrics=[
+                ExperimentSavedMetricInput(
+                    experiment_id=FAST_EXPERIMENT, metric_uuid="m-1", fingerprint="f1", team_id=1
+                )
+            ],
+            next_after_experiment_id=FAST_EXPERIMENT,
+        ),
+        FAST_EXPERIMENT: SavedMetricsPage(metrics=[], next_after_experiment_id=150),
+        150: SavedMetricsPage(
+            metrics=[
+                ExperimentSavedMetricInput(experiment_id=202, metric_uuid="m-2", fingerprint="f2", team_id=1),
+                ExperimentSavedMetricInput(experiment_id=202, metric_uuid="m-3", fingerprint="f3", team_id=1),
+            ],
+            next_after_experiment_id=None,
+        ),
+    }
+    publish_run_starts: dict[int, str] = {}
+
+    @activity.defn(name="get_experiment_saved_metrics_page")
+    async def mock_discover(inputs: MetricsPageInput) -> SavedMetricsPage:
+        return pages[inputs.after_experiment_id]
+
+    @activity.defn(name="calculate_experiment_saved_metric")
+    async def mock_calculate(experiment_id: int, metric_uuid: str, fingerprint: str) -> ExperimentSavedMetricResult:
+        return ExperimentSavedMetricResult(
+            experiment_id=experiment_id, metric_uuid=metric_uuid, fingerprint=fingerprint, success=True
+        )
+
+    @activity.defn(name="create_recalculation_from_timeseries")
+    async def mock_publish(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
+        publish_run_starts[experiment_id] = run_started_at
+        return f"recalc-{experiment_id}"
+
+    force_threshold = 0 if force_continue_as_new else 20_000
+    with (
+        patch("posthog.temporal.experiments.workflows.FORCE_CONTINUE_HISTORY_EVENTS", force_threshold),
+        patch("temporalio.workflow.metric_meter") as mock_meter,
+    ):
+        result = await _run_workflow([mock_discover, mock_calculate, mock_publish])
+
+    assert result == {"hour": 2, "total": 3, "succeeded": 3, "failed": 0, "recalculations_synced": 2}
+    assert set(publish_run_starts) == {FAST_EXPERIMENT, 202}
+    # Both publishes must receive the first leg's run start; the sync activity windows qualifying
+    # points on it and the regular and saved workflows share recalculation rows through it.
+    assert len(set(publish_run_starts.values())) == 1
+    mock_meter.return_value.with_additional_attributes.assert_called_once_with(
+        {"workflow_type": "experiment-saved-metrics-workflow", "status": "published"}
+    )
 
 
 @pytest.mark.parametrize(
