@@ -133,13 +133,21 @@ def _strip_markdown_json_fences(text: str) -> str:
     return text
 
 
-def parse_json_object(text: str) -> Any:
-    """Decode the first JSON object in the reply and ignore any text after it."""
+def parse_json_object(text: str) -> dict[str, Any]:
+    """Decode the first JSON object in the reply and ignore any text around it."""
+    decoder = json.JSONDecoder()
+    first_error: json.JSONDecodeError | None = None
     start = text.find("{")
-    if start == -1:
-        return json.loads(text)
-    data, _ = json.JSONDecoder().raw_decode(text, start)
-    return data
+    while start != -1:
+        try:
+            data, _ = decoder.raw_decode(text, start)
+        except json.JSONDecodeError as e:
+            first_error = first_error or e
+        else:
+            if isinstance(data, dict):
+                return data
+        start = text.find("{", start + 1)
+    raise first_error or json.JSONDecodeError("No JSON object found", text, 0)
 
 
 T = TypeVar("T")

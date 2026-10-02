@@ -197,6 +197,7 @@ async def test_request_shape_follows_model_capabilities(
         ('{"match": true}', {"match": True}),
         ('{"match": true}\n\nThe signal matches the report.', {"match": True}),
         ('Here is my answer:\n{"match": false, "reason": "a {b}"}\nDone.', {"match": False, "reason": "a {b}"}),
+        ('Use {braces} as notation.\n{"match": true}', {"match": True}),
     ],
 )
 def test_parse_json_object_ignores_surrounding_text(text: str, expected: dict[str, object]) -> None:
