@@ -976,7 +976,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
         visiblePinnedRecordings: (
             pinnedRecordings: SessionRecordingType[],
             deletedRecordingIds: Set<string>,
-            listSort: any
+            listSort: RecordingSort
         ) => SessionRecordingType[]
         recordings: (
             visiblePinnedRecordings: SessionRecordingType[],
