@@ -48,6 +48,7 @@ Hence the explicit separation between the data and view layers.
 - Scenes
   - Our app is built of _scenes_, managed through a scene router in `sceneLogic`.
   - A scene is the smallest unit in the router and for code splitting. Usually we split scenes by resource type (dashboard, insight) and function (edit, index).
+  - Load optional panes, hover cards, and alternative home screens with `lazyWithRetry` and `Suspense`. Keep their data loaders in the component that needs them. A closed dialog or preview provider must not start requests for another pane.
   - Each scene (e.g. Dashboards) exports an object of type `SceneExport`, containing the scene's root `logic` and its React `component`.
   - The scene's logic is automatically mounted and receives the scene's URL params as props (via `paramsToProps`).
   - Use `urlToAction` and `actionToUrl` on the scene's logic to sync state with the URL. Try to only use them on the scene's logic, not in any deeper logics.
