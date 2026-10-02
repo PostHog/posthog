@@ -663,7 +663,10 @@ async fn create_output(
             .collect(),
     )
     .context("failed to start Kafka producers")?;
-    let kafka_sink = KafkaSink::new(&producers, outputs, config.replay_envelope_compression);
+    let kafka_sink = KafkaSink::new(
+        outputs.map_producers(|name| producers.get(*name)),
+        config.replay_envelope_compression,
+    );
 
     if !config.s3_fallback_enabled {
         return Ok((Output::single(kafka_sink), Some(producers)));

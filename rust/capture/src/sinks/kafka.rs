@@ -22,7 +22,7 @@ use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
 use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
-use crate::producers::ProducerRegistry;
+use crate::producers::ProducerHandle;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, OutputTable};
@@ -241,12 +241,11 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 
 impl KafkaSink {
     pub fn new(
-        producers: &ProducerRegistry,
-        outputs: OutputTable,
+        outputs: OutputTable<ProducerHandle>,
         replay_envelope_compression: EnvelopeCompression,
     ) -> KafkaSink {
         KafkaSinkBase {
-            outputs: Arc::new(outputs.map_producers(|name| producers.get(*name))),
+            outputs: Arc::new(outputs),
             replay_envelope_compression,
         }
     }
@@ -695,7 +694,10 @@ mod tests {
             HashMap::from([(ProducerName::Ingestion, handle)]),
         )
         .expect("failed to create producer");
-        let sink = KafkaSink::new(&producers, test_outputs(), EnvelopeCompression::None);
+        let sink = KafkaSink::new(
+            test_outputs().map_producers(|name| producers.get(*name)),
+            EnvelopeCompression::None,
+        );
         (cluster, sink)
     }
 
