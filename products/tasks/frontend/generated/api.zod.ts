@@ -2031,7 +2031,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 )
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    "Reasoning effort to request for models that expose an effort control. A Pi task sets it as the Pi thinking level and does not accept 'ultracode'.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
                 ),
             context_window: zod
                 .enum(['200k', '1m'])
@@ -2212,7 +2212,7 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 )
                 .optional()
                 .describe(
-                    'Reasoning effort to request for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    "Reasoning effort to request for models that expose an effort control. A Pi task sets it as the Pi thinking level and does not accept 'ultracode'.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode"
                 ),
             context_window: zod
                 .enum(['200k', '1m'])

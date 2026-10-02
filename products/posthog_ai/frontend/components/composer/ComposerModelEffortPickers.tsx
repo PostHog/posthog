@@ -85,6 +85,7 @@ export interface ComposerModelEffortPickersProps {
     onOpenDefaultSettings?: () => void
     /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
     codexBilling?: ComposerCodexBilling
+    singleHarness?: boolean
 }
 
 interface PickerSectionProps {
@@ -144,6 +145,7 @@ export function ComposerModelEffortPickers({
     onResetToDefault,
     onOpenDefaultSettings,
     codexBilling,
+    singleHarness = false,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
@@ -158,7 +160,7 @@ export function ComposerModelEffortPickers({
     const { selectedAdapter, modelLabel, effortOptions, adapters, adapterModels, ladder, showsAnyCost } =
         useMemo(() => {
             const adapter = getRuntimeAdapterForModel(models, selectedModel)
-            const offered = modelsForRuntimeAdapter(models, adapter)
+            const offered = singleHarness ? models : modelsForRuntimeAdapter(models, adapter)
             return {
                 selectedAdapter: adapter,
                 modelLabel: getModelLabel(models, selectedModel),
@@ -169,7 +171,7 @@ export function ComposerModelEffortPickers({
                 // The legend explains a symbol, so it only belongs where a row carries one.
                 showsAnyCost: offered.some((option) => !!getModelCost(option.model)),
             }
-        }, [models, selectedModel])
+        }, [models, selectedModel, singleHarness])
 
     const selectAdapter = (adapter: string): void => {
         const runtimeAdapter = adapter as RuntimeAdapterEnumApi
@@ -266,7 +268,7 @@ export function ComposerModelEffortPickers({
                                 Back
                             </button>
                         )}
-                        {adapters.length > 1 && (
+                        {!singleHarness && adapters.length > 1 && (
                             <PickerSection
                                 title="Harness"
                                 current={getHarnessLabel(selectedAdapter)}
