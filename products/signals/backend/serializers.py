@@ -71,6 +71,7 @@ from .models import (
 )
 from .pull_request_label import DEFAULT_PULL_REQUEST_LABEL
 from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
+from .report_check_progress import CheckProgressStatus, ProgressTargetType
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members, trusted_manual_reviewer_adders
 from .report_metric_access import ReportMetricAccessPolicy
 from .report_metric_refresh import MAX_REPORT_METRIC_REFRESH_REPORTS
@@ -1285,6 +1286,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
     monitoring_started_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When this report's current monitoring period began."
     )
+    monitoring_ended_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When this monitoring period ended in resolution; null while monitoring.",
+    )
 
     @extend_schema_field(serializers.BooleanField())
     def get_monitoring_enabled(self, obj: SignalReport) -> bool:
@@ -1304,6 +1310,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "status",
             "monitoring_enabled",
             "monitoring_started_at",
+            "monitoring_ended_at",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
@@ -1920,7 +1927,53 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
         redacted["query"] = None
     if "baseline_value" in redacted and not policy.may_read_snapshot(config):
         redacted["baseline_value"] = None
+    if redacted.get("eligibility_query") is not None and not policy.may_read_query(
+        {"query": redacted["eligibility_query"]}
+    ):
+        redacted["eligibility_query"] = None
     return redacted
+
+
+class SignalReportCheckProgressPointSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="Start of this chart bucket.")
+    value = serializers.FloatField(help_text="Observed value in this bucket.")
+    target = serializers.FloatField(allow_null=True, help_text="Interim target, or lower bound, for this bucket.")
+    target_upper = serializers.FloatField(
+        allow_null=True, help_text="Upper bound for a between target; otherwise null."
+    )
+
+
+class SignalReportCheckProgressSerializer(serializers.Serializer):
+    check_id = serializers.UUIDField(help_text="The metric follow-up check being measured.")
+    status = serializers.ChoiceField(
+        choices=CheckProgressStatus.choices,
+        help_text="Provisional direction, or why a measurement is unavailable. Never a final check verdict.",
+    )
+    explanation = serializers.CharField(help_text="Evidence supporting the direction or reason it cannot be measured.")
+    started_at = serializers.DateTimeField(allow_null=True, help_text="Inclusive start of the monitoring period.")
+    ended_at = serializers.DateTimeField(
+        allow_null=True, help_text="Measurement cutoff: now, or the time of resolution."
+    )
+    measured_at = serializers.DateTimeField(allow_null=True, help_text="When the query results were computed.")
+    value = serializers.FloatField(allow_null=True, help_text="Observed aggregate since monitoring began.")
+    target = serializers.FloatField(allow_null=True, help_text="Target for the elapsed time, or its lower bound.")
+    target_upper = serializers.FloatField(allow_null=True, help_text="Upper bound of a between target; otherwise null.")
+    target_type = serializers.ChoiceField(
+        choices=ProgressTargetType.choices,
+        allow_null=True,
+        help_text="proportional for totals, fixed for rates and averages.",
+    )
+    sample_size = serializers.FloatField(
+        allow_null=True, help_text="Qualifying observations or eligible opportunities seen."
+    )
+    query = ChartQueryField(
+        allow_null=True, help_text="Derived query with exact monitoring bounds. The stored check is unchanged."
+    )
+    points = SignalReportCheckProgressPointSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Time buckets and their interim targets, or null when the chart could not be loaded.",
+    )
 
 
 class SignalReportCheckSerializer(serializers.ModelSerializer):

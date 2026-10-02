@@ -7,11 +7,13 @@ import type { ReportMetricApi } from 'products/signals/frontend/generated/api.sc
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
+import { reportCheckProgressLogic } from '../../logics/reportCheckProgressLogic'
 import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
 import { buildReportCheckRows, latestCheckExplanations } from './reportCheckPresentation'
+import { ReportCheckProgress } from './ReportCheckProgress'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
@@ -22,6 +24,19 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
     const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    const monitoringPeriod =
+        (report.status === 'monitoring' || report.status === 'resolved') && report.monitoring_started_at != null
+            ? `${report.status}.${report.monitoring_started_at}`
+            : null
+    const progressLogic = reportCheckProgressLogic({
+        reportId: report.id,
+        periodKey:
+            monitoringPeriod && reportChecks !== null
+                ? `${monitoringPeriod}.${reportChecks.map(({ id, updated_at }) => `${id}.${updated_at}`).join('.')}`
+                : null,
+    })
+    const { progress, progressLoading, progressError } = useValues(progressLogic)
+    const { loadProgress } = useActions(progressLogic)
     const measurements = buildReportCheckRows(reportChecks ?? [], latestCheckExplanations(reportArtefacts ?? []))
         .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
         .flatMap((row) => {
@@ -57,7 +72,18 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
     const approving = measurements.some(({ check }) => approvingCheckIds.includes(check.id))
 
     return (
-        <div className="flex flex-col gap-3 rounded-lg border p-4" data-attr="report-expected-impact">
+        <div className="flex min-w-0 flex-col gap-3 rounded-lg border p-4" data-attr="report-expected-impact">
+            {monitoringPeriod && progressError && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={progressLoading}
+                    onClick={() => loadProgress()}
+                    data-attr="report-check-progress-retry"
+                >
+                    Retry progress measurement
+                </LemonButton>
+            )}
             {reportChecksError && (
                 <div className="flex flex-wrap items-center gap-2">
                     <p className="m-0 text-secondary text-sm">{reportChecksError}</p>
@@ -75,6 +101,8 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
             {measurements.length ? (
                 measurements.map(({ check, config, metric, goal, detail, tag, cancellable }) => {
                     const query = asReportMetricSeriesQuery(metric)
+                    const measurement = progress?.find((result) => result.check_id === check.id)
+                    const measurementQuery = monitoringPeriod ? measurement?.query : config.query
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
                             <p className="m-0 font-semibold">
@@ -88,7 +116,13 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 )}
                                 <span> · Goal for the full query window</span>
                             </p>
-                            {query ? (
+                            {monitoringPeriod ? (
+                                <ReportCheckProgress
+                                    metric={metric}
+                                    progress={measurement}
+                                    loading={progressLoading || (progress === null && !progressError)}
+                                />
+                            ) : query ? (
                                 <ReportCheckMetricChart
                                     reportId={report.id}
                                     metric={metric}
@@ -106,11 +140,11 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                 </p>
                             )}
                             <p className="m-0 text-secondary text-sm">{detail}</p>
-                            {config.query != null && (
+                            {measurementQuery != null && (
                                 <details className="text-sm">
                                     <summary className="cursor-pointer">View measurement query</summary>
                                     <pre className="max-h-64 overflow-auto rounded bg-surface-secondary p-2 text-xs">
-                                        {JSON.stringify(config.query, null, 2)}
+                                        {JSON.stringify(measurementQuery, null, 2)}
                                     </pre>
                                 </details>
                             )}

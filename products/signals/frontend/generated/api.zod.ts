@@ -495,6 +495,9 @@ export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
 export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMinimumDataPointsDefault = 1
+export const signalsReportChecksReplaceCreateBodyConfigOneMinimumDataPointsMax = 1000
+
 export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(signalsReportChecksReplaceCreateBodyTitleMax).describe('Label for the new metric check.'),
     rationale: zod
@@ -566,6 +569,24 @@ export const SignalsReportChecksReplaceCreateBody = /* @__PURE__ */ zod.object({
                 .union([zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax), zod.null()])
                 .optional()
                 .describe('Optional value suffix.'),
+            progress_target_type: zod
+                .union([zod.enum(['proportional', 'fixed']), zod.null()])
+                .optional()
+                .describe(
+                    'Interim target: proportional for totals, fixed for rates and averages. Inferred for ordinary Trends math; specify for custom math or formulas.'
+                ),
+            minimum_data_points: zod
+                .number()
+                .min(1)
+                .max(signalsReportChecksReplaceCreateBodyConfigOneMinimumDataPointsMax)
+                .default(signalsReportChecksReplaceCreateBodyConfigOneMinimumDataPointsDefault)
+                .describe('Minimum qualifying observations before giving an interim direction.'),
+            eligibility_query: zod
+                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                .optional()
+                .describe(
+                    'Optional bounded Trends count of relevant opportunities. Enables interpreting zero bad events as positive evidence when there was activity.'
+                ),
         })
         .describe(
             "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
@@ -2461,6 +2482,9 @@ export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
 export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMinimumDataPointsDefault = 1
+export const signalsScoutReportCheckCreateBodyConfigOneOneMinimumDataPointsMax = 1000
+
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoSkillNameOneMax = 200
@@ -2565,6 +2589,24 @@ export const SignalsScoutReportCheckCreateBody = /* @__PURE__ */ zod
                             ])
                             .optional()
                             .describe('Optional value suffix.'),
+                        progress_target_type: zod
+                            .union([zod.enum(['proportional', 'fixed']), zod.null()])
+                            .optional()
+                            .describe(
+                                'Interim target: proportional for totals, fixed for rates and averages. Inferred for ordinary Trends math; specify for custom math or formulas.'
+                            ),
+                        minimum_data_points: zod
+                            .number()
+                            .min(1)
+                            .max(signalsScoutReportCheckCreateBodyConfigOneOneMinimumDataPointsMax)
+                            .default(signalsScoutReportCheckCreateBodyConfigOneOneMinimumDataPointsDefault)
+                            .describe('Minimum qualifying observations before giving an interim direction.'),
+                        eligibility_query: zod
+                            .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                            .optional()
+                            .describe(
+                                'Optional bounded Trends count of relevant opportunities. Enables interpreting zero bad events as positive evidence when there was activity.'
+                            ),
                     })
                     .describe(
                         "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."

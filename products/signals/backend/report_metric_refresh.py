@@ -62,6 +62,12 @@ class MetricMeasurement:
 
 
 @frozen
+class MetricSeries:
+    dates: list[datetime]
+    values: list[float]
+
+
+@frozen
 class ReportMetricRefreshSummary:
     refreshed: int
     skipped: int
@@ -168,6 +174,23 @@ def longitudinal_values(query: dict[str, Any], team: Team, *, deadline: float = 
     if not isinstance(raw_points, list):
         raise ValueError("metric query returned no buckets")
     return [_finite_number(point, what="bucket") for point in raw_points[-MAX_METRIC_SERIES_POINTS:]]
+
+
+def metric_series(query: dict[str, Any], team: Team, *, deadline: float) -> MetricSeries:
+    first_series, _ = _run_metric_query(query, team, ChartDisplayType.ACTIONS_BAR, deadline=deadline)
+    dates = first_series.get("days")
+    values = first_series.get("data")
+    if not isinstance(dates, list) or not isinstance(values, list) or len(dates) != len(values):
+        raise ValueError("metric query returned invalid chart buckets")
+    parsed_dates: list[datetime] = []
+    for raw in dates:
+        if not isinstance(raw, str):
+            raise ValueError("metric query returned a non-string date")
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=team.timezone_info)
+        parsed_dates.append(parsed.astimezone(UTC))
+    return MetricSeries(dates=parsed_dates, values=[_finite_number(value, what="bucket") for value in values])
 
 
 def measure_metric(query: dict[str, Any], team: Team, *, deadline: float, include_series: bool) -> MetricMeasurement:

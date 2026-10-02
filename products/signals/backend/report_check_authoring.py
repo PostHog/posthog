@@ -225,6 +225,10 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
             filled.setdefault("metric_kind", metric.get("kind", "custom"))
             filled.setdefault("value_format", metric.get("value_format", "number"))
             filled.setdefault("unit", metric.get("unit"))
+            if metric.get("eligibility_query") is not None:
+                filled.setdefault("eligibility_query", metric["eligibility_query"])
+            if metric.get("minimum_data_points") is not None:
+                filled.setdefault("minimum_data_points", metric["minimum_data_points"])
             break
     if "comparison" in filled:
         filled["metric_kind"] = filled.get("metric_kind") or "custom"
@@ -324,6 +328,10 @@ def replace_metric_check(
         stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
         if not access_policy.may_read_query(stored_config):
             raise CheckQueryAccessError("The measurement query is not available to you.")
+        if stored_config.get("eligibility_query") is not None and not access_policy.may_read_query(
+            {"query": stored_config["eligibility_query"]}
+        ):
+            raise CheckQueryAccessError("The activity query is not available to you.")
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
         return create_check(

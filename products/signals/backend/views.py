@@ -143,6 +143,7 @@ from products.signals.backend.report_check_authoring import (
     cancel_check,
     replace_metric_check,
 )
+from products.signals.backend.report_check_progress import MAX_PROGRESS_CHECKS, report_check_progress
 from products.signals.backend.report_claims import (
     actor_owns_claim,
     get_active_claim,
@@ -197,6 +198,7 @@ from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteResponseSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportCheckProgressSerializer,
     SignalReportCheckReplacementSerializer,
     SignalReportCheckSerializer,
     SignalReportClaimSerializer,
@@ -4918,6 +4920,51 @@ class SignalReportCheckViewSet(
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(report_id=self._validated_report().id, team=self.team)
+
+    @extend_schema(
+        responses={200: SignalReportCheckProgressSerializer(many=True)},
+        parameters=[_REPORT_ID_PARAMETER],
+        summary="Measure interim progress of a report's metric checks",
+        description="Read-time, cached measurements from monitoring start to now or resolution. Does not record verdicts or change check scheduling.",
+        operation_id="signals_report_checks_progress_retrieve",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="progress",
+        pagination_class=None,
+        required_scopes=["task:read", "query:read"],
+        throttle_classes=[ReportMetricRefreshThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def progress(self, request: Request, *args: object, **kwargs: object) -> Response:
+        report = self._validated_report()
+        if (
+            report.status not in (SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED)
+            or report.monitoring_started_at is None
+        ):
+            return Response([])
+        checks = list(
+            self.get_queryset()
+            .filter(kind=SignalReportCheck.Kind.METRIC_THRESHOLD)
+            .exclude(status=SignalReportCheck.Status.CANCELLED)
+            .order_by(
+                Case(
+                    When(status=SignalReportCheck.Status.ACTIVE, then=Value(0)),
+                    When(status=SignalReportCheck.Status.PENDING, then=Value(1)),
+                    When(status=SignalReportCheck.Status.EXPIRED, then=Value(3)),
+                    default=Value(2),
+                ),
+                Case(When(status__in=SignalReportCheck.OPEN_STATUSES, then=F("next_run_at"))),
+                Coalesce("last_run_at", "updated_at").desc(),
+            )[:MAX_PROGRESS_CHECKS]
+        )
+        measurements = report_check_progress(
+            checks=checks,
+            report=report,
+            team=self.team,
+            policy=ReportMetricAccessPolicy(request=request, team=self.team),
+        )
+        return Response(SignalReportCheckProgressSerializer(measurements, many=True).data)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())

@@ -387,6 +387,7 @@ class SignalReport(UUIDModel):
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
     monitoring_started_at = models.DateTimeField(null=True, blank=True)
+    monitoring_ended_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -617,17 +618,25 @@ class SignalReport(UUIDModel):
                     raise ValueError("Report monitoring is not enabled for this organization.")
                 self.monitoring_started_at = timezone.now()
                 updated_fields.add("monitoring_started_at")
+                self.monitoring_ended_at = None
+                updated_fields.add("monitoring_ended_at")
 
             # Only researched reports can resolve
             # FAILED resolves too: a run that died in processing still describes real work, and
             # whoever fixed it needs a way to say so. Without this edge the only exit is a
             # dismissal, which used to make the report a sink for every later recurrence.
             case (S.PENDING_INPUT | S.READY | S.MONITORING | S.FAILED, S.RESOLVED):
-                # Just pass through to status setting
                 pass
 
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
+
+        if self.monitoring_started_at is None and self.monitoring_ended_at is not None:
+            self.monitoring_ended_at = None
+            updated_fields.add("monitoring_ended_at")
+        elif new_status == S.RESOLVED and self.monitoring_started_at is not None and self.monitoring_ended_at is None:
+            self.monitoring_ended_at = timezone.now()
+            updated_fields.add("monitoring_ended_at")
 
         # First arrival into a user-visible status (the inbox lists READY, PENDING_INPUT, and FAILED).
         # Set-once: re-research and suppress/restore cycles keep the original timestamp, so a
