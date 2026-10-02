@@ -22,17 +22,27 @@ const MOVED_TAB_REDIRECTS: { from: string; to: string; surface: Surface; tab: st
 
 const OPENED_BY = ['bookmark', 'click'] as const
 
-const MOUNT_SURFACE_SCENE: Record<Surface, () => void> = {
-    workflows: () => workflowsSceneLogic().mount(),
-    broadcasts: () => broadcastsSceneLogic.mount(),
+const MOVED_TAB_OPENINGS = MOVED_TAB_REDIRECTS.flatMap((redirect) =>
+    OPENED_BY.map((openedBy) => ({ ...redirect, openedBy }))
+)
+
+const SURFACE_SCENES: Record<Surface, { mount: () => void; currentTab: () => string }> = {
+    workflows: {
+        mount: () => workflowsSceneLogic().mount(),
+        currentTab: () => workflowsSceneLogic().values.currentTab,
+    },
+    broadcasts: {
+        mount: () => broadcastsSceneLogic.mount(),
+        currentTab: () => broadcastsSceneLogic.values.currentTab,
+    },
 }
 
 function openTab(url: string, surface: Surface, openedBy: (typeof OPENED_BY)[number]): void {
     if (openedBy === 'bookmark') {
         router.actions.push(url)
-        MOUNT_SURFACE_SCENE[surface]()
+        SURFACE_SCENES[surface].mount()
     } else {
-        MOUNT_SURFACE_SCENE[surface]()
+        SURFACE_SCENES[surface].mount()
         router.actions.push(url)
     }
 }
@@ -51,6 +61,7 @@ function setAudienceFlag(enabled: boolean): void {
 
 describe('audience routing', () => {
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         jest.spyOn(posthog, 'capture')
         featureFlagLogic.mount()
@@ -60,7 +71,7 @@ describe('audience routing', () => {
         jest.restoreAllMocks()
     })
 
-    it.each(MOVED_TAB_REDIRECTS.flatMap((redirect) => OPENED_BY.map((openedBy) => ({ ...redirect, openedBy }))))(
+    it.each(MOVED_TAB_OPENINGS)(
         'with the flag on, $from opened by $openedBy is replaced by $to',
         ({ from, to, surface, tab, openedBy }) => {
             setAudienceFlag(true)
@@ -73,21 +84,30 @@ describe('audience routing', () => {
         }
     )
 
-    it.each(MOVED_TAB_REDIRECTS)('with the flag off, $from stays put', ({ from, surface }) => {
-        setAudienceFlag(false)
+    it.each(MOVED_TAB_OPENINGS)(
+        'with the flag off, $from opened by $openedBy stays on its tab',
+        ({ from, surface, tab, openedBy }) => {
+            setAudienceFlag(false)
 
-        openTab(from, surface, 'click')
+            openTab(from, surface, openedBy)
 
-        expect(currentPath()).toBe(from)
-        expect(redirectEvents()).toEqual([])
-    })
+            expect(currentPath()).toBe(from)
+            expect(SURFACE_SCENES[surface].currentTab()).toBe(tab)
+            expect(redirectEvents()).toEqual([])
+        }
+    )
 
-    it('redirects a moved tab that opened before the flags arrived', () => {
+    it('redirects a moved tab once when the flags arrive after it opened', () => {
         openTab('/broadcasts/suppression', 'broadcasts', 'bookmark')
+        expect(currentPath()).toBe('/broadcasts/suppression')
 
         setAudienceFlag(true)
 
         expect(currentPath()).toBe('/audience/suppression')
+        expect(router.values.lastMethod).toBe('REPLACE')
+        expect(redirectEvents()).toEqual([
+            ['messaging tab redirected to audience', { tab: 'suppression', from: 'broadcasts' }],
+        ])
     })
 
     it('leaves other tabs alone when the flags arrive', () => {
@@ -99,17 +119,18 @@ describe('audience routing', () => {
     })
 
     it.each([
-        { visited: ['/audience'], tab: 'topics' },
-        { visited: ['/audience/topics'], tab: 'topics' },
-        { visited: ['/audience/suppression'], tab: 'suppression' },
-        { visited: ['/audience/suppression', '/audience'], tab: 'topics' },
-        { visited: ['/audience/not-a-tab'], tab: 'topics' },
-        { visited: ['/audience/recipients/jamie%40example.com'], tab: 'topics' },
-    ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab }) => {
+        { visited: ['/audience'], tab: 'topics', label: 'Topics' },
+        { visited: ['/audience/topics'], tab: 'topics', label: 'Topics' },
+        { visited: ['/audience/suppression'], tab: 'suppression', label: 'Suppression list' },
+        { visited: ['/audience/suppression', '/audience'], tab: 'topics', label: 'Topics' },
+        { visited: ['/audience/not-a-tab'], tab: 'topics', label: 'Topics' },
+        { visited: ['/audience/recipients/jamie%40example.com'], tab: 'topics', label: 'Topics' },
+    ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab, label }) => {
         audienceSceneLogic.mount()
 
         visited.forEach((url) => router.actions.push(url))
 
         expect(audienceSceneLogic.values.currentTab).toBe(tab)
+        expect(audienceSceneLogic.values.breadcrumbs.map(({ name }) => name)).toEqual([label])
     })
 })

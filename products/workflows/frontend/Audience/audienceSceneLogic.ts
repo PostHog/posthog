@@ -60,7 +60,6 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
         breadcrumbs: [
             (s) => [s.currentTab],
             (currentTab: AudienceTab): Breadcrumb[] => [
-                { key: Scene.Audience, name: 'Audience', path: urls.audience(), iconType: 'cohort' },
                 { key: [Scene.Audience, currentTab], name: AUDIENCE_TAB_LABELS[currentTab], iconType: 'cohort' },
             ],
         ],
