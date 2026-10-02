@@ -53,6 +53,8 @@ KAFKA_INGESTION_WARNINGS_V2_COLUMNS = """
 
 
 def INGESTION_WARNINGS_V2_DATA_TABLE_SQL() -> str:
+    # ClickHouse TTL uses the server clock, so frozen test fixtures must not expire.
+    ttl = "" if settings.TEST else "TTL toDateTime(timestamp) + INTERVAL 90 DAY"
     return """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
@@ -60,11 +62,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, type, timestamp)
-TTL toDateTime(timestamp) + INTERVAL 90 DAY
+{ttl}
 """.format(
         table_name=TABLE_NAME,
         columns=INGESTION_WARNINGS_V2_COLUMNS,
         engine=MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
+        ttl=ttl,
     )
 
 
