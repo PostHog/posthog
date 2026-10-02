@@ -776,7 +776,7 @@ export interface featureRequestsLogicMeta {
         }[]
         editProductAreaOptions: (
             productAreas: FeatureRequestProductAreaApi[],
-            featureRequestEditForm: any
+            featureRequestEditForm: FeatureRequestEditFormValues
         ) => {
             disabledReason?: string
             key: string
