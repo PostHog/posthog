@@ -46,6 +46,13 @@ export interface liveUserCountLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | null
+        payload?: any
+    } // teamLogic
     pauseStream: () => {
         value: true
     }
@@ -92,7 +99,7 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
     props({ pollIntervalMs: 30000 } as LiveUserCountLogicProps),
     connect(() => ({
         values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
-        actions: [featureFlagLogic, ['setFeatureFlags']],
+        actions: [featureFlagLogic, ['setFeatureFlags'], teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions(() => ({
         pollStats: true,
@@ -204,6 +211,12 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
         pauseStream: () => {
             cache.statsPaused = true
             cache.disposables.dispose('statsInterval')
+        },
+        loadCurrentTeamSuccess: () => {
+            // pollStats returns early without a team, so in HogQL mode no next poll is scheduled until the team loads.
+            if (!cache.statsPaused && values.stats === null) {
+                actions.pollStats()
+            }
         },
         setFeatureFlags: () => {
             // Each mode schedules its polls differently, so a mode change needs a fresh scheduler.

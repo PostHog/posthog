@@ -749,13 +749,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 actions.updateConnection()
                 actions.updateGeoConnection()
 
+                const includeRecentEvents = !!values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]
                 const data = await loadQueryData({
                     dateFrom,
                     dateTo: handoff,
                     filters: values.liveFilters,
                     filterTestAccounts: values.shouldFilterTestAccounts,
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
-                    includeRecentEvents: !!values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL],
+                    includeRecentEvents,
                     filtersEnabled: true,
                     doPathCleaning: values.pathCleaningFilters.length > 0,
                     abortController,
@@ -785,8 +786,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
                 )
                 cache.hasLoadedData = true
-                if (data.recentEvents) {
-                    actions.setRecentEvents(toRecentLiveEvents(data.recentEvents, values.currentTeam?.id ?? 0))
+                if (includeRecentEvents) {
+                    // A failed query clears the feed, so the card never shows old events next to fresh metrics.
+                    actions.setRecentEvents(
+                        data.recentEvents ? toRecentLiveEvents(data.recentEvents, values.currentTeam?.id ?? 0) : []
+                    )
                 }
 
                 if (values.shouldLoadBots) {
