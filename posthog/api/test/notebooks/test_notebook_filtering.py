@@ -129,12 +129,16 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         notebook_one = Notebook.objects.create(team=self.team, created_by=self.user)
         notebook_two = Notebook.objects.create(team=self.team, created_by=self.user)
         other_users_notebook = Notebook.objects.create(team=self.team, created_by=other_user)
+        edited_by_other_user = Notebook.objects.create(
+            team=self.team, created_by=self.user, last_modified_by=other_user
+        )
 
         results = self.client.get(
             f"/api/projects/{self.team.id}/notebooks?user=true",
         ).json()["results"]
 
         assert [r["short_id"] for r in results] == [
+            edited_by_other_user.short_id,
             notebook_two.short_id,
             notebook_one.short_id,
         ]
@@ -146,6 +150,21 @@ class TestNotebooksFiltering(APIBaseTest, QueryMatchingTest):
         results = response.json()["results"]
 
         assert [r["short_id"] for r in results] == [other_users_notebook.short_id]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks?last_modified_by={other_user.uuid}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert [r["short_id"] for r in results] == [edited_by_other_user.short_id]
+
+    @parameterized.expand([["created_by"], ["last_modified_by"]])
+    def test_rejects_a_malformed_user_uuid(self, param: str) -> None:
+        Notebook.objects.create(team=self.team, created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks?{param}=other@posthog.com")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_filtering_by_types(self) -> None:
         playlist_content_notebook = self._create_notebook_with_content([PLAYLIST_CONTENT()])
