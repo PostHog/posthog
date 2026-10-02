@@ -9,6 +9,7 @@ import {
     postSection,
     renderComment,
     STATUS_EMOJI,
+    updateSectionIfPresent,
     upsertSection,
 } from './update-ci-report.mjs'
 
@@ -346,6 +347,23 @@ describe('ci-report section helper', () => {
                 process.env.GITHUB_EVENT_PATH = pullRequestEventPath
                 delete process.env.PR_NUMBER
             }
+        })
+
+        it.each([
+            {
+                name: 'leaves a report without the section untouched',
+                initial: [{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }],
+                expected: undefined,
+            },
+            {
+                name: 'rewrites an existing section with the given status',
+                initial: [{ id: 'hogbox-preview', status: 'ok', summary: 'ready', body: 'READY' }],
+                expected: { status: 'info', summary: 'torn down', inner: 'GONE' },
+            },
+        ])('updateSectionIfPresent $name', async ({ initial, expected }) => {
+            const github = fakeGitHub([{ body: renderComment(build(initial)) }])
+            await updateSectionIfPresent({ id: 'hogbox-preview', status: 'info', summary: 'torn down', body: 'GONE' })
+            expect(parseSections(github.comments[0].body).get('hogbox-preview')).toEqual(expected)
         })
 
         it('removes a resolved legacy comment even when no report section exists yet', async () => {
