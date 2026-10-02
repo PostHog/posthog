@@ -44,6 +44,7 @@ export const VIEW_TYPE_INFO = Object.fromEntries(VIEW_TYPES.map((info) => [info.
 
 // Component canvases are widgets that grids place, not views a person opens.
 export const LISTED_CANVAS_KINDS = ['freeform'] as const
+export const LISTED_CANVAS_KIND = 'freeform'
 
 export interface ViewItem {
     type: ViewType
