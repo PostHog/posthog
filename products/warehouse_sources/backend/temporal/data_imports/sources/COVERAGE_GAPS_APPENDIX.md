@@ -3880,10 +3880,10 @@ Today (4): `cards`, `collections`, `groups`, `members`
 
 Diffed against: <https://developer.getguru.com/reference/authentication>
 
-- [ ] `team analytics (GET /v1/teams/{id}/analytics)` — the vendor's headline usage stream - card views, searches, copies per user; the main reason to warehouse Guru data (high)
-- [ ] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
-- [ ] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
-- [ ] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
+- [x] `team analytics (GET /v1/teams/{id}/analytics)` — the vendor's headline usage stream - card views, searches, copies per user; the main reason to warehouse Guru data (high)
+- [x] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
+- [x] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
+- [x] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
 - [ ] `card comments (GET /v1/cards/{id}/comments)` — engagement and feedback events attached to synced cards (medium)
 - [ ] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
 - [ ] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
