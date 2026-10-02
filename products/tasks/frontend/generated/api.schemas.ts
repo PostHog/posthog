@@ -1456,6 +1456,16 @@ export interface ChannelStarWriteApi {
 }
 
 /**
+ * The people who own at least one task or canvas in a channel.
+ */
+export interface ChannelContributorsDTOApi {
+    /** The channel these people worked in. */
+    channel: string
+    /** Everyone who owns at least one task or canvas in the channel, most recently active first. Deleted tasks and canvases do not count. */
+    people: TaskUserBasicInfoApi[]
+}
+
+/**
  * The first-run session that was started for the requester.
  */
 export interface OnboardingSessionApi {
@@ -3230,11 +3240,10 @@ export type TaskRunCreateRequestSchemaApi =
 export type TaskRunResponseApiJsonSchema = { [key: string]: unknown } | null
 
 /**
- * Detail response for a task.
+ * The task ``run`` action's response: the refreshed task detail plus the run this call made.
  *
- * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
- * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
- * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+ * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+ * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
  */
 export interface TaskRunResponseApi {
     id: string
@@ -3286,6 +3295,8 @@ export interface TaskRunResponseApi {
     origin_key?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
+    /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
+    run?: TaskRunDetailDTOApi | null
 }
 
 /**
@@ -4894,6 +4905,19 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+    /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+    agent_instructions: string
+}
+
+/**
+ * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+ */
+export interface TasksAgentInstructionsApi {
+    /**
+     * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+     * @maxLength 20000
+     */
+    agent_instructions: string
 }
 
 /**
@@ -4920,6 +4944,8 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+    agent_instructions: string
 }
 
 /**
@@ -4954,6 +4980,24 @@ export interface ModelCatalogueResponseApi {
 export interface PinnedTaskIdsResponseApi {
     /** Visible task IDs pinned by the requester, newest pin first. */
     task_ids: string[]
+}
+
+export interface TaskPullRequestTitlesRequestApi {
+    /**
+     * Task IDs whose latest run's pull request titles to fetch (max 30).
+     * @maxItems 30
+     */
+    ids: string[]
+}
+
+/**
+ * Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title.
+ */
+export type TaskPullRequestTitlesApiTitles = { [key: string]: string }
+
+export interface TaskPullRequestTitlesApi {
+    /** Pull request titles keyed by normalized GitHub URL. A pull request is missing when GitHub could not return its title. */
+    titles: TaskPullRequestTitlesApiTitles
 }
 
 /**

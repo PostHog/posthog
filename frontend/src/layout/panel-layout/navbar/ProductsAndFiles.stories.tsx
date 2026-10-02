@@ -199,6 +199,12 @@ export default meta
 type Story = StoryObj<typeof SidebarStory>
 export const Products: Story = {}
 export const ProductsClosed: Story = { args: { allProductsOpen: false } }
+export const ProductsStarredCollapsed: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Starred' }))
+    },
+}
 export const CustomizeSidebar: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)

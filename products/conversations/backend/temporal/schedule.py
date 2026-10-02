@@ -17,6 +17,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 from products.conversations.backend.temporal.coordinator import COORDINATOR_INTERVAL_MINUTES, CoordinatorInput
@@ -38,7 +39,16 @@ async def create_support_reply_coordinator_schedule(client: Client) -> None:
             id=SUPPORT_REPLY_COORDINATOR_SCHEDULE_ID,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=timedelta(minutes=COORDINATOR_INTERVAL_MINUTES),
+                    offset=deterministic_offset(
+                        SUPPORT_REPLY_COORDINATOR_SCHEDULE_ID, timedelta(minutes=COORDINATOR_INTERVAL_MINUTES)
+                    ),
+                )
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 

@@ -11,7 +11,10 @@ const AutoresearchCreateSchema = () => {
     return AutoresearchCreateBody
 }
 
-const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSchema>, Schemas.AutoresearchPipeline> => ({
+const autoresearchCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchCreateSchema>,
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
+> => ({
     name: 'autoresearch-create',
     schema: AutoresearchCreateSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchCreateSchema>>) => {
@@ -61,7 +64,7 @@ const autoresearchCreate = (): ToolBase<ReturnType<typeof AutoresearchCreateSche
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/`,
             body,
         })
-        return result
+        return await withPostHogUrl(context, result, `/autoresearch/${result.id}`)
     },
 })
 
@@ -244,7 +247,7 @@ const AutoresearchRetrieveSchema = () => {
 
 const autoresearchRetrieve = (): ToolBase<
     ReturnType<typeof AutoresearchRetrieveSchema>,
-    Schemas.AutoresearchPipeline
+    WithPostHogUrl<Schemas.AutoresearchPipeline>
 > => ({
     name: 'autoresearch-retrieve',
     schema: AutoresearchRetrieveSchema(),
@@ -255,7 +258,71 @@ const autoresearchRetrieve = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/`,
         })
         const filtered = omitResponseFields(result, ['created_by']) as typeof result
-        return filtered
+        return await withPostHogUrl(context, filtered, `/autoresearch/${filtered.id}`)
+    },
+})
+
+const AutoresearchRunsListSchema = () => {
+    const AutoresearchRunsListParams = orvalSchemas.AutoresearchRunsListParams()
+    const AutoresearchRunsListQueryParams = orvalSchemas.AutoresearchRunsListQueryParams()
+    return AutoresearchRunsListParams.omit({ project_id: true }).extend(AutoresearchRunsListQueryParams.shape)
+}
+
+const autoresearchRunsList = (): ToolBase<
+    ReturnType<typeof AutoresearchRunsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedAutoresearchRunList>
+> => ({
+    name: 'autoresearch-runs-list',
+    schema: AutoresearchRunsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchRunsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedAutoresearchRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'pipeline',
+                    'model',
+                    'run_type',
+                    'status',
+                    'rows_scored',
+                    'error',
+                    'started_at',
+                    'completed_at',
+                    'created_at',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/autoresearch')
+    },
+})
+
+const AutoresearchScoreCreateSchema = () => {
+    const AutoresearchScoreCreateParams = orvalSchemas.AutoresearchScoreCreateParams()
+    return AutoresearchScoreCreateParams.omit({ project_id: true })
+}
+
+const autoresearchScoreCreate = (): ToolBase<
+    ReturnType<typeof AutoresearchScoreCreateSchema>,
+    Schemas.AutoresearchRun
+> => ({
+    name: 'autoresearch-score-create',
+    schema: AutoresearchScoreCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof AutoresearchScoreCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AutoresearchRun>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.id))}/score/`,
+        })
+        return result
     },
 })
 
@@ -764,6 +831,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-models-retrieve': autoresearchModelsRetrieve,
     'autoresearch-resolve-template-create': autoresearchResolveTemplateCreate,
     'autoresearch-retrieve': autoresearchRetrieve,
+    'autoresearch-runs-list': autoresearchRunsList,
+    'autoresearch-score-create': autoresearchScoreCreate,
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
     'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,

@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from django.utils import timezone
-
 from posthog.schema import ExperimentDataWarehouseNode, ExperimentFunnelMetric, MultipleVariantHandling, StepOrderValue
 
 from posthog.hogql import ast
@@ -15,6 +13,8 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     funnel_evaluation_expr,
     funnel_steps_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
@@ -42,8 +42,18 @@ class FunnelQueryBuilder:
     reads that shared state and those helpers through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(
+        self,
+        builder: "ExperimentQueryBuilder",
+        exposure: ExposureQueryBuilder,
+        *,
+        maturity: MaturityGate | None = None,
+        metric_events_job_ids: list[str] | None = None,
+    ):
         self._b = builder
+        self._exposure = exposure
+        self._maturity = maturity
+        self._metric_events_job_ids = metric_events_job_ids
 
     def build_funnel_query(self) -> ast.SelectQuery:
         if self.should_use_optimized_funnel_query():
@@ -52,8 +62,10 @@ class FunnelQueryBuilder:
 
     def should_use_optimized_funnel_query(self) -> bool:
         # With precomputed exposures, the exposures CTE of the legacy path reads from a
-        # cheap preaggregated table, so its second scan costs little.
-        if self._b.preaggregation_job_ids and not self._b.breakdowns:
+        # cheap preaggregated table, so its second scan costs little. The single-scan path
+        # does not read metric-events job ids, but the runner reports metric events as
+        # precomputed whenever it has them, so the two disagree without exposure job ids.
+        if self._exposure.reads_precomputed():
             return False
         # Only the legacy path implements the UNION ALL pattern for DW funnels.
         if isinstance(self._b.metric, ExperimentFunnelMetric) and self.has_datawarehouse_steps():
@@ -88,7 +100,7 @@ class FunnelQueryBuilder:
         # array, so the step column injection below is skipped for them.
         inject_step_columns = True
 
-        if self._b.metric_events_preaggregation_job_ids and not has_dw_steps:
+        if self._metric_events_job_ids and not has_dw_steps:
             inject_step_columns = False
             step_extracts = ", ".join(f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(num_steps))
             entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
@@ -184,7 +196,7 @@ class FunnelQueryBuilder:
             )
         """
 
-        exposure_query = self._b._get_exposure_query()
+        exposure_query = self._exposure.select_query()
         if has_dw_steps:
             # FunnelDWValidator guarantees that all DW steps use the same events_join_key
             first_dw_step = next(s for s in self._b.metric.series if isinstance(s, ExperimentDataWarehouseNode))
@@ -214,8 +226,8 @@ class FunnelQueryBuilder:
             "date_from": self._b.date_range_query.date_from_as_hogql(),
             "date_to": self._b.date_range_query.date_to_as_hogql(),
         }
-        if self._b.metric_events_preaggregation_job_ids:
-            placeholders["metric_events_job_ids"] = ast.Constant(value=self._b.metric_events_preaggregation_job_ids)
+        if self._metric_events_job_ids:
+            placeholders["metric_events_job_ids"] = ast.Constant(value=self._metric_events_job_ids)
             placeholders["metric_events_team_id"] = ast.Constant(value=self._b.team.id)
             placeholders["metric_events_date_from"] = self._b.date_range_query.date_from_as_hogql()
             placeholders["metric_events_date_to"] = self._b.date_range_query.date_to_as_hogql()
@@ -840,20 +852,8 @@ class FunnelQueryBuilder:
         on the last exposure would keep resetting the window for flags re-evaluated
         repeatedly (e.g. backend flags), so active users would never mature.
         """
-        if self._b.metric is None:
+        if self._maturity is None:
             return None
-        if not self._b.only_count_matured_users:
-            return None
-
-        maturity_seconds = self._b._get_maturity_window_seconds()
-        if maturity_seconds == 0:
-            return None
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        return parse_expr(
-            "minIf(timestamp, step_0 = 1) + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-            placeholders={
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
+        return self._maturity.condition(
+            parse_expr("minIf(timestamp, step_0 = 1)"), self._b._get_maturity_window_seconds()
         )

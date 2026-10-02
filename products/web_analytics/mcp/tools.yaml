@@ -225,6 +225,9 @@ tools:
     web-analytics-content-autopilot-opportunities-dismiss:
         operation: web_analytics_content_autopilot_opportunities_dismiss
         enabled: false
+    web-analytics-content-autopilot-opportunities-draft:
+        operation: web_analytics_content_autopilot_opportunities_draft
+        enabled: false
     web-analytics-content-autopilot-opportunities-list:
         operation: web_analytics_content_autopilot_opportunities_list
         enabled: false

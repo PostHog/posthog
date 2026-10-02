@@ -97,11 +97,13 @@ export function PlayerSidebar(): JSX.Element {
                     <div className="flex bg-surface-primary pt-[1px]">
                         <div className="w-2.5 border-b shrink-0" />
                         <LemonTabs
+                            data-attr="player-sidebar-tabs"
                             activeKey={activeTab}
                             onChange={(tabId) => setTab(tabId)}
                             tabs={sidebarTabs.map((tabId) => ({
                                 key: tabId,
                                 label: capitalizeFirstLetter(splitKebabCase(tabId)),
+                                'data-attr': `player-sidebar-tab-${tabId}`,
                             }))}
                             // The root scrolls, not the bar, so the scrollbar cannot collide with the bar's bottom-anchored underline
                             barClassName="!mb-0 w-max min-w-full !overflow-x-visible"
@@ -111,6 +113,7 @@ export function PlayerSidebar(): JSX.Element {
                         <div className="flex flex-1 border-b shrink-0" />
                         <div className="flex gap-1 border-b end">
                             <LemonButton
+                                data-attr="player-sidebar-dock-toggle"
                                 size="small"
                                 icon={isVerticallyStacked ? <IconSidePanel /> : <IconBottomPanel />}
                                 onClick={() =>
@@ -123,6 +126,7 @@ export function PlayerSidebar(): JSX.Element {
                                 tooltip={`Dock to ${isVerticallyStacked ? 'right' : 'bottom'}`}
                             />
                             <LemonButton
+                                data-attr="player-sidebar-close"
                                 size="small"
                                 icon={<IconX />}
                                 onClick={() => setSidebarOpen(false)}

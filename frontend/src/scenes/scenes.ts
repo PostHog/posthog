@@ -336,6 +336,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Library',
     },
+    [Scene.Views]: {
+        projectBased: true,
+        name: 'Views',
+    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -642,7 +646,7 @@ export const redirects: Record<
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
-    '/events/:id/*': ({ id, _ }) => {
+    '/events/:id/*': ({ id, _ }, { event }) => {
         const query = getDefaultEventsSceneQuery([
             {
                 type: PropertyFilterType.HogQL,
@@ -650,11 +654,16 @@ export const redirects: Record<
                 value: null,
             },
         ])
+        const source = query.source as EventsQuery
+        if (typeof event === 'string' && event) {
+            // The events query reads some events, such as flag calls, from their own table.
+            // It picks that table only when the query filters to the event name, so a uuid filter alone misses the row.
+            source.event = event
+        }
         try {
             const timestamp = decodeURIComponent(_)
-            const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
-            const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
-            Object.assign(query.source as EventsQuery, { before, after })
+            source.after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
+            source.before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
         } catch {
             lemonToast.error('Invalid event timestamp')
         }
@@ -723,6 +732,8 @@ export const redirects: Record<
     '/replay': urls.replay(),
     '/replay/recent': (_params, searchParams) =>
         urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId),
+    '/replay/templates': (_params, searchParams, hashParams) =>
+        combineUrl(urls.replay(), { ...searchParams, showFilters: true, filtersTab: 'templates' }, hashParams).url,
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
@@ -832,6 +843,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
     [urls.library()]: [Scene.Library, 'library'],
     [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
+    [urls.views()]: [Scene.Views, 'views'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

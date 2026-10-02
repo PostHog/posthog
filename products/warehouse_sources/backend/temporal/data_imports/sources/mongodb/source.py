@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     HOST_RESOLUTION_EXHAUSTED_MESSAGE,
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
@@ -25,10 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MongoResumeConfig,
     _parse_connection_string,
     filter_mongo_incremental_fields,
     get_collection_names,
-    get_leading_index_keys,
+    get_index_keys_by_collection,
     get_schemas as get_mongo_schemas,
     get_server_metadata as get_mongo_server_metadata,
     mongo_client,
@@ -149,7 +151,7 @@ _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
 
 
 @SourceRegistry.register
-class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
+class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], ValidateDatabaseHostMixin):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
@@ -316,38 +318,37 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         mongo_schemas = get_mongo_schemas(config, team_id=team_id, names=names)
 
         connection_params = _parse_connection_string(config.connection_string, config.database_name)
-        leading_keys_by_collection: dict[str, set[str] | None] = {}
         with mongo_client(config.connection_string, team_id=team_id) as client:
             db = client[connection_params["database"]]
-            filtered_results = [
-                (collection_name, filter_mongo_incremental_fields(columns, db[collection_name]))
-                for collection_name, columns in mongo_schemas.items()
-            ]
-            for collection_name in mongo_schemas:
-                leading_keys_by_collection[collection_name] = get_leading_index_keys(db[collection_name])
+            index_keys_by_collection = get_index_keys_by_collection(db, list(mongo_schemas))
 
-        return [
-            SourceSchema(
-                name=name,
-                supports_incremental=len(incremental_fields) > 0,
-                supports_append=len(incremental_fields) > 0,
-                incremental_fields=[
-                    {
-                        "label": field_name,
-                        "type": field_type,
-                        "field": field_name,
-                        "field_type": field_type,
-                        "is_indexed": (
-                            True
-                            if leading_keys_by_collection.get(name) is None
-                            else field_name in (leading_keys_by_collection.get(name) or set())
-                        ),
-                    }
-                    for field_name, field_type in incremental_fields
-                ],
+        schemas: list[SourceSchema] = []
+        for collection_name, columns in mongo_schemas.items():
+            index_keys = index_keys_by_collection.get(collection_name)
+            incremental_fields = filter_mongo_incremental_fields(
+                columns, index_keys.covered if index_keys else frozenset()
             )
-            for name, incremental_fields in filtered_results
-        ]
+            schemas.append(
+                SourceSchema(
+                    name=collection_name,
+                    supports_incremental=len(incremental_fields) > 0,
+                    supports_append=len(incremental_fields) > 0,
+                    incremental_fields=[
+                        {
+                            "label": field_name,
+                            "type": field_type,
+                            "field": field_name,
+                            "field_type": field_type,
+                            # Index discovery failed, so we can't tell an unindexed field from an
+                            # indexed one. Don't warn on a guess.
+                            "is_indexed": True if index_keys is None else field_name in index_keys.leading,
+                        }
+                        for field_name, field_type in incremental_fields
+                    ],
+                )
+            )
+
+        return schemas
 
     def validate_credentials(
         self,
@@ -443,7 +444,30 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def get_server_metadata(self, config: MongoDBSourceConfig, team_id: int) -> dict[str, Any]:
         return get_mongo_server_metadata(config.connection_string, team_id)
 
-    def source_for_pipeline(self, config: MongoDBSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        keyset_full_load_enabled: bool = True,
+        schema_name: str | None = None,
+    ) -> bool:
+        # The `_id` checkpoint covers only a full refresh. An incremental or append run restarts from
+        # its watermark, so it keeps the incremental retry budget.
+        return not incremental_or_append
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MongoResumeConfig]:
+        return ResumableSourceManager[MongoResumeConfig](inputs, MongoResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: MongoDBSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MongoResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset's first attempt must read from the beginning. Later activity attempts share this
+        # run's checkpoint and destination, so preserve the progress the failed attempt committed.
+        if inputs.reset_pipeline and inputs.activity_attempt == 1:
+            resumable_source_manager.clear_state()
         return mongo_source(
             connection_string=config.connection_string,
             collection_name=inputs.schema_name,
@@ -454,6 +478,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             team_id=inputs.team_id,
             database_name=config.database_name,
+            resumable_source_manager=resumable_source_manager,
         )
 
     @property

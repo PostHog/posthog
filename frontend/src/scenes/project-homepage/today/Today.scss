@@ -71,11 +71,13 @@
     animation: Today__page-in 0.18s ease-out both;
 }
 
-// Zero-specificity resets, so component classes below and shared buttons keep their own styles.
-:where(.Today) button {
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
+// In the base layer, so layered component styles (quill) win over it; an unlayered rule beats any layer.
+@layer base {
+    :where(.Today) button {
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+    }
 }
 
 :where(.Today) :focus-visible {
@@ -89,68 +91,6 @@
 }
 
 // Sidebar
-
-.TodaySidebar {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    padding: 18px 12px 0;
-}
-
-.TodaySidebar__new {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    padding: 11px 14px;
-    margin-top: 2px;
-    font-size: 13px;
-    font-weight: 550;
-    color: var(--today-button-text);
-    background: var(--today-button);
-    border: 1px solid var(--today-button);
-    border-radius: 9px;
-    transition:
-        background 0.16s,
-        transform 0.1s;
-
-    &:active {
-        transform: translateY(1px);
-    }
-
-    svg {
-        width: 15px;
-        height: 15px;
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            background: var(--today-button-hover);
-        }
-    }
-}
-
-.TodaySidebar__scroll {
-    flex: 1 1 auto;
-    min-height: 0;
-    padding: 0 4px 24px;
-    overflow-y: auto;
-    scrollbar-color: var(--today-input-border) transparent;
-    scrollbar-width: thin;
-}
-
-.TodaySidebar__sectionLabel {
-    margin: 42px 11px 14px;
-    letter-spacing: 0.08em;
-}
-
-.TodaySidebar__more {
-    display: block;
-    margin: 14px 11px 0;
-    font-size: 12px;
-}
 
 .TodaySidebar__list {
     display: flex;
@@ -235,6 +175,17 @@
     color: var(--today-body-text);
 }
 
+.TodayNavItem[data-state='done'] .TodayNavItem__title,
+.TodayReportLink[data-state='done'] {
+    text-decoration: line-through;
+}
+
+// Dismissed is not done: it stays readable, only quieter, and the left bar says why.
+.TodayNavItem[data-state='dismissed'] .TodayNavItem__copy,
+.TodayReportLink[data-state='dismissed'] {
+    opacity: 0.55;
+}
+
 .TodayNavItem__meta {
     margin-top: 3px;
     font-size: 11px;
@@ -245,99 +196,35 @@
 
 .TodaySidebarFooter {
     display: grid;
+    flex: none;
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 7px;
-    padding: 12px 4px 14px;
-    margin: 0 4px;
+    gap: 4px;
+    align-items: center;
+    padding: 7px 0 16px;
+    margin: 0 12px;
     border-top: 1px solid var(--today-line);
 }
 
-.TodaySidebarFooter__project,
+.TodaySidebarFooter__account,
 .TodaySidebarFooter__settings {
-    min-height: 48px;
-    color: var(--today-body-text);
-    background: var(--today-soft-2);
-    border: 1px solid var(--today-line);
-    border-radius: 10px;
+    color: var(--today-secondary-text);
 
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            color: var(--today-ink);
-            background: var(--today-soft);
-        }
+    &:hover,
+    &[data-popup-open] {
+        color: var(--today-ink);
     }
 }
 
-.TodaySidebarFooter__project {
-    display: flex;
-    gap: 9px;
-    align-items: center;
+.TodaySidebarFooter__account {
     min-width: 0;
-    padding: 6px 9px;
-    text-align: left;
-
-    > svg {
-        flex: 0 0 14px;
-        width: 14px;
-        height: 14px;
-        margin-left: auto;
-        color: #969690;
-    }
+    padding-inline: 6px 8px;
 }
 
-.TodaySidebarFooter__avatar {
-    display: flex;
-    flex: 0 0 32px;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    color: #b84413;
-    background: #ffe7da;
-    border: 1px solid #ffd4bf;
-    border-radius: 8px;
-}
-
-.TodaySidebarFooter__projectText {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+.TodaySidebarFooter__name {
     min-width: 0;
-
-    small {
-        font-family: var(--font-mono);
-        font-size: 8px;
-        color: var(--today-faint);
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-    }
-
-    strong {
-        overflow: hidden;
-        font-size: 11.5px;
-        font-weight: 560;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-}
-
-.TodaySidebarFooter__settings {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    align-items: center;
-    justify-content: center;
-    width: 66px;
-    padding: 4px;
-    font-size: 9px;
-
-    svg {
-        width: 17px;
-        height: 17px;
-    }
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 // Home
@@ -390,11 +277,27 @@
 }
 
 .TodayHome__greeting {
+    display: flex;
+    gap: 10px;
+    align-items: center;
     margin-bottom: 10px;
     font-size: 21px;
     font-weight: 560;
     color: var(--today-ink);
     letter-spacing: -0.015em;
+}
+
+.TodayHome__badge {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--today-faint);
+    letter-spacing: 0;
+    border: 1px solid color-mix(in sRGB, var(--today-ink) 12%, transparent);
+    border-radius: 999px;
 }
 
 .TodayChipStack {
@@ -483,6 +386,12 @@
     }
 }
 
+.TodayHome__progress {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-faint);
+}
+
 .TodayHome__foot {
     margin-top: 48px;
 
@@ -566,16 +475,6 @@
         height: 17px;
         transform: rotate(-90deg);
     }
-}
-
-.TodayAsk__sent {
-    margin: 12px 2px 0;
-    overflow: hidden;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--today-faint);
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 // Report page

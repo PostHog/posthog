@@ -971,8 +971,8 @@ export interface sessionRecordingPlayerLogicActions {
     reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
         playerTimeSeconds: number
     } // sessionRecordingEventUsageLogic
-    reportRecordingExportedToFile: () => {
-        value: true
+    reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
+        format: 'json' | 'mp4'
     } // sessionRecordingEventUsageLogic
     openSidePanel: (
         tab: SidePanelTab,
@@ -3741,7 +3741,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 )
 
                 downloadFile(recordingFile)
-                actions.reportRecordingExportedToFile()
+                actions.reportRecordingExportedToFile('json')
             }
 
             await lemonToast.promise(doExport(), {

@@ -286,6 +286,70 @@ class TestPolicyDecisionTable:
                 NotificationAction.NONE,
             ),
             (
+                "unmute_announces_a_held_fire",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=None),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
+                "unmute_stays_quiet_when_the_condition_cleared",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=None),
+                CLEAR,
+                AlertState.NOT_FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # Without the mute guard, this re-enters NOT_FIRING and reports a held FIRE on
+                # every check for the length of the mute.
+                "a_steady_muted_fire_is_not_held_again",
+                snapshot(
+                    state=AlertState.FIRING,
+                    firing_started_at=NOW,
+                    last_notified_at=None,
+                    snooze_until=SNOOZING,
+                ),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                "a_firing_announced_at_its_start_does_not_refire",
+                snapshot(state=AlertState.FIRING, firing_started_at=NOW, last_notified_at=NOW),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # No start to compare, so the firing reads as announced. The other reading re-fires
+                # it on every later check.
+                "a_firing_with_no_recorded_start_does_not_refire",
+                snapshot(state=AlertState.FIRING, firing_started_at=None, last_notified_at=NOW - timedelta(hours=1)),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.NONE,
+                NotificationAction.NONE,
+            ),
+            (
+                # A cooldown leaves the same pair of timestamps a mute does, so the fire it
+                # suppressed is owed an announcement once the cooldown is over.
+                "a_cooldown_suppressed_fire_is_still_owed",
+                snapshot(
+                    state=AlertState.FIRING,
+                    firing_started_at=NOW,
+                    last_notified_at=NOW - timedelta(minutes=20),
+                    cooldown=timedelta(0),
+                ),
+                BREACH,
+                AlertState.FIRING,
+                NotificationAction.FIRE,
+                NotificationAction.NONE,
+            ),
+            (
                 "an_unmuted_check_still_announces",
                 snapshot(),
                 BREACH,

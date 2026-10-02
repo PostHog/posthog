@@ -54,8 +54,8 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => {
         playerTimeSeconds: number
     }
-    reportRecordingExportedToFile: () => {
-        value: true
+    reportRecordingExportedToFile: (format: 'json' | 'mp4') => {
+        format: 'json' | 'mp4'
     }
     reportRecordingInspectorItemExpanded: (
         tab: InspectorListItemType,
@@ -186,7 +186,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
         }),
-        reportRecordingExportedToFile: true,
+        reportRecordingExportedToFile: (format: 'json' | 'mp4') => ({ format }),
         reportRecordingDebuggedWithAI: (playerTimeSeconds: number) => ({ playerTimeSeconds }),
         reportRecordingDebugChatReopened: true,
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
@@ -273,8 +273,8 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
         },
-        reportRecordingExportedToFile: () => {
-            posthog.capture('recording exported to file')
+        reportRecordingExportedToFile: ({ format }) => {
+            posthog.capture('recording exported to file', { format })
         },
         reportRecordingDebuggedWithAI: ({ playerTimeSeconds }) => {
             posthog.capture('recording debugged with ai', { player_time_seconds: playerTimeSeconds })

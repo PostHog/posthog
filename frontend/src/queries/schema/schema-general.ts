@@ -806,6 +806,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "AND"
      * */
     operand?: FilterLogicalOperator
+    /**
+     * Where a filter that is evaluated against events must match. 'session' (default) matches an event
+     * anywhere in the session, including before the recording started or after it ended. 'recording' only
+     * matches events from one minute before the recording starts until one minute after it ends.
+     * This applies to every filter the events table answers: events, actions,
+     * event properties, and, when the project resolves them on events, person, group, and cohort properties.
+     * @default "session"
+     */
+    event_match_scope?: 'recording' | 'session'
     session_ids?: string[]
     /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
     hide_viewed_recordings?: 'current-user' | 'any-user' | null
@@ -4889,6 +4898,9 @@ export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryRespons
 export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
     kind: NodeKind.MetricsHistogramQuery
     metricName: string
+    /** Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one
+     * type, and the heatmap must grid only the distribution series. */
+    metricType?: MetricsOtelType
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
@@ -8902,6 +8914,11 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
     compareFilter?: CompareFilter
 }
 
+export interface CustomerAnalyticsPinnedProperty {
+    kind: 'custom_property' | 'relationship'
+    id: string
+}
+
 export interface CustomerAnalyticsConfig {
     activity_event: EventsNode | ActionsNode
     signup_pageview_event: EventsNode | ActionsNode
@@ -8909,6 +8926,7 @@ export interface CustomerAnalyticsConfig {
     subscription_event: EventsNode | ActionsNode
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
+    default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
 }
 
 /**

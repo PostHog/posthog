@@ -37,6 +37,7 @@ from products.engineering_analytics.backend.logic.github_teams import (
     build_github_team_roster as build_github_team_roster,
 )
 from products.engineering_analytics.backend.logic.pull_requests import (
+    build_attention_pull_requests as build_attention_pull_requests,
     build_author_workflow_costs as build_author_workflow_costs,
     build_ci_cards as build_ci_cards,
     build_ci_failure_logs as build_ci_failure_logs,
