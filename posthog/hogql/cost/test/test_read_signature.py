@@ -75,6 +75,11 @@ class TestReadSignature(SimpleTestCase):
                 "SELECT count() FROM events WHERE toDate(timestamp) = today()",
             ),
             (
+                "table_named_like_a_cte_in_another_branch",
+                "SELECT id FROM (WITH persons AS (SELECT 1 AS id) SELECT id FROM persons) UNION ALL SELECT 1",
+                "SELECT id FROM (WITH persons AS (SELECT 1 AS id) SELECT id FROM persons) UNION ALL SELECT id FROM persons",
+            ),
+            (
                 "event_condition_narrowed_by_another_filter",
                 "SELECT count() FROM events WHERE event = 'a' OR event = 'b'",
                 "SELECT count() FROM events WHERE event = 'a' OR (event = 'b' AND properties.plan = 'pro')",

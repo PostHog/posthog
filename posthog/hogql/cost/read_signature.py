@@ -196,7 +196,10 @@ class _ReadCollector(TraversingVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         # A CTE name in FROM is not a table. The traversal visits the CTE body and records what it reads.
-        self._cte_names.update(node.ctes or {})
+        # The names apply to this query and the queries nested in it, so a table with the same name
+        # elsewhere in the statement is still recorded.
+        outer_cte_names = self._cte_names
+        self._cte_names = outer_cte_names | set(node.ctes or {})
 
         events_aliases: set[str] = set()
         join = node.select_from
@@ -212,7 +215,10 @@ class _ReadCollector(TraversingVisitor):
         if events_aliases:
             self.reads.add(_describe_events_read(node, events_aliases))
 
-        super().visit_select_query(node)
+        try:
+            super().visit_select_query(node)
+        finally:
+            self._cte_names = outer_cte_names
 
 
 def read_signature(node: ast.SelectQuery | ast.SelectSetQuery) -> str | None:
