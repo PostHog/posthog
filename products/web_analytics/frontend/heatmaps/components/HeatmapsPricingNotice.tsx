@@ -7,7 +7,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { HeatmapCaptureSettingsApi } from '../../generated/api.schemas'
 import { heatmapCaptureSettingsLogic } from './heatmapCaptureSettingsLogic'
+
+export function shouldShowHeatmapsPricingNotice(settings: HeatmapCaptureSettingsApi | null): boolean {
+    return !!settings && !settings.can_capture_all_urls && !settings.enforcement_enabled
+}
 
 export function HeatmapsPricingNotice(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -21,11 +26,9 @@ export function HeatmapsPricingNotice(): JSX.Element | null {
 }
 
 function HeatmapsPricingNoticeBanner({ teamId }: { teamId: number }): JSX.Element | null {
-    const { settings, urlAllowlist, canCaptureAllUrls, captureUrlLimit } = useValues(
-        heatmapCaptureSettingsLogic({ teamId })
-    )
+    const { settings, urlAllowlist, captureUrlLimit } = useValues(heatmapCaptureSettingsLogic({ teamId }))
 
-    if (!settings || canCaptureAllUrls || settings.enforcement_enabled) {
+    if (!shouldShowHeatmapsPricingNotice(settings)) {
         return null
     }
 
