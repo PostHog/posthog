@@ -2379,7 +2379,6 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             "target_value": "reader@example.com",
             "frequency": "daily",
             "start_date": now(),
-            "query_access_verified_at": now(),
             **kwargs,
         }
         return Subscription.objects.create(**fields)
@@ -2440,7 +2439,6 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         [
             ("no_share", {}),
             ("deleted_tile", {}),
-            ("unchecked_subscription", {"query_access_verified_at": None}),
             ("disabled_subscription", {"enabled": False}),
             ("deleted_subscription", {"deleted": True}),
         ]
@@ -2499,7 +2497,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("insight_selection", status.HTTP_200_OK),
         ]
     )
-    def test_adding_insight_to_dashboard_with_checked_subscription(self, coverage: str, expected_status: int):
+    def test_adding_insight_to_dashboard_with_subscription(self, coverage: str, expected_status: int):
         self._deny_editor()
         self.insight.query = self._DENIED_QUERY
         self.insight.save()

@@ -219,7 +219,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     @parameterized.expand(
         [
             ("public_share", "publicly shared"),
-            ("checked_subscription", "a subscription delivers this insight"),
+            ("subscription", "a subscription delivers this insight"),
         ]
     )
     async def test_saved_update_blocks_restricted_query_on_exposed_insight(self, exposure: str, expected_reason: str):
@@ -245,7 +245,6 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 target_value="reader@example.com",
                 frequency="daily",
                 start_date=timezone.now(),
-                query_access_verified_at=timezone.now(),
             )
 
         with patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]):

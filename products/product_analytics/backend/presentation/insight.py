@@ -869,7 +869,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         # Shared links execute without access checks, so an edit that adds a table
         # the editor can't run must not reach a publicly shared surface.
-        # The same holds for an insight that a checked subscription delivers.
+        # The same holds for an insight that a subscription delivers.
         # Other insights save without any access query.
         new_query = validated_data.get("query")
         if (

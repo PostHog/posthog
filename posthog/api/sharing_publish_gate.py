@@ -25,10 +25,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.facade.api import (
-    verified_subscription_delivers_insight,
-    verified_subscription_delivers_whole_dashboard,
-)
+from products.exports.backend.facade.api import subscription_delivers_insight, subscription_delivers_whole_dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -157,17 +154,16 @@ def exposure_without_viewer_check(artifact: "Dashboard | Insight") -> str | None
     """Why the artifact's queries reach people whose own table access is not checked, as a clause
     that completes a validation message. None when no such route exists.
 
-    A public link and a subscription that passed the save-time table-access check both rely on
-    the access of the person who published or saved them. An edit that changes what they expose
-    must therefore pass the same check on the editor.
+    A public link and a subscription both show results without a table-access check on the
+    viewer. An edit that changes what they expose must therefore pass that check on the editor.
     """
     noun = "insight" if isinstance(artifact, Insight) else "dashboard"
     if is_publicly_shared(artifact):
         return f"this {noun} is publicly shared"
     if isinstance(artifact, Insight):
-        delivered = verified_subscription_delivers_insight(team_id=artifact.team_id, insight_id=artifact.id)
+        delivered = subscription_delivers_insight(team_id=artifact.team_id, insight_id=artifact.id)
     else:
-        delivered = verified_subscription_delivers_whole_dashboard(team_id=artifact.team_id, dashboard_id=artifact.id)
+        delivered = subscription_delivers_whole_dashboard(team_id=artifact.team_id, dashboard_id=artifact.id)
     return f"a subscription delivers this {noun}" if delivered else None
 
 
