@@ -260,6 +260,10 @@ export const RecipientsNoMatch: Story = audienceTabStory('recipients', {
 export const RecipientsError: Story = audienceTabStory('recipients', {
     recipientsPage: [500, { detail: 'The query took too long.' }],
 })
+export const RecipientsRejectedFilter: Story = audienceTabStory('recipients', {
+    recipientsPage: [400, { type: 'validation_error', attr: 'filter', detail: 'Unknown value `non` for `person`.' }],
+    search: 'person:non',
+})
 export const Topics: Story = audienceTabStory('topics')
 export const TopicsNarrow: Story = audienceTabStory('topics', { containerWidth: NARROW_SCENE_WIDTH })
 export const SuppressionList: Story = audienceTabStory('suppression')
