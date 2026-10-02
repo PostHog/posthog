@@ -3,19 +3,22 @@ import '@xyflow/react/dist/style.css'
 import {
     Background,
     BackgroundVariant,
+    ControlButton,
     Controls,
     FitViewOptions,
     MiniMap,
+    type NodeChange,
     Panel,
     PanelPosition,
     ReactFlow,
     ReactFlowProvider,
     useReactFlow,
+    type XYPosition,
 } from '@xyflow/react'
 import { useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useRef } from 'react'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconRefresh } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
@@ -40,6 +43,11 @@ export interface LineageGraphProps {
     direction?: ElkDirection
     /** Enable zoom/pan. Off by default for inline previews */
     interactive?: boolean
+    nodesDraggable?: boolean
+    nodePositions?: Record<string, XYPosition>
+    onNodePositionChange?: (nodeId: string, position: XYPosition) => void
+    onNodeDragStop?: (node: DataModelingNode) => void
+    onResetNodePositions?: () => void
     fitViewOptions?: FitViewOptions
     focusNodeIds?: Set<string> | null
     searchFocusRequest?: { nodeId: string; requestId: number } | null
@@ -75,6 +83,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         })
     )
     const fittedLayout = useRef<typeof layout>(null)
+    const lastNodeDragStoppedAt = useRef(0)
 
     // Decorating on every render would hand react-flow new node objects, which drops the sizes it
     // measured — so the fit below would keep waiting and the edges would keep being redrawn.
@@ -82,19 +91,46 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         () =>
             layout?.nodes.map((rfNode) => {
                 const node = rfNode.data.node as DataModelingNode
+                const callbacks = nodeCallbacks?.(node) ?? {
+                    onClick: onNodeClick ? () => onNodeClick(node) : undefined,
+                }
+                const onClick = callbacks.onClick
                 return {
                     ...rfNode,
+                    position: props.nodePositions?.[node.id] ?? rfNode.position,
                     data: {
                         ...rfNode.data,
                         state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
-                        callbacks: nodeCallbacks?.(node) ?? {
-                            onClick: onNodeClick ? () => onNodeClick(node) : undefined,
+                        callbacks: {
+                            ...callbacks,
+                            onClick: onClick
+                                ? () => {
+                                      if (Date.now() - lastNodeDragStoppedAt.current > 200) {
+                                          onClick()
+                                      }
+                                  }
+                                : undefined,
                         },
                     },
                 }
             }) ?? [],
-        [currentNodeId, layout, nodeCallbacks, nodeState, onNodeClick]
+        [currentNodeId, layout, nodeCallbacks, nodeState, onNodeClick, props.nodePositions]
     )
+
+    const handleNodesChange = (changes: NodeChange[]): void => {
+        for (const change of changes) {
+            if (change.type === 'position' && change.position) {
+                props.onNodePositionChange?.(change.id, change.position)
+            }
+        }
+    }
+
+    const resetLayout = (): void => {
+        props.onResetNodePositions?.()
+        if (layout) {
+            void fitView({ nodes: layout.nodes, padding: props.fitViewOptions?.padding ?? 0.2, duration: 400 })
+        }
+    }
 
     useEffect(() => {
         if (!viewportInitialized || !nodesMeasured || !layout || props.loading || fittedLayout.current === layout) {
@@ -166,7 +202,12 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             nodes={decoratedNodes}
             edges={layout.edges}
             nodeTypes={LINEAGE_NODE_TYPES}
-            nodesDraggable={false}
+            nodesDraggable={props.nodesDraggable ?? false}
+            onNodesChange={handleNodesChange}
+            onNodeDragStop={(_, node) => {
+                lastNodeDragStoppedAt.current = Date.now()
+                props.onNodeDragStop?.(node.data.node as DataModelingNode)
+            }}
             nodesConnectable={false}
             // The card inside each node is the focus target and carries the key handler. A focusable
             // wrapper would add a second tab stop per node that only selects and never navigates.
@@ -180,7 +221,20 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             proOptions={{ hideAttribution: true }}
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-            {props.showControls && <Controls showInteractive={false} position="bottom-right" />}
+            {props.showControls && (
+                <Controls showInteractive={false} position="bottom-right">
+                    {props.nodesDraggable && props.onResetNodePositions && (
+                        <ControlButton
+                            aria-label="Reset layout"
+                            title="Reset layout"
+                            onClick={resetLayout}
+                            data-attr="models-lineage-reset-layout"
+                        >
+                            <IconRefresh aria-hidden="true" />
+                        </ControlButton>
+                    )}
+                </Controls>
+            )}
             {props.showMinimap && (
                 <MiniMap
                     zoomable

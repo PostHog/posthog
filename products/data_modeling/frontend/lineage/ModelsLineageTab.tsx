@@ -5,6 +5,7 @@ import { useRef } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
 
@@ -25,6 +26,7 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 
 export function ModelsLineageTab(): JSX.Element {
     const searchInputRef = useRef<HTMLInputElement>(null)
+    const nodesDraggable = useFeatureFlag('DATA_MODELING_LINEAGE_NODE_DRAGGING')
     const {
         nodes,
         nodesLoading,
@@ -44,6 +46,7 @@ export function ModelsLineageTab(): JSX.Element {
         visibleNodes,
         visibleEdges,
         isFiltered,
+        nodePositions,
     } = useValues(modelsLineageLogic)
     const {
         setSearchTerm,
@@ -53,6 +56,9 @@ export function ModelsLineageTab(): JSX.Element {
         focusSearchResult,
         toggleLegendCollapsed,
         resetFilters,
+        setNodePosition,
+        nodeDragStopped,
+        resetNodePositions,
     } = useActions(modelsLineageLogic)
 
     const focusSearchInput = (): void => {
@@ -157,6 +163,11 @@ export function ModelsLineageTab(): JSX.Element {
                     searchFocusRequest={searchFocusRequest}
                     variant="canvas"
                     interactive
+                    nodesDraggable={nodesDraggable}
+                    nodePositions={nodesDraggable ? nodePositions : undefined}
+                    onNodePositionChange={nodesDraggable ? setNodePosition : undefined}
+                    onNodeDragStop={nodesDraggable ? (node) => nodeDragStopped(node.id) : undefined}
+                    onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
                     showControls
                     showMinimap
                     minimapPosition="top-right"
