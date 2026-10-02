@@ -703,15 +703,15 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
     with (
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
-            return_value={"typesafe/jev-1.13": ["decisions"]},
+            return_value={"example-judge-v1": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
-        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider=provider, model="typesafe/jev-1.13", provider_key=key, is_byok=True
+            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
         )
         result = call_llm_judge(
             evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
@@ -720,11 +720,14 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
             allows_na=False,
         )
     assert result["skip_reason"] == expected_skip_reason
+    request.assert_called_once()
     if status in (301, 402):
         assert result["terminal_user_error"] is True
         assert result["provider_key_state"] == "error"
     else:
         assert result["skipped"] is True
+        if encoding == "identity":
+            assert "supports this evaluation's output type" in result["reasoning"]
         assert "terminal_user_error" not in result
         assert "provider_key_state" not in result
     if status == 402:
