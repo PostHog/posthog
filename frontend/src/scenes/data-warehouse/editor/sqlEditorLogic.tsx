@@ -119,7 +119,7 @@ import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogi
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
 import { captureBIEditorQueryRun, captureBIEditorQuerySaved } from './bi/biEditorAnalytics'
-import { BIEditorState, parseBIEditorState } from './bi/biEditorTypes'
+import { BIEditorState, BIEditorView, buildBIQuery, parseBIEditorState } from './bi/biEditorTypes'
 import { connectionSelectorLogic } from './connectionSelectorLogic'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
@@ -2255,12 +2255,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
             },
             runQuery: ({ queryOverride, switchTab }) => {
-                captureBIEditorQueryRun(getActiveBIEditorState())
+                const biEditorState = getActiveBIEditorState()
+                captureBIEditorQueryRun(biEditorState)
+                const biQuery =
+                    !queryOverride && biEditorState?.editorView === BIEditorView.BI
+                        ? buildBIQuery(biEditorState.config)
+                        : null
 
                 let query: string
                 if (queryOverride) {
                     // Explicit override (e.g. user selected text and pressed Cmd+Enter)
                     query = queryOverride
+                } else if (biQuery) {
+                    query = biQuery.query
                 } else {
                     // No override — find the query under the cursor
                     const fullText = values.queryInput ?? ''
@@ -2280,8 +2287,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
 
+                if (biQuery && query !== values.queryInput) {
+                    actions.setQueryInput(query)
+                }
                 const newSource = normalizeRawQuerySource({
                     ...values.sourceQuery.source,
+                    ...biQuery?.node.source,
                     query,
                 })
 
@@ -2292,14 +2303,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     tags: { ...newSource.tags, productKey: 'sql_editor' },
                 }
 
-                actions.setSourceQuery({
+                const nextSourceQuery: DataVisualizationNode = {
                     ...values.sourceQuery,
+                    ...biQuery?.node,
+                    chartSettings: biQuery?.node.chartSettings
+                        ? {
+                              ...values.sourceQuery.chartSettings,
+                              ...biQuery.node.chartSettings,
+                              heatmap: {
+                                  ...values.sourceQuery.chartSettings?.heatmap,
+                                  ...biQuery.node.chartSettings.heatmap,
+                              },
+                          }
+                        : values.sourceQuery.chartSettings,
                     source: newSource,
-                })
-                actions.setLastRunQuery({
-                    ...values.sourceQuery,
-                    source: newSource,
-                })
+                }
+                actions.setSourceQuery(nextSourceQuery)
+                actions.setLastRunQuery(nextSourceQuery)
                 if (!cache.umountDataNode) {
                     cache.umountDataNode = dataNodeLogic({
                         key: values.dataLogicKey,
