@@ -734,7 +734,6 @@ def cap_future_incremental_value(value: Any, ceiling: datetime) -> Any:
     The source query asks only for rows after the cursor, so one future-dated row would stop
     every later sync. Other value types stay unchanged.
     """
-    ceiling = ceiling if ceiling.tzinfo is not None else ceiling.replace(tzinfo=UTC)
     if isinstance(value, datetime):
         aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         if aware <= ceiling + FUTURE_INCREMENTAL_VALUE_TOLERANCE:
