@@ -55,6 +55,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         templateChanged,
         messageLoading,
         templateLoading,
+        starterDesignLoading,
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
@@ -104,7 +105,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     resourceType={{ type: 'template' }}
                     canEdit
                     descriptionAlwaysVisible
-                    isLoading={messageLoading || templateLoading}
+                    isLoading={messageLoading || templateLoading || starterDesignLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     actions={
@@ -220,7 +221,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
                     {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
                     {isSyncingExternalEdit && <SpinnerOverlay />}
-                    {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
+                    {(messageLoading || templateLoading || starterDesignLoading) && !isSyncingExternalEdit ? (
                         <Spinner className="text-lg" />
                     ) : (
                         <EmailTemplater
@@ -231,6 +232,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             }
                             type="native_email_template"
                             layout="inline"
+                            fillMissingHtmlOnLoad={props.fromEmailBrand}
                         />
                     )}
                 </div>

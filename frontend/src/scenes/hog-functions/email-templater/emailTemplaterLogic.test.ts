@@ -342,15 +342,19 @@ describe('emailTemplaterLogic', () => {
             expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
         })
 
-        // A design preloaded without html (the Email brand starter, no server renderer) must not save an empty body.
-        it('fills in html from the editor export when a loaded design has none', async () => {
+        // A preloaded starter design must not save an empty body, and a plain-text email keeps its retained design.
+        it.each([
+            { description: 'fills in html for a host that preloads designs', fill: true, text: '', filled: true },
+            { description: 'keeps a plain-text email as written', fill: undefined, text: 'Plain words', filled: false },
+        ])('$description when a loaded design has no html', async ({ fill, text, filled }) => {
             logic.unmount()
             logic = emailTemplaterLogic(
                 makeProps({
-                    value: { ...DEFAULT_EMAIL_TEMPLATE, design: DESIGN_STORED, html: '', text: '' },
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, design: DESIGN_STORED, html: '', text },
                     onChange,
                     type: 'native_email_template',
                     layout: 'inline',
+                    fillMissingHtmlOnLoad: fill,
                 })
             )
             logic.mount()
@@ -360,12 +364,12 @@ describe('emailTemplaterLogic', () => {
             editorListeners['design:loaded']()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(onChange).toHaveBeenCalledTimes(1)
-            expect(onChange.mock.calls[0][0]).toMatchObject({
-                html: '<p>edited</p>',
-                text: 'edited',
-                design: DESIGN_NORMALIZED,
-            })
+            const pushed = onChange.mock.calls.map(([value]) => ({
+                html: value.html,
+                text: value.text,
+                design: value.design,
+            }))
+            expect(pushed).toEqual(filled ? [{ html: '<p>edited</p>', text: 'edited', design: DESIGN_NORMALIZED }] : [])
         })
 
         it('rebaselines on design:loaded so the normalized export does not count as an edit', async () => {

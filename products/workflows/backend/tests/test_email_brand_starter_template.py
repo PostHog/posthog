@@ -1,9 +1,14 @@
+import json
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from products.workflows.backend.models.email_brand import EmailBrand
-from products.workflows.backend.services.email_brand_starter_template import build_starter_design
+from products.workflows.backend.services.email_brand_starter_template import (
+    build_starter_design,
+    build_starter_template,
+)
 
 
 def _cta_colors(design: dict) -> dict:
@@ -58,3 +63,16 @@ class TestBuildStarterDesign(SimpleTestCase):
         design = build_starter_design(EmailBrand(font_family=family, font_stack=stack))
 
         assert design["body"]["values"]["fontFamily"] == expected
+
+    @parameterized.expand(
+        [
+            ("output tag", "{{ person.properties.email }} Labs", "{{ person.properties.email }}"),
+            ("unclosed block tag", "Acme {% if true %}", "{% if"),
+        ]
+    )
+    def test_brand_name_reaches_the_email_as_text_not_liquid(self, _name, brand_name, liquid):
+        starter = build_starter_template(EmailBrand(name=brand_name))
+
+        assert liquid not in starter.subject
+        assert liquid not in json.dumps(starter.design)
+        assert "Labs" in starter.subject or "Acme" in starter.subject

@@ -204,6 +204,12 @@ export interface EmailTemplaterLogicProps {
      * the open Unlayer canvas.
      */
     liveChanges?: boolean
+    /**
+     * Export html from the canvas when a design loads without html, for hosts that preload a design built
+     * without a server renderer (the Email brand starter). Off by default, because a plain-text email keeps
+     * its design next to an empty html on purpose.
+     */
+    fillMissingHtmlOnLoad?: boolean
     // Validation messages owned by the parent form, shown next to each field. The templater does
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
@@ -645,9 +651,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             const htmlData = await exportEditorHtml(editor)
             breakpoint()
             cache.lastEditorDesign = htmlData.design
-            // A design that arrives without html (a starter design built without a server renderer) would
-            // otherwise save an empty email body, because the load echo never propagates.
-            if (props.value?.design && !props.value.html) {
+            // The load echo never propagates, so without this a preloaded design would save an empty email body.
+            if (
+                props.fillMissingHtmlOnLoad &&
+                values.activeContentTab === 'visual' &&
+                props.value?.design &&
+                !props.value.html
+            ) {
                 const textData: { text: string } = await new Promise((res) => editor.exportPlainText(res))
                 breakpoint()
                 props.onChange({

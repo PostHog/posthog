@@ -77,7 +77,7 @@ def build_starter_template(brand: EmailBrand) -> StarterTemplate:
     return StarterTemplate(
         name=f"{brand.name} starter template" if brand.name else "Starter template",
         description=STARTER_TEMPLATE_DESCRIPTION,
-        subject=f"Hello from {brand.name}" if brand.name else "Hello",
+        subject=f"Hello from {_liquid_safe_name(brand)}" if brand.name else "Hello",
         design=build_starter_design(brand),
     )
 
@@ -179,7 +179,7 @@ def _logo(brand: EmailBrand) -> dict[str, Any]:
             "containerPadding": "32px 24px 16px",
             "src": {"url": brand.logo.get_absolute_url(), "autoWidth": False, "maxWidth": LOGO_MAX_WIDTH},
             "textAlign": "center",
-            "altText": brand.name,
+            "altText": _liquid_safe_name(brand),
             "action": {"name": "web", "values": {"href": "", "target": "_blank"}},
         },
     )
@@ -198,7 +198,7 @@ def _brand_name_heading(brand: EmailBrand) -> dict[str, Any]:
             "textAlign": "center",
             "lineHeight": "120%",
             "linkStyle": _link_style(brand),
-            "text": escape(brand.name),
+            "text": escape(_liquid_safe_name(brand)),
         },
     )
 
@@ -268,7 +268,7 @@ def _call_to_action(brand: EmailBrand) -> dict[str, Any]:
 def _unsubscribe_footer(brand: EmailBrand) -> dict[str, Any]:
     link_style = f"color: {FOOTER_TEXT_COLOR}; text-decoration: underline;"
     unsubscribe_link = f'<a href="{{{{ unsubscribe_url }}}}" style="{link_style}">Unsubscribe</a>'
-    reason = f"You get this email because you use {escape(brand.name)}." if brand.name else ""
+    reason = f"You get this email because you use {escape(_liquid_safe_name(brand))}." if brand.name else ""
     footer = _content(
         "brand-starter-unsubscribe",
         "custom",
@@ -282,6 +282,11 @@ def _unsubscribe_footer(brand: EmailBrand) -> dict[str, Any]:
         },
     )
     return {**footer, "slug": "unsubscribe_link"}
+
+
+def _liquid_safe_name(brand: EmailBrand) -> str:
+    # The template renders with Liquid, so braces in a brand name would run as tags instead of showing as text.
+    return brand.name.replace("{", "").replace("}", "")
 
 
 def _content(content_id: str, content_type: str, html_id: str, values: dict[str, Any]) -> dict[str, Any]:
