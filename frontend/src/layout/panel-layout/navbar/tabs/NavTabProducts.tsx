@@ -94,8 +94,8 @@ export function NavTabProducts(): JSX.Element {
                     >
                         {allProductsCollapsible && (
                             <Collapsible.Trigger
-                                className="min-h-6 py-0.5 rounded hover:bg-fill-button-tertiary-hover focus-visible:bg-fill-button-tertiary-hover pr-2"
-                                labelClassName="flex-1 text-xs font-semibold text-tertiary normal-case tracking-normal"
+                                className="min-h-7 rounded hover:bg-fill-button-tertiary-hover focus-visible:bg-fill-button-tertiary-hover pr-2"
+                                labelClassName="flex-1 text-xs font-semibold text-secondary normal-case"
                                 data-attr="nav-apps-project-toggle"
                             >
                                 {allProductsVisible ? 'All products' : 'See all products'}
