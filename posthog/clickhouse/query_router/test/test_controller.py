@@ -133,6 +133,7 @@ class TestLimitController(SimpleTestCase):
             config.CONTROLLER_LAST_COMPLETE_SAMPLE_KEY,
             *(config.limit_key(pool) for pool in Pool),
             *(config.load_key(pool) for pool in Pool),
+            *(config.limit_updated_key(pool) for pool in Pool),
             *(config.waiting_seen_key(pool) for pool in Pool),
             *(config.running_key(pool, query_class) for pool in Pool for query_class in QueryClass),
         )
@@ -225,8 +226,14 @@ class TestLimitController(SimpleTestCase):
 
         idle = dict.fromkeys(QueryClass, 0)
         assert state.pools == {
-            Pool.OFFLINE: PoolState(limit=340, load=0.9, running={**idle, QueryClass.BACKGROUND: 1}, waiting=1),
-            Pool.ONLINE: PoolState(limit=None, load=None, running=idle, waiting=0),
+            Pool.OFFLINE: PoolState(
+                limit=340,
+                load=0.9,
+                limit_updated_at=self.clock.now,
+                running={**idle, QueryClass.BACKGROUND: 1},
+                waiting=1,
+            ),
+            Pool.ONLINE: PoolState(limit=None, load=None, limit_updated_at=None, running=idle, waiting=0),
         }
 
     @parameterized.expand(
@@ -239,6 +246,7 @@ class TestLimitController(SimpleTestCase):
         self, _name: str, modes_before_off: list[RouterMode], expected_sleeps: int
     ) -> None:
         off_ticks_before = REGISTRY.get_sample_value("posthog_query_router_controller_ticks_total", {"result": "off"})
+        self.redis.set(config.limit_updated_key(Pool.OFFLINE), self.clock.now)
         exports: list[float] = []
         loop = ControllerLoop(
             self._controller(_FakeFetch(_sample(_node("off1", "offline"), _node("on1", "online")))),
@@ -255,6 +263,7 @@ class TestLimitController(SimpleTestCase):
         off_ticks_after = REGISTRY.get_sample_value("posthog_query_router_controller_ticks_total", {"result": "off"})
         assert len(self.clock.slept) == expected_sleeps
         assert self.redis.get(config.CONTROLLER_LEADER_KEY) is None
+        assert read_router_state(self.redis, now=self.clock.now).pools[Pool.OFFLINE].limit_updated_at is None
         assert (off_ticks_after or 0) - (off_ticks_before or 0) == 1
         assert len(exports) == 1
 
@@ -276,6 +285,7 @@ class TestLimitController(SimpleTestCase):
         fetch = _FakeFetch(_sample(_node("off1", "offline", overload=0.9), _node("on1", "online", overload=0.0)))
         controller = self._controller(fetch)
         controller.tick()
+        last_good_read = self.clock.now
         fetch.error = RuntimeError("clickhouse unavailable")
 
         written = []
@@ -286,3 +296,5 @@ class TestLimitController(SimpleTestCase):
             written.append(self._written_limits())
 
         assert written == [{Pool.OFFLINE: 340, Pool.ONLINE: 400}] * 10 + [{}] * 2
+        state = read_router_state(self.redis, now=self.clock.now)
+        assert {pool_state.limit_updated_at for pool_state in state.pools.values()} == {last_good_read}

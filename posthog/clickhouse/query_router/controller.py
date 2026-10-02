@@ -249,6 +249,10 @@ class LimitController:
             )
             self._limits[pool] = limit
             self._redis.set(config.load_key(pool), load, ex=config.LIMIT_TTL_SECONDS)
+            # This time has no expiry, so it stays in the exported state after the limit lapses. An alert
+            # on its age then fires when the load read keeps failing, although the controller still runs
+            # and still exports.
+            self._redis.set(config.limit_updated_key(pool), now)
         elif limit is None:
             return
         elif now - limit.read_at > FAILED_READ_HOLD_SECONDS:
@@ -267,6 +271,9 @@ class LimitController:
     def tick(self) -> TickResult:
         if config.get_global_mode() == RouterMode.OFF:
             self.stand_down()
+            # With the router off no limit is due, so the exported state must not carry a time that ages.
+            for pool in Pool:
+                self._redis.delete(config.limit_updated_key(pool))
             CONTROLLER_TICKS_COUNTER.labels(result=TickResult.OFF).inc()
             return TickResult.OFF
         self._holds_lease = self._hold_lease()

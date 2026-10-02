@@ -126,6 +126,10 @@ def load_key(pool: Pool) -> str:
     return _key(pool, "load")
 
 
+def limit_updated_key(pool: Pool) -> str:
+    return _key(pool, "limit_updated")
+
+
 @frozen
 class _RouterSettings:
     mode: RouterMode
