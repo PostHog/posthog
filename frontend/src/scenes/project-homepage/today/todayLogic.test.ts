@@ -65,6 +65,12 @@ describe('todayLogic', () => {
                     return briefingResponses.length > 1 ? briefingResponses.shift()! : briefingResponses[0]
                 },
             },
+            post: {
+                '/api/projects/:team_id/today/briefing/refresh/': () => [
+                    200,
+                    makeBriefing({ id: 'b-next', status: 'writing' }),
+                ],
+            },
         })
         initKeaTests()
     })
@@ -113,6 +119,27 @@ describe('todayLogic', () => {
 
         await jest.advanceTimersByTimeAsync(BRIEFING_POLL_MS * 3)
         expect(briefingCalls).toBe(2)
+    })
+
+    it('keeps waiting from the refresh click until the reloaded briefing says it is written', async () => {
+        const shown = makeBriefing()
+        briefingResponses = [
+            [200, shown],
+            [200, { ...shown, status: 'writing' }],
+        ]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPersonalBriefingSuccess']).toMatchValues({
+            briefingWaiting: false,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.refreshBriefing()
+        })
+            .toDispatchActions(['refreshBriefing', 'refreshBriefingSuccess'])
+            .toMatchValues({ briefingWaiting: true })
+            .toDispatchActions(['loadPersonalBriefing', 'loadPersonalBriefingSuccess'])
+            .toMatchValues({ briefingWaiting: true })
     })
 
     it.each([
