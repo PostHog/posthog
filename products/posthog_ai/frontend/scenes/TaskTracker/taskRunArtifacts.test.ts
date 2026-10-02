@@ -102,7 +102,7 @@ describe('taskRunArtifacts', () => {
         expect(listboxKeyTarget(key, current, count)).toBe(expected)
     })
 
-    test.each(['experiment', 'survey', 'person'])(
+    test.each(['experiment', 'survey', 'person', 'error'])(
         'the %s kind from the object tag registry gets a product embed',
         (kind) => {
             expect(LIVE_OBJECT_KINDS.has(kind)).toBe(true)

@@ -208,7 +208,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey' | 'person' | 'action',
+    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey' | 'person' | 'error' | 'action',
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -231,6 +231,7 @@ function objectReference(
 
 const SURVEY_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
 const PERSON_ID = '0190a1b2-c3d4-7e5f-8a9b-1c2d3e4f5a6b'
+const ISSUE_ID = '0190a1b2-c3d4-7e5f-8a9b-2c3d4e5f6a7b'
 
 const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
@@ -240,6 +241,7 @@ const OBJECT_REFERENCES = [
     objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
     objectReference('phref_survey', 'Plan picker feedback', 'survey', SURVEY_ID, '2026-09-28T18:07:00Z'),
     objectReference('phref_person', 'ada@example.com', 'person', PERSON_ID, '2026-09-28T18:06:00Z'),
+    objectReference('phref_error', 'TypeError in plan picker', 'error', ISSUE_ID, '2026-09-28T18:05:00Z'),
     objectReference('phref_action', 'Started trial', 'action', '21', '2026-09-28T18:04:00Z'),
 ]
 
@@ -317,6 +319,20 @@ const CITED_PERSON_PROPERTIES = {
     plan: 'free',
 }
 
+const CITED_ISSUE = {
+    id: ISSUE_ID,
+    status: 'active',
+    severity: null,
+    name: 'TypeError',
+    description: "Cannot read properties of undefined (reading 'priceId')",
+    first_seen: '2026-09-22T09:14:00Z',
+    assignee: null,
+    external_issues: [],
+    cohort: null,
+}
+
+const ISSUE_VOLUME = [3, 4, 2, 5, 3, 4, 41, 58, 63, 49, 52, 47, 55, 50]
+
 /** The insight and cohort embeds each run their own query through the same endpoint. */
 async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
     const { query } = (await request.json()) as {
@@ -327,6 +343,29 @@ async function queryByKind({ request }: { request: Request }): Promise<Record<st
     }
     if (query.kind === NodeKind.ExperimentQuery) {
         return MEAN_METRIC_RESULT
+    }
+    if (query.kind === NodeKind.ErrorTrackingQuery) {
+        const start = new Date('2026-09-21T18:00:00Z').getTime()
+        const bucketMs = 12 * 60 * 60 * 1000
+        return {
+            results: [
+                {
+                    ...CITED_ISSUE,
+                    last_seen: '2026-09-28T17:58:00Z',
+                    library: 'web',
+                    aggregations: {
+                        occurrences: 436,
+                        users: 212,
+                        sessions: 251,
+                        volume_buckets: ISSUE_VOLUME.map((value, index) => ({
+                            label: new Date(start + index * bucketMs).toISOString(),
+                            value,
+                        })),
+                    },
+                },
+            ],
+            hasMore: false,
+        }
     }
     if (query.kind === NodeKind.HogQLQuery && query.values?.id === PERSON_ID) {
         return {
@@ -401,6 +440,7 @@ const OBJECT_MOCKS = {
         '/api/projects/:team_id/experiment_saved_metrics/': [],
         [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: CITED_SURVEY,
         '/api/projects/:team_id/surveys/responses_count': { [SURVEY_ID]: 214 },
+        [`/api/projects/:team_id/error_tracking/issues/${ISSUE_ID}/`]: CITED_ISSUE,
     },
     post: {
         '/api/environments/:team_id/query/': queryByKind,
@@ -680,6 +720,11 @@ export const PostHogObjectSurvey: Story = {
 export const PostHogObjectPerson: Story = {
     parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_person" />,
+}
+
+export const PostHogObjectErrorIssue: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_error" />,
 }
 
 export const PostHogObjectWithoutEmbed: Story = {
