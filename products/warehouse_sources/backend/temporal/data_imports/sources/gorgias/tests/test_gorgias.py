@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -233,14 +234,21 @@ class TestParamVariants:
         assert params["object_type"] == "Customer"
         assert params["cursor"] == "c9"
 
-    def test_voice_calls_sends_no_order_by(self) -> None:
+    @parameterized.expand(
+        [
+            ("voice_calls", "phone/voice-calls"),
+            ("voice_call_events", "phone/voice-call-events"),
+            ("voice_call_recordings", "phone/voice-call-recordings"),
+        ]
+    )
+    def test_voice_endpoints_send_no_order_by(self, endpoint: str, path: str) -> None:
         session = MagicMock()
         session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
         with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
-            list(get_rows("acme", "e@acme.com", "key", "voice_calls", MagicMock(), _FakeManager()))
+            list(get_rows("acme", "e@acme.com", "key", endpoint, MagicMock(), _FakeManager()))
 
         url = session.get.call_args.args[0]
-        assert url == "https://acme.gorgias.com/api/phone/voice-calls"
+        assert url == f"https://acme.gorgias.com/api/{path}"
         assert "order_by" not in session.get.call_args.kwargs["params"]
 
 
@@ -295,6 +303,151 @@ class TestTicketChildTables:
             (10, 8, None),
         ]
         assert all(r["ticket_created_datetime"] == "2024-01-01T00:00:00+00:00" for r in rows)
+
+
+class TestCustomerFieldValues:
+    def test_fans_out_per_customer_and_skips_deleted_customers(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(
+                json_body={
+                    "data": [
+                        {"id": 1, "created_datetime": "2024-01-01T00:00:00"},
+                        {"id": 2, "created_datetime": "2024-02-01T00:00:00"},
+                        {"id": 3, "created_datetime": "2024-03-01T00:00:00"},
+                    ],
+                    "meta": {"next_cursor": None},
+                }
+            ),
+            _response(
+                json_body={
+                    "data": [
+                        {"field": {"id": 5, "label": "Plan"}, "value": "pro"},
+                        {"field": {"id": 6, "label": "Seats"}, "value": 12},
+                    ]
+                }
+            ),
+            _response(status_code=404, ok=False),
+            # Some list endpoints return a bare array rather than a `data` envelope.
+            _response(json_body=[{"field": {"id": 5, "label": "Plan"}, "value": None}]),  # type: ignore[arg-type]
+        ]
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), _FakeManager()))
+
+        urls = [c.args[0] for c in session.get.call_args_list]
+        assert urls == [
+            "https://acme.gorgias.com/api/customers",
+            "https://acme.gorgias.com/api/customers/1/custom-fields",
+            "https://acme.gorgias.com/api/customers/2/custom-fields",
+            "https://acme.gorgias.com/api/customers/3/custom-fields",
+        ]
+        rows = [row for batch in batches for row in batch]
+        assert [(r["customer_id"], r["field_id"], r["value"], r["customer_created_datetime"]) for r in rows] == [
+            (1, 5, "pro", "2024-01-01T00:00:00"),
+            (1, 6, "12", "2024-01-01T00:00:00"),
+            (3, 5, None, "2024-03-01T00:00:00"),
+        ]
+
+    def test_child_error_other_than_404_fails_the_sync(self) -> None:
+        session = MagicMock()
+        forbidden = _response(status_code=403, ok=False)
+        forbidden.raise_for_status.side_effect = requests.HTTPError(
+            "403 Client Error: Forbidden for url", response=forbidden
+        )
+        session.get.side_effect = [
+            _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": None}}),
+            forbidden,
+        ]
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(requests.HTTPError):
+                list(get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), _FakeManager()))
+
+    def test_stages_parent_cursor_and_reaches_safe_point_on_pages_without_values(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(json_body={"data": [{"id": 1}], "meta": {"next_cursor": "c2"}}),
+            _response(json_body={"data": []}),
+            _response(json_body={"data": [{"id": 2}], "meta": {"next_cursor": None}}),
+            _response(json_body={"data": [{"field": {"id": 5}, "value": "x"}]}),
+        ]
+        manager = _FakeManager()
+        with (
+            patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session),
+            patch.object(manager, "safe_point") as safe_point,
+        ):
+            rows = get_rows("acme", "e@acme.com", "key", "customer_field_values", MagicMock(), manager)
+            assert [r["customer_id"] for r in next(rows)] == [2]
+            assert manager.saved == [
+                GorgiasResumeConfig(cursor="c2", variant=0),
+                GorgiasResumeConfig(cursor=None, variant=1),
+            ]
+            safe_point.assert_called_once()
+            assert list(rows) == []
+
+
+class TestServerFilteredIncremental:
+    def _run(self, session: MagicMock, watermark: datetime | None) -> list:
+        with patch(f"{GORGIAS_MODULE}.make_tracked_session", return_value=session):
+            return list(
+                get_rows(
+                    "acme",
+                    "e@acme.com",
+                    "key",
+                    "events",
+                    MagicMock(),
+                    _FakeManager(),
+                    should_use_incremental_field=True,
+                    incremental_field="created_datetime",
+                    db_incremental_field_last_value=watermark,
+                )
+            )
+
+    def test_filters_from_watermark_ascending_on_every_page(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _response(
+                json_body={
+                    "data": [{"id": 1, "created_datetime": "2023-06-01T00:00:00"}],
+                    "meta": {"next_cursor": "c2"},
+                }
+            ),
+            _response(
+                json_body={
+                    "data": [{"id": 2, "created_datetime": "2023-06-02T00:00:00"}],
+                    "meta": {"next_cursor": None},
+                }
+            ),
+        ]
+        batches = self._run(session, datetime(2023, 6, 1, tzinfo=UTC))
+
+        assert [item["id"] for batch in batches for item in batch] == [1, 2]
+        params = [c.kwargs["params"] for c in session.get.call_args_list]
+        assert [(p["order_by"], p["created_datetime[gte]"], p.get("cursor")) for p in params] == [
+            ("created_datetime:asc", "2023-06-01T00:00:00+00:00", None),
+            ("created_datetime:asc", "2023-06-01T00:00:00+00:00", "c2"),
+        ]
+
+    def test_first_sync_sends_no_filter(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response(json_body={"data": [], "meta": {"next_cursor": None}})
+        self._run(session, None)
+
+        params = session.get.call_args.kwargs["params"]
+        assert params["order_by"] == "created_datetime:asc"
+        assert "created_datetime[gte]" not in params
+
+    def test_source_response_sorts_ascending(self) -> None:
+        response = gorgias_source(
+            "acme",
+            "e@acme.com",
+            "key",
+            "events",
+            MagicMock(),
+            _FakeManager(),
+            should_use_incremental_field=True,
+            incremental_field="created_datetime",
+        )
+        assert response.sort_mode == "asc"
 
 
 class TestIncrementalSync:
@@ -466,6 +619,10 @@ DOCUMENTED_ORDER_BY_DATETIME_FIELDS: dict[str, set[str]] = {
     "voice_calls": set(),  # accepts no order_by
     "ticket_tags": {"created_datetime", "updated_datetime"},
     "ticket_field_values": {"created_datetime", "updated_datetime"},
+    "events": {"created_datetime"},
+    "voice_call_events": set(),  # accepts no order_by
+    "voice_call_recordings": set(),  # accepts no order_by
+    "customer_field_values": {"created_datetime", "updated_datetime"},
 }
 DOCUMENTED_NON_DATETIME_ORDER_BY: dict[str, set[str]] = {
     "custom_fields": {"priority:asc", "priority:desc"},
@@ -511,6 +668,7 @@ class TestApiContract:
             "macros": "updated_datetime",
             "messages": "created_datetime",
             "satisfaction_surveys": "created_datetime",
+            "events": "created_datetime",
         }
         actual = {
             name: config.incremental_fields[0]["field"]
@@ -534,7 +692,7 @@ class TestGorgiasSource:
         [
             (name, config.incremental_fields[0]["field"])
             for name, config in GORGIAS_ENDPOINTS.items()
-            if config.supports_incremental
+            if config.supports_incremental and not config.filterable_datetime_fields
         ]
     )
     def test_incremental_source_response_sorts_descending(self, endpoint: str, incremental_field: str) -> None:
@@ -552,5 +710,5 @@ class TestGorgiasSource:
 
     def test_every_endpoint_partitions_on_created_datetime(self) -> None:
         for config in GORGIAS_ENDPOINTS.values():
-            assert config.partition_key in ("created_datetime", "ticket_created_datetime")
+            assert config.partition_key in ("created_datetime", "ticket_created_datetime", "customer_created_datetime")
             assert "updated" not in config.partition_key

@@ -22,6 +22,7 @@ import { canvasesDestroy, canvasesList, canvasesPartialUpdate } from 'products/c
 import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 import { ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { EmbeddedTaskComposerProps } from 'products/posthog_ai/frontend/api/runner'
+import { type ArtifactPreviewKind, captureArtifactChipClicked } from 'products/posthog_ai/frontend/api/taskArtifacts'
 
 import {
     taskChannelsDestroy,
@@ -304,6 +305,15 @@ export interface spaceSceneLogicActions {
         space: ChannelDTOApi | null
         payload?: any
     }
+    reportArtifactChipClicked: (
+        kind: ArtifactPreviewKind,
+        inOverflow: boolean,
+        fileCount: number
+    ) => {
+        fileCount: number
+        inOverflow: boolean
+        kind: ArtifactPreviewKind
+    }
     saveAutoArchiveCustomDays: () => {
         value: true
     }
@@ -477,6 +487,11 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         canvasDeleteStarted: true,
         canvasDeleted: (canvasId: string) => ({ canvasId }),
         canvasDeleteFailed: true,
+        reportArtifactChipClicked: (kind: ArtifactPreviewKind, inOverflow: boolean, fileCount: number) => ({
+            kind,
+            inOverflow,
+            fileCount,
+        }),
     }),
     loaders(({ props, values }) => ({
         space: [
@@ -856,6 +871,9 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         applySuggestion: ({ prompt }) => {
             actions.setSeed({ prompt, autoSubmit: false })
             actions.focusComposer()
+        },
+        reportArtifactChipClicked: ({ kind, inOverflow, fileCount }) => {
+            captureArtifactChipClicked({ kind, inOverflow, fileCount, surface: 'space_feed' })
         },
         setTypes: () => {
             actions.ensureCanvases()

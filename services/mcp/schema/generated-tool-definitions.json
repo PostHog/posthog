@@ -6714,7 +6714,7 @@
         }
     },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report, open checks first and newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -6726,6 +6726,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "inbox-report-checks-replace": {
+        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace a metric follow-up check",
+        "title": "Replace a metric follow-up check",
+        "required_scopes": ["task:write", "query:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-report-checks-replace",
+        "feature_flag_behavior": "enable"
     },
     "inbox-report-checks-retrieve": {
         "description": "Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts themselves are `check_result` artefacts on the report, so read those through the artefact list.",
@@ -12293,6 +12309,21 @@
         },
         "feature_flag": "context-layer"
     },
+    "tasks-config-agent-instructions-create": {
+        "description": "Set the project's agent instructions: markdown that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run on the project, including autonomous runs such as loops and scouts. Requires project admin. Replaces the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set project agent instructions",
+        "title": "Set project agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-config-create": {
         "description": "Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model` must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12309,7 +12340,7 @@
         "feature_flag": "tasks"
     },
     "tasks-config-list": {
-        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored.",
+        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored. Also returns the project's agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get project task run defaults",
@@ -12368,6 +12399,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-me-config-agent-instructions-create": {
+        "description": "Set the caller's personal agent instructions: markdown that PostHog cloud agents load after the project instructions in Tasks runs the caller starts. Autonomous runs never load them. Anyone who continues a task the caller started can see them, so they must not hold anything private. Replaces the stored text; send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set my agent instructions",
+        "title": "Set my agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-me-config-create": {
         "description": "Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12384,7 +12430,7 @@
         "feature_flag": "tasks"
     },
     "tasks-me-config-list": {
-        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it).",
+        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get my task run defaults",
@@ -14093,12 +14139,57 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-lift-on-merge-create": {
+        "description": "Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier` (the story ID). The identifier works for an `unchanged` snapshot, which a listing with `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after the pull request merges and a default-branch run that contains the merge renders the expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. A repeat call from the same pull request replaces the pending request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Lift a visual review quarantine when the pull request merges",
+        "title": "Lift a visual review quarantine when the pull request merges",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-list": {
         "description": "Runs in the project; each is one CI capture for one commit. Filter by `review_state`, or by `pr_number`, `commit_sha` or `branch` to find the run that blocks a pull request. Returns status, review decision, commit, branch, PR and a change summary.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List visual review runs",
         "title": "List visual review runs",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-cancel-create": {
+        "description": "Withdraw a pending request to lift a quarantine when this run's pull request merges. The quarantine stays. Pass the run's UUID as `id` and the request's `id` from `visual-review-runs-quarantine-lifts-list` as `request_id`.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Cancel a visual review lift on merge",
+        "title": "Cancel a visual review lift on merge",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-list": {
+        "description": "Requests to lift a quarantine when this run's pull request merges, newest first. `state` is `pending` (waits for the merge and a default-branch run that renders `expected_hash` against a matching baseline), `applied`, `cancelled` or `superseded`. `detail` says what the latest check found. A lift never approves a picture. Empty for a run without a pull request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List visual review lifts on merge",
+        "title": "List visual review lifts on merge",
         "required_scopes": ["visual_review:read"],
         "annotations": {
             "destructiveHint": false,

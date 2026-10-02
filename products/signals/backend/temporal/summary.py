@@ -156,6 +156,7 @@ class ReportDecision:
     # Check specs the research run's verification turn authored, and the research task they are
     # attributed to. Empty for the no-repo branch, which does no research.
     checks: list[dict[str, Any]] = field(default_factory=list)
+    checks_snapshot: dict[str, str] | None = None
     layers: list[dict[str, Any]] = field(default_factory=list)
     research_task_id: str | None = None
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
@@ -467,6 +468,7 @@ class SignalReportSummaryWorkflow:
                     retire_measurement_plan_metric_ids=agentic_result.retire_measurement_plan_metric_ids,
                     previous_measurement_plan_ids=agentic_result.previous_measurement_plan_ids,
                     checks=agentic_result.checks or [],
+                    checks_snapshot=agentic_result.checks_snapshot,
                     layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
@@ -539,6 +541,7 @@ class SignalReportSummaryWorkflow:
                     previous_measurement_plan_ids=decision.previous_measurement_plan_ids,
                     plans_task_id=decision.research_task_id,
                     checks=decision.checks,
+                    checks_snapshot=decision.checks_snapshot,
                     checks_task_id=decision.research_task_id,
                     layers=decision.layers,
                     suggested_prompts=decision.suggested_prompts,
@@ -855,6 +858,7 @@ class MarkReportReadyInput:
     # transaction as the metrics they reference. Empty or `None` writes none, which is also what an
     # older workflow history that predates the field replays as.
     checks: list[dict[str, Any]] | None = None
+    checks_snapshot: dict[str, str] | None = None
     # Task the check rows are attributed to: the research sandbox that authored the specs.
     checks_task_id: str | None = None
     # The research plan of dependent pull requests, as `ReportLayer` dicts. Each becomes a child
@@ -892,6 +896,7 @@ def _write_research_checks(report: SignalReport, input: MarkReportReadyInput) ->
     create_checks_from_specs(
         report=report,
         specs=specs,
+        checks_snapshot=input.checks_snapshot,
         attribution=(
             ArtefactAttribution.from_task(input.checks_task_id)
             if input.checks_task_id
