@@ -17,7 +17,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -1476,6 +1476,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 lemonToast.error(error?.detail || "Couldn't stop this check. Try again in a moment.")
             } finally {
                 actions.cancelReportCheckDone(checkId)
+            }
+        },
+        // The global loader handler stays quiet on a 409 and finds no `detail` in this endpoint's
+        // `{ error }` body, so the reason the server gave is surfaced here.
+        startReportMonitoringFailure: ({ errorObject }) => {
+            lemonToast.error(
+                readableErrorMessage(errorObject) ?? "Couldn't mark the fix as implemented. Refresh and try again."
+            )
+            if (errorObject?.status === 409) {
+                // The report changed underneath this view, so refresh it to offer the actions it now allows.
+                inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
             }
         },
         setDetailTab: ({ tab }) => {

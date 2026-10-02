@@ -2,6 +2,10 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+// Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spy below
+// replaces the method on the same `lemonToast` singleton the logic calls at runtime.
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,6 +17,7 @@ import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { EnrichedReviewer, SignalReport } from '../types'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
@@ -69,6 +74,27 @@ describe('inboxReportDetailLogic', () => {
             expect(logic.values.report?.status).toBe('monitoring')
             expect(logic.values.report?.monitoring_started_at).toBe('2026-09-30T00:00:00Z')
             expect(logic.values.monitoringUpdateLoading).toBe(false)
+        })
+
+        it('shows the server reason and refreshes the report when monitoring is refused', async () => {
+            const reason = "Merge or close the report's open pull requests before marking the fix as implemented."
+            useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': () => [409, { error: reason }] } })
+            const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.startReportMonitoring()).toFinishAllListeners()
+
+                expect(toast).toHaveBeenCalledWith(reason)
+                expect(logic.values.report?.status).toBe('ready')
+                expect(logic.values.monitoringUpdateLoading).toBe(false)
+                await expectLogic(bulkLogic).toDispatchActions(['reportStateChanged'])
+            } finally {
+                resumeKeaLoadersErrors()
+                toast.mockRestore()
+                bulkLogic.unmount()
+            }
         })
 
         it('updates only the approved row and clears its loading state', async () => {
