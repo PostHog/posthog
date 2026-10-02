@@ -403,9 +403,8 @@ export function scannerScoutTemplates(
     // An unknown type (a scanner that hasn't loaded yet) falls back to the monitor set, the most common.
     const type = scannerType && scannerType in TEMPLATE_KEYS_BY_TYPE ? scannerType : 'monitor'
     const lens = TREND_LENSES[type]
-    const rootCauseLens = ROOT_CAUSE_LENSES[type]
-    const templates: ScannerScoutTemplate[] = [
-        {
+    const builders: Record<ScannerScoutTemplateKey, () => ScannerScoutTemplate> = {
+        'daily-digest': () => ({
             key: 'daily-digest',
             title: 'Daily digest',
             description: 'A daily summary of what this scanner found, and the sessions worth watching.',
@@ -438,8 +437,8 @@ Lead the summary with whatever the window is actually about, and lean on:
 - Close with the detail behind the scope line (how the outcomes split, anything you could not cover), then "What to look at", listing only things a person would actually do, each naming the action and what it would settle. Nothing worth doing means no section: never pad it with "no action needed", and never file "keep monitoring", which is what the next run is for.`,
                 priority: 'Priority P3 by default; P2 when a severe problem is spreading.',
             }),
-        },
-        {
+        }),
+        'trend-watch': () => ({
             key: 'trend-watch',
             title: 'Trend watch',
             description: lens.description,
@@ -459,8 +458,8 @@ Lead the summary with whatever the window is actually about, and lean on:
 ${lens.skip}`,
                 priority: 'Priority P3 by default; P2 when a sharp regression is spreading on a key flow.',
             }),
-        },
-        {
+        }),
+        'new-issues': () => ({
             key: 'new-issues',
             title: 'New issue watch',
             description: "Reports problems this scanner hasn't seen before, and when they started.",
@@ -486,8 +485,8 @@ ${lens.skip}`,
 - Anything absent only because your catalog is young. Under-report early rather than flooding the first week with everything the scanner does normally.`,
                 priority: 'Priority P2 when a new failure blocks people or is spreading; P3 otherwise.',
             }),
-        },
-        {
+        }),
+        scratch: () => ({
             key: 'scratch',
             title: 'Start from scratch',
             description: 'A working skeleton. You fill in what to watch for and what counts as notable.',
@@ -509,25 +508,16 @@ Be specific about the bar, so a quiet window stays quiet: how many distinct sess
                 skip: `- <WHAT THIS SCOUT SHOULD LEAVE ALONE>. Anything another scout or the scanner's own signals already reported belongs here, and so does anything resting on too little evidence to stand up.`,
                 priority: 'Priority P3 by default; P2 when something is severe or spreading.',
             }),
-        },
-    ]
-    const keys = TEMPLATE_KEYS_BY_TYPE[type]
-    if (rootCauseLens && keys.includes('root-cause')) {
-        templates.push(rootCauseTemplate(scannerId, scannerName, rootCauseLens))
+        }),
+        'root-cause': () => rootCauseTemplate(scannerId, scannerName, ROOT_CAUSE_LENSES[type]!),
+        'weekly-themes': () => weeklyThemesTemplate(scannerId, scannerName),
     }
-    if (keys.includes('weekly-themes')) {
-        templates.push(weeklyThemesTemplate(scannerId, scannerName))
-    }
-    return keys.flatMap((key) => templates.find((template) => template.key === key) ?? [])
+    return TEMPLATE_KEYS_BY_TYPE[type].map((key) => builders[key]())
 }
 
-/** The analysis template a scanner's type leads with, which the overview offers outside the Scouts
- * tab. Null for a type that has none. */
-export function featuredScoutTemplateKey(
-    scannerType: ScannerTypeEnumApi | undefined
-): Extract<ScannerScoutTemplateKey, 'root-cause' | 'weekly-themes'> | null {
-    const keys = scannerType ? TEMPLATE_KEYS_BY_TYPE[scannerType] : undefined
-    return keys?.includes('root-cause') ? 'root-cause' : keys?.includes('weekly-themes') ? 'weekly-themes' : null
+/** Whether a scanner type is offered the root cause template, which needs outcomes to explain. */
+export function hasRootCauseTemplate(scannerType: ScannerTypeEnumApi | undefined): boolean {
+    return !!scannerType && TEMPLATE_KEYS_BY_TYPE[scannerType]?.includes('root-cause')
 }
 
 /** Fewest sessions in a bucket before a root cause scout can name a cause. Below this the template

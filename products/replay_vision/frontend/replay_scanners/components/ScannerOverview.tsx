@@ -378,7 +378,7 @@ function FirstScanPendingPanel({ scannerId }: { scannerId: string }): JSX.Elemen
 
 export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
-    const { firstScanPending, coverageStats } = useValues(scannerOverviewLogic({ scannerId }))
+    const { firstScanPending } = useValues(scannerOverviewLogic({ scannerId }))
     if (!scanner) {
         return null
     }
@@ -396,7 +396,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         <>
             <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
             {typeOverview && <div className="border-t pt-4">{typeOverview}</div>}
-            <RootCausePrompt scannerId={scannerId} scannedSessions={coverageStats.totalSessions} />
+            <RootCausePrompt scannerId={scannerId} />
         </>
     )
 

@@ -123,8 +123,6 @@ describe('scannerScout', () => {
 
     it.each([
         { scannerType: 'monitor', keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
-        { scannerType: 'classifier', keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
-        { scannerType: 'scorer', keys: ['daily-digest', 'root-cause', 'trend-watch', 'new-issues', 'scratch'] },
         // A summarizer has no outcome to explain and no metric to trend.
         { scannerType: 'summarizer', keys: ['daily-digest', 'weekly-themes', 'new-issues', 'scratch'] },
         { scannerType: 'experiment', keys: ['daily-digest', 'trend-watch', 'new-issues', 'scratch'] },

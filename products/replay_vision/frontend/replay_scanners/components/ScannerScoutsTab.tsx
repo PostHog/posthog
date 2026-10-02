@@ -5,12 +5,13 @@ import { IconCalendar, IconNotebook, IconPencil, IconPlus, IconSearch, IconTrend
 import { LemonBanner, LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
+import { cn } from 'lib/utils/css-classes'
 
 import { getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { scannerScoutTemplates, type ScannerScoutTemplate, type ScannerScoutTemplateKey } from '../scannerScout'
 import { scannerScoutLogic } from '../scannerScoutLogic'
-import { parseScoutCadence, type ScoutFrequency } from '../scoutCadence'
+import { parseScoutCadence, SCOUT_FREQUENCY_OPTIONS } from '../scoutCadence'
 import { ScannerScoutFormModal } from './ScannerScoutFormModal'
 import { ScannerScoutReportModal } from './ScannerScoutReportModal'
 import { ScannerScoutRow } from './ScannerScoutRow'
@@ -24,17 +25,11 @@ const TEMPLATE_ICONS: Record<ScannerScoutTemplateKey, JSX.Element> = {
     scratch: <IconPencil />,
 }
 
-// Short enough to stay on one line in a card a fifth of the scene wide.
-const SHORT_FREQUENCY_LABELS: Record<ScoutFrequency, string> = {
-    daily: 'Daily',
-    weekdays: 'Weekdays',
-    weekly: 'Mondays',
-}
-
 /** Derived from the template's own cron, so a changed schedule can't leave a stale label behind. */
 function templateScheduleLabel(template: ScannerScoutTemplate): string {
     const cadence = parseScoutCadence(template.cron)
-    return cadence ? `${SHORT_FREQUENCY_LABELS[cadence.frequency]} at ${cadence.time}` : template.cron
+    const option = cadence && SCOUT_FREQUENCY_OPTIONS.find(({ value }) => value === cadence.frequency)
+    return cadence && option ? `${option.shortLabel} at ${cadence.time}` : template.cron
 }
 
 function ScoutTemplateCard({
@@ -147,11 +142,10 @@ export function ScannerScoutsTab({ scannerId }: { scannerId: string }): JSX.Elem
                     {/* One row from about 1,000px wide. The cards are sized for it, so a scanner type's
                         four or five templates never leave one card alone on a row. */}
                     <div
-                        className={
-                            templates.length > 4
-                                ? 'grid gap-2 @md:grid-cols-2 @2xl:grid-cols-5'
-                                : 'grid gap-2 @md:grid-cols-2 @2xl:grid-cols-4'
-                        }
+                        className={cn(
+                            'grid gap-2 @md:grid-cols-2',
+                            templates.length > 4 ? '@2xl:grid-cols-5' : '@2xl:grid-cols-4'
+                        )}
                     >
                         {templates.map((template) => (
                             <ScoutTemplateCard

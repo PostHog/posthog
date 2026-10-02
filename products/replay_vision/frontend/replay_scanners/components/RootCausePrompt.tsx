@@ -3,36 +3,38 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
+
 import { getScoutCreateDisabledReason } from '../../utils/accessControl'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { featuredScoutTemplateKey, ROOT_CAUSE_MIN_SESSIONS } from '../scannerScout'
+import { scannerOverviewLogic } from '../scannerOverviewLogic'
+import { hasRootCauseTemplate, ROOT_CAUSE_MIN_SESSIONS } from '../scannerScout'
 import { scannerScoutLogic } from '../scannerScoutLogic'
 import { ScannerScoutFormModal } from './ScannerScoutFormModal'
 
 /** Offers a root cause scout next to the scanner's results, until the scanner has one or the person
  * hides the offer. */
-export function RootCausePrompt({
-    scannerId,
-    scannedSessions,
-}: {
-    scannerId: string
-    /** Below the scout's minimum it can't name a cause, so the offer waits for enough results. */
-    scannedSessions: number
-}): JSX.Element | null {
+export function RootCausePrompt({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerName = scanner?.name || ''
     const logic = scannerScoutLogic({ scannerId, scannerName })
-    const { scoutConfigs, rootCauseScout, rootCausePromptDismissed, createTemplateKey } = useValues(logic)
-    const { openCreateModal, dismissRootCausePrompt } = useActions(logic)
+    const { scoutConfigs, rootCauseScout, createTemplateKey } = useValues(logic)
+    const { openCreateModal } = useActions(logic)
+    const { coverageStats } = useValues(scannerOverviewLogic({ scannerId }))
+    // pinned: dismissKey is stored in localStorage, so renaming it brings back every dismissed prompt.
+    const dismissal = lemonBannerLogic({ dismissKey: `vision-root-cause-prompt-${scannerId.toLowerCase()}` })
+    const { isDismissed } = useValues(dismissal)
+    const { dismiss } = useActions(dismissal)
 
     // Without the roster the prompt can't tell whether the scanner already has a root cause scout.
     if (
         !scanner ||
         scoutConfigs === null ||
         rootCauseScout ||
-        rootCausePromptDismissed ||
-        scannedSessions < ROOT_CAUSE_MIN_SESSIONS ||
-        featuredScoutTemplateKey(scanner.scanner_type) !== 'root-cause'
+        isDismissed ||
+        // Below the scout's minimum it can't name a cause, so the offer waits for enough results.
+        coverageStats.totalSessions < ROOT_CAUSE_MIN_SESSIONS ||
+        !hasRootCauseTemplate(scanner.scanner_type)
     ) {
         return null
     }
@@ -64,13 +66,13 @@ export function RootCausePrompt({
                 <LemonButton
                     size="small"
                     icon={<IconX />}
-                    onClick={dismissRootCausePrompt}
+                    onClick={dismiss}
                     tooltip="Hide for this scanner"
                     data-attr="vision-root-cause-prompt-dismiss"
                 />
             </div>
             {createTemplateKey === 'root-cause' && (
-                <ScannerScoutFormModal key="root-cause" scannerId={scannerId} scannerName={scannerName} />
+                <ScannerScoutFormModal scannerId={scannerId} scannerName={scannerName} />
             )}
         </div>
     )

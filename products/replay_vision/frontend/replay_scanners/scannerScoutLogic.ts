@@ -100,11 +100,6 @@ async function findScoutDelivery(
     }
 }
 
-// pinned: localStorage key, renaming it brings back every prompt a person dismissed.
-function rootCausePromptDismissedKey(scannerId: string): string {
-    return `vision-root-cause-prompt-dismissed-${scannerId.toLowerCase()}`
-}
-
 export interface ScannerScoutLogicProps {
     scannerId: string
     scannerName: string
@@ -130,7 +125,6 @@ export interface scannerScoutLogicValues {
     openedReport: ScoutReportApi | null
     openedReportLoading: boolean
     reportsBySkill: Map<string, ScoutReportApi[]>
-    rootCausePromptDismissed: boolean
     rootCauseScout: SignalScoutConfigApi | null
     runningRun: SignalScoutRunSummary | null
     scoutConfigsFailed: boolean
@@ -217,9 +211,6 @@ export interface scannerScoutLogicActions {
         form: ScannerScoutForm
     }
     createScoutFinished: () => {
-        value: true
-    }
-    dismissRootCausePrompt: () => {
         value: true
     }
     loadOpenedReport: () => any
@@ -316,9 +307,6 @@ export interface scannerScoutLogicActions {
     }
     saveScoutSettingsFinished: () => {
         value: true
-    }
-    setRootCausePromptDismissed: (dismissed: boolean) => {
-        dismissed: boolean
     }
     setScoutConfigsFailed: (failed: boolean) => {
         failed: boolean
@@ -423,8 +411,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         closeScoutSettings: true,
         saveScoutSettings: (form: ScannerScoutForm) => ({ form }),
         saveScoutSettingsFinished: true,
-        dismissRootCausePrompt: true,
-        setRootCausePromptDismissed: (dismissed: boolean) => ({ dismissed }),
     }),
 
     loaders(({ props, values }) => ({
@@ -597,13 +583,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             {
                 openScoutSettings: (state) => state + 1,
                 closeScoutSettings: (state) => state + 1,
-            },
-        ],
-        rootCausePromptDismissed: [
-            false,
-            {
-                dismissRootCausePrompt: () => true,
-                setRootCausePromptDismissed: (_, { dismissed }) => dismissed,
             },
         ],
         settingsSaving: [
@@ -913,13 +892,6 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
             openReport: () => {
                 actions.loadOpenedReport()
             },
-            dismissRootCausePrompt: () => {
-                try {
-                    localStorage.setItem(rootCausePromptDismissedKey(props.scannerId), '1')
-                } catch {
-                    // Storage can be blocked. The prompt then stays hidden until the page reloads.
-                }
-            },
             openScoutSettings: () => {
                 // Both loaders keep their last value while the next read is in flight, and the form
                 // seeds from whatever is already there for this scout. Clearing them first makes the
@@ -1062,14 +1034,7 @@ export const scannerScoutLogic = kea<scannerScoutLogicType>([
         }
     }),
 
-    afterMount(({ actions, cache, props, values }) => {
-        try {
-            if (localStorage.getItem(rootCausePromptDismissedKey(props.scannerId))) {
-                actions.setRootCausePromptDismissed(true)
-            }
-        } catch {
-            // Storage can be blocked, which leaves the prompt showing.
-        }
+    afterMount(({ actions, cache, values }) => {
         // The fleet logic loads configs on its own mount, but the runs window and the metadata it
         // polls only while the fleet list is open. This page reads both: runs carry the reports each
         // scout filed, metadata carries whether scouts run for this project at all.
