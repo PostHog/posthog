@@ -3555,7 +3555,13 @@ def serialize_fields(
                     )
                 )
         elif isinstance(field, LazyJoin):
-            resolved_table = field.resolve_table(context)
+            try:
+                resolved_table = field.resolve_table(context)
+            except TableAccessDeniedError:
+                # The database keeps a join to a denied table so that a query that uses the join
+                # raises the access error. The user cannot read the target table, so the schema
+                # omits the join field and the other fields still serialize.
+                continue
 
             if isinstance(resolved_table, SavedQuery):
                 type = DatabaseSerializedFieldType.VIEW
@@ -3570,8 +3576,8 @@ def serialize_fields(
                     hogql_value=hogql_value,
                     type=type,
                     schema_valid=schema_valid,
-                    table=field.resolve_table(context).to_printed_hogql(),
-                    fields=list(field.resolve_table(context).fields.keys()),
+                    table=resolved_table.to_printed_hogql(),
+                    fields=list(resolved_table.fields.keys()),
                     id=id or field_key,
                 )
             )
