@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import type { XYPosition } from '@xyflow/react'
-import { useState } from 'react'
+import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -67,8 +67,40 @@ const GRAPH_EDGES: DataModelingEdge[] = [
 
 const MOVED_NODE_POSITIONS: Record<string, XYPosition> = { '6': { x: 1500, y: 700 } }
 
+interface DraggableLineageGraphStoryLogicValues {
+    nodePositions: Record<string, XYPosition>
+}
+
+interface DraggableLineageGraphStoryLogicActions {
+    nodeDragStopped: (nodeId: string, position: XYPosition) => { nodeId: string; position: XYPosition }
+    resetNodePositions: () => Record<string, never>
+}
+
+type DraggableLineageGraphStoryLogicType = MakeLogicType<
+    DraggableLineageGraphStoryLogicValues,
+    DraggableLineageGraphStoryLogicActions
+>
+
+const draggableLineageGraphStoryLogic = kea<DraggableLineageGraphStoryLogicType>([
+    path(['products', 'data_modeling', 'lineage', 'draggableLineageGraphStoryLogic']),
+    actions({
+        nodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
+        resetNodePositions: true,
+    }),
+    reducers({
+        nodePositions: [
+            MOVED_NODE_POSITIONS,
+            {
+                nodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                resetNodePositions: () => ({}),
+            },
+        ],
+    }),
+])
+
 function DraggableLineageGraphStory({ focusMovedNode = false }: { focusMovedNode?: boolean }): JSX.Element {
-    const [nodePositions, setNodePositions] = useState(MOVED_NODE_POSITIONS)
+    const { nodePositions } = useValues(draggableLineageGraphStoryLogic)
+    const { nodeDragStopped, resetNodePositions } = useActions(draggableLineageGraphStoryLogic)
 
     return (
         <LineageGraph
@@ -78,10 +110,8 @@ function DraggableLineageGraphStory({ focusMovedNode = false }: { focusMovedNode
             interactive
             nodesDraggable
             nodePositions={nodePositions}
-            onNodeDragStop={(node, position) =>
-                setNodePositions((positions) => ({ ...positions, [node.id]: position }))
-            }
-            onResetNodePositions={() => setNodePositions({})}
+            onNodeDragStop={(node, position) => nodeDragStopped(node.id, position)}
+            onResetNodePositions={resetNodePositions}
             searchFocusRequest={focusMovedNode ? { nodeId: '6', requestId: 1 } : undefined}
             showControls
             showMinimap
