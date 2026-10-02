@@ -5,9 +5,17 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { hogql } from '~/queries/utils'
+
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
-import { LIVE_STATS_REFRESH_MS, loadLiveStats } from './liveStatsQuery'
+import { LIVE_COUNT_REFRESH_MS, loadCachedLiveCount } from './liveCountCache'
+
+const LIVE_USERS_COUNT_QUERY = hogql`
+    SELECT uniq(distinct_id)
+    FROM events
+    WHERE timestamp > now() - INTERVAL 1 MINUTE
+        AND timestamp < now() + INTERVAL 1 MINUTE`
 
 export interface LiveUserCountStats {
     users_on_product?: number
@@ -137,11 +145,16 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                 }
 
                 if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
-                    let nextPollMs = LIVE_STATS_REFRESH_MS
+                    let nextPollMs = LIVE_COUNT_REFRESH_MS
                     try {
-                        const { stats, fetchedAt } = await loadLiveStats(values.currentTeam.id)
-                        actions.setStats(stats, new Date(fetchedAt))
-                        nextPollMs = Math.max(0, fetchedAt + LIVE_STATS_REFRESH_MS - Date.now())
+                        const { value, fetchedAt } = await loadCachedLiveCount(
+                            'users',
+                            values.currentTeam.id,
+                            LIVE_USERS_COUNT_QUERY,
+                            { productKey: 'product_analytics', name: 'live_users_count' }
+                        )
+                        actions.setStats({ users_on_product: value }, new Date(fetchedAt))
+                        nextPollMs = Math.max(0, fetchedAt + LIVE_COUNT_REFRESH_MS - Date.now())
                     } finally {
                         if (!cache.statsPaused) {
                             cache.disposables.add(() => {
