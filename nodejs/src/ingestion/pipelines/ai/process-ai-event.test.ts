@@ -106,6 +106,15 @@ const costsByModel: Record<string, MockModelRow> = {
             image_output: 0.00003,
         },
     },
+    'google/gemini-3.1-flash-lite': {
+        model: 'google/gemini-3.1-flash-lite',
+        cost: {
+            prompt_token: 2.5e-7,
+            completion_token: 0.0000015,
+            image: 2.5e-7,
+            cache_read_token: 2.5e-8,
+        },
+    },
     'google/gemini-3-flash-preview': {
         model: 'google/gemini-3-flash-preview',
         cost: {
@@ -139,6 +148,7 @@ jest.mock('./costs/providers', () => {
         'openai/gpt-4o-audio-preview': 'openai',
         'openai/gpt-audio-mini': 'openai',
         'google/gemini-2.5-flash-image': 'google-ai-studio',
+        'google/gemini-3.1-flash-lite': 'google-ai-studio',
         'google/gemini-3-flash-preview': 'google-ai-studio',
     }
 
@@ -547,6 +557,28 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00018, 7)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.038725, 7)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.038905, 7)
+        })
+
+        it('bills Gemini Interactions cached image input once at the cache-read rate', () => {
+            event.properties!.$ai_model = 'gemini-3.1-flash-lite'
+            event.properties!.$ai_provider = 'google'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 0
+            event.properties!.$ai_cache_read_input_tokens = 100
+            event.properties!.$ai_usage = {
+                input_tokens_by_modality: [{ modality: 'image', tokens: 100 }],
+                cached_tokens_by_modality: [{ modality: 'image', tokens: 100 }],
+            }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties).toMatchObject({
+                $ai_image_input_tokens: 100,
+                $ai_cache_read_image_tokens: 100,
+            })
+            expect(result.properties!.$ai_usage).toBeUndefined()
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0000025, 12)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0000025, 12)
         })
 
         it('ignores invalid object-form Gemini text tokens before costing image output', () => {

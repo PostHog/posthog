@@ -174,14 +174,20 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                         event.properties['$ai_cache_read_audio_tokens'] = tokenCount
                         extractedSources.add('gemini_cache')
                     }
+                    if (modality === 'image' && tokenCount > 0) {
+                        event.properties['$ai_cache_read_image_tokens'] = tokenCount
+                        extractedSources.add('gemini_cache')
+                    }
                 }
-            } else if (
-                isObject(tokenDetails) &&
-                isValidTokenCount(tokenDetails['audioTokens']) &&
-                tokenDetails['audioTokens'] > 0
-            ) {
-                event.properties['$ai_cache_read_audio_tokens'] = tokenDetails['audioTokens']
-                extractedSources.add('gemini_cache')
+            } else if (isObject(tokenDetails)) {
+                if (isValidTokenCount(tokenDetails['audioTokens']) && tokenDetails['audioTokens'] > 0) {
+                    event.properties['$ai_cache_read_audio_tokens'] = tokenDetails['audioTokens']
+                    extractedSources.add('gemini_cache')
+                }
+                if (isValidTokenCount(tokenDetails['imageTokens']) && tokenDetails['imageTokens'] > 0) {
+                    event.properties['$ai_cache_read_image_tokens'] = tokenDetails['imageTokens']
+                    extractedSources.add('gemini_cache')
+                }
             }
         }
 

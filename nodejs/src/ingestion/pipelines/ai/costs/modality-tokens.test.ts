@@ -36,6 +36,37 @@ describe('extractModalityTokens()', () => {
             expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
+        it('extracts cached image tokens from Gemini Interactions usage', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    input_tokens_by_modality: [{ modality: 'image', tokens: 100 }],
+                    cached_tokens_by_modality: [{ modality: 'image', tokens: 100 }],
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties).toMatchObject({
+                $ai_image_input_tokens: 100,
+                $ai_cache_read_image_tokens: 100,
+            })
+            expect(result.properties['$ai_usage']).toBeUndefined()
+        })
+
+        it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY, Number.NaN])(
+            'ignores invalid Gemini cached image count %s',
+            (tokens) => {
+                const event = createAIEvent({
+                    $ai_usage: { cached_tokens_by_modality: [{ modality: 'image', tokens }] },
+                })
+
+                const result = extractModalityTokens(event)
+
+                expect(result.properties['$ai_cache_read_image_tokens']).toBeUndefined()
+                expect(result.properties['$ai_usage']).toBeUndefined()
+            }
+        )
+
         it.each([
             { tokens: -5, expected: undefined },
             { tokens: 1.5, expected: undefined },
@@ -646,6 +677,19 @@ describe('extractModalityTokens()', () => {
             const result = extractModalityTokens(event)
 
             expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
+        })
+
+        it('extracts cached image from Gemini cacheTokensDetails object format', () => {
+            const event = createAIEvent({
+                $ai_usage: {
+                    cacheTokensDetails: { imageTokens: 100 },
+                },
+            })
+
+            const result = extractModalityTokens(event)
+
+            expect(result.properties['$ai_cache_read_image_tokens']).toBe(100)
+            expect(result.properties['$ai_usage']).toBeUndefined()
         })
 
         it('does not set $ai_cache_read_audio_tokens when cacheTokensDetails has no audio entry', () => {
