@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models import User
 
 from products.messaging.backend.models.message_preferences import PreferenceStatus
 from products.messaging.backend.models.message_suppression import SuppressionSource
@@ -55,7 +56,7 @@ class RecipientListQuerySerializer(serializers.Serializer):
 
 
 class RecipientSuppressionSerializer(serializers.Serializer):
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=SuppressionSource.choices,
         help_text="Why the address is suppressed: `BOUNCE` (repeated soft bounces), `COMPLAINT` (marked as spam) or `MANUAL` (added by a user).",
     )
@@ -131,7 +132,7 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 filters=tuple(parse_recipient_filter(raw) for raw in params["filter"]),
                 cursor=params.get("cursor"),
             )
-            page = list_recipients(self.team, request.user, query)
+            page = list_recipients(self.team, cast(User, request.user), query)
         except InvalidRecipientFilter as error:
             raise ValidationError({"filter": [str(error)]})
         return Response(RecipientPageSerializer(page).data)
@@ -143,11 +144,11 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"])
     def coverage(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         self._require_hog_flow_viewer()
-        coverage = {"persons_without_email": count_persons_without_email(self.team, request.user)}
+        coverage = {"persons_without_email": count_persons_without_email(self.team, cast(User, request.user))}
         return Response(RecipientCoverageSerializer(coverage).data)
 
     def _single_recipient_page(self, request: ValidatedRequest, email: str) -> Response:
-        recipient = find_recipient(self.team, request.user, email)
+        recipient = find_recipient(self.team, cast(User, request.user), email)
         if recipient is None:
             raise NotFound("No recipient with this email address.")
         return Response(RecipientPageSerializer(RecipientPage(results=[recipient], next_cursor=None)).data)
