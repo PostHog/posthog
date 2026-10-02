@@ -52,12 +52,11 @@ The groups make a long list readable, so a person can find a product quickly.
 - A group is a product area that a person recognizes, such as "Session replay" or "Feature flags, experiments & surveys". It is not a code module or a team.
 - Put the object in the existing group that a person would look in first.
 - Add a new group only when it gets two or more objects. A group with one object makes the list longer, not easier to read.
-- An OAuth-hidden object goes in no group. The pickers never show it, and a group made only of hidden objects carries a label that a person must never see.
 
 ## If a test fails
 
 - **`frontend/src/lib/scopes.test.ts`, the coverage test:** a grantable object has no picker row and no omission reason. Add a row to `API_SCOPES`, or a reason to `API_SCOPES_OMITTED_FROM_MODAL`. If the object is missing from `APIScopeObject`, run `hogli build:openapi` first. If the object is OAuth-hidden, run `hogli build:projections` instead, so the test learns to skip it.
-- **`frontend/src/lib/scopes.test.ts`, the group test:** an object is in no group, in two groups, or it is OAuth-hidden and in a group. Put it in exactly one group of `API_SCOPE_GROUPS`, or take a hidden object out of its group.
+- **`frontend/src/lib/scopes.test.ts`, the group test:** an object is in no group, or in two groups. Put it in exactly one group of `API_SCOPE_GROUPS`. It also fails when an OAuth-hidden object has a row or a group. Remove them, because no picker shows a hidden object.
 - **`posthog/test/test_scopes.py`:** an internal, OAuth-hidden or privileged scope leaks into a list it must stay out of, or the project secret API key list in `posthog/scopes.py` differs from the copy in `frontend/src/lib/scopes.tsx`. Fix the set, or make the two lists equal.
 - **`services/mcp/tests/unit/tool-filtering.test.ts`, the completeness test:** an MCP tool requires a scope that OAuth does not advertise. If the scope is new, run `hogli build:projections`. If it is internal, add it to the test's server-only list. Otherwise fix the scope name in `tools.yaml`.
 
