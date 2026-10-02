@@ -47,7 +47,7 @@ export interface debugReplayChatLogicActions {
     } // sessionRecordingEventUsageLogic
     openSidePanel: (
         tab: SidePanelTab,
-        options?: string
+        options?: string | undefined
     ) => {
         options: string | undefined
         tab: SidePanelTab
