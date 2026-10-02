@@ -207,7 +207,7 @@ class LogsCorrespondence(SourceCorrespondence):
 
 
 def _unknown(detail: str) -> SourceVerdict:
-    return SourceVerdict(coverage=SourceCoverage.UNKNOWN, state=None, detail=detail)
+    return SourceVerdict(caught_up_at=None, coverage=SourceCoverage.UNKNOWN, state=None, detail=detail)
 
 
 def _verdict_at(

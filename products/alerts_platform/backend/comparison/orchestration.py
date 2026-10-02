@@ -257,7 +257,10 @@ def _verdict_for(verdicts: Mapping[CheckRef, SourceVerdict], ref: CheckRef) -> S
     until there was a caller holding both sides, and a missing ref must not read as agreement.
     """
     return verdicts.get(ref) or SourceVerdict(
-        coverage=SourceCoverage.UNKNOWN, state=None, detail="the source returned no verdict for this check"
+        caught_up_at=None,
+        coverage=SourceCoverage.UNKNOWN,
+        state=None,
+        detail="the source returned no verdict for this check",
     )
 
 

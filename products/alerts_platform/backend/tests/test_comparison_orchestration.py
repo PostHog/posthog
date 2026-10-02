@@ -53,7 +53,8 @@ class _Correspondence:
         verdicts: dict[CheckRef, SourceVerdict] | None = None,
     ) -> None:
         self._verdicts = verdicts or {
-            ref: SourceVerdict(coverage=SourceCoverage.EVALUATED, state=state) for ref, state in (states or {}).items()
+            ref: SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state=state)
+            for ref, state in (states or {}).items()
         }
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]:
@@ -120,7 +121,7 @@ class TestRunComparison(TestCase):
                 state="not_firing",
                 caught_up_at=SINCE + timedelta(minutes=4),
             ),
-            disagreeing.ref: SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
+            disagreeing.ref: SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="not_firing"),
             # A correspondence that dated its own scan wrong, which must not read as a short lag.
             misdated.ref: SourceVerdict(
                 coverage=SourceCoverage.EVALUATED,
@@ -147,7 +148,7 @@ class TestRunComparison(TestCase):
     def test_a_check_too_recent_to_have_settled_is_pending_rather_than_a_disagreement(self) -> None:
         # Booking these as disagreement inflates the one bucket worth acting on.
         recent = _check("firing")
-        verdicts = {recent.ref: SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing")}
+        verdicts = {recent.ref: SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="not_firing")}
 
         with patch(READER, autospec=True, return_value=[recent]):
             run = run_comparison(

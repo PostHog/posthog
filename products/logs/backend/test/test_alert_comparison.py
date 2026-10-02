@@ -83,20 +83,23 @@ class TestLogsDivergenceDeclarations(TestCase):
                 "the source made no check because it was muted",
                 _platform_check(),
                 SourceVerdict(
-                    coverage=SourceCoverage.SUPPRESSED, state="snoozed", suppressed_by=SuppressionReason.MUTED
+                    caught_up_at=None,
+                    coverage=SourceCoverage.SUPPRESSED,
+                    state="snoozed",
+                    suppressed_by=SuppressionReason.MUTED,
                 ),
                 True,
             ),
             (
                 "the platform held an announcement while the source fell behind",
                 _platform_check(muted_notification="fire"),
-                SourceVerdict(coverage=SourceCoverage.BEHIND, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.BEHIND, state="not_firing"),
                 True,
             ),
             (
                 "the platform held an announcement the source was not muted for",
                 _platform_check(muted_notification="fire"),
-                SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="not_firing"),
                 False,
             ),
         ]
