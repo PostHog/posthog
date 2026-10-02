@@ -1430,8 +1430,8 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         public_id = self._create_canvas(name="Public")
         notebook_widget = self._notebook_widget()
 
-        owner_visible = canvas_facade.visible_canvas_ids(self.team.id, self.user)
-        other_visible = canvas_facade.visible_canvas_ids(self.team.id, other)
+        owner_visible = canvas_facade.visible_canvas_ids(self.team.id, self.user.id)
+        other_visible = canvas_facade.visible_canvas_ids(self.team.id, other.id)
 
         assert {public_id, str(private.id)} <= owner_visible
         assert public_id in other_visible
@@ -1444,10 +1444,10 @@ class TestCanvasActivityVisibility(CanvasAPIBaseTest):
         private = self._personal_canvas(self.user)
         notebook_widget = self._notebook_widget()
 
-        assert str(private.id) not in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user)
-        assert str(private.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other)
-        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user)
-        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other)
+        assert str(private.id) not in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user.id)
+        assert str(private.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other.id)
+        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, self.user.id)
+        assert str(notebook_widget.id) in canvas_facade.hidden_canvas_ids_for_org(self.organization.id, other.id)
 
     def test_team_activity_feed_hides_notebook_widget_rows(self):
         public_id = self._create_canvas(name="Public")

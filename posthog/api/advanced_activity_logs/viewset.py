@@ -109,7 +109,7 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
     """
     from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
+    visible_ids = canvas_activity.visible_canvas_ids(team_id, getattr(user, "id", None))
     return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
 
 
@@ -120,7 +120,7 @@ def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organizati
     """
     from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, getattr(user, "id", None))
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
