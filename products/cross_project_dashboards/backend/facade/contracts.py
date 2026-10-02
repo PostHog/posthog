@@ -14,6 +14,10 @@ class DashboardNotFoundError(Exception):
     """The dashboard does not exist, is deleted, or belongs to another organization."""
 
 
+class DashboardChangeDeniedError(Exception):
+    """The dashboard holds tiles from a project the user cannot open, so the user cannot change or delete it."""
+
+
 class TileNotFoundError(Exception):
     """The tile does not exist, is deleted, or is in a project the reader cannot open."""
 

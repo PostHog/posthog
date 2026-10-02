@@ -34,14 +34,14 @@ def create_dashboard(
 def update_dashboard(
     *, organization_id: UUID | str, dashboard_id: UUID, user: User, changes: contracts.DashboardChanges
 ) -> contracts.CrossProjectDashboard:
-    """Raises DashboardNotFoundError."""
+    """Raises DashboardNotFoundError, or DashboardChangeDeniedError when a tile is in a project the user cannot open."""
     return dashboards.update_dashboard(
         organization_id=organization_id, dashboard_id=dashboard_id, user=user, changes=changes
     )
 
 
 def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> None:
-    """Soft-deletes the dashboard. Raises DashboardNotFoundError."""
+    """Soft-deletes the dashboard. Raises DashboardNotFoundError or DashboardChangeDeniedError."""
     dashboards.delete_dashboard(organization_id=organization_id, dashboard_id=dashboard_id, user=user)
 
 

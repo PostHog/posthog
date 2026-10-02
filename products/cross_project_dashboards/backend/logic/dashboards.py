@@ -83,6 +83,18 @@ def _dashboard_row(organization_id: UUID | str, dashboard_id: UUID, user: User) 
     return dashboard
 
 
+def _assert_can_change(organization_id: UUID | str, dashboard: CrossProjectDashboard, user: User) -> None:
+    # Reads hide the tiles from a project the user is denied, so writes must not let that user
+    # rename, re-filter or delete those tiles for the readers who can see them.
+    referenced = set(
+        CrossProjectDashboardTile.objects.filter(dashboard=dashboard, deleted=False).values_list(
+            "project_id", flat=True
+        )
+    )
+    if not referenced <= set(visible_project_ids(user, organization_id)):
+        raise contracts.DashboardChangeDeniedError()
+
+
 def _tiles(organization_id: UUID | str, dashboard_id: UUID, user: User) -> QuerySet[CrossProjectDashboardTile]:
     # A reader denied a project does not learn which of its insights the dashboard references.
     return CrossProjectDashboardTile.objects.filter(
@@ -137,6 +149,7 @@ def update_dashboard(
     *, organization_id: UUID | str, dashboard_id: UUID, user: User, changes: contracts.DashboardChanges
 ) -> contracts.CrossProjectDashboard:
     dashboard = _dashboard_row(organization_id, dashboard_id, user)
+    _assert_can_change(organization_id, dashboard, user)
     updated = [name for name in ("name", "description", "filters") if name in changes.fields]
     for name in updated:
         setattr(dashboard, name, getattr(changes, name))
@@ -147,6 +160,7 @@ def update_dashboard(
 
 def delete_dashboard(*, organization_id: UUID | str, dashboard_id: UUID, user: User) -> None:
     dashboard = _dashboard_row(organization_id, dashboard_id, user)
+    _assert_can_change(organization_id, dashboard, user)
     dashboard.deleted = True
     dashboard.save(update_fields=["deleted"])
 

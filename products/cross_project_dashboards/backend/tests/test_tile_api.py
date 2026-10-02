@@ -225,6 +225,27 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         assert [tile["id"] for tile in dashboard["tiles"]] == [str(visible.id)]
         assert (listed["results"][0]["tile_count"], listed["results"][0]["project_count"]) == (1, 1)
 
+    @parameterized.expand([("patch",), ("delete",)])
+    def test_a_member_denied_a_tile_project_cannot_change_the_dashboard(self, method: str, _flag):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        denied_team = Team.objects.create(organization=self.organization, name="Denied project")
+        AccessControl.objects.create(
+            team=denied_team, resource="project", resource_id=str(denied_team.id), access_level="none"
+        )
+        CrossProjectDashboardTile.objects.create(
+            dashboard=self.dashboard, organization=self.organization, project_id=denied_team.pk, insight_id=2
+        )
+        url = f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
+
+        response = getattr(self.client, method)(url, {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.dashboard.refresh_from_db()
+        assert (self.dashboard.name, self.dashboard.deleted) == ("Company overview", False)
+
     def test_dashboard_patch_no_longer_writes_tiles(self, _flag):
         insight = self._insight()
         response = self.client.patch(
