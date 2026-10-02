@@ -208,7 +208,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey',
+    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey' | 'action',
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -229,13 +229,16 @@ function objectReference(
     } as TaskRunArtifactResponseApi
 }
 
+const SURVEY_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+
 const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
     objectReference('phref_growth', 'Growth review', 'dashboard', '42', '2026-09-28T18:11:00Z'),
     objectReference('phref_flag', 'new-plan-picker', 'flag', '7', '2026-09-28T18:10:00Z'),
     objectReference('phref_experiment', 'Plan picker layout test', 'experiment', '12', '2026-09-28T18:09:00Z'),
     objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
-    objectReference('phref_survey', 'Plan picker feedback', 'survey', 'survey-plan-picker', '2026-09-28T18:07:00Z'),
+    objectReference('phref_survey', 'Plan picker feedback', 'survey', SURVEY_ID, '2026-09-28T18:07:00Z'),
+    objectReference('phref_action', 'Started trial', 'action', '21', '2026-09-28T18:04:00Z'),
 ]
 
 const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
@@ -276,6 +279,32 @@ const COHORT_PEOPLE = ['ada@example.com', 'grace@example.com', 'linus@example.co
 
 const CITED_EXPERIMENT = { ...EXPERIMENT_WITH_MEAN_METRIC, id: 12, name: 'Plan picker layout test' }
 
+const CITED_SURVEY = {
+    id: SURVEY_ID,
+    name: 'Plan picker feedback',
+    description: 'Ask people who leave the plan picker what stopped them.',
+    type: 'popover',
+    questions: [
+        {
+            id: 'q-reason',
+            type: 'single_choice',
+            question: 'What stopped you from starting a trial?',
+            choices: ['I could not find the button', 'The price was not clear', 'I am still comparing', 'Other'],
+        },
+        { id: 'q-ease', type: 'rating', question: 'How easy was it to pick a plan?', display: 'number', scale: 5 },
+        { id: 'q-more', type: 'open', question: 'Anything else we should know?' },
+    ],
+    start_date: '2026-09-22T09:00:00Z',
+    end_date: null,
+    archived: false,
+    created_at: '2026-09-21T16:00:00Z',
+    linked_flag: null,
+    targeting_flag: null,
+    internal_targeting_flag: null,
+    conditions: null,
+    feature_flag_keys: [],
+}
+
 /** The insight and cohort embeds each run their own query through the same endpoint. */
 async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
     const { query } = (await request.json()) as { query: { kind: string; source?: { kind: string } } }
@@ -310,6 +339,8 @@ const OBJECT_MOCKS = {
         '/api/projects/:team_id/experiments/12/': CITED_EXPERIMENT,
         '/api/projects/:team_id/experiment_holdouts': [],
         '/api/projects/:team_id/experiment_saved_metrics/': [],
+        [`/api/projects/:team_id/surveys/${SURVEY_ID}/`]: CITED_SURVEY,
+        '/api/projects/:team_id/surveys/responses_count': { [SURVEY_ID]: 214 },
     },
     post: {
         '/api/environments/:team_id/query/': queryByKind,
@@ -581,9 +612,14 @@ export const PostHogObjectExperiment: Story = {
     render: () => <StoryPage fileName="phref_experiment" />,
 }
 
-export const PostHogObjectWithoutEmbed: Story = {
+export const PostHogObjectSurvey: Story = {
     parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_survey" />,
+}
+
+export const PostHogObjectWithoutEmbed: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_action" />,
 }
 
 export const Versions: Story = {
