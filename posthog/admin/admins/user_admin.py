@@ -173,7 +173,7 @@ class UserAdmin(DjangoUserAdmin):
     )
     list_display_links = ("id", "email")
     list_filter = ("is_staff", "is_active", "groups")
-    show_full_result_count = False  # prevent count() queries to show the no of filtered results
+    show_full_result_count = False  # skip the unfiltered count of all users on each changelist
     list_select_related = ("current_team", "current_organization")
     search_fields = ("email", "first_name", "last_name", "distinct_id")
     readonly_fields = [
