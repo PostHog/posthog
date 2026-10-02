@@ -738,6 +738,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (isBreakpoint(error)) {
                     throw error
                 }
+                breakpoint()
                 lemonToast.error('Failed to load template')
             }
         },
