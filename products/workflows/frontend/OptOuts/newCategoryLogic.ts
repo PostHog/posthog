@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
@@ -27,10 +27,6 @@ export type CategoryLogicProps = {
     onSuccess?: () => void
 }
 
-function keyFollowsName({ name, key }: CategoryForm): boolean {
-    return key === slugify(name)
-}
-
 const NEW_CATEGORY: CategoryForm = {
     name: '',
     key: '',
@@ -53,6 +49,7 @@ export interface newCategoryLogicValues {
     categoryFormValidationErrors: DeepPartialMap<CategoryForm, ValidationErrorType>
     isCategoryFormSubmitting: boolean
     isCategoryFormValid: boolean
+    keyTypedByHand: boolean
     showCategoryFormErrors: boolean
 }
 
@@ -166,14 +163,23 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
         },
     })),
 
-    listeners(({ actions, props, values, selectors }) => ({
+    reducers({
+        keyTypedByHand: [
+            false,
+            {
+                setCategoryFormValue: (typedByHand, { name: field }) => typedByHand || field === 'key',
+                resetCategoryForm: () => false,
+            },
+        ],
+    }),
+
+    listeners(({ actions, props, values }) => ({
         resetForm: () => {
             actions.resetCategoryForm()
         },
-        setCategoryFormValue: ({ name: field }, _, __, previousState) => {
-            const previousForm = selectors.categoryForm(previousState)
-            if (field === 'name' && !props.category && keyFollowsName(previousForm)) {
-                actions.setCategoryFormValue('key', slugify(values.categoryForm.name))
+        setCategoryFormValue: ({ name: field }) => {
+            if (field === 'name' && !props.category && !values.keyTypedByHand) {
+                actions.setCategoryFormValues({ key: slugify(values.categoryForm.name) })
             }
         },
     })),

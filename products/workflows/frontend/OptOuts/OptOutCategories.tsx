@@ -157,14 +157,20 @@ export function OptOutCategories(): JSX.Element {
                             description={words.topics.emptyStateDescription}
                             docsURL="https://posthog.com/docs/workflows/customerio-import"
                             actionElementOverride={
-                                <>
-                                    <LemonButton type="primary" icon={<IconDownload />} onClick={openImportModal}>
-                                        Import from Customer.io
-                                    </LemonButton>
-                                    <LemonButton type="secondary" icon={<IconPlus />} onClick={openNewCategoryModal}>
-                                        {words.topics.createTopic}
-                                    </LemonButton>
-                                </>
+                                speaksAudience ? undefined : (
+                                    <>
+                                        <LemonButton type="primary" icon={<IconDownload />} onClick={openImportModal}>
+                                            Import from Customer.io
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            icon={<IconPlus />}
+                                            onClick={openNewCategoryModal}
+                                        >
+                                            {words.topics.createTopic}
+                                        </LemonButton>
+                                    </>
+                                )
                             }
                             customHog={HedgehogConstruction2}
                             isEmpty
