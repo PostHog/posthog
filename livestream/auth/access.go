@@ -30,7 +30,7 @@ func CheckAccess(ctx context.Context, header http.Header) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNoContent {
 		return nil
 	}
