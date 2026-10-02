@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { fireEvent, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -14,6 +15,8 @@ import type {
     MessageSuppressionApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { newCategoryLogic } from '../OptOuts/newCategoryLogic'
+import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { AudienceScene } from './AudienceScene'
 import { AudienceTab } from './audienceSceneLogic'
 
@@ -155,3 +158,36 @@ export const Topics: Story = audienceTabStory('topics', 'full')
 export const TopicsNarrow: Story = audienceTabStory('topics', 'narrow')
 export const SuppressionList: Story = audienceTabStory('suppression', 'full')
 export const SuppressionListNarrow: Story = audienceTabStory('suppression', 'narrow')
+
+export const TopicsMoreMenu: Story = {
+    ...audienceTabStory('topics', 'full'),
+    play: async ({ canvasElement }) => {
+        const more = await waitFor(() => {
+            const button = canvasElement.querySelector<HTMLElement>('[data-attr="audience-topics-more"]')
+            if (!button) {
+                throw new Error('The topics More menu has not rendered')
+            }
+            return button
+        })
+        fireEvent.click(more)
+    },
+}
+
+export const NewTopicModal: Story = {
+    ...audienceTabStory('topics', 'full'),
+    play: async () => {
+        await waitFor(() => {
+            if (!optOutCategoriesLogic.findMounted()) {
+                throw new Error('The topics list has not mounted')
+            }
+        })
+        optOutCategoriesLogic.actions.openNewCategoryModal()
+        await waitFor(() => {
+            const form = newCategoryLogic.findMounted({})
+            if (!form) {
+                throw new Error('The new topic form has not mounted')
+            }
+            form.actions.setCategoryFormValue('name', 'Release notes')
+        })
+    },
+}
