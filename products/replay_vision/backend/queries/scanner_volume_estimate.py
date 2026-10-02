@@ -28,6 +28,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     eligibility_predicates,
     surfacing_score_predicate,
 )
+from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 
 # The estimate always projects to a calendar month.
 ESTIMATE_WINDOW_DAYS = ESTIMATE_MONTH_DAYS
@@ -319,7 +320,16 @@ def refresh_scanner_estimate(
             budget=budget,
             ch_user=ch_user,
         )
-    projection = project_monthly_observations(estimate, scanner.sampling_rate)
+    # Balanced per-variant sampling caps a small variant at 1, so the fraction actually sampled can
+    # sit below the configured rate; the projection must use what the sweep will really keep.
+    variant_plan = variant_sampling_plan_for_scope(
+        scanner.team,
+        scope=scanner.experiment_scope(),
+        scanner_config=scanner.scanner_config,
+        sampling_rate=scanner.sampling_rate,
+    )
+    effective_rate = variant_plan.effective_rate if variant_plan is not None else scanner.sampling_rate
+    projection = project_monthly_observations(estimate, effective_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
     # JSONField quirk: `field=None` filters for JSON null, not SQL NULL, so the no-targeting case needs isnull.

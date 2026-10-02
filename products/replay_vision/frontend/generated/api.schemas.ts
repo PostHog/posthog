@@ -629,6 +629,12 @@ export const ScannerTypeEnumApi = {
 } as const
 
 /**
+ * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+ * @nullable
+ */
+export type ScannerSnapshotApiVariantSamplingRates = { [key: string]: number } | null
+
+/**
  * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
 export interface ScannerSnapshotApi {
@@ -654,6 +660,11 @@ export interface ScannerSnapshotApi {
     scanner_config: unknown
     /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
     verify_positives: string
+    /**
+     * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+     * @nullable
+     */
+    variant_sampling_rates?: ScannerSnapshotApiVariantSamplingRates
 }
 
 /**

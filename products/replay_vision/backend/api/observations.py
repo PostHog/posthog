@@ -138,6 +138,16 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     verify_positives = serializers.CharField(
         help_text="How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees).",
     )
+    variant_sampling_rates = serializers.DictField(
+        child=serializers.FloatField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at "
+            "by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read "
+            "against the rates that produced them."
+        ),
+    )
 
 
 class VerificationRecordSerializer(serializers.Serializer):
