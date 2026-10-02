@@ -70,10 +70,11 @@ export const groupRevenueLogic = kea<groupRevenueLogicType>([
                             query: `
                                 SELECT
                                     group_key,
-                                    toFloat(mrr),
-                                    toFloat(revenue)
+                                    toFloat(sum(mrr)),
+                                    toFloat(sum(revenue))
                                 FROM groups_revenue_analytics
                                 WHERE group_key IN {groupKeys}
+                                GROUP BY group_key
                             `,
                             values: { groupKeys: props.groupKeys },
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
