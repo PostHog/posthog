@@ -233,16 +233,22 @@ def _numbered[T](prefix: str, refs: Sequence[T]) -> dict[str, T]:
     return {f"{prefix}_{index}": ref for index, ref in enumerate(refs[:MAX_REF_OPTIONS], start=1)}
 
 
+def _named_in_answer_first[T: (SavedInsightRef, ErrorIssueRef)](refs: Sequence[T], answer: str) -> list[T]:
+    """Puts the refs the answer names ahead of the rest, so the cap drops refs the answer never mentions."""
+    answer = answer.casefold()
+    return sorted(refs, key=lambda ref: not (ref.name and ref.name.casefold() in answer))
+
+
 def _insight_options(transcript: TurnTranscript) -> dict[str, SavedInsightRef]:
-    return _numbered("insight", transcript.saved_insights)
+    return _numbered("insight", _named_in_answer_first(transcript.saved_insights, transcript.assistant_text))
 
 
 def _issue_options(transcript: TurnTranscript) -> dict[str, ErrorIssueRef]:
-    return _numbered("issue", transcript.error_issues)
+    return _numbered("issue", _named_in_answer_first(transcript.error_issues, transcript.assistant_text))
 
 
 def _insight_label(ref: SavedInsightRef) -> str:
-    return f"{ref.name or 'Untitled insight'} ({ref.query_kind or 'unknown chart type'})"
+    return f"{redact_values(ref.name) or 'Untitled insight'} ({ref.query_kind or 'unknown chart type'})"
 
 
 def _issue_label(ref: ErrorIssueRef) -> str:

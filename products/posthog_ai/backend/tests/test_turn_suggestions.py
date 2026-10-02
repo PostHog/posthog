@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.celery_queues import CeleryQueue
 from posthog.llm.system_one import Answer, ChoiceAnswer, ChoiceQuestion, NoulAnswer, SystemOneResult
+from posthog.redis import get_client
 
 from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
 from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, card_copy, classify_turn, pick_offer
@@ -171,14 +172,14 @@ SAVED_INSIGHT = SavedInsightRef(short_id="abc123", insight_id=42, name="Signups"
 ERROR_ISSUE = ErrorIssueRef(issue_id="0199c0de-1111-7000-8000-0000000000aa", name="Checkout error")
 
 
-def _saved_insight_turn(query_kind: str = "TrendsQuery") -> list[dict]:
+def _saved_insight_turn(query_kind: str = "TrendsQuery", name: str = "Signups") -> list[dict]:
     return [
         _user_message("How many signups did we get this week? Save it."),
         _exec_tool_call(
             "t1",
             'call insight-create {"name":"Signups"}',
             "completed",
-            {"id": 42, "short_id": "abc123", "name": "Signups", "query": {"kind": query_kind, "series": []}},
+            {"id": 42, "short_id": "abc123", "name": name, "query": {"kind": query_kind, "series": []}},
         ),
         _agent_text("Saved. You had 412 signups this week."),
     ]
@@ -512,7 +513,11 @@ CLASSIFIER = "products.posthog_ai.backend.turn_suggestions.classifier"
 
 class TestJudgeTurn(SimpleTestCase):
     @parameterized.expand(
-        [("saved_insight", _saved_insight_turn(), "abc123"), ("error_issue", _error_turn(), ERROR_ISSUE.issue_id)]
+        [
+            ("saved_insight", _saved_insight_turn(), "abc123"),
+            ("insight_name", _saved_insight_turn(name="Signups for owner@example.com"), "owner@example.com"),
+            ("error_issue", _error_turn(), ERROR_ISSUE.issue_id),
+        ]
     )
     def test_jev_sees_the_question_and_a_masked_answer_but_no_outputs_or_ids(
         self, _name: str, entries: list[dict], hidden_id: str
@@ -545,18 +550,26 @@ class TestJudgeTurn(SimpleTestCase):
         assert "offer" not in build_judge_questions(transcript, only_scout)
         assert judgment is not None and judgment.offer == OfferKind.SCOUT
 
-    def test_a_turn_with_more_issues_than_a_choice_takes_is_still_judged(self):
-        issues = [{"id": f"issue-{index}", "name": f"Error {index}"} for index in range(300)]
+    def test_a_turn_with_more_issues_than_a_choice_takes_still_offers_the_one_the_answer_names(self):
+        issues = [{"id": f"issue-{index}", "name": f"Error {index:03d}"} for index in range(300)]
         entries = [
             _user_message("Which errors are new this week?"),
             _exec_tool_call("t1", "call query-error-tracking-issues-list {}", "completed", {"results": issues}),
-            _agent_text("Here are the new errors."),
+            _agent_text("Error 250 is the new one this week."),
         ]
         transcript = build_turn_transcript(entries)
+        answers = _answers(
+            {"show_offer": 0.8}, {"intent": "metric_state", "offer": "error_alert", "error_issue": "issue_1"}
+        )
 
         question = build_judge_questions(transcript, ALL_OFFERS)["error_issue"]
+        with patch(
+            f"{JUDGMENT}.build_system_one_client", return_value=MagicMock(decide=MagicMock(return_value=answers))
+        ):
+            judgment = judge_turn(transcript, available=ALL_OFFERS)
 
         assert isinstance(question, ChoiceQuestion) and len(question.criteria) == MAX_REF_OPTIONS + 1
+        assert judgment is not None and judgment.error_issue == ErrorIssueRef(issue_id="issue-250", name="Error 250")
 
     def test_option_keys_map_back_to_the_refs_they_stand_for(self):
         answers = _answers(
@@ -861,6 +874,28 @@ class TestEnqueueTurnSuggestion(BaseTest):
             assert enqueue_turn_suggestion(task_run) is False
             assert enqueue_turn_suggestion(task_run) is True
 
+        assert apply_async.call_count == 2
+
+    def test_a_failed_enqueue_keeps_the_reservation_a_later_report_took(self):
+        task_run = self._run(Task.OriginProduct.POSTHOG_AI)
+        calls: list[str] = []
+        later_report: list[bool] = []
+
+        def stall_past_the_reservation(**_kwargs: object) -> None:
+            calls.append("enqueue")
+            if len(calls) == 1:
+                get_client().delete(f"turn_suggestion:{task_run.id}")
+                later_report.append(enqueue_turn_suggestion(task_run))
+                raise ConnectionError("broker timed out")
+
+        with patch(
+            "products.posthog_ai.backend.tasks.generate_turn_suggestion_task.apply_async",
+            side_effect=stall_past_the_reservation,
+        ) as apply_async:
+            assert enqueue_turn_suggestion(task_run) is False
+            assert enqueue_turn_suggestion(task_run) is False
+
+        assert later_report == [True]
         assert apply_async.call_count == 2
 
     def test_the_task_runs_on_the_posthog_ai_queue(self):

@@ -1,3 +1,4 @@
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -21,22 +22,35 @@ TURN_SETTLE_SECONDS = 2
 ENQUEUE_DEDUP_SECONDS = TURN_SETTLE_SECONDS
 
 
+# A broker call can outlast the reservation, so a failed call releases only the reservation it made,
+# never one a later report took after it expired.
+_RELEASE_OWN_RESERVATION_SCRIPT = """
+if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+end
+return 0
+"""
+
+
 def _enqueue_dedup_key(run_id: str) -> str:
     return f"turn_suggestion:{run_id}"
 
 
-def _first_report_of_turn(run_id: str) -> bool:
+def _reserve_report(run_id: str) -> str | None:
+    """A token for this report's reservation of the turn, or ``None`` when another report holds it."""
+    token = uuid.uuid4().hex
     try:
-        return bool(get_client().set(_enqueue_dedup_key(run_id), 1, nx=True, ex=ENQUEUE_DEDUP_SECONDS))
+        reserved = get_client().set(_enqueue_dedup_key(run_id), token, nx=True, ex=ENQUEUE_DEDUP_SECONDS)
     except Exception:
         # The offer ledger still refuses a second claim of the same turn, so a duplicate only costs a read.
         logger.warning("posthog_ai_turn_suggestion_dedup_failed", run_id=run_id, exc_info=True)
-        return True
+        return token
+    return token if reserved else None
 
 
-def _release_report(run_id: str) -> None:
+def _release_report(run_id: str, token: str) -> None:
     try:
-        get_client().delete(_enqueue_dedup_key(run_id))
+        get_client().eval(_RELEASE_OWN_RESERVATION_SCRIPT, 1, _enqueue_dedup_key(run_id), token)
     except Exception:
         logger.warning("posthog_ai_turn_suggestion_dedup_release_failed", run_id=run_id, exc_info=True)
 
@@ -48,7 +62,8 @@ def enqueue_turn_suggestion(task_run: "TaskRun") -> bool:
         if task_run.origin_product != TaskOriginProduct.POSTHOG_AI:
             return False
         run_id = str(task_run.id)
-        if not _first_report_of_turn(run_id):
+        token = _reserve_report(run_id)
+        if token is None:
             return False
         from products.posthog_ai.backend.tasks import (
             generate_turn_suggestion_task,  # noqa: PLC0415 — keeps the judge and drafter clients off the Django startup path
@@ -60,7 +75,7 @@ def enqueue_turn_suggestion(task_run: "TaskRun") -> bool:
             )
         except Exception:
             # Another report of the turn can still queue it.
-            _release_report(run_id)
+            _release_report(run_id, token)
             raise
     except Exception:
         logger.warning("posthog_ai_turn_suggestion_enqueue_failed", run_id=str(task_run.id), exc_info=True)
