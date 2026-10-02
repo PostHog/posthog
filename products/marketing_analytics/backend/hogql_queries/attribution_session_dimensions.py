@@ -13,8 +13,6 @@ from posthog.hogql.database.schema.util.uuid import uuid_uint128_expr_to_timesta
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
 from posthog.hogql.parser import parse_expr, parse_select
 
-from .marketing_sessions_precompute import MAX_PRECOMPUTED_SESSION_SECONDS, SESSION_READ_REACHBACK_DAYS
-
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
@@ -48,9 +46,6 @@ def _raw_dimensions(
     start: datetime,
     end: datetime,
     candidates: ast.SelectQuery,
-    *,
-    having: ast.Expr | None = None,
-    require_valid_start: bool = False,
 ) -> ast.SelectQuery:
     table, timestamp = _raw_session_source(modifiers)
     fields = [
@@ -87,7 +82,6 @@ def _raw_dimensions(
             ),
         ]
     )
-    source.having = having
     # Empty slots preserve tuple positions without reading unused entry properties.
     dimensions: list[ast.Expr] = [
         parse_expr("toStartOfHour(toTimeZone($start_timestamp, 'UTC'))"),
@@ -110,54 +104,8 @@ def _raw_dimensions(
         placeholders={"source": source, "dimensions": ast.Tuple(exprs=dimensions)},
     )
     assert isinstance(query, ast.SelectQuery)
-    if require_valid_start:
-        query.where = parse_expr("toUnixTimestamp($start_timestamp) > 0")
+    query.where = parse_expr("toUnixTimestamp($start_timestamp) > 0")
     return query
-
-
-def _exceptional_dimensions(
-    modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
-) -> ast.SelectQuery:
-    table, timestamp = _raw_session_source(modifiers)
-    # Use the live join's ID timestamp window so both paths count the same sessions.
-    bounds: dict[str, ast.Expr] = {
-        "start": ast.Constant(value=start),
-        "end": ast.Constant(value=end),
-        "reachback": ast.Constant(value=start - timedelta(days=SESSION_READ_REACHBACK_DAYS)),
-        "max_seconds": ast.Constant(value=MAX_PRECOMPUTED_SESSION_SECONDS),
-    }
-    # Split the duration budget around the ID timestamp to keep long sessions even when IDs and first events disagree.
-    # An earlier start either has an older ID with overlapping activity or crosses the earlier limit.
-    candidates = parse_select(
-        """
-        SELECT DISTINCT session_id_v7 FROM {table}
-        WHERE {timestamp} >= {lower} AND {timestamp} <= {upper}
-            AND ((max_timestamp >= {start} AND {timestamp} < {start})
-                OR min_timestamp < {timestamp} - toIntervalDay({reachback_days})
-                OR max_timestamp > {timestamp} + toIntervalSecond({remaining_budget}))
-        """,
-        placeholders={
-            "table": ast.Field(chain=[table]),
-            "timestamp": timestamp,
-            "lower": ast.Constant(value=start - timedelta(days=SESSION_BUFFER_DAYS)),
-            "upper": ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
-            "start": bounds["start"],
-            "reachback_days": ast.Constant(value=SESSION_READ_REACHBACK_DAYS),
-            "remaining_budget": ast.Constant(
-                value=MAX_PRECOMPUTED_SESSION_SECONDS - int(timedelta(days=SESSION_READ_REACHBACK_DAYS).total_seconds())
-            ),
-        },
-    )
-    assert isinstance(candidates, ast.SelectQuery)
-    having = parse_expr(
-        """
-        $end_timestamp >= {start} AND $start_timestamp <= {end}
-        AND ($start_timestamp < {reachback}
-            OR $end_timestamp > $start_timestamp + toIntervalSecond({max_seconds}))
-        """,
-        placeholders=bounds,
-    )
-    return _raw_dimensions(modifiers, columns, start, end, candidates, having=having)
 
 
 def _live_dimensions(
@@ -165,56 +113,18 @@ def _live_dimensions(
 ) -> ast.SelectQuery:
     candidates = parse_select("SELECT DISTINCT session_id_v7 FROM attribution_session_identities")
     assert isinstance(candidates, ast.SelectQuery)
-    return _raw_dimensions(modifiers, columns, start, end, candidates, require_valid_start=True)
+    return _raw_dimensions(modifiers, columns, start, end, candidates)
 
 
 def session_dimensions(
     modifiers: HogQLQueryModifiers,
     columns: set[str],
-    job_ids: list[str],
     start: datetime,
     end: datetime,
-    *,
-    live: bool = False,
 ) -> ast.SelectQuery:
-    if live:
-        query = parse_select(
-            "SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}",
-            placeholders={"live": _live_dimensions(modifiers, columns, start, end)},
-        )
-        assert isinstance(query, ast.SelectQuery)
-        return query
-    # A cached session can grow after materialization, so live exceptions must replace its old dimensions.
     query = parse_select(
-        """
-        SELECT d.session_id_v7,
-            argMax(d.dimensions, tuple(d.source_priority, d.computed_at)) AS latest,
-            max(d.computed_at) AS computed_at
-        FROM (
-            SELECT session_id_v7,
-                {cached_dimensions} AS dimensions,
-                computed_at, 0 AS source_priority
-            FROM posthog.web_sessions_dimensional_preaggregated
-            WHERE job_id IN {jobs}
-            UNION ALL
-            SELECT * FROM {live}
-        ) AS d
-        GROUP BY d.session_id_v7
-        """,
-        placeholders={
-            "jobs": ast.Tuple(exprs=[ast.Constant(value=job) for job in job_ids]),
-            "cached_dimensions": ast.Tuple(
-                exprs=[
-                    ast.Field(chain=["period_bucket"]),
-                    ast.Field(chain=["start_timestamp"]),
-                    *[
-                        ast.Field(chain=[column]) if column in columns else ast.Constant(value="")
-                        for column in _DIMENSION_FIELDS
-                    ],
-                ]
-            ),
-            "live": _exceptional_dimensions(modifiers, columns, start, end),
-        },
+        "SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}",
+        placeholders={"live": _live_dimensions(modifiers, columns, start, end)},
     )
     assert isinstance(query, ast.SelectQuery)
     return query

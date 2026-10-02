@@ -17,6 +17,7 @@ import {
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
 import type {
+    CIEngineEnumApi,
     CIFailureLogsApi,
     PRCostSummaryApi,
     PRLifecycleApi,
@@ -136,6 +137,7 @@ function toWorkflowRun(run: WorkflowRunDetailApi): WorkflowRun {
         finishedAt: run.status === 'completed' ? run.updated_at : null,
         durationSeconds: run.duration_seconds,
         runId: run.id,
+        ciEngine: run.ci_engine,
         runAttempt: run.run_attempt,
     }
 }
@@ -243,7 +245,16 @@ export interface pullRequestDetailLogicActions {
         friction: PullRequestFrictionDetailApi
         payload?: any
     }
-    loadJobs: ({ runId, runAttempt }: { runAttempt: number | null; runId: number }) => {
+    loadJobs: ({
+        ciEngine,
+        runId,
+        runAttempt,
+    }: {
+        ciEngine?: CIEngineEnumApi | null
+        runAttempt: number | null
+        runId: number
+    }) => {
+        ciEngine?: CIEngineEnumApi | null
         runId: number
         runAttempt: number | null
     }
@@ -257,12 +268,14 @@ export interface pullRequestDetailLogicActions {
     loadJobsSuccess: (
         runJobs: Record<string, WorkflowJobApi[]>,
         payload?: {
+            ciEngine?: CIEngineEnumApi | null
             runId: number
             runAttempt: number | null
         }
     ) => {
         runJobs: Record<string, WorkflowJobApi[]>
         payload?: {
+            ciEngine?: CIEngineEnumApi | null
             runId: number
             runAttempt: number | null
         }
@@ -331,8 +344,10 @@ export interface pullRequestDetailLogicActions {
         rowKey: string,
         expanded: boolean,
         runId: number | null,
-        runAttempt: number | null
+        runAttempt: number | null,
+        ciEngine?: CIEngineEnumApi | null
     ) => {
+        ciEngine: CIEngineEnumApi | null | undefined
         expanded: boolean
         rowKey: string
         runAttempt: number | null
@@ -397,7 +412,14 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
 
     actions({
         // Row expansion is keyed by a per-row key (re-runs share a run_id); jobs are fetched per run+attempt.
-        setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => ({
+        setRunExpanded: (
+            rowKey: string,
+            expanded: boolean,
+            runId: number | null,
+            runAttempt: number | null,
+            ciEngine?: CIEngineEnumApi | null
+        ) => ({
+            ciEngine,
             rowKey,
             expanded,
             runId,
@@ -485,19 +507,22 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 // The post-await read of values.runJobs (not a pre-await snapshot) keeps two
                 // near-simultaneous first-expands from clobbering each other.
                 loadJobs: async ({
+                    ciEngine,
                     runId,
                     runAttempt,
                 }: {
+                    ciEngine?: CIEngineEnumApi | null
                     runId: number
                     runAttempt: number | null
                 }): Promise<Record<string, WorkflowJobApi[]>> => {
                     const jobs = await engineeringAnalyticsWorkflowJobs(projectId(), {
                         run_id: runId,
+                        ci_engine: ciEngine ?? undefined,
                         run_attempt: runAttempt ?? undefined,
                         source_id: props.sourceId ?? undefined,
                         repo: `${props.repoOwner}/${props.repoName}`,
                     })
-                    return { ...values.runJobs, [jobCacheKey(runId, runAttempt)]: jobs }
+                    return { ...values.runJobs, [jobCacheKey(runId, runAttempt, ciEngine)]: jobs }
                 },
             },
         ],
@@ -542,9 +567,9 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setRunExpanded: ({ expanded, runId, runAttempt }) => {
-            if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
-                actions.loadJobs({ runId, runAttempt })
+        setRunExpanded: ({ expanded, runId, runAttempt, ciEngine }) => {
+            if (expanded && runId != null && !(jobCacheKey(runId, runAttempt, ciEngine) in values.runJobs)) {
+                actions.loadJobs({ runId, runAttempt, ciEngine })
             }
         },
         // Only a merged pull request has friction, so an open one skips the read.
@@ -563,8 +588,11 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 .filter((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
                 .slice(0, MAX_FAILING_JOB_FETCHES)
                 .forEach((run) => {
-                    if (run.runId != null && !(jobCacheKey(run.runId, run.runAttempt) in values.runJobs)) {
-                        actions.loadJobs({ runId: run.runId, runAttempt: run.runAttempt })
+                    if (
+                        run.runId != null &&
+                        !(jobCacheKey(run.runId, run.runAttempt, run.ciEngine) in values.runJobs)
+                    ) {
+                        actions.loadJobs({ runId: run.runId, runAttempt: run.runAttempt, ciEngine: run.ciEngine })
                     }
                 })
         },
@@ -648,7 +676,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (prCost: PRCostSummaryApi | null): Record<string, { minutes: number | null; cost: number | null }> => {
                 const map: Record<string, { minutes: number | null; cost: number | null }> = {}
                 for (const rc of prCost?.by_run ?? []) {
-                    map[jobCacheKey(rc.run_id, rc.run_attempt)] = {
+                    map[jobCacheKey(rc.run_id, rc.run_attempt, rc.ci_engine)] = {
                         minutes: rc.billable_minutes,
                         cost: rc.estimated_cost_usd,
                     }
@@ -676,7 +704,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     if (run.conclusion == null || isPassingConclusion(run.conclusion) || run.runId == null) {
                         continue
                     }
-                    const jobs = runJobs[jobCacheKey(run.runId, run.runAttempt)]
+                    const jobs = runJobs[jobCacheKey(run.runId, run.runAttempt, run.ciEngine)]
                     if (!jobs) {
                         continue
                     }
@@ -693,7 +721,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             },
         ],
         // Drops merge-queue gate attempts, whose head SHAs the author never pushed. Mirrors the
-        // backend's `runs_by_pr` rollup, so push counts agree between the PR list and this page.
+        // backend's push-activity query (`pull_request_list.py`), so push counts agree between the PR list and this page.
         authoredRuns: [
             (s) => [s.prRuns],
             (prRuns: WorkflowRunDetailApi[]): WorkflowRunDetailApi[] => prRuns.filter((run) => !run.is_merge_queue),

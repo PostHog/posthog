@@ -6,7 +6,7 @@ describe('todaySessionDot', () => {
         ['a queued cloud run', 'queued', 'cloud', false, { mark: 'spinner', label: 'Queued' }],
         ['a cloud run that has not started', 'not_started', 'cloud', true, { mark: 'spinner', label: 'Starting' }],
         ['a queued local run', 'queued', 'local', false, { mark: 'hollow', label: 'Queued' }],
-        ['a running session', 'in_progress', 'cloud', false, { mark: 'solid', label: 'Running' }],
+        ['a running session, even when unread', 'in_progress', 'cloud', true, { mark: 'spinner', label: 'Working' }],
         ['an unread finished session', 'completed', 'cloud', true, { mark: 'solid', label: 'Unread' }],
         ['a finished session', 'completed', 'cloud', false, { mark: 'hollow', label: 'Completed' }],
         ['a stopped session', 'cancelled', 'cloud', false, { mark: 'hollow', faint: true, label: 'Stopped' }],

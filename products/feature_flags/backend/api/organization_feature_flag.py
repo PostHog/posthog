@@ -287,7 +287,7 @@ class OrganizationFeatureFlagView(
             self._redact_encrypted_payloads(request, flag)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
-            cast(str, feature_flag_key), [flag.team_id for flag in flags]
+            cast(str, feature_flag_key), [flag.team_id for flag in flags], self.organization.id
         )
 
         flags_data = [

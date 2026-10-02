@@ -410,16 +410,24 @@ function buildHooks(
   if (budgetGuard) {
     preToolUseHooks.push(budgetGuard.preToolUseHook());
   }
-  // Registered last so the signed-commit guard evaluates the raw command first.
-  if (rtkPrefix) {
-    preToolUseHooks.push(createRtkRewriteHook(rtkPrefix, logger));
-  }
+  const rtkHook = rtkPrefix
+    ? createRtkRewriteHook(rtkPrefix, logger)
+    : undefined;
 
   const postToolUseFailureHooks: HookCallback[] = [];
   if (cloudMode) {
     const memoryKillNoticeHook = createMemoryKillNoticeHook(logger);
+    // Compose rewrites so RTK cannot replace the validation lock prefix.
+    preToolUseHooks.push(async (input, toolUseId, options) => {
+      const result = await memoryKillNoticeHook(input, toolUseId, options);
+      if ("hookSpecificOutput" in result && result.hookSpecificOutput)
+        return result;
+      return rtkHook ? rtkHook(input, toolUseId, options) : result;
+    });
     postToolUseHooks.push(memoryKillNoticeHook);
     postToolUseFailureHooks.push(memoryKillNoticeHook);
+  } else if (rtkHook) {
+    preToolUseHooks.push(rtkHook);
   }
 
   const taskHook = createTaskHook(taskState, onTaskStateChange);

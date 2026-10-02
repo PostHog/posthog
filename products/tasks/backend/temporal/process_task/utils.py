@@ -72,6 +72,7 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
     from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
         TaskProcessingContext,
@@ -602,9 +603,7 @@ def get_user_mcp_server_configs(
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
-    the user installed. The PostHog MCP needs this to resolve single-exec mode
-    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
-    upstreams ignore the header.
+    the user installed. Non-PostHog upstreams ignore the header.
 
     Returns an empty list on errors (non-fatal).
     """
@@ -1485,6 +1484,7 @@ def ai_gateway_env_vars(
                 runtime=runtime,
                 internal=internal,
                 prior_slack_run=prior_slack_run,
+                distinct_id=distinct_id,
             )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
@@ -1659,3 +1659,14 @@ def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> No
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
     return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
+
+
+def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
+    """The recorded sender of the message a reply answers, else the run's actor, else the thread's actors."""
+    state = task_run.state or {}
+    return (
+        (get_message_actor(str(task_run.id), message_id) if message_id else None)
+        or state.get("slack_actor_slack_user_id")
+        or (mapping.latest_actor_slack_user_id if mapping else None)
+        or (mapping.mentioning_slack_user_id if mapping else None)
+    )

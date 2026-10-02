@@ -1,4 +1,7 @@
-from posthog.hogql.database.lazy_join_tags import PERSON_DISTINCT_ID_OVERRIDES
+from typing import TYPE_CHECKING
+
+from posthog.hogql import ast
+from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -13,7 +16,13 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_expr
 from posthog.hogql.parser import parse_expr
+
+from posthog.constants import GROUP_TYPES_LIMIT
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 # The physical read table is the Distributed `flag_evaluations` on the DATA nodes, defined in
 # posthog/models/flag_evaluations/sql.py. That module imports django.conf, and
@@ -169,3 +178,51 @@ class FlagEvaluationsTable(Table):
 
     def to_printed_hogql(self):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+# The fields add_events_list_fields_to_flag_evaluations adds that join another table.
+EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
+
+
+def add_events_list_fields_to_flag_evaluations(database: "Database") -> None:
+    """Add the fields an events list reads to `posthog.flag_evaluations` in `database`, so a list query resolves there.
+
+    This changes the table instance that `database` holds. Every later query compiled against `database` sees the wider
+    table. Pass a database that only the events list runner uses, such as its `shared_database`.
+    """
+    flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
+    events_session = database.get_table("events").fields["session"]
+    assert isinstance(events_session, LazyJoin)
+
+    # This joins persons on the merge-corrected person_id, the way events does under
+    # PERSON_ID_OVERRIDE_PROPERTIES_JOINED. The join is lazy. A query that reads no person field skips it.
+    flag_evaluations.fields["person"] = LazyJoin(
+        from_field=["person_id"], join_table=database.get_table("persons"), resolver=PERSONS
+    )
+    groups = database.get_table("groups")
+    for index in range(GROUP_TYPES_LIMIT):
+        flag_evaluations.fields[f"group_{index}"] = LazyJoin(
+            from_field=[f"$group_{index}"], join_table=groups, resolver=GROUP_N, resolver_params={"group_index": index}
+        )
+
+    # The events session resolvers ignore from_field and read $session_id and $session_id_uuid from the source table.
+    # Copying the events join keeps the sessions table version that the team's modifiers chose.
+    flag_evaluations.fields["$session_id"] = ExpressionField(
+        name="$session_id", expr=ast.Field(chain=["session_id"]), isolate_scope=True
+    )
+    flag_evaluations.fields["$session_id_uuid"] = ExpressionField(
+        name="$session_id_uuid",
+        expr=uuid_string_expr_to_uint128_expr(ast.Field(chain=["session_id"])),
+        isolate_scope=True,
+    )
+    flag_evaluations.fields["session"] = events_session.model_copy()
+
+    # The table stores no elements and no person mode. A flag call on events has no elements either.
+    # An element filter therefore matches nothing on both tables. The empty array keeps its String element type.
+    for name in ("elements_chain", "elements_chain_href", "person_mode"):
+        flag_evaluations.fields[name] = ExpressionField(name=name, expr=ast.Constant(value=""))
+    for name in ("elements_chain_texts", "elements_chain_ids", "elements_chain_elements"):
+        flag_evaluations.fields[name] = ExpressionField(
+            name=name,
+            expr=ast.Call(name="arrayResize", args=[ast.Array(exprs=[ast.Constant(value="")]), ast.Constant(value=0)]),
+        )

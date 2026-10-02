@@ -8,7 +8,7 @@ import { ThreadMarker } from './ThreadMarker'
 export function QuillPullRequestRow({ prUrl, branch }: { prUrl: string; branch?: string }): JSX.Element {
     return (
         <div className="flex items-center gap-2" data-attr="max-sandbox-pr-card">
-            <ThreadMarker icon={<IconPullRequest />} className="opacity-100">
+            <ThreadMarker icon={<IconPullRequest />} className="opacity-100 text-foreground">
                 <span className="font-medium">Pull request opened</span>
                 {branch && <ChatMarkerValue className="font-mono">{branch}</ChatMarkerValue>}
             </ThreadMarker>

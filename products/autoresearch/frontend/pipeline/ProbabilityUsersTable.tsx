@@ -45,9 +45,9 @@ export function ProbabilityUsersTable({
                 source: {
                     kind: NodeKind.HogQLQuery,
                     query: `
-                        -- A scoring run stamps its whole batch with one timestamp, so the latest batch is its exact timestamp.
+                        -- Capture can shift the timestamps of one batch apart, so the latest batch is its prediction date.
                         WITH latest AS (
-                            SELECT max(timestamp) AS t
+                            SELECT max(properties.$autoresearch_prediction_date) AS prediction_date
                             FROM events
                             WHERE event = 'autoresearch_prediction'
                               AND properties.$autoresearch_pipeline_id = {pipeline_id}
@@ -61,7 +61,8 @@ export function ProbabilityUsersTable({
                             FROM events
                             WHERE event = 'autoresearch_prediction'
                               AND properties.$autoresearch_pipeline_id = {pipeline_id}
-                              AND timestamp = (SELECT t FROM latest)
+                              AND timestamp >= now() - INTERVAL ${LATEST_BATCH_LOOKBACK_DAYS} DAY
+                              AND properties.$autoresearch_prediction_date = (SELECT prediction_date FROM latest)
                             GROUP BY person_id
                         )
                         -- LEFT JOIN persons directly on the person UUID: the implicit person join goes via

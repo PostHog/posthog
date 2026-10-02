@@ -130,6 +130,7 @@ const engineeringAnalyticsRunFailureLogs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/run_failure_logs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_id: params.run_id,
                 source_id: params.source_id,
@@ -203,6 +204,7 @@ const engineeringAnalyticsWorkflowJobs = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_jobs/`,
             query: {
+                ci_engine: params.ci_engine,
                 repo: params.repo,
                 run_attempt: params.run_attempt,
                 run_id: params.run_id,
@@ -290,8 +292,12 @@ const pullRequests = (): ToolBase<ReturnType<typeof PullRequestsSchema>, WithPos
             query: {
                 author: params.author,
                 date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
                 repo: params.repo,
                 source_id: params.source_id,
+                state: params.state,
             },
         })
         return await withPostHogUrl(context, result, '/engineering-analytics')

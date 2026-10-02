@@ -69,7 +69,8 @@ export const MetricsPanel = ({
             )}
 
             {primaryMetrics.length === 0 && secondaryMetrics.length === 0 ? (
-                <EmptyMetricsPanel />
+                // In compact mode (the wizard) the step heading's tooltip carries this help text
+                <EmptyMetricsPanel showHelpText={!compact} />
             ) : (
                 <div className="space-y-6">
                     <MetricList

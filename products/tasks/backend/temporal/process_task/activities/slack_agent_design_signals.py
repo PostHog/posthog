@@ -34,9 +34,12 @@ from .relay_sandbox_events import (
     MAX_RECONNECT_ATTEMPTS,
     SSE_CONNECT_TIMEOUT_SECONDS,
     SSE_READ_TIMEOUT_SECONDS,
+    _event_method,
     _extract_agent_message_text,
     _extract_progress_update,
+    _is_session_prompt,
     _is_session_update,
+    _prompt_message_id,
     _signal_safely,
 )
 
@@ -73,6 +76,8 @@ class SlackAgentDesignSignalEmitter:
         # starts disarmed and waits for the next prompt.
         self._awaiting_turn = awaiting_turn
         self._emitted_tool_call_ids: set[str] = set()
+        # The message the next turn answers, from the prompt that opens it.
+        self._turn_message_id: str | None = None
 
     @property
     def turn_active(self) -> bool:
@@ -85,6 +90,7 @@ class SlackAgentDesignSignalEmitter:
         if _is_session_prompt(event_data):
             if not self._turn_active:
                 self._awaiting_turn = True
+                self._turn_message_id = _prompt_message_id(event_data)
             return []
 
         if is_turn_complete(event_data):
@@ -100,7 +106,12 @@ class SlackAgentDesignSignalEmitter:
         if not self._turn_active and self._awaiting_turn and _is_session_update(event_data):
             self._turn_active = True
             self._awaiting_turn = False
-            signals.append(("turn_started", {"slack_thread_context": self._slack_thread_context}))
+            signals.append(
+                (
+                    "turn_started",
+                    {"slack_thread_context": self._slack_thread_context, "message_id": self._turn_message_id},
+                )
+            )
 
         if self._turn_active:
             step_payload = _extract_progress_update(event_data, self._emitted_tool_call_ids)
@@ -135,19 +146,6 @@ def _agent_proxy_base_url() -> str | None:
         or settings.TASKS_AGENT_PROXY_PUBLIC_URL
         or settings.TASKS_AGENT_PROXY_INGEST_URL
     )
-
-
-def _event_method(event_data: dict) -> str | None:
-    """ACP notification method for the event, for tracing (e.g. ``session/update``)."""
-    notification = event_data.get("notification")
-    if isinstance(notification, dict):
-        return notification.get("method")
-    return None
-
-
-def _is_session_prompt(event_data: dict) -> bool:
-    """Whether the event is a user ``session/prompt`` — the start of a new conversational turn."""
-    return _event_method(event_data) == "session/prompt"
 
 
 def _resume_position() -> tuple[str | None, bool]:
