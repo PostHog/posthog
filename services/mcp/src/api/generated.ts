@@ -124271,6 +124271,10 @@ export namespace Schemas {
 
     export type WizardRunsListParams = {
     /**
+     * Only return runs created after this timestamp.
+     */
+    created_after?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
