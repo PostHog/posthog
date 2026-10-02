@@ -117,6 +117,7 @@ def _write_facade_product(
     facade.mkdir(parents=True)
     (facade / "contracts.py").write_text("")
     for fname, content in (facade_files or {}).items():
+        (facade / fname).parent.mkdir(parents=True, exist_ok=True)
         (facade / fname).write_text(content)
     for rel, content in (sources or {}).items():
         path = backend_dir / rel
@@ -1910,6 +1911,35 @@ class TestFacadeClassImports:
         _, backend = _write_facade_product(tmp_path, facade_files=facade_files, sources=sources)
         assert {f.class_name for f in facade_class_imports(backend, "my_product")} == expected
 
+    @pytest.mark.parametrize(
+        "facade_files, expected_modules",
+        [
+            # a flat module keeps its bare file name as the key
+            ({"api.py": "from ..logic import Thing\n__all__ = ['Thing']\n"}, {"api.py"}),
+            # a module in a subfolder is read and keyed by its path inside facade/
+            ({"destinations/s3.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, {"destinations/s3.py"}),
+            # contracts.py and enums.py are exempt at the top level only
+            ({"contracts.py": "from ..logic import Thing\n__all__ = ['Thing']\n"}, set()),
+            (
+                {"destinations/contracts.py": "from ...logic import Thing\n__all__ = ['Thing']\n"},
+                {"destinations/contracts.py"},
+            ),
+            ({"destinations/enums.py": "from ...logic import Thing\n__all__ = ['Thing']\n"}, {"destinations/enums.py"}),
+            # a tests/ folder is no hiding place: only test file names are skipped
+            (
+                {"destinations/tests/s3.py": "from ....logic import Thing\n__all__ = ['Thing']\n"},
+                {"destinations/tests/s3.py"},
+            ),
+        ],
+    )
+    def test_leaks_are_keyed_by_path_inside_facade(
+        self, tmp_path: Path, facade_files: dict[str, str], expected_modules: set[str]
+    ) -> None:
+        _, backend = _write_facade_product(
+            tmp_path, facade_files=facade_files, sources={"logic.py": "class Thing:\n    pass\n"}
+        )
+        assert {f.facade_module for f in facade_class_imports(backend, "my_product")} == expected_modules
+
     def test_carveout_is_not_a_violation_but_is_tracked_for_coverage(self, tmp_path: Path) -> None:
         facade = {
             "team_extension.py": "from ..models.tcac import TeamCustomerAnalyticsConfig\n__all__ = ['TeamCustomerAnalyticsConfig']\n"
@@ -2704,6 +2734,46 @@ class TestFacadeShape:
                 "logic/crud.py": "def run_it():\n    ...\n",
                 "tasks/__init__.py": "def run_it():\n    ...\n",
             },
+        )
+        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
+        assert [f.bodies for f in logic] == ([expected] if expected else [])
+
+    @pytest.mark.parametrize(
+        "module_key, expected_dotted",
+        [
+            ("api.py", "products.my_product.backend.facade.api"),
+            ("destinations/s3.py", "products.my_product.backend.facade.destinations.s3"),
+            ("destinations/__init__.py", "products.my_product.backend.facade.destinations"),
+        ],
+    )
+    def test_a_finding_carries_the_module_path_and_dotted_name(
+        self, tmp_path: Path, module_key: str, expected_dotted: str
+    ) -> None:
+        # A nested module reaches the models with `...`, a flat one with `..`.
+        dots = "." * (module_key.count("/") + 2)
+        backend = _write_shape_product(
+            tmp_path, {module_key: f"from {dots}models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"}
+        )
+        findings = facade_shape_findings(backend, "my_product")
+        assert [(f.facade_module, f.dotted_module) for f in findings] == [(module_key, expected_dotted)]
+
+    @pytest.mark.parametrize(
+        "module_key, expected",
+        [
+            ("testing.py", None),
+            ("destinations/testing.py", ("helper",)),
+        ],
+    )
+    def test_name_exemptions_apply_to_top_level_modules_only(
+        self, tmp_path: Path, module_key: str, expected: tuple[str, ...] | None
+    ) -> None:
+        dots = "." * (module_key.count("/") + 2)
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                module_key: f"from {dots}temporal.flows import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
+            },
+            sources={"temporal/flows.py": "def run_it():\n    ...\n"},
         )
         logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
         assert [f.bodies for f in logic] == ([expected] if expected else [])
