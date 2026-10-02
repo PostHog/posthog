@@ -227,6 +227,12 @@ def measure_progress(
         )
     start = report.monitoring_started_at
     end = report.monitoring_ended_at if report.status == "resolved" else timezone.now()
+    if start is not None and report.status == "resolved" and end is None:
+        return CheckProgress(
+            check_id=check_id,
+            status=CheckProgressStatus.UNAVAILABLE,
+            explanation="The resolution time wasn't recorded for this monitoring period.",
+        )
     if start is None or end is None or end <= start:
         return CheckProgress(
             check_id=check_id,

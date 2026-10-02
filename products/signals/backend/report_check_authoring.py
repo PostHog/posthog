@@ -44,11 +44,13 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
     validate_metric_check_for_write,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = structlog.get_logger(__name__)
 
 _METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
+_PROGRESS_FIELDS = frozenset({"eligibility_query", "minimum_data_points", "progress_target_type"})
 
 
 class CheckCreationError(ValueError):
@@ -182,6 +184,12 @@ def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
         raise CheckCreationError(str(error)) from None
 
     stored_config = dict(config)
+    if isinstance(parsed, MetricThresholdConfig):
+        for field in _PROGRESS_FIELDS:
+            if stored_config.get(field) is None:
+                stored_config.pop(field, None)
+        if _PROGRESS_FIELDS.intersection(stored_config) and not team_report_monitoring_enabled(report.team_id):
+            raise CheckCreationError("Interim monitoring options are not enabled for this organization.")
     if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
         if parsed.query is not None:
             raise CheckCreationError(
@@ -225,10 +233,13 @@ def _with_metric_display(report: SignalReport, config: dict, metric_id: str | No
             filled.setdefault("metric_kind", metric.get("kind", "custom"))
             filled.setdefault("value_format", metric.get("value_format", "number"))
             filled.setdefault("unit", metric.get("unit"))
-            if metric.get("eligibility_query") is not None:
-                filled.setdefault("eligibility_query", metric["eligibility_query"])
-            if metric.get("minimum_data_points") is not None:
-                filled.setdefault("minimum_data_points", metric["minimum_data_points"])
+            if (
+                metric.get("eligibility_query") is not None or metric.get("minimum_data_points") is not None
+            ) and team_report_monitoring_enabled(report.team_id):
+                if metric.get("eligibility_query") is not None:
+                    filled.setdefault("eligibility_query", metric["eligibility_query"])
+                if metric.get("minimum_data_points") is not None:
+                    filled.setdefault("minimum_data_points", metric["minimum_data_points"])
             break
     if "comparison" in filled:
         filled["metric_kind"] = filled.get("metric_kind") or "custom"

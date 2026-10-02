@@ -1,4 +1,4 @@
-import { LogicWrapper, MakeLogicType, afterMount, kea, key, path, props, reducers } from 'kea'
+import { LogicWrapper, MakeLogicType, actions, afterMount, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -23,10 +23,10 @@ export interface reportCheckProgressLogicActions {
     loadProgress: (_: void) => void
     loadProgressFailure: (
         error: string,
-        errorObject?: any
+        errorObject?: unknown
     ) => {
         error: string
-        errorObject?: any
+        errorObject: unknown
     }
     loadProgressSuccess: (
         progress: SignalReportCheckProgressApi[],
@@ -53,6 +53,12 @@ export const reportCheckProgressLogic: LogicWrapper<reportCheckProgressLogicType
     props({} as ReportCheckProgressLogicProps),
     key(({ reportId, periodKey }) => `${reportId}.${periodKey}`),
     path((key) => ['products', 'signals', 'inbox', 'reportCheckProgressLogic', key]),
+    actions({
+        loadProgressFailure: (error: string, errorObject?: unknown): { error: string; errorObject: unknown } => ({
+            error,
+            errorObject,
+        }),
+    }),
     loaders(({ props }) => ({
         progress: [
             null as SignalReportCheckProgressApi[] | null,

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -15,6 +15,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.report_check_authoring import CheckCreationError, _stored_config
 from products.signals.backend.report_check_progress import (
     CheckProgressStatus,
     bounded_progress_query,
@@ -124,6 +125,31 @@ class TestProgressEvaluation(SimpleTestCase):
         self.assertEqual(evidence["source"]["trendsFilter"], {"formula": "A"})
         self.assertEqual(query, original)
 
+    def test_restoring_monitoring_clears_a_closed_period(self) -> None:
+        start = datetime(2026, 10, 1, tzinfo=UTC)
+        report = SignalReport(
+            status=SignalReport.Status.SUPPRESSED,
+            monitoring_started_at=start,
+            monitoring_ended_at=start + timedelta(hours=1),
+        )
+        updated = report.transition_to(SignalReport.Status.MONITORING)
+        self.assertIsNone(report.monitoring_ended_at)
+        self.assertIn("monitoring_ended_at", updated)
+
+    @parameterized.expand([("eligibility_query",), ("minimum_data_points",), ("progress_target_type",)])
+    def test_interim_authoring_options_require_monitoring_rollout(self, field: str) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_failure"}])
+        values = {"eligibility_query": query, "minimum_data_points": 10, "progress_target_type": "fixed"}
+        config = {"query": query, "comparison": {"operator": "lte", "value": 5}, field: values[field]}
+        report = SignalReport(team_id=42, metrics=[])
+        with patch(
+            "products.signals.backend.report_check_authoring.team_report_monitoring_enabled", return_value=False
+        ):
+            with self.assertRaisesMessage(CheckCreationError, "monitoring options are not enabled"):
+                _stored_config(report, "metric_threshold", config)
+        with patch("products.signals.backend.report_check_authoring.team_report_monitoring_enabled", return_value=True):
+            self.assertIn(field, _stored_config(report, "metric_threshold", config))
+
 
 class TestReportCheckProgressAPI(APIBaseTest):
     @time_machine.travel("2026-10-03T12:23:00Z", tick=False)
@@ -190,6 +216,10 @@ class TestReportCheckProgressAPI(APIBaseTest):
         self.assertEqual(check.runs_remaining, initial_check["runs_remaining"])
         self.assertEqual(check.last_outcome, initial_check["last_outcome"])
         self.assertEqual(SignalReportArtefact.objects.filter(report=report).count(), artefact_count)
+        SignalReport.objects.filter(team_id=self.team.id, id=report.id).update(monitoring_ended_at=None)
+        missing_cutoff = self.client.get(url).json()[0]
+        self.assertEqual(missing_cutoff["status"], "unavailable")
+        self.assertIn("resolution time", missing_cutoff["explanation"])
         report.save(update_fields=report.transition_to(SignalReport.Status.READY))
         report.refresh_from_db()
         self.assertIsNone(report.monitoring_started_at)
@@ -228,3 +258,48 @@ class TestReportCheckProgressAPI(APIBaseTest):
             )
             self.assertEqual(response.status_code, 403)
             runner.assert_not_called()
+
+
+class TestProgressQueryBounds(ClickhouseTestMixin, APIBaseTest):
+    @time_machine.travel("2026-10-01T14:23:00Z", tick=False)
+    def test_zero_failure_rate_uses_only_activity_inside_monitoring(self) -> None:
+        start = datetime(2026, 10, 1, 12, 23, tzinfo=UTC)
+        end = start + timedelta(hours=2)
+        for event, at in (
+            ("example_failure", start - timedelta(minutes=1)),
+            ("example_attempt", start + timedelta(minutes=1)),
+            ("example_attempt", end - timedelta(minutes=1)),
+            ("example_failure", end + timedelta(minutes=1)),
+        ):
+            _create_event(team=self.team, distinct_id="example-reader", event=event, timestamp=at.isoformat())
+        flush_persons_and_events()
+        query = trends_metric_query(
+            series=[
+                {"kind": "EventsNode", "event": "example_failure", "math": "total"},
+                {"kind": "EventsNode", "event": "example_attempt", "math": "total"},
+            ],
+            date_from="-14d",
+        )
+        query["source"]["trendsFilter"] = {"formula": "100 * A / B"}
+        report = SignalReport.objects.create(
+            team=self.team, status="monitoring", monitoring_started_at=start, title="Example failure rate"
+        )
+        SignalReportCheck.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=report,
+            title="Failure rate stays below five percent",
+            kind="metric_threshold",
+            status="active",
+            config={"query": query, "comparison": {"operator": "lte", "value": 5}},
+            next_run_at=end + timedelta(days=14),
+            expires_at=end + timedelta(days=44),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/checks/progress/")
+        self.assertEqual(response.status_code, 200, response.content)
+        progress = response.json()[0]
+        self.assertEqual(progress["status"], "on_track", progress)
+        self.assertEqual(progress["value"], 0)
+        self.assertEqual(progress["target"], 5)
+        self.assertEqual(progress["sample_size"], 2)
+        self.assertTrue(progress["points"])
+        self.assertTrue(all(point["value"] == 0 for point in progress["points"]))

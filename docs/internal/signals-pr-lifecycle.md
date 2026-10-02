@@ -37,8 +37,10 @@ enough by default; authors can increase `minimum_data_points`. For ratios, the d
 provide the activity evidence. An optional bounded count `eligibility_query` can establish relevant
 activity even when no bad events occur. Without relevant activity, zero events do not establish
 success. Query failures and missing permissions are shown separately from insufficient data.
-Both the measurement and activity query use the viewer's metric access policy. New authoring fields
-require Django and workers to be deployed together before scouts start using them.
+Both the measurement and activity query use the viewer's metric access policy. The new authoring
+fields require the monitoring flag; enable it after both Django and workers have deployed. With
+the flag off, referenced metrics do not copy interim options into checks, so older workers can
+still parse newly authored configurations during rollout.
 
 The follow-up timing descriptions below also apply to monitoring: its entry replaces resolution as the
 measurement anchor. Resolving a monitoring report keeps the anchor. Reopening immediately parks active

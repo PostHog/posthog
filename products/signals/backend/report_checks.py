@@ -216,7 +216,7 @@ class MetricThresholdConfig(BaseModel):
             return None
         validated = validate_live_metric_query(value)
         series = validated["source"]["series"]
-        if len(series) != 1 or series[0].get("math", "total") not in ("total", "dau", "unique_session"):
+        if len(series) != 1 or (series[0].get("math") or "total") not in ("total", "dau", "unique_session"):
             raise ValueError("eligibility_query must count events, users, or sessions in one series")
         if any(
             (validated["source"].get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes")

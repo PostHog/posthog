@@ -631,7 +631,7 @@ class SignalReport(UUIDModel):
             case _:
                 raise InvalidStatusTransition(self.status, new_status)
 
-        if self.monitoring_started_at is None and self.monitoring_ended_at is not None:
+        if self.monitoring_ended_at is not None and (self.monitoring_started_at is None or new_status == S.MONITORING):
             self.monitoring_ended_at = None
             updated_fields.add("monitoring_ended_at")
         elif new_status == S.RESOLVED and self.monitoring_started_at is not None and self.monitoring_ended_at is None:
