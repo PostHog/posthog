@@ -192,9 +192,11 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     variant_plan = variant_sampling_plan_for_scope(
         scanner.team,
+        scanner_type=scanner.scanner_type,
         scope=scanner.experiment_scope(),
         scanner_config=scanner.scanner_config,
         sampling_rate=scanner.sampling_rate,
+        scanner_id=str(scanner.id),
     )
     variant_rates = variant_plan.rates if variant_plan is not None else None
     candidate_query = ScannerCandidateQuery(

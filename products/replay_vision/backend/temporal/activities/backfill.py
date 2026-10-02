@@ -169,14 +169,16 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         ) from exc
     query = apply_experiment_targeting(query, snapshot.experiment_scope())
 
-    # Live rollout shares against the frozen scope, matching the sweep: the same salted hash plus
+    # Live exposure counts against the frozen scope, matching the sweep: the same salted hash plus
     # the same rates keep sampling decisions stable between a live sweep and a backfill of the
     # same range.
     variant_plan = variant_sampling_plan_for_scope(
         backfill.team,
+        scanner_type=snapshot.scanner_type,
         scope=snapshot.experiment_scope(),
         scanner_config=snapshot.scanner_config,
         sampling_rate=snapshot.sampling_rate,
+        scanner_id=str(backfill.scanner_id),
     )
     candidate_query = WindowedCandidateQuery(
         team=backfill.team,

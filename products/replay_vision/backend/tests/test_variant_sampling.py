@@ -1,8 +1,10 @@
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.hogql import ast
 
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     SAMPLE_RATE_PRECISION,
     variant_sampling_predicate,
@@ -68,6 +70,32 @@ class TestPlanVariantSampling:
         assert plan.rates == {"control": 0.0, "test": 0.0}
         assert plan.effective_rate == 0.0
 
+    @pytest.mark.parametrize(
+        "rate,weights",
+        [
+            (0.1, {"control": 900, "test": 100}),
+            # The cap binds on the small arm; redistribution still spends the whole budget.
+            (0.2, {"control": 950, "test": 50}),
+            (0.5, {"control": 500, "test": 400, "beta": 100}),
+        ],
+    )
+    def test_balancing_never_changes_the_projected_volume(self, rate, weights) -> None:
+        # This invariant is what lets the volume estimate (and the scout cost check) project with
+        # the plain rate whether balancing is on or off, cap or no cap.
+        from products.replay_vision.backend.queries.scanner_volume_estimate import (
+            ScannerVolumeEstimate,
+            project_monthly_observations,
+        )
+
+        plan = plan_variant_sampling(rate, weights, None)
+
+        assert plan is not None
+        assert plan.effective_rate == pytest.approx(rate)
+        estimate = ScannerVolumeEstimate(matched_sessions=7_000, effective_window_days=7)
+        assert project_monthly_observations(estimate, plan.effective_rate) == project_monthly_observations(
+            estimate, rate
+        )
+
 
 class TestVariantSamplingPredicate:
     def test_builds_one_threshold_arm_per_variant_over_the_shared_hash(self) -> None:
@@ -90,26 +118,38 @@ class TestVariantSamplingPredicate:
 
 
 class TestVariantSamplingPlanForScope(BaseTest):
+    def _plan(self, *, scanner_type=ScannerType.EXPERIMENT, scope, counts):
+        from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
+
+        with patch(
+            "products.replay_vision.backend.queries.variant_sampling._variant_exposure_counts",
+            return_value=counts,
+        ):
+            return variant_sampling_plan_for_scope(
+                self.team,
+                scanner_type=scanner_type,
+                scope=scope,
+                scanner_config={"prompt": "p"},
+                sampling_rate=0.1,
+            )
+
     def test_a_singular_legacy_variant_scope_watches_one_arm_and_gets_no_plan(self) -> None:
         # A legacy column scope narrows with `variant` (singular). Reading only `variants` would
         # treat it as "every variant" and balance a population the exposure join already narrowed.
-        from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
-        from products.replay_vision.backend.tests.helpers import create_experiment
+        counts = {"control": 60.0, "test": 40.0}
 
-        experiment = create_experiment(self.team, "single-arm-flag", launched=True, variants=["control", "test"])
-
-        singular = variant_sampling_plan_for_scope(
-            self.team,
-            scope={"experiment_id": experiment.pk, "variant": "test"},
-            scanner_config={"prompt": "p"},
-            sampling_rate=0.1,
-        )
+        singular = self._plan(scope={"experiment_id": 42, "variant": "test"}, counts=counts)
         assert singular is None
 
-        both = variant_sampling_plan_for_scope(
-            self.team,
-            scope={"experiment_id": experiment.pk, "variants": ["control", "test"]},
-            scanner_config={"prompt": "p", "experiment_id": experiment.pk},
-            sampling_rate=0.1,
-        )
+        both = self._plan(scope={"experiment_id": 42, "variants": ["control", "test"]}, counts=counts)
         assert both is not None and set(both.rates) == {"control", "test"}
+
+    def test_only_the_experiment_type_balances(self) -> None:
+        # A legacy scanner targeting an experiment through the column has no `balance_variants`
+        # key; defaulting it on would switch its sampling behavior on deploy.
+        plan = self._plan(
+            scanner_type=ScannerType.MONITOR,
+            scope={"experiment_id": 42, "variants": ["control", "test"]},
+            counts={"control": 60.0, "test": 40.0},
+        )
+        assert plan is None
