@@ -129,7 +129,7 @@ def progress_target_type(config: MetricThresholdConfig) -> Literal["proportional
         formula = trends_filter["formulaNodes"][0].get("formula")
     elif trends_filter.get("formulas"):
         formula = trends_filter["formulas"][0]
-    degree = _formula_degree(ast.parse(formula, mode="eval").body, degrees) if formula else degrees[0]
+    degree = _formula_degree(ast.parse(formula.strip(), mode="eval").body, degrees) if formula else degrees[0]
     return "proportional" if degree == 1 else "fixed" if degree == 0 else None
 
 
@@ -159,7 +159,7 @@ def observation_count_query(query: dict[str, Any]) -> dict[str, Any]:
     if formula:
         denominator_names = {
             name.id.upper()
-            for node in ast.walk(ast.parse(formula, mode="eval"))
+            for node in ast.walk(ast.parse(formula.strip(), mode="eval"))
             if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
             for name in ast.walk(node.right)
             if isinstance(name, ast.Name)

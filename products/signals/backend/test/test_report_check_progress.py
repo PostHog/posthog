@@ -80,7 +80,9 @@ class TestProgressEvaluation(SimpleTestCase):
         )
         self.assertEqual(progress_target_type(config), expected)
 
-    @parameterized.expand([("A + B", "proportional"), ("100 * A / B", "fixed"), ("A * B", None)])
+    @parameterized.expand(
+        [("A + B", "proportional"), ("100 * A / B", "fixed"), (" 100 * A / B ", "fixed"), ("A * B", None)]
+    )
     def test_formula_targets(self, formula: str, expected: Literal["proportional", "fixed"] | None) -> None:
         query = trends_metric_query(
             series=[{"kind": "EventsNode", "event": "failure"}, {"kind": "EventsNode", "event": "attempt"}]
@@ -111,14 +113,15 @@ class TestProgressEvaluation(SimpleTestCase):
         assert comparison.bounds is not None
         self.assertEqual(comparison.bounds.model_dump(), {"lower": 7, "upper": 14})
 
-    def test_rate_evidence_counts_the_denominator_without_mutating_the_metric(self) -> None:
+    @parameterized.expand([("100 * A / B",), (" 100 * A / B ",)])
+    def test_rate_evidence_counts_the_denominator_without_mutating_the_metric(self, formula: str) -> None:
         query = trends_metric_query(
             series=[
                 {"kind": "EventsNode", "event": "failure", "math": "dau"},
                 {"kind": "EventsNode", "event": "attempt", "math": "dau"},
             ]
         )
-        query["source"]["trendsFilter"] = {"formula": "100 * A / B"}
+        query["source"]["trendsFilter"] = {"formula": formula}
         original = deepcopy(query)
         evidence = observation_count_query(query)
         self.assertEqual(evidence["source"]["series"], [{"kind": "EventsNode", "event": "attempt", "math": "total"}])
