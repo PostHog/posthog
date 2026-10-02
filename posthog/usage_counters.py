@@ -269,6 +269,7 @@ class UsageCounterService:
         self._exceptions_query = usage_report.get_teams_with_exceptions_captured_in_period
         self._logs_retention_query = usage_report.get_teams_with_logs_retention_bytes_in_period
         self._records_query = usage_report.get_usage_records_in_period
+        self._team_counts = usage_report.convert_team_usage_rows_to_dict
 
     def resolve_plan(
         self,
@@ -290,8 +291,11 @@ class UsageCounterService:
         self, counter: UsageCounter, begin: datetime, end: datetime, *, caller: UsageCounterCaller = "daily_report"
     ) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass -- Legacy query contract: (team_id, count).
         if caller == "quota_limiting" and counter == UsageCounter.EVENTS:
-            return self._quota_events_query(begin, end, count_distinct=False)
-        return self._queries[counter](begin, end)
+            rows = self._quota_events_query(begin, end, count_distinct=False)
+        else:
+            rows = self._queries[counter](begin, end)
+        # Flag readers return string team IDs, and the rows synced and exported readers return dictionaries.
+        return list(self._team_counts(rows).items())
 
     # nosemgrep: tuple-return-prefer-dataclass -- Report consumers require the legacy (team_id, count) rows.
     def _fetch_legacy(self, plan: UsageCounterPlan) -> dict[str, list[tuple[int, int]]]:

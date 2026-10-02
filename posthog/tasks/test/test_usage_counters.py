@@ -380,9 +380,12 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.SURVEY_RESPONSES: ("survey_responses", 105),
             UsageCounter.AI_EVENTS: ("ai_events", 106),
             UsageCounter.EXCEPTIONS: ("exceptions", 107),
+            UsageCounter.FEATURE_FLAG_REQUESTS: ("feature_flag_requests", 108),
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: ("feature_flag_local_evaluation_requests", 109),
         }
+        flag_counters = {UsageCounter.FEATURE_FLAG_REQUESTS, UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS}
         for index, counter in enumerate(counter_keys):
-            self.legacy[counter].return_value = [(1, index + 1)]
+            self.legacy[counter].return_value = [("1" if counter in flag_counters else 1, index + 1)]
         self.exceptions.side_effect = None
         self.exceptions.return_value = ({"web": [[1, 3]], "web_lite": [[1, 5]]}, [[1, 8]])
         self.records.return_value = [
@@ -516,8 +519,15 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.REPLAY_VISION_CREDITS,
         )
         expected = {counter.value: [(1, index + 1)] for index, counter in enumerate(counters)}
-        for counter in counters:
-            self.legacy[counter].return_value = expected[counter]
+        dictionary_readers = {
+            UsageCounter.ROWS_SYNCED,
+            UsageCounter.FREE_HISTORICAL_ROWS_SYNCED,
+            UsageCounter.ROWS_EXPORTED,
+        }
+        for index, counter in enumerate(counters):
+            self.legacy[counter].return_value = (
+                [{"team_id": 1, "total": index + 1}] if counter in dictionary_readers else expected[counter]
+            )
         self.logs_retention.side_effect = None
         self.logs_retention.return_value = {
             "14d": [(1, 17)],

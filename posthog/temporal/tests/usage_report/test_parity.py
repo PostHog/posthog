@@ -255,6 +255,15 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
         (UsageCounter.ROWS_SYNCED, "get_teams_with_rows_synced_in_period"),
         (UsageCounter.FREE_HISTORICAL_ROWS_SYNCED, "get_teams_with_free_historical_rows_synced_in_period"),
         (UsageCounter.ROWS_EXPORTED, "get_teams_with_rows_exported_in_period"),
+    ):
+        monkeypatch.setattr(
+            usage_report,
+            query_name,
+            mock.Mock(
+                return_value=[{"team_id": team_id, "total": total} for team_id, total in seeded[counter].items()]
+            ),
+        )
+    for counter, query_name in (
         (UsageCounter.LOGS_BYTES, "get_teams_with_logs_bytes_in_period"),
         (UsageCounter.AI_CREDITS, "get_teams_with_ai_credits_used_in_period"),
         (UsageCounter.SIGNALS_CREDITS, "get_teams_with_signals_credits_used_in_period"),
@@ -307,13 +316,14 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     monkeypatch.setattr(
         usage_report,
         "get_teams_with_feature_flag_requests_count_in_period",
-        lambda begin, end, kind: list(
-            seeded[
+        lambda begin, end, kind: [
+            (str(team_id), total)
+            for team_id, total in seeded[
                 UsageCounter.FEATURE_FLAG_REQUESTS
                 if kind == usage_report.FlagRequestType.DECIDE
                 else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
             ].items()
-        ),
+        ],
     )
     monkeypatch.setattr("posthoganalytics.get_feature_flag", mock.Mock(return_value="legacy"))
 
