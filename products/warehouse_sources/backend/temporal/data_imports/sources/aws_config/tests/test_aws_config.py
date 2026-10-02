@@ -179,18 +179,25 @@ def test_full_refresh_paginates_through_empty_and_terminal_pages(
     session.close.assert_called_once()
 
 
-@pytest.mark.parametrize("expired", [False, True])
-def test_resume_and_expired_token_restart(session: MagicMock, expired: bool) -> None:
-    replies = [make_response({"ConfigRules": [{"ConfigRuleArn": "arn:example:rule"}]})]
-    if expired:
-        replies.insert(0, make_response({"__type": "InvalidNextTokenException"}, 400))
-    session.post.side_effect = replies
+def test_resume_uses_saved_token(session: MagicMock) -> None:
+    session.post.return_value = make_response({"ConfigRules": [{"ConfigRuleArn": "arn:example:rule"}]})
     manager = make_manager(AwsConfigResumeConfig(next_token="saved-token"))
     response = aws_config_source(make_config(), "config_rules", "2014-11-12", manager)
     assert len(list(cast(Iterable[Any], response.items()))) == 1
-    payloads = [json.loads(call.kwargs["data"]) for call in session.post.call_args_list]
-    assert payloads == ([{"NextToken": "saved-token"}, {}] if expired else [{"NextToken": "saved-token"}])
-    assert manager.clear_state.call_count == (2 if expired else 1)
+    assert json.loads(session.post.call_args.kwargs["data"]) == {"NextToken": "saved-token"}
+    manager.clear_state.assert_called_once()
+
+
+def test_expired_resume_token_clears_state_and_fails_attempt(session: MagicMock) -> None:
+    session.post.return_value = make_response({"__type": "InvalidNextTokenException"}, 400)
+    manager = make_manager(AwsConfigResumeConfig(next_token="expired-token"))
+    response = aws_config_source(make_config(), "config_rules", "2014-11-12", manager)
+
+    with pytest.raises(AwsConfigError, match="InvalidNextTokenException"):
+        list(cast(Iterable[Any], response.items()))
+
+    assert json.loads(session.post.call_args.kwargs["data"]) == {"NextToken": "expired-token"}
+    manager.clear_state.assert_called_once()
 
 
 def test_checkpoint_is_staged_before_yield_and_session_closes_on_interruption(session: MagicMock) -> None:

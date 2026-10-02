@@ -171,11 +171,8 @@ def get_rows(
                 body = client.request(endpoint.operation, payload)
             except AwsConfigError as error:
                 if restarting and error.code == "InvalidNextTokenException":
-                    # Merge on the primary key absorbs rows re-read from the start.
-                    next_token = None
-                    restarting = False
+                    # A fresh retry must restart the full-refresh destination as well as extraction.
                     manager.clear_state()
-                    continue
                 raise
             restarting = False
             rows = []
