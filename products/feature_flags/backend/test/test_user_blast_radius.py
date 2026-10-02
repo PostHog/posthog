@@ -35,6 +35,9 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
     def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(
         self, _name: str, code: int, expected_message: str
     ) -> None:
+        # A numeric operator against a null/non-numeric filter value fails the Float64 cast at
+        # execution. These codes carry PostHog-written copy in their ErrorCodeMeta, so the 400
+        # body is that copy: the ClickHouse message names a column type and a Python repr.
         raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
         err = wrap_clickhouse_query_error(ServerException(raw, code=code))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
@@ -43,7 +46,7 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
         assert isinstance(ctx.exception.detail, dict)
         self.assertEqual(ctx.exception.detail["filters"], expected_message)
         self.assertNotIn("NaN", message)
-        self.assertNotIn("None", message)
+        self.assertNotIn("Float64", message)
         self.assertNotIn("Stack trace", message)
         self.assertNotIn("DB::Exception", message)
 
