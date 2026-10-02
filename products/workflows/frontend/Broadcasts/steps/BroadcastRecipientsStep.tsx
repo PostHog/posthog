@@ -45,9 +45,14 @@ function AudienceSizePreview(): JSX.Element | null {
                 approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} people.
             </span>
             {exceeded && (
-                <div className="text-danger text-xs">
-                    The audience exceeds the limit of {humanFriendlyNumber(limit)} people. Add filters to narrow it
-                    down.
+                <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
+                    This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now. The limit
+                    rises as the project sends without bounces or spam complaints. Add filters to narrow the audience,
+                    or{' '}
+                    <Link to={urls.workflows('reputation')} target="_blank">
+                        see your sending limits
+                    </Link>
+                    .
                 </div>
             )}
         </div>

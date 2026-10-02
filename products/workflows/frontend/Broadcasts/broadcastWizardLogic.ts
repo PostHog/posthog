@@ -1439,9 +1439,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.setStep('recipients')
                     actions.showSavedDraftUrl()
                     lemonToast.error(
-                        `This audience is above the project's batch limit of ${humanFriendlyNumber(
+                        `This project can send a broadcast to up to ${humanFriendlyNumber(
                             blastRadius.limit
-                        )}. Add filters to narrow it, then launch again.`
+                        )} people right now. Add filters to narrow the audience, then launch again.`,
+                        {
+                            button: {
+                                label: 'See sending limits',
+                                action: () => router.actions.push(urls.workflows('reputation')),
+                            },
+                        }
                     )
                     return
                 }
