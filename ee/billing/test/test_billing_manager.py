@@ -984,7 +984,9 @@ class TestBillingSession(SimpleTestCase):
 class TestBillingProviderWebhookSigning(SimpleTestCase):
     def setUp(self):
         self.license = SimpleNamespace(key="license_id::license_secret")
-        self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))
+        self.organization = cast(
+            Organization, SimpleNamespace(id="org_123", name="Test Org", customer_id="cus_example")
+        )
 
     @override_settings(BILLING_PROVIDER_WEBHOOK_SECRET="test_webhook_secret")
     @patch("ee.billing.billing_manager.time.time", return_value=1700000000)
@@ -1110,7 +1112,7 @@ class TestBuildBillingToken(BaseTest):
     )
     def test_build_billing_token_payer_partner_claim(
         self, _name: str, pays_for_customers: bool | None, customer_id: str | None, expect_claim: bool
-    ):
+    ) -> None:
         application = None
         if pays_for_customers is not None:
             application = OAuthApplication.objects.create(
