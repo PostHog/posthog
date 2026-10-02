@@ -1,7 +1,7 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
-import { getToolInputProperties } from '@posthog/mcp-analytics'
+import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mcp-analytics'
 
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
@@ -535,27 +535,6 @@ export function describeExecCommand(command: string, isKnownToolName: (name: str
  *  caller's own text. */
 function isRecordableToolName(name: string, isKnownToolName: (name: string) => boolean): boolean {
     return isKnownToolName(name) || Object.prototype.hasOwnProperty.call(DEPRECATED_TOOL_REDIRECTS, name)
-}
-
-// Resolves the inner tool an `exec` call targets: given a request, return the
-// inner tool's { name, description } when the agent invoked it via
-// `call <tool> ...`, or undefined otherwise. Lives here (alongside
-// parseExecCallInnerToolName) so callers and tests share one factory.
-export function createExecInnerToolCallResolver(
-    allTools: ReadonlyArray<Tool<ZodObjectAny>>
-): (request: unknown) => { name: string; description: string } | undefined {
-    return (request: unknown) => {
-        const params = (request as { params?: { name?: unknown; arguments?: { command?: unknown } } })?.params
-        if (params?.name !== 'exec' || typeof params.arguments?.command !== 'string') {
-            return
-        }
-        const innerName = parseExecCallInnerToolName(params.arguments.command)
-        if (!innerName) {
-            return
-        }
-        const tool = allTools.find((t) => t.name === innerName)
-        return tool ? { name: tool.name, description: tool.description } : undefined
-    }
 }
 
 // Tools deleted from the MCP server. When the model attempts to call one,
@@ -1513,17 +1492,38 @@ export function describeValidationError(error: z.ZodError, schema: z.ZodType): {
     return { fields }
 }
 
+const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+const DIGIT_RUN_PATTERN = /\d{5}/
+const POSTHOG_TOKEN_PREFIX_PATTERN = /^ph[a-z]_/
+const CREDENTIAL_SEGMENT_MIN_LENGTH = 16
+
+function hasCredentialSegment(key: string): boolean {
+    return key.split('_').some((segment) => segment.length >= CREDENTIAL_SEGMENT_MIN_LENGTH && /\d/.test(segment))
+}
+
+/**
+ * Undeclared names come from the caller and can hold private data, so only parameter-shaped
+ * ones are recorded. The digit checks keep out phone numbers, IDs, and most tokens. The prefix
+ * check keeps out PostHog tokens, whose suffix can have no digits.
+ */
+const shouldRecordInputKey: ShouldRecordInputKeyFn = (key, { declared }) =>
+    declared ||
+    (PARAMETER_NAME_PATTERN.test(key) &&
+        !DIGIT_RUN_PATTERN.test(key) &&
+        !hasCredentialSegment(key) &&
+        !POSTHOG_TOKEN_PREFIX_PATTERN.test(key))
+
 /**
  * `$mcp_input_keys` and `$mcp_input_aliases_used` for one call, from the SDK helper, with no
  * values. The alias map comes from the schema's own `normalizeParamAliases` layers, so
  * alias names count as declared and each alias the normaliser relied on is recorded as
  * `alias:canonical`. The SDK owns the limits (20 names, 64 characters), declared-names-first
  * ordering, and dropping its injected `context`, `llm_model`, and `conversation_id` unless the
- * schema declares them. Undeclared names become one `[redacted]` marker because caller-controlled
- * names can contain credentials or personal data.
+ * schema declares them. `shouldRecordInputKey` decides which undeclared names are recorded.
  */
 export function describeInputShape(input: unknown, schema?: z.ZodType): Record<string, unknown> {
     return getToolInputProperties(input, schema, {
+        shouldRecordInputKey,
         inputAliases: schema ? readParamAliases(schema) : undefined,
     })
 }

@@ -58,12 +58,17 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
     return trailers
 }
 
-/** Human messages keep their own footer, and rows of an unfinished turn have no separator yet, so neither gets an entry. */
-export function mapRowsToTurnSeparator(items: ReadonlyArray<{ id: string; type: string }>): Map<string, string> {
+/**
+ * Maps each row to the group whose hover reveals its footer. A human message is its own group. An answer row belongs
+ * to its turn's separator, so hovering any row of the turn reveals the turn's trailer. Rows of an unfinished turn
+ * have no separator yet, so they get no entry.
+ */
+export function mapRowsToRevealGroup(items: ReadonlyArray<{ id: string; type: string }>): Map<string, string> {
     const membership = new Map<string, string>()
     let pending: string[] = []
     for (const item of items) {
         if (item.type === 'human_message') {
+            membership.set(item.id, item.id)
             pending = []
         } else if (item.type === 'turn_separator') {
             for (const id of pending) {

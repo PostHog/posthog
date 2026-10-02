@@ -742,6 +742,10 @@
     // over a modal opened after pinning.
     --z-chart-tooltip: var(--z-graph-tooltip);
 
+    // A popover that holds a chart sits one layer under chart tooltips, which portal to the body,
+    // so the chart's tooltip shows on top of it. It stays above --z-modal.
+    --z-popover-with-chart: calc(var(--z-graph-tooltip) - 1);
+
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code
     // this allows us to place some modals on top of others

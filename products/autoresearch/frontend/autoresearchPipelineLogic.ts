@@ -458,6 +458,9 @@ export interface autoresearchPipelineLogicActions {
     pollScoreRun: () => {
         value: true
     }
+    reportNotebookOpened: (runId: string) => {
+        runId: string
+    }
     resumePipeline: () => any
     resumePipelineFailure: (
         error: string,
@@ -605,6 +608,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
+        reportNotebookOpened: (runId: string) => ({ runId }),
         setSuggestionDraft: (draft: string) => ({ draft }),
         setSuggestionPriority: (priority: CreateSuggestionPriorityEnumApi) => ({ priority }),
         setActiveScoreRun: (run: AutoresearchRunApi | null) => ({ run }),
@@ -1163,6 +1167,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                     actions.loadRunReport({ runId })
                 }
             }
+        },
+        reportNotebookOpened: ({ runId }) => {
+            posthog.capture('autoresearch model report notebook opened', { pipeline_id: props.id, run_id: runId })
         },
     })),
     actionToUrl(({ values }) => ({

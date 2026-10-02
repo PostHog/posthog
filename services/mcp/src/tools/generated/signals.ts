@@ -226,6 +226,41 @@ const inboxReportChecksList = (): ToolBase<
     },
 })
 
+const InboxReportChecksReplaceSchema = () => {
+    const SignalsReportChecksReplaceCreateBody = orvalSchemas.SignalsReportChecksReplaceCreateBody()
+    const SignalsReportChecksReplaceCreateParams = orvalSchemas.SignalsReportChecksReplaceCreateParams()
+    return SignalsReportChecksReplaceCreateParams.omit({ project_id: true }).extend(
+        SignalsReportChecksReplaceCreateBody.shape
+    )
+}
+
+const inboxReportChecksReplace = (): ToolBase<
+    ReturnType<typeof InboxReportChecksReplaceSchema>,
+    Schemas.SignalReportCheck
+> => ({
+    name: 'inbox-report-checks-replace',
+    schema: InboxReportChecksReplaceSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportChecksReplaceSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.rationale !== undefined) {
+            body['rationale'] = params.rationale
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
+        const result = await context.api.request<Schemas.SignalReportCheck>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.report_id))}/checks/${encodeURIComponent(String(params.id))}/replace/`,
+            body,
+        })
+        return result
+    },
+})
+
 const InboxReportChecksRetrieveSchema = () => {
     const SignalsReportChecksRetrieveParams = orvalSchemas.SignalsReportChecksRetrieveParams()
     return SignalsReportChecksRetrieveParams.omit({ project_id: true })
@@ -352,6 +387,7 @@ const inboxReportsList = (): ToolBase<
                 assignee: params.assignee,
                 channel_id: params.channel_id,
                 count_only: params.count_only,
+                created_after: params.created_after,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 include_source_metadata: params.include_source_metadata,
@@ -2428,6 +2464,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-report-checks-create': inboxReportChecksCreate,
     'inbox-report-checks-list': inboxReportChecksList,
+    'inbox-report-checks-replace': inboxReportChecksReplace,
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,

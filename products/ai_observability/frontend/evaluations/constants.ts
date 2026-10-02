@@ -21,11 +21,14 @@ const EVALUATION_RESULT_FALSE_HOGQL = "properties.$ai_evaluation_result = 'false
 export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
-export function numericOutputConfigError(config: EvaluationOutputConfig): string | null {
+export function numericOutputConfigError(config: EvaluationOutputConfig, requiresBounds = false): string | null {
     const { min, max, step } = config
     const passing_rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
     if ([min, max, step, passing_rule?.threshold].some((value) => value != null && !Number.isFinite(value))) {
         return 'Enter finite numbers for the score bounds, step, and threshold.'
+    }
+    if (requiresBounds && (min == null || max == null || min >= max)) {
+        return 'System One numeric evaluations require a minimum score below the maximum score.'
     }
     if (min != null && max != null && min > max) {
         return 'Minimum must be less than or equal to maximum.'
@@ -85,7 +88,7 @@ export function evaluationPassedHogQLForMany(detectorEvaluationIds: string[]): s
 }
 
 export function formatNumericEvaluationScore(score: number): string {
-    return Number(Math.abs(score) >= 1 ? score.toFixed(6) : score.toPrecision(6)).toString()
+    return Number(Math.abs(score) >= 1 ? score.toFixed(2) : score.toPrecision(2)).toString()
 }
 
 export function numericScorePasses(

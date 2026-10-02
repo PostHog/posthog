@@ -16,11 +16,17 @@ from products.alerts.backend.facade.contracts import (
 )
 from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, upsert_configuration
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
 
 
 class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        # History rows outlive the run that wrote them, while Postgres reissues the same team ids,
+        # so a test reads another run's checks unless the table starts empty. The sharded table,
+        # because a truncate of the distributed one in front of it reports success and clears
+        # nothing.
+        sync_execute(f"TRUNCATE TABLE IF EXISTS {SHARDED_PLATFORM_ALERT_EVENTS_TABLE}")
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
         with team_scope(self.team.id):
             self.configuration = PlatformAlertConfiguration.objects.create(

@@ -3,12 +3,13 @@ import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { TraceScene } from '../TraceScene'
-import { makeEvent, makeTrace } from './testFixtures'
+import { makeEvent, makeTrace, makeTraceResource } from './testFixtures'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../../utils', () => ({
@@ -40,6 +41,7 @@ describe('TraceScene', () => {
                 resolveQuery = resolve
             })
         )
+        useMocks({ get: { '/api/projects/:team_id/ai_observability/traces/:id/': () => [200, makeTraceResource()] } })
         aiObservabilityTraceLogic.mount()
         router.actions.push(urls.aiObservabilityTrace('trace-1'))
 

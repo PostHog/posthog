@@ -106,6 +106,24 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class AudienceSize:
+    """How many recipients a batch audience matches, and the most a batch trigger may send to."""
+
+    affected: int
+    total: int
+    limit: int
+    dedupe_key: str | None
+
+
+@frozen
+class AudiencePage:
+    """One cursor-paginated page of a batch audience: person, group or account ids."""
+
+    ids: list[str]
+    has_more: bool
+
+
+@frozen
 class EmailSendingTierLimits:
     """What a trust tier allows: two send-rate caps and a maximum batch audience."""
 
@@ -179,6 +197,14 @@ class WorkflowTemplate:
     actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
     variables: list[dict[str, Any]] | None
+
+
+@frozen
+class FunctionTemplateSchema:
+    """The parts of a cdp function template that a workflow step validates its inputs against."""
+
+    type: str
+    inputs_schema: list[dict[str, Any]] | None
 
 
 # The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint

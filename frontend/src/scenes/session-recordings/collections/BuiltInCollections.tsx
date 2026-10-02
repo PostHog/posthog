@@ -5,7 +5,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
-import { COLUMN_WIDTHS, countColumn, nameColumn, progressColumn, watchNextColumn } from './collectionColumns'
+import { COLUMN_WIDTHS, countColumn, nameColumn, watchNextColumn } from './collectionColumns'
 import { CollectionSectionHeading } from './CollectionSectionHeading'
 
 const BUILT_IN_ICONS: Record<string, JSX.Element> = {
@@ -31,7 +31,6 @@ const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
     countColumn(),
     nameColumn(),
     { width: COLUMN_WIDTHS.createdBy + COLUMN_WIDTHS.lastModified, render: () => null },
-    progressColumn(),
     watchNextColumn(),
     { width: COLUMN_WIDTHS.actions, render: () => null },
 ]
