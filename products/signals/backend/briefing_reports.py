@@ -26,6 +26,7 @@ from products.signals.backend.implementation_pr import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_charts import ReportChartSnapshot, saved_charts
 from products.signals.backend.report_claims import reports_with_active_claim
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metrics import ReportMetricSnapshot, saved_metric_snapshots
 from products.signals.backend.signal_metadata import fetch_source_products_for_reports
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
@@ -301,12 +302,15 @@ def _trimmed(text: str | None, limit: int) -> str:
     return " ".join((text or "").split())[:limit]
 
 
-_MARKDOWN_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}\s.*$", re.MULTILINE)
+_MARKDOWN_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}(?:[ \t].*)?$", re.MULTILINE)
 # A `chart:` link places a chart in the report body. Plain text has no chart to place, so the link goes.
-_MARKDOWN_CHART_LINK = re.compile(r"\[[^\]]*\]\(chart:[^)]*\)")
-_MARKDOWN_CHART_ID = re.compile(r"\]\(chart:([^)\s]+)\)")
-_MARKDOWN_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_MARKDOWN_EMPHASIS = re.compile(r"\*\*|__|`")
+# Load-bearing: the label and destination classes exclude `[`. Without that, a summary of unclosed
+# brackets makes each start position rescan the rest of the text, which costs seconds per summary.
+_MARKDOWN_CHART_LINK = re.compile(r"\[[^\[\]]*\]\(chart:[^)\[]*\)")
+_MARKDOWN_CHART_ID = re.compile(r"\]\(chart:([^)\s\[]+)\)")
+_MARKDOWN_LINK = re.compile(r"\[([^\[\]]*)\]\([^)\[]*\)")
+# Only `**` and backticks: `__` also appears inside identifiers such as `__init__` or `team__id`.
+_MARKDOWN_EMPHASIS = re.compile(r"\*\*|`")
 
 
 def summary_lead(summary: str | None, limit: int) -> str:
@@ -326,10 +330,13 @@ def _charts_by_reference(charts: list[ReportChartSnapshot], summary: str | None)
     return sorted(charts, key=lambda chart: rank.get(chart.chart_id, len(rank)))
 
 
-def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingReportDetails]:
+def report_details(
+    *, team_id: int, report_ids: Sequence[str], metric_access: ReportMetricAccessPolicy
+) -> list[BriefingReportDetails]:
     """Current status, priority, summary, implementation PR and metric snapshots of the given reports.
 
     A briefing written earlier reads these live, so it shows which reports are done and what changed.
+    Only the metrics whose snapshot `metric_access` lets the viewer read are returned, as in the Inbox.
     """
     if not report_ids:
         return []
@@ -357,7 +364,7 @@ def report_details(*, team_id: int, report_ids: Sequence[str]) -> list[BriefingR
                 pull_request_url=pull_request.url if pull_request else None,
                 signal_count=report.signal_count,
                 updated_at=report.updated_at,
-                metrics=saved_metric_snapshots(report.metrics),
+                metrics=saved_metric_snapshots(report.metrics, metric_access),
                 charts=_charts_by_reference(saved_charts(report.charts), report.summary),
             )
         )

@@ -1,5 +1,8 @@
 import json
+import time
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from typing import cast
 
 from posthog.test.base import BaseTest
 
@@ -7,6 +10,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.request import Request
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
@@ -18,6 +22,7 @@ from products.signals.backend.briefing_reports import (
     summary_lead,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 
@@ -93,13 +98,23 @@ class TestReportsForBriefing(BaseTest):
         ]
         report.save(update_fields=["metrics", "charts", "summary"])
 
-        [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)])
+        viewer = ReportMetricAccessPolicy(
+            request=cast(Request, SimpleNamespace(user=self.user, successful_authenticator=None)), team=self.team
+        )
+        [details] = report_details(team_id=self.team.id, report_ids=[str(report.id)], metric_access=viewer)
+        # Without a viewer the policy reads nothing, so the briefing must hide every metric, as the Inbox does.
+        [unreadable] = report_details(
+            team_id=self.team.id,
+            report_ids=[str(report.id)],
+            metric_access=ReportMetricAccessPolicy(request=None, team=self.team),
+        )
 
         assert (details.status, details.priority, details.pull_request_state) == ("ready", "P0", None)
         assert [(m.metric_id, m.value, m.series, m.query) for m in details.metrics] == [
             ("measured", 17, [3.0, 9.0, 17.0], query)
         ]
         assert [(c.chart_id, c.query) for c in details.charts] == [("form-errors", query), ("page-leaves", query)]
+        assert unreadable.metrics == []
 
     def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
         shown_open = self._urgent_report("Shown, still open")
@@ -183,6 +198,12 @@ class TestSummaryLead(SimpleTestCase):
             ("plain text", "Signups fail.\nPeople leave.", "Signups fail. People leave."),
             ("stops at a section", "Signups fail.\n\n## Impact\nNew teams cannot sign up.", "Signups fail."),
             ("skips an opening heading", "## Summary\nSignups fail.\n## Impact\nMore.", "Signups fail."),
+            ("skips a bare opening heading", "##\nSignups fail.", "Signups fail."),
+            (
+                "keeps underscores in identifiers",
+                "The `__init__` method sets `feature__enabled` to false.",
+                "The __init__ method sets feature__enabled to false.",
+            ),
             ("a hash inside a line stays", "Issue #42 ## fails", "Issue #42 ## fails"),
             (
                 "drops chart links and keeps link text",
@@ -194,3 +215,9 @@ class TestSummaryLead(SimpleTestCase):
     )
     def test_summary_lead(self, _name: str, summary: str | None, expected: str) -> None:
         assert summary_lead(summary, 300) == expected
+
+    @parameterized.expand([("unclosed labels", "[" * 20_000), ("unclosed destinations", "[a](" * 5_000)])
+    def test_summary_lead_stays_fast_on_unclosed_links(self, _name: str, summary: str) -> None:
+        started = time.perf_counter()
+        summary_lead(summary, 450)
+        assert time.perf_counter() - started < 0.5

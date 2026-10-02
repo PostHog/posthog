@@ -69,7 +69,8 @@ export function TodayPreviewCardProvider({ children }: { children: ReactNode }):
                             <PreviewCard.Positioner
                                 data-quill
                                 data-quill-portal="popover"
-                                className="z-[var(--z-popover-with-chart)]"
+                                // Quill's portal rule reads this token and wins over a z-index utility class.
+                                className="[--quill-z-popover:var(--z-popover-with-chart)]"
                                 {...placement(payload)}
                             >
                                 {/* Inside the popup, not its `render`: on React 18 quill's Card takes no ref. */}

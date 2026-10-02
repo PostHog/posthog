@@ -18207,7 +18207,7 @@ export namespace Schemas {
          * @nullable
          */
       source_product: string | null;
-      /** For a report, its priority, summary, implementation pull request and metric snapshots. Null for every other item. */
+      /** For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report. */
       report: BriefingItemReport | null;
       group: TodayItemGroupEnum;
       source: TodayItemSourceEnum;

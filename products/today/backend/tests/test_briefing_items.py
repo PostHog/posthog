@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -17,6 +17,7 @@ RESOLVED_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000001")
 DISMISSED_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000002")
 OPEN_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000003")
 MISSING_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000004")
+DELETED_REPORT = uuid.UUID("00000000-0000-4000-8000-000000000005")
 
 
 def _item(report_id: uuid.UUID) -> FactSheetItem:
@@ -61,7 +62,13 @@ def _report_details(report_id: uuid.UUID, status: str) -> signals.BriefingReport
 
 class TestBriefingItemStates(SimpleTestCase):
     def test_items_show_what_was_resolved_or_dismissed_since_the_briefing_was_written(self) -> None:
-        items = [_item(RESOLVED_REPORT), _item(DISMISSED_REPORT), _item(OPEN_REPORT), _item(MISSING_REPORT)]
+        items = [
+            _item(RESOLVED_REPORT),
+            _item(DISMISSED_REPORT),
+            _item(OPEN_REPORT),
+            _item(MISSING_REPORT),
+            _item(DELETED_REPORT),
+        ]
         briefing = DailyBriefing(
             id=uuid.uuid4(),
             team_id=1,
@@ -81,6 +88,7 @@ class TestBriefingItemStates(SimpleTestCase):
                     _report_details(RESOLVED_REPORT, "resolved"),
                     _report_details(DISMISSED_REPORT, "suppressed"),
                     _report_details(OPEN_REPORT, "ready"),
+                    _report_details(DELETED_REPORT, "deleted"),
                 ],
             ),
             patch.object(
@@ -89,13 +97,14 @@ class TestBriefingItemStates(SimpleTestCase):
                 return_value=signals.OpenReportCounts(for_person=0, in_project=0),
             ),
         ):
-            contract = briefings.to_contract(briefing, Team(id=1), User(id=1))
+            contract = briefings.to_contract(briefing, Team(id=1), User(id=1), metric_access=MagicMock())
 
         assert {item.key: item.state for item in contract.items} == {
             f"report:{RESOLVED_REPORT}": ItemState.DONE,
             f"report:{DISMISSED_REPORT}": ItemState.DISMISSED,
             f"report:{OPEN_REPORT}": ItemState.OPEN,
             f"report:{MISSING_REPORT}": ItemState.OPEN,
+            f"report:{DELETED_REPORT}": ItemState.DISMISSED,
         }
         report = next(item.report for item in contract.items if item.key == f"report:{RESOLVED_REPORT}")
         assert report is not None
@@ -104,4 +113,5 @@ class TestBriefingItemStates(SimpleTestCase):
             "merged",
             [(42.0, {"kind": "InsightVizNode"})],
         )
-        assert next(item.report for item in contract.items if item.key == f"report:{MISSING_REPORT}") is None
+        reports_without_details = [item.key for item in contract.items if item.report is None]
+        assert reports_without_details == [f"report:{MISSING_REPORT}", f"report:{DELETED_REPORT}"]

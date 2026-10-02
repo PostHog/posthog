@@ -10,7 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode, InsightVizNode, Node, SavedInsightNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode } from '~/queries/utils'
+import { isDataVisualizationNode, isInsightVizNode, isSavedInsightNode, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { ReportChartApi, SizeEnumApi } from 'products/signals/frontend/generated/api.schemas'
@@ -154,16 +154,28 @@ function SavedInsightChartBody({ query, uniqueKey }: { query: SavedInsightNode; 
  * be handed something it cannot draw. That degrades to `Query`'s own error boundary rather than
  * taking the report down with it.
  */
+// Displays that are not a graph over time: they need more room than a compact surface has.
+const NON_GRAPH_DISPLAYS = new Set<string | undefined>([
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.WorldMap,
+])
+
 /**
- * The chart's query as a bare graph for a compact surface, or null when it is not a graph. A saved
- * insight loads through its own scene logic, and a table or a single number needs more room.
+ * The chart's query as a bare graph for a compact surface, or null when it is not a graph. Only trends
+ * and SQL graphs qualify: a saved insight loads through its own scene logic, retention and paths draw a
+ * grid or a fan of rows, and a table or a single number needs more room.
  */
 export function reportChartGraphQuery(chart: ReportChartApi): Node | null {
     if (!chart.query || typeof chart.query !== 'object') {
         return null
     }
     const query = asEmbeddedChart(chart.query as Record<string, any>)
-    return isInsightVizNode(query) || isGraphicalSqlNode(query) ? query : null
+    if (isInsightVizNode(query)) {
+        const { source } = query as InsightVizNode
+        return isTrendsQuery(source) && !NON_GRAPH_DISPLAYS.has(source.trendsFilter?.display) ? query : null
+    }
+    return isGraphicalSqlNode(query) && !NON_GRAPH_DISPLAYS.has((query as DataVisualizationNode).display) ? query : null
 }
 
 /** Looks the chart up on the report being shown (`ReportChartsContext`). Replay Vision reads reports

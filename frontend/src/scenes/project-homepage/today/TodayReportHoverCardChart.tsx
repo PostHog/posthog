@@ -25,7 +25,8 @@ export function TodayReportHoverCardChart({
                 {chart.title}
             </Text>
             <div className={`flex flex-col ${OBSERVATION_CHART_HEIGHT_CLASS}`}>
-                <Query query={query} uniqueKey={uniqueKey} readOnly embedded />
+                {/* Keyed, so moving to another report's card does not reuse this chart's query logic. */}
+                <Query key={uniqueKey} query={query} uniqueKey={uniqueKey} readOnly embedded />
             </div>
         </div>
     )

@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import type { BriefingApi } from 'products/today/frontend/generated/api.schemas'
+import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
 import { BRIEFING_POLL_MS, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
@@ -155,9 +155,32 @@ describe('todayLogic', () => {
             .toMatchValues({ briefingProgress: expected })
     })
 
-    it('gives a hover card to the reports of both lists', async () => {
+    it('gives a hover card to the reports of both lists, and only to items with report details', async () => {
+        const [item] = makeBriefing().items
+        const report: BriefingItemReportApi = {
+            priority: 'P1',
+            summary: 'Signups fail for plus-addressed emails.',
+            pull_request_state: null,
+            pull_request_url: null,
+            signal_count: 3,
+            updated_at: '2026-09-30T08:00:00Z',
+            metrics: [],
+            charts: [],
+        }
         listResponse = [200, { results: [makeReport({ id: 'team-a' })], count: 1 }]
-        briefingResponses = [[200, makeBriefing()]]
+        briefingResponses = [
+            [
+                200,
+                makeBriefing({
+                    items: [
+                        { ...item, report },
+                        // A deleted report, and an item from an older briefing that is not a report.
+                        { ...item, key: 'report:deleted', state: 'dismissed' },
+                        { ...item, key: 'dashboard:12', group: 'dashboard', reason: 'dashboard_you_viewed' },
+                    ],
+                }),
+            ],
+        ]
         const logic = todayLogic()
         logic.mount()
 

@@ -20,13 +20,16 @@ import math
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from posthog.hogql.errors import BaseHogQLError
 
 from products.signals.backend.report_charts import validate_report_query
+
+if TYPE_CHECKING:
+    from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 
 logger = logging.getLogger(__name__)
 
@@ -725,13 +728,17 @@ class ReportMetricSnapshot(BaseModel):
     query: dict[str, Any] = Field(default_factory=dict)
 
 
-def saved_metric_snapshots(raw_metrics: object) -> list[ReportMetricSnapshot]:
-    """The metrics in a report's stored `metrics` list that have a saved value. Malformed entries are skipped."""
+def saved_metric_snapshots(raw_metrics: object, metric_access: ReportMetricAccessPolicy) -> list[ReportMetricSnapshot]:
+    """The metrics in a report's stored `metrics` list that have a saved value the viewer may read.
+
+    Malformed entries are skipped. A snapshot the viewer may not read is left out entirely, because it
+    carries both the userless value and the query definition the Inbox redacts for that viewer.
+    """
     if not isinstance(raw_metrics, list):
         return []
     snapshots: list[ReportMetricSnapshot] = []
     for raw in raw_metrics:
-        if not isinstance(raw, dict) or raw.get("value") is None:
+        if not isinstance(raw, dict) or raw.get("value") is None or not metric_access.may_read_snapshot(raw):
             continue
         try:
             snapshots.append(ReportMetricSnapshot.model_validate(raw))

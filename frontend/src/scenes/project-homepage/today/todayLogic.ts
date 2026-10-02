@@ -485,7 +485,10 @@ export const todayLogic = kea<todayLogicType>([
             (
                 briefingItems: BriefingItemApi[]
             ): Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>> =>
-                previewsBySurface(briefingItems.map((item) => [item.key, briefingItemReportCard(item)])),
+                // Only items with report details: other items, and deleted reports, have nothing to show.
+                previewsBySurface(
+                    briefingItems.filter((item) => item.report).map((item) => [item.key, briefingItemReportCard(item)])
+                ),
         ],
         // The team's reports stand in until the personal briefing is written, and get the same card.
         teamReportPreviews: [

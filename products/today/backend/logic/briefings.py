@@ -29,7 +29,12 @@ VIEW_STAMP_EVERY = timedelta(hours=1)
 
 logger = structlog.get_logger(__name__)
 
-_REPORT_STATES = {"resolved": ItemState.DONE, "suppressed": ItemState.DISMISSED, "deleted": ItemState.DISMISSED}
+_DELETED_REPORT_STATUS = "deleted"
+_REPORT_STATES = {
+    "resolved": ItemState.DONE,
+    "suppressed": ItemState.DISMISSED,
+    _DELETED_REPORT_STATUS: ItemState.DISMISSED,
+}
 
 
 def start_generation(briefing: DailyBriefing) -> None:
@@ -190,12 +195,14 @@ def _inbox_counts(team: Team, user: User, shown: list[FactSheetItem]) -> InboxCo
     return InboxCounts(more_for_you=counts.for_person, open_in_project=counts.in_project)
 
 
-def _report_details(team: Team, items: list[FactSheetItem]) -> dict[str, signals.BriefingReportDetails]:
+def _report_details(
+    team: Team, items: list[FactSheetItem], metric_access: signals.ReportMetricAccessPolicy
+) -> dict[str, signals.BriefingReportDetails]:
     report_ids = [item.key.split(":", 1)[1] for item in items if item.key.startswith("report:")]
     if not report_ids:
         return {}
     try:
-        details = signals.report_details(team_id=team.id, report_ids=report_ids)
+        details = signals.report_details(team_id=team.id, report_ids=report_ids, metric_access=metric_access)
     except Exception as error:
         capture_exception(error, {"team_id": team.id, "product": "today"})
         return {}
@@ -207,7 +214,10 @@ def _live_states(reports: dict[str, signals.BriefingReportDetails]) -> dict[str,
     return {key: _REPORT_STATES[detail.status] for key, detail in reports.items() if detail.status in _REPORT_STATES}
 
 
-def _report_contract(detail: signals.BriefingReportDetails) -> contracts.BriefingItemReport:
+def _report_contract(detail: signals.BriefingReportDetails) -> contracts.BriefingItemReport | None:
+    # A deleted report keeps its state on the item, but none of its content, as in the Inbox.
+    if detail.status == _DELETED_REPORT_STATUS:
+        return None
     return contracts.BriefingItemReport(
         priority=detail.priority,
         summary=detail.summary,
@@ -237,17 +247,23 @@ def _report_contract(detail: signals.BriefingReportDetails) -> contracts.Briefin
 
 
 def to_contract(
-    briefing: DailyBriefing, team: Team, user: User, *, status: BriefingStatus | None = None
+    briefing: DailyBriefing,
+    team: Team,
+    user: User,
+    *,
+    metric_access: signals.ReportMetricAccessPolicy,
+    status: BriefingStatus | None = None,
 ) -> contracts.Briefing:
     """The briefing as the page shows it: only the items the text names, with live states and counts.
 
     `status` overrides the row's own: while a newer briefing is being written, the
     page gets the last ready one as `writing`, so it keeps showing the text and keeps polling.
+    `metric_access` is the viewer's access to report metrics, so the briefing hides what the Inbox hides.
     """
     fact_sheet = stored_fact_sheet(briefing)
     shown = fact_sheet.items if fact_sheet else []
     content = BriefingContent.model_validate(briefing.content or {})
-    reports = _report_details(team, shown)
+    reports = _report_details(team, shown, metric_access)
     states = _live_states(reports)
     counts = _inbox_counts(team, user, shown)
     return contracts.Briefing(

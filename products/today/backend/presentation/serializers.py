@@ -116,7 +116,7 @@ class BriefingItemSerializer(DataclassSerializer):
     )
     report = BriefingItemReportSerializer(
         allow_null=True,
-        help_text="For a report, its priority, summary, implementation pull request and metric snapshots. Null for every other item.",
+        help_text="For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report.",
     )
 
     class Meta:
