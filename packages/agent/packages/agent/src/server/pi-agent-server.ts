@@ -162,7 +162,7 @@ export class PiAgentServer {
   private runUsage = new RunUsageAccumulator();
   private modelContextWindow: number | null = null;
   private contextSelectionEnabled = false;
-  private contextSelectionNeedsReset = false;
+  private contextSelectionFailed = false;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -610,6 +610,7 @@ export class PiAgentServer {
     const runState = taskRun?.state;
     this.contextSelectionEnabled =
       runState?.context_selection_eligible === true;
+    this.contextSelectionFailed = false;
     seedRunUsage(this.runUsage, runState?.token_usage);
     // Before the prompt: its skills-store section counts the stubs on disk.
     const storeSkillsInstalledCount = await syncStoreSkills(
@@ -905,15 +906,22 @@ export class PiAgentServer {
         }
         if (
           this.contextSelectionEnabled &&
+          !this.contextSelectionFailed &&
           (command.type === "prompt" ||
             command.type === "follow_up" ||
             command.type === "steer") &&
           "message" in command &&
           typeof command.message === "string"
         ) {
-          await client.blockContextText(command.message);
+          try {
+            await client.blockContextText(command.message);
+          } catch (error) {
+            this.disableContextSelection(error);
+          }
         }
-        const result = await runtime.sendCommand(command);
+        const result = await runtime.sendCommand(
+          this.contextSelectionCommand(command),
+        );
         if (MODEL_CHANGING_RPC_COMMANDS.has(command.type)) {
           await this.refreshModelContextWindow(client);
         }
@@ -1013,6 +1021,22 @@ export class PiAgentServer {
     };
   }
 
+  private disableContextSelection(error: unknown): void {
+    this.contextSelectionFailed = true;
+    this.logger.debug(
+      "Context selection disabled after input bookkeeping failure",
+      { error },
+    );
+  }
+
+  private contextSelectionCommand(command: RpcCommand): RpcCommand & {
+    posthog_context_selection_disabled?: true;
+  } {
+    return this.contextSelectionFailed
+      ? { ...command, posthog_context_selection_disabled: true }
+      : command;
+  }
+
   private async dispatchUserMessage(
     runtime: PiRuntime,
     content: string,
@@ -1021,26 +1045,17 @@ export class PiAgentServer {
     steer: boolean,
   ): Promise<unknown> {
     const send = async (type: "prompt" | "follow_up" | "steer") => {
-      if (this.contextSelectionEnabled && this.contextSelectionNeedsReset) {
-        await runtime.client.clearContextInputs();
-        this.contextSelectionNeedsReset = false;
-      }
-      if (this.contextSelectionEnabled && type === "steer") {
-        await runtime.client.blockContextText(content);
-      }
       let registered = false;
-      if (this.contextSelectionEnabled && type !== "steer") {
+      if (this.contextSelectionEnabled && !this.contextSelectionFailed) {
         try {
-          await runtime.client.registerContextInput(id, content);
-          registered = true;
+          if (type === "steer") {
+            await runtime.client.blockContextText(content);
+          } else {
+            await runtime.client.registerContextInput(id, content);
+            registered = true;
+          }
         } catch (error) {
-          this.logger.debug("Context selection registration failed", {
-            messageId: id,
-            error,
-          });
-          this.contextSelectionNeedsReset = true;
-          await runtime.client.clearContextInputs();
-          this.contextSelectionNeedsReset = false;
+          this.disableContextSelection(error);
         }
       }
       const unregister = async () => {
@@ -1048,29 +1063,18 @@ export class PiAgentServer {
         try {
           await runtime.client.registerContextInput(id, null);
         } catch (error) {
-          this.logger.debug("Context selection cleanup failed", {
-            messageId: id,
-            error,
-          });
-          this.contextSelectionNeedsReset = true;
-          try {
-            await runtime.client.clearContextInputs();
-            this.contextSelectionNeedsReset = false;
-          } catch (resetError) {
-            this.logger.debug("Context selection reset failed", {
-              messageId: id,
-              error: resetError,
-            });
-          }
+          this.disableContextSelection(error);
         }
       };
       try {
-        const response = await runtime.sendCommand({
-          id,
-          type,
-          message: content,
-          images,
-        });
+        const response = await runtime.sendCommand(
+          this.contextSelectionCommand({
+            id,
+            type,
+            message: content,
+            images,
+          }),
+        );
         if (response?.success === false) await unregister();
         return response;
       } catch (error) {

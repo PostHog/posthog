@@ -1,3 +1,5 @@
+import { createInterface } from "node:readline";
+import { PassThrough } from "node:stream";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   ExtensionAPI,
@@ -6,7 +8,10 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { PostHogAPIClient } from "../posthog-api";
-import { PiContextSelection } from "./context-selection";
+import {
+  observeContextSelectionFallback,
+  PiContextSelection,
+} from "./context-selection";
 import { POSTHOG_PI_QUEUE_ENTRY_TYPE } from "./queue-persistence";
 
 const user = (text: string, timestamp = 1): AgentMessage => ({
@@ -87,6 +92,67 @@ function fixture(entries: ReturnType<SessionManager["getEntries"]> = []) {
 }
 
 describe("Pi context selection", () => {
+  it.each([false, true])(
+    "discards uncertain registrations before native commands (split UTF-8 %s)",
+    async (split) => {
+      const { selector, api, context } = fixture();
+      const text = "activation 🌽";
+      selector.register("uncertain", text);
+      const input = new PassThrough();
+      observeContextSelectionFallback(input, selector);
+      expect(input.readableFlowing).not.toBe(true);
+      const nativeReader = createInterface({ input });
+      const delivery = new Promise<Awaited<ReturnType<typeof context>>>(
+        (resolve) => {
+          nativeReader.once("line", async () =>
+            resolve(await context([user(text)])),
+          );
+        },
+      );
+      try {
+        const command = Buffer.from(
+          `${JSON.stringify({ type: "prompt", message: text, posthog_context_selection_disabled: true })}\r\n`,
+        );
+        const boundary = split
+          ? command.indexOf(Buffer.from("🌽")) + 1
+          : command.length;
+        input.write(command.subarray(0, boundary));
+        input.write(command.subarray(boundary));
+        expect((await delivery)?.messages).toEqual([user(text)]);
+        selector.register("late-registration", "another request");
+        await context([user("another request", 2)]);
+        expect(api.prepareContextSelection).not.toHaveBeenCalled();
+      } finally {
+        nativeReader.close();
+        input.destroy();
+      }
+    },
+  );
+
+  it("drops context prepared while selection is being disabled", async () => {
+    const { selector, api, context } = fixture();
+    const prepared =
+      Promise.withResolvers<
+        Awaited<ReturnType<PostHogAPIClient["prepareContextSelection"]>>
+      >();
+    api.prepareContextSelection.mockReturnValueOnce(prepared.promise);
+    selector.register("human-1", "activation");
+    const pending = context([user("activation")]);
+    selector.disable();
+    prepared.resolve({
+      selection_id: "s",
+      context: "Useful definition",
+      mode: "treatment",
+      reason: "selected",
+    });
+    expect((await pending)?.messages).toEqual([user("activation")]);
+    expect(
+      api.recordContextSelectionReceipt.mock.calls.at(-1)?.[0],
+    ).toMatchObject({
+      status: "failed",
+      stop_reason: "selection_disabled",
+    });
+  });
   it.each(["stop", "error", "aborted"] as const)(
     "archives native context and the model outcome (%s)",
     async (stopReason) => {

@@ -41,7 +41,6 @@ export type PiRpcClient = RpcClient & {
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
   registerContextInput(id: string, text: string | null): Promise<void>;
-  clearContextInputs(): Promise<void>;
   blockContextText(text: string): Promise<void>;
   onMcpToolPermissionRequest(
     listener: (request: McpToolPermissionRequest) => void,
@@ -161,7 +160,6 @@ interface PiHostRequest {
     | "get_queue"
     | "clear_queue"
     | "register_context_input"
-    | "clear_context_inputs"
     | "block_context_text";
   contextInput?: { id: string; text: string | null };
   contextText?: string;
@@ -348,10 +346,6 @@ class SecurePiRpcClient extends RpcClient {
 
   async registerContextInput(id: string, text: string | null): Promise<void> {
     await this.sendHostRequest("register_context_input", { id, text });
-  }
-
-  async clearContextInputs(): Promise<void> {
-    await this.sendHostRequest("clear_context_inputs");
   }
 
   async blockContextText(text: string): Promise<void> {

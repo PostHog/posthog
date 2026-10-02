@@ -10,6 +10,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.postgres.search import SearchVector
+from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
 
 import httpx
@@ -23,6 +24,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.context_layer.backend.facade.api import context_selection_enabled_for_run
 from products.context_layer.backend.models import (
     ContextSelectionAttempt,
     ContextSelectionSearchDocument,
@@ -171,6 +173,12 @@ class TestSelectionOrchestration(SimpleTestCase):
         team = Team(id=42, organization=Organization(id=uuid4()))
         task = Task(id=uuid4(), team=team, origin_product="posthog_ai")
         self.task_run = TaskRun(id=uuid4(), team=team, task=task, environment="cloud")
+
+    @parameterized.expand([("database", DatabaseError), ("missing_run", TaskRun.DoesNotExist)])
+    @patch("products.tasks.backend.models.TaskRun.objects.select_related")
+    def test_startup_eligibility_failure_disables_selection(self, name, error_type, lookup) -> None:
+        lookup.return_value.get.side_effect = error_type("unavailable")
+        self.assertFalse(context_selection_enabled_for_run(self.task_run.team_id, self.task_run.id, self.actor))
 
     @patch("products.context_layer.backend.selection_service.get_feature_flag_or_none", return_value="treatment")
     def test_assignment_uses_conversation_and_requires_internal_staff(self, flag) -> None:

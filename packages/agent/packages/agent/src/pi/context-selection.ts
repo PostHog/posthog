@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   ExtensionFactory,
@@ -17,6 +18,34 @@ export interface PiContextSelectionConfig {
   projectId: number;
   runId: string;
   runtimeVersion: string;
+}
+
+export function observeContextSelectionFallback(
+  input: NodeJS.ReadableStream,
+  selector: PiContextSelection,
+): void {
+  const decoder = new StringDecoder("utf8");
+  let buffer = "";
+  const onData = (chunk: Buffer | string): void => {
+    buffer += typeof chunk === "string" ? chunk : decoder.write(chunk);
+    let newline = buffer.indexOf("\n");
+    while (newline !== -1) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      try {
+        const command = JSON.parse(line);
+        if (command?.posthog_context_selection_disabled === true) {
+          selector.disable();
+          input.off("data", onData);
+          return;
+        }
+      } catch {
+        // Pi's native RPC reader handles malformed commands.
+      }
+      newline = buffer.indexOf("\n");
+    }
+  };
+  input.prependListener("data", onData);
 }
 
 interface PiContextInput {
@@ -42,6 +71,7 @@ function messageText(message: AgentMessage): string {
 export class PiContextSelection {
   readonly extension: { name: string; factory: ExtensionFactory };
   private pending: { id: string; hash: string }[] = [];
+  private disabled = false;
   // Pi messages have no request ID, so uncertain text stays excluded for this process.
   private readonly blocked = new Set<string>();
   private readonly exposed = new Map<string, AgentMessage | null>();
@@ -108,11 +138,12 @@ export class PiContextSelection {
               }
               this.exposed.set(key, null);
             }
-            const index = this.blocked.has(hash(userText))
-              ? -1
-              : this.pending.findIndex(
-                  (input) => input.hash === hash(userText),
-                );
+            const index =
+              this.disabled || this.blocked.has(hash(userText))
+                ? -1
+                : this.pending.findIndex(
+                    (input) => input.hash === hash(userText),
+                  );
             if (index >= 0 && fresh) {
               const [input] = this.pending.splice(index, 1);
               const history = event.messages
@@ -153,6 +184,13 @@ export class PiContextSelection {
                   ],
                 }),
               });
+              if (this.disabled) {
+                await delivery.finish(
+                  { stopReason: "selection_disabled" },
+                  true,
+                );
+                return { messages: baseline };
+              }
               this.active = {
                 key,
                 turnIndex: this.currentTurnIndex,
@@ -211,7 +249,7 @@ export class PiContextSelection {
   }
 
   register(id: string, text: string): void {
-    if (text.startsWith("/")) return;
+    if (this.disabled || text.startsWith("/")) return;
     const fingerprint = hash(text);
     const previous = this.pending.find((input) => input.id === id);
     if (previous && previous.hash !== fingerprint)
@@ -239,6 +277,11 @@ export class PiContextSelection {
   clearPending(): void {
     for (const input of this.pending) this.blocked.add(input.hash);
     this.pending = [];
+  }
+
+  disable(): void {
+    this.disabled = true;
+    this.clearPending();
   }
 
   blockText(text: string): void {
