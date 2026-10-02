@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
-from django.http import HttpRequest, HttpResponse, HttpResponseBase
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBase
 from django.utils.cache import get_conditional_response
 from django.views.decorators.clickjacking import xframe_options_exempt
 
@@ -14,7 +14,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -37,9 +37,11 @@ from products.canvas.backend.facade.api import (
     canvas_actions_disabled,
     canvas_connectors_enabled,
     connector_listings,
+    create_canvas_sandbox_document_url,
     has_errors,
     native_connector_listings,
     render_canvas_artifact,
+    render_canvas_sandbox_document,
     subtract_preexisting_diagnostics,
     validate_layout,
     validate_layout_references,
@@ -68,6 +70,10 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
+    CanvasCommentDetailQuerySerializer,
+    CanvasCommentDetailSerializer,
+    CanvasCommentsQuerySerializer,
+    CanvasCommentsResponseSerializer,
     CanvasConnectorCallResultSerializer,
     CanvasConnectorCallSerializer,
     CanvasConnectorsResponseSerializer,
@@ -125,6 +131,17 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         artifact_path=artifact_path,
         if_none_match=request.headers.get("If-None-Match"),
     )
+    response = HttpResponse(result.body, status=result.status_code)
+    for name, value in result.headers.items():
+        response[name] = value
+    return response
+
+
+@xframe_options_exempt
+def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResponse:
+    result = render_canvas_sandbox_document(host=request.get_host(), content_hash=content_hash)
+    if result is None:
+        raise Http404
     response = HttpResponse(result.body, status=result.status_code)
     for name, value in result.headers.items():
         response[name] = value
@@ -359,6 +376,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         "layout",
         "connectors",
         "view",
+        "comments",
+        "comment",
     ]
     scope_object_write_actions = [
         "create",
@@ -684,6 +703,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             "has_active_build": opened.has_active_build,
             "source": opened.source,
             "layout": opened.layout,
+            "sandbox_document_url": create_canvas_sandbox_document_url(),
         }
         if opened.component_lifecycles is not None:
             instance["component_lifecycles"] = opened.component_lifecycles
@@ -714,6 +734,70 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         if page is not None:
             return self.get_paginated_response(CanvasVersionSerializer(page, many=True).data)
         return Response(CanvasVersionSerializer(versions, many=True).data)
+
+    @extend_schema(
+        operation_id="canvases_comments_list",
+        parameters=[CanvasCommentsQuerySerializer],
+        responses=CanvasCommentsResponseSerializer,
+    )
+    @action(methods=["GET"], detail=True, url_path="comments", required_scopes=["canvas:read", "comment:read"])
+    def comments(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The comment threads on this canvas, newest first. Open threads only unless include_resolved is set."""
+        params = CanvasCommentsQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        canvas = self._canvas()
+        try:
+            page = tasks_facade.list_canvas_comments(
+                team_id=self.team_id,
+                canvas_id=canvas.id,
+                canvas_name=canvas.name,
+                include_resolved=params.validated_data["include_resolved"],
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        return Response(CanvasCommentsResponseSerializer(page).data)
+
+    @extend_schema(
+        operation_id="canvases_comments_retrieve",
+        parameters=[
+            OpenApiParameter("root_comment_id", UUID, OpenApiParameter.PATH),
+            CanvasCommentDetailQuerySerializer,
+        ],
+        responses=CanvasCommentDetailSerializer,
+    )
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path=r"comments/(?P<root_comment_id>[^/.]+)",
+        required_scopes=["canvas:read", "comment:read"],
+    )
+    def comment(self, request: Request, *args: Any, root_comment_id: str | None = None, **kwargs: Any) -> Response:
+        """One comment thread on this canvas: the root comment and its replies, oldest first."""
+        params = CanvasCommentDetailQuerySerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        canvas = self._canvas()
+        try:
+            parsed_comment_id = UUID(str(root_comment_id))
+        except ValueError:
+            raise NotFound()
+        try:
+            thread = tasks_facade.retrieve_canvas_comment(
+                team_id=self.team_id,
+                canvas_id=canvas.id,
+                canvas_name=canvas.name,
+                comment_id=parsed_comment_id,
+                limit=params.validated_data["limit"],
+                cursor=params.validated_data.get("cursor"),
+                content_comment_id=params.validated_data.get("comment_id"),
+                content_offset=params.validated_data["content_offset"],
+            )
+        except ValueError:
+            raise ValidationError({"cursor": "Invalid cursor."}) from None
+        if thread is None:
+            raise NotFound()
+        return Response(CanvasCommentDetailSerializer(thread).data)
 
     @extend_schema(
         operation_id="canvases_validate_create",
@@ -968,7 +1052,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         responses={200: CanvasDraftSerializer(many=True)},
         request=None,
     )
-    @action(methods=["GET"], detail=True)
+    # The response is a bare list capped at VERSIONS_WINDOW, so the schema must not describe a page.
+    @action(methods=["GET"], detail=True, pagination_class=None)
     def drafts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """The canvas's staged draft versions, newest first, each with its latest build status.
 

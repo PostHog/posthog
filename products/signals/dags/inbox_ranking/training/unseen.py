@@ -13,6 +13,7 @@ functions over frames; `training/dag.py` owns the S3 and telemetry plumbing.
 
 import datetime
 from collections.abc import Collection, Mapping, Sequence
+from dataclasses import field
 from typing import Any
 
 import numpy as np
@@ -38,6 +39,11 @@ from products.signals.dags.inbox_ranking.training.calibration import (
     calibration_buckets,
     expected_calibration_error,
 )
+from products.signals.dags.inbox_ranking.training.classification import (
+    UNKNOWN_THRESHOLD,
+    ClassificationMetrics,
+    classification_metrics,
+)
 from products.signals.dags.inbox_ranking.training.examples import birth_day_mask, point_in_time_mask, state_rows
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 
@@ -49,6 +55,8 @@ POOL_NAME = "newborn"
 LEGACY_POOL_NAME = "sampled"
 
 UNSEEN_SCORES_TABLE = "inbox_ranking_unseen_scores"
+# The scoring sweep's own birth-day scores of the same pool, in the same schema (`training/served.py`).
+SERVED_SCORES_TABLE = "inbox_ranking_served_scores"
 
 CANDIDATE_ROLE = "candidate"
 CHAMPION_ROLE = "champion"
@@ -82,6 +90,9 @@ _SCORE_TYPES: dict[str, pa.DataType] = {
     "age_hours": pa.float64(),
     "label_at_scoring": pa.bool_(),
     "head_readable": pa.bool_(),
+    # The refit positive rate of the model that wrote the row. Null for a model saved before the
+    # threshold existed, and absent from an object written before the column existed.
+    "classification_threshold": pa.float64(),
 }
 SCORES_SCHEMA = pa.schema(_SCORE_TYPES)
 SCORE_COLUMNS = tuple(_SCORE_TYPES)
@@ -112,6 +123,9 @@ class UnseenModel:
     # Of those heads, the ones whose holdout could be read. Carried onto every scored row, because
     # the grade runs `horizon_days` later and has no metadata of the model that wrote the row.
     readable_heads: frozenset[str] = frozenset()
+    # Per head, the threshold every later grade of these scores reads. Carried onto the scored rows
+    # for the same reason as `readable_heads`.
+    classification_thresholds: Mapping[str, float] = field(default_factory=dict)
 
 
 @frozen
@@ -174,6 +188,9 @@ class HeadGrade:
     # The deciles are a table, so they stay off the head event and go out one event per bucket.
     calibration: tuple[CalibrationBucket, ...]
     expected_calibration_error: float | None
+    # The in-cohort rows at the threshold of the model that wrote the scores, so an early and a
+    # mature grade of one cohort use the same cut.
+    classification: ClassificationMetrics = UNKNOWN_THRESHOLD
 
     def metrics(self) -> dict[str, int | float | None]:
         return {
@@ -189,6 +206,7 @@ class HeadGrade:
             "null_auc": self.null_auc,
             "null_auc_std": self.null_auc_std,
             "null_permutations": NULL_PERMUTATIONS,
+            **self.classification.as_dict(),
         }
 
     def identity(self) -> dict[str, object]:
@@ -382,6 +400,7 @@ def score_pool(
                     "age_hours": age_hours,
                     "label_at_scoring": HEADS_BY_NAME[head_name].label(aligned_labels).to_numpy(),
                     "head_readable": head_name in model.readable_heads,
+                    "classification_threshold": model.classification_thresholds.get(head_name, np.nan),
                 }
             )
             for head_name, booster_ubj in model.boosters.items()
@@ -480,6 +499,16 @@ def graded_rows(head_scores: pd.DataFrame, labels: pd.DataFrame, head: Head, *, 
     return graded
 
 
+def saved_threshold(scored: pd.DataFrame) -> float | None:
+    """The one threshold the model that wrote `scored` saved for the head, or None when the rows
+    carry none. More than one value means the rows did not come from one model, so no single cut
+    applies to them."""
+    if "classification_threshold" not in scored:
+        return None
+    values = scored["classification_threshold"].dropna().unique()
+    return float(values[0]) if len(values) == 1 else None
+
+
 def head_grades(
     graded: pd.DataFrame, head: Head, *, pool: str, scoring_partition: str, include_empty: bool = False
 ) -> list[HeadGrade]:
@@ -524,6 +553,8 @@ def head_grades(
                 null_auc_std=band.auc_std,
                 calibration=buckets,
                 expected_calibration_error=expected_calibration_error(buckets),
+                # Read from every scored row, so an empty cohort still reports its threshold.
+                classification=classification_metrics(outcomes, scores, saved_threshold(scored)),
             )
         )
     return grades

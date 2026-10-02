@@ -1,0 +1,927 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "CI triage agent diagnoses a failing backend build",
+  "scenario": "Fixit, a pydantic-ai coding agent instrumented via OpenTelemetry, investigates a failing backend CI build: it reads source files, runs the build pipeline, checks lint errors and fetches CI failure logs, requests help from specialist workers for build/test/edit tasks, then finalizes its diagnosis and opens a draft pull request with the fix.",
+  "summary": {
+    "events": {
+      "$ai_trace": 1,
+      "$ai_generation": 4,
+      "$ai_span": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "opentelemetry/pydantic-ai",
+      "posthog-ai"
+    ],
+    "providers": [
+      "anthropic",
+      "openai"
+    ],
+    "frameworks": [],
+    "models": [
+      "claude-opus-5-5",
+      "claude-sonnet-5",
+      "gpt-5.4"
+    ],
+    "content_types": [
+      "text",
+      "thinking",
+      "tool_call",
+      "tool_call_response"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_trace",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_session_id": "c2611b1e-6816-7ccd-2b82-88f23320f003",
+        "$ai_span_id": "ae69e0cfaf8c4194",
+        "$ai_trace_id": "0a7a4153ac3976d4b954a40e8af2326c",
+        "$geoip_disable": true,
+        "environment": "production",
+        "kind": "background",
+        "deployment.instance.id": "9be698b4-040d-7728-5eb8-3410069b0818",
+        "gen_ai.conversation.id": "371c0fac-5818-7917-65f9-0ce68d250652",
+        "app.genai.anthropic.cache_creation_input_tokens": 4843,
+        "app.genai.anthropic.cache_read_input_tokens": 3845,
+        "app.genai.anthropic.cache_read_tokens": 3845,
+        "app.genai.anthropic.cache_creation_tokens": 4843,
+        "phase": "diagnose_and_fix_build_error",
+        "app.genai.request.max_tool_calls": 22,
+        "app.genai.request.parallel_tool_calls": true,
+        "run_hash": "5185b3f5e24e6e40c976cf5030687243",
+        "service": "ci-triage-agent",
+        "service.name": "ci-triage-agent",
+        "run_stage": "triaging",
+        "$ai_input_tokens": 8694,
+        "$ai_output_tokens": 270,
+        "$ai_cache_read_input_tokens": 3845,
+        "$ai_cache_creation_input_tokens": 4843,
+        "$ai_span_name": "Fixit",
+        "$ai_latency": 9.288716545,
+        "$ai_model": "claude-opus-5-5",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_input_state": {
+          "role": "user",
+          "parts": [
+            {
+              "type": "text"
+            }
+          ]
+        },
+        "$ai_output_state": {
+          "role": "assistant",
+          "parts": [
+            {
+              "type": "thinking"
+            },
+            {
+              "type": "text"
+            }
+          ],
+          "finish_reason": "stop"
+        }
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 13,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ae69e0cfaf8c4194",
+        "$ai_session_id": "c2611b1e-6816-7ccd-2b82-88f23320f003",
+        "$ai_span_id": "5bf56210bf33d856",
+        "$ai_trace_id": "0a7a4153ac3976d4b954a40e8af2326c",
+        "$geoip_disable": true,
+        "environment": "production",
+        "kind": "background",
+        "deployment.instance.id": "9be698b4-040d-7728-5eb8-3410069b0818",
+        "gen_ai.agent.name": "Fixit",
+        "gen_ai.conversation.id": "371c0fac-5818-7917-65f9-0ce68d250652",
+        "gen_ai.response.finish_reasons": [
+          "tool_call"
+        ],
+        "gen_ai.response.id": "msg_higkESRwj4sp3glDkZcTVp39",
+        "app.genai.anthropic.cache_creation_input_tokens": 76,
+        "app.genai.anthropic.cache_read_input_tokens": 3845,
+        "app.genai.anthropic.cache_read_tokens": 3845,
+        "app.genai.anthropic.cache_creation_tokens": 76,
+        "phase": "diagnose_and_fix_build_error",
+        "run_hash": "5185b3f5e24e6e40c976cf5030687243",
+        "service": "ci-triage-agent",
+        "service.name": "ci-triage-agent",
+        "run_stage": "triaging",
+        "$ai_input_tokens": 3925,
+        "$ai_output_tokens": 30,
+        "$ai_cache_read_input_tokens": 3845,
+        "$ai_cache_creation_input_tokens": 76,
+        "$ai_model": "claude-opus-5-5",
+        "$ai_provider": "anthropic",
+        "$ai_base_url": "api.anthropic.com",
+        "$ai_span_name": "agent_loop_iteration",
+        "$ai_latency": 1.346158567,
+        "$ai_stop_reason": "tool_call",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_tools_called": "finalize_diagnosis",
+        "$ai_tool_call_count": 1,
+        "$ai_input": [
+          {
+            "role": "system",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              },
+              {
+                "type": "tool_call",
+                "id": "toolu_nrDOgYDKYmpwrb1iR8Ksdfxz",
+                "name": "finish_XoYlPbFB"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_nrDOgYDKYmpwrb1iR8Ksdfxz",
+                "name": "finish_XoYlPbFB"
+              },
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_Vg5yBDsn4au0ryW5SagiLPeh",
+                "name": "read_source_file"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_Vg5yBDsn4au0ryW5SagiLPeh",
+                "name": "read_source_file"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking"
+              },
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_Qy92RFJntvtiIacg6r7FM97i",
+                "name": "request_specialist_help"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_Qy92RFJntvtiIacg6r7FM97i",
+                "name": "request_specialist_help"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              },
+              {
+                "type": "tool_call",
+                "id": "toolu_mKfOp9huUlXWNNMOyhFsIosN",
+                "name": "execute_build_pipeline"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_mKfOp9huUlXWNNMOyhFsIosN",
+                "name": "execute_build_pipeline"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_pCJchUfsxfBgOnwhc26PMzlL",
+                "name": "check_lint_errors"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_pCJchUfsxfBgOnwhc26PMzlL",
+                "name": "check_lint_errors"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_xBuLzCvtMygGD0RO8yJe81lT",
+                "name": "fetch_ci_failure_logs"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_xBuLzCvtMygGD0RO8yJe81lT",
+                "name": "fetch_ci_failure_logs"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_aWJlIUeQyq5ISQFIr9THEdhC",
+                "name": "finalize_diagnosis"
+              }
+            ],
+            "finish_reason": "tool_call"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "type": "function",
+            "name": "request_specialist_help",
+            "description": "Use this when the diagnosis needs a capability you don't have directly.\nPass one or more task_types: a build re-run, a code search, a test run,\nor a source edit. The router picks a specialist worker per type and\nqueues the work. Skip trivial one-line lookups; use your file tools\nfirst. Wait for the response before deciding on a fix.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "task_types": {
+                  "items": {
+                    "enum": [
+                      "makes_NGCG1sX0Id",
+                      "tests_h7Lm2",
+                      "spots_C5kQGeYELAfdp",
+                      "edits_Qa9F1"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "task_types"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "escalate_to_human_oncall",
+            "description": "Notify the human on-call engineer when the agent cannot safely resolve the failure alone.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "finalize_diagnosis",
+            "description": "Marks the investigation complete and records the root cause.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "event": "$ai_span",
+      "offset_ms": 1365,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ae69e0cfaf8c4194",
+        "$ai_session_id": "c2611b1e-6816-7ccd-2b82-88f23320f003",
+        "$ai_span_id": "da738dcac93cca73",
+        "$ai_trace_id": "0a7a4153ac3976d4b954a40e8af2326c",
+        "$geoip_disable": true,
+        "environment": "production",
+        "kind": "background",
+        "deployment.instance.id": "9be698b4-040d-7728-5eb8-3410069b0818",
+        "gen_ai.agent.name": "Fixit",
+        "gen_ai.conversation.id": "371c0fac-5818-7917-65f9-0ce68d250652",
+        "phase": "diagnose_and_fix_build_error",
+        "run_hash": "5185b3f5e24e6e40c976cf5030687243",
+        "service": "ci-triage-agent",
+        "service.name": "ci-triage-agent",
+        "run_stage": "triaging",
+        "$ai_span_name": "finalize_diagnosis",
+        "$ai_latency": 4.693990081,
+        "$ai_lib": "opentelemetry/pydantic-ai"
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 4795,
+      "distinct_id": "user-1",
+      "properties": {
+        "phase": "diagnose_and_fix_build_error",
+        "run_stage": "triaging",
+        "$os_distro": "Ubuntu 24.04",
+        "$ai_stop_reason": "end_turn",
+        "$ai_output_tokens": 298,
+        "$ai_session_id": "c2611b1e-6816-7ccd-2b82-88f23320f003",
+        "$os_version": "2023",
+        "$ai_span_name": "summarize_diagnosis_for_pr_comment",
+        "service": "ci-triage-agent",
+        "$ai_parent_id": "da738dcac93cca73",
+        "$ai_http_status": 200,
+        "$lib": "posthog-python",
+        "$ai_tokens_source": "sdk",
+        "$ai_lib_version": "7.60.0",
+        "$ai_provider": "anthropic",
+        "$ai_base_url": "https://api.anthropic.com",
+        "$ai_cache_creation_input_tokens": 0,
+        "$ai_latency": 3.3664181232452393,
+        "run_hash": "5185b3f5e24e6e40c976cf5030687243",
+        "kind": "background",
+        "$os": "Linux",
+        "$geoip_disable": true,
+        "$is_server": true,
+        "$ai_model_parameters": {
+          "max_tokens": 8000
+        },
+        "$ai_input_tokens": 2353,
+        "environment": "production",
+        "$ai_lib": "posthog-ai",
+        "$ai_cache_read_input_tokens": 0,
+        "$ai_trace_id": "0a7a4153ac3976d4b954a40e8af2326c",
+        "$python_runtime": "CPython",
+        "$python_version": "3.12.14",
+        "$ai_model": "claude-sonnet-5",
+        "$lib_version": "7.60.0",
+        "$ai_cache_creation_5m_input_tokens": 0,
+        "$ai_cache_creation_1h_input_tokens": 0,
+        "$ai_input": null,
+        "$ai_output_choices": null
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 6043,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_tokens_source": "sdk",
+        "$lib_version": "7.60.0",
+        "$lib": "posthog-python",
+        "$os": "Linux",
+        "$python_version": "3.12.14",
+        "$os_distro": "Ubuntu 24.04",
+        "$ai_model": "gpt-5.4",
+        "$ai_lib": "posthog-ai",
+        "$ai_stop_reason": "stop",
+        "phase": "diagnose_and_fix_build_error",
+        "$ai_latency": 1.2189044952392578,
+        "$ai_span_name": "status_k1j5E6ah",
+        "run_stage": "triaging",
+        "$geoip_disable": true,
+        "$ai_output_tokens": 11,
+        "$ai_service_tier": "default",
+        "$ai_provider": "openai",
+        "$ai_model_parameters": {
+          "max_completion_tokens": 4000,
+          "service_tier": "default"
+        },
+        "run_hash": "5185b3f5e24e6e40c976cf5030687243",
+        "$ai_parent_id": "da738dcac93cca73",
+        "$python_runtime": "CPython",
+        "$is_server": true,
+        "$ai_input_tokens": 2318,
+        "$ai_trace_id": "0a7a4153ac3976d4b954a40e8af2326c",
+        "kind": "background",
+        "$context_tags": [
+          "$ai_stop_reason",
+          "$ai_input",
+          "$ai_model_parameters",
+          "$ai_provider",
+          "$ai_output_choices",
+          "$ai_service_tier",
+          "$ai_base_url",
+          "$ai_input_tokens",
+          "$ai_model",
+          "$ai_latency",
+          "$ai_trace_id",
+          "$ai_http_status",
+          "$ai_usage",
+          "$ai_output_tokens"
+        ],
+        "$ai_http_status": 200,
+        "$ai_session_id": "c2611b1e-6816-7ccd-2b82-88f23320f003",
+        "$os_version": "2023",
+        "$ai_lib_version": "7.60.0",
+        "$ai_base_url": "https://api.openai.com/v1/",
+        "environment": "production",
+        "service": "ci-triage-agent",
+        "$ai_input": null,
+        "$ai_output_choices": null
+      }
+    },
+    {
+      "event": "$ai_generation",
+      "offset_ms": 6075,
+      "distinct_id": "user-1",
+      "properties": {
+        "$ai_ingestion_source": "otel",
+        "$ai_parent_id": "ae69e0cfaf8c4194",
+        "$ai_session_id": "c2611b1e-6816-7ccd-2b82-88f23320f003",
+        "$ai_span_id": "e40a01e3ed892f71",
+        "$ai_trace_id": "0a7a4153ac3976d4b954a40e8af2326c",
+        "$geoip_disable": true,
+        "environment": "production",
+        "kind": "background",
+        "deployment.instance.id": "9be698b4-040d-7728-5eb8-3410069b0818",
+        "gen_ai.agent.name": "Fixit",
+        "gen_ai.conversation.id": "371c0fac-5818-7917-65f9-0ce68d250652",
+        "gen_ai.response.finish_reasons": [
+          "stop"
+        ],
+        "gen_ai.response.id": "msg_NnlcSaYTqGpTea4G5uPv8lJ8",
+        "app.genai.anthropic.cache_creation_input_tokens": 4767,
+        "app.genai.anthropic.cache_creation_tokens": 4767,
+        "phase": "diagnose_and_fix_build_error",
+        "run_hash": "5185b3f5e24e6e40c976cf5030687243",
+        "service": "ci-triage-agent",
+        "service.name": "ci-triage-agent",
+        "run_stage": "triaging",
+        "$ai_input_tokens": 4769,
+        "$ai_output_tokens": 240,
+        "$ai_cache_creation_input_tokens": 4767,
+        "$ai_model": "claude-opus-5-5",
+        "$ai_provider": "anthropic",
+        "$ai_base_url": "api.anthropic.com",
+        "$ai_span_name": "agent_loop_iteration",
+        "$ai_latency": 3.211109367,
+        "$ai_stop_reason": "stop",
+        "$ai_lib": "opentelemetry/pydantic-ai",
+        "$ai_input": [
+          {
+            "role": "system",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              },
+              {
+                "type": "tool_call",
+                "id": "toolu_nrDOgYDKYmpwrb1iR8Ksdfxz",
+                "name": "finish_XoYlPbFB"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_nrDOgYDKYmpwrb1iR8Ksdfxz",
+                "name": "finish_XoYlPbFB"
+              },
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_Vg5yBDsn4au0ryW5SagiLPeh",
+                "name": "read_source_file"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_Vg5yBDsn4au0ryW5SagiLPeh",
+                "name": "read_source_file"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking"
+              },
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_Qy92RFJntvtiIacg6r7FM97i",
+                "name": "request_specialist_help"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_Qy92RFJntvtiIacg6r7FM97i",
+                "name": "request_specialist_help"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              },
+              {
+                "type": "tool_call",
+                "id": "toolu_mKfOp9huUlXWNNMOyhFsIosN",
+                "name": "execute_build_pipeline"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_mKfOp9huUlXWNNMOyhFsIosN",
+                "name": "execute_build_pipeline"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_pCJchUfsxfBgOnwhc26PMzlL",
+                "name": "check_lint_errors"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_pCJchUfsxfBgOnwhc26PMzlL",
+                "name": "check_lint_errors"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_xBuLzCvtMygGD0RO8yJe81lT",
+                "name": "fetch_ci_failure_logs"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_xBuLzCvtMygGD0RO8yJe81lT",
+                "name": "fetch_ci_failure_logs"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "text"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "tool_call",
+                "id": "toolu_aWJlIUeQyq5ISQFIr9THEdhC",
+                "name": "finalize_diagnosis"
+              }
+            ],
+            "finish_reason": "tool_call"
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "type": "tool_call_response",
+                "id": "toolu_aWJlIUeQyq5ISQFIr9THEdhC",
+                "name": "finalize_diagnosis"
+              }
+            ]
+          }
+        ],
+        "$ai_output_choices": [
+          {
+            "role": "assistant",
+            "parts": [
+              {
+                "type": "thinking"
+              },
+              {
+                "type": "text"
+              }
+            ],
+            "finish_reason": "stop"
+          }
+        ],
+        "$ai_tools": [
+          {
+            "type": "function",
+            "name": "request_specialist_help",
+            "description": "Use this when the diagnosis needs a capability you don't have directly.\nPass one or more task_types: a build re-run, a code search, a test run,\nor a source edit. The router picks a specialist worker per type and\nqueues the work. Skip trivial one-line lookups; use your file tools\nfirst. Wait for the response before deciding on a fix.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {
+                "task_types": {
+                  "items": {
+                    "enum": [
+                      "makes_NGCG1sX0Id",
+                      "tests_h7Lm2",
+                      "spots_C5kQGeYELAfdp",
+                      "edits_Qa9F1"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "task_types"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "create_pull_request_draft",
+            "description": "Opens a draft pull request with the proposed fix, without merging or requesting review.\nInclude a short title and a body summarizing the failing build, the root cause, and the change.\nUse once you are reasonably confident in the fix but still want a human to sanity-check it.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          },
+          {
+            "type": "function",
+            "name": "finish_8JC80ezHcQ",
+            "description": "Mark the entire agent run as complete and release the sandbox so another job can use it. Call this only after either a fix has been proposed in a draft pull request or the run has been escalated to the on-call engineer, never before.",
+            "parameters": {
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

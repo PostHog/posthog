@@ -1,6 +1,6 @@
 ---
 name: configuring-experiment-analytics
-description: Configures the analytics side of a PostHog experiment — exposure criteria (server-resolved default exposure event vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude" vs "First seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
+description: Configures the analytics side of a PostHog experiment — exposure criteria (server-resolved default exposure event vs custom exposure events), primary and secondary metrics, the supported metric types (count, sum, ratio with `math` and `math_property`, retention with `retention_window_start` and `start_handling`), multivariate user handling ("Exclude from analysis" vs "Use first seen variant"), and how to read results once the experiment is live. Use when the user adds or edits a primary or secondary metric (e.g. "add a secondary metric tracking 'downloaded_file' per user"), sets up a ratio metric (e.g. "revenue from purchase_completed / pageviews"), sets up a retention metric (e.g. "$pageview → uploaded_file, 7-day window"), configures custom exposure (e.g. "only count users who hit /checkout"), changes multivariate handling, or asks "who is in the analysis?", "how do I measure impact?", "is this winning?", "what's the confidence level?", or "should I ship?".
 ---
 
 # Configuring experiment analytics
@@ -11,7 +11,7 @@ This skill answers: **Who is included in the analysis?** and **How to measure im
 
 Exposure criteria determine which users are counted in the experiment analysis.
 
-### Include people when
+### Exposure event
 
 Two options:
 
@@ -22,11 +22,11 @@ Two options:
 
 When a user is exposed to multiple variants (e.g., due to flag changes or race conditions):
 
-- **Exclude multivariate users** — removes these users from the analysis entirely. Cleaner data, smaller sample.
-- **First seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis. Note that "first seen" can introduce other biases as
+- **Exclude from analysis** — removes these users from the analysis entirely. Cleaner data, smaller sample.
+- **Use first seen variant** — assigns users to the first variant they were exposed to. Keeps all users in the analysis. Note that "first seen" can introduce other biases as
   behavior cannot be clearly attributed to a single variant and is not recommended unless necessary.
 
-**Bias risk on uneven splits.** "Exclude multivariate users" combined with an uneven variant split can
+**Bias risk on uneven splits.** "Exclude from analysis" combined with an uneven variant split can
 introduce bias — multi-variant users are dropped asymmetrically and the smaller variant loses a larger
 fraction of its assignments. If those users behave differently from the rest, the smaller variant's
 metrics will be skewed.
@@ -37,8 +37,8 @@ The right mitigation depends on experiment state:
   use the overall rollout percentage to limit test-variant exposure. This removes the bias and
   preserves statistical power. See `configuring-experiment-rollout`.
 - **Live experiment with significant exposures** — changing the split mid-run reassigns users across
-  variants, which is bad for user experience and data quality. Switch this setting to "First seen
-  variant" instead — it keeps already-assigned users in their original variant (no reassignment) and
+  variants, which is bad for user experience and data quality. Switch this setting to "Use first
+  seen variant" instead — it keeps already-assigned users in their original variant (no reassignment) and
   removes the asymmetric exclusion.
 
 ### Filter test accounts

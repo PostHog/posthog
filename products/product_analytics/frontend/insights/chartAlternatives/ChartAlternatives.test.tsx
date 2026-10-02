@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -140,5 +141,68 @@ describe('ChartAlternatives', () => {
         await waitFor(() =>
             expect(document.querySelector('[data-attr="chart-alternatives-all"]')).not.toBeInTheDocument()
         )
+    })
+
+    it.each([
+        ['the gallery', 'test', 'chart-alternatives-all', 1],
+        ['the chart type dropdown', 'control', 'chart-filter', 1],
+    ])('reports an exposure when %s opens', async (_, variant, dataAttr, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: variant,
+        })
+        setQuery(makeTrendsQuery())
+        alternativesLogic()
+        const capture = jest.spyOn(posthog, 'capture')
+
+        const menuButton = await waitFor(() => {
+            const button = document.querySelector(`[data-attr="${dataAttr}"]`)
+            expect(button).toBeInTheDocument()
+            return button!
+        })
+        fireEvent.click(menuButton)
+
+        await waitFor(() =>
+            expect(capture.mock.calls.filter(([event]) => event === 'insight chart type menu opened')).toHaveLength(
+                expected
+            )
+        )
+        jest.restoreAllMocks()
+    })
+
+    it('does not report an exposure when the chart type dropdown opens on a read-only insight', () => {
+        setQuery(makeTrendsQuery())
+        const capture = jest.spyOn(posthog, 'capture')
+
+        chartAlternativesLogic({ embedded: true, ...insightProps }).mount()
+        chartAlternativesLogic({ embedded: true, ...insightProps }).actions.reportChartMenuOpened()
+
+        expect(capture.mock.calls.map(([event]) => event)).not.toContain('insight chart type menu opened')
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['a read-only insight', true, NodeKind.TrendsQuery],
+        ['a non-trends insight', false, NodeKind.FunnelsQuery],
+    ])('does not read the experiment flag for %s', (_, embedded, kind) => {
+        const readFlags: string[] = []
+        const featureFlags = new Proxy(
+            {},
+            {
+                get: (_target, flag) => {
+                    readFlags.push(String(flag))
+                    return 'test'
+                },
+            }
+        )
+        jest.spyOn(featureFlagLogic.selectors, 'featureFlags').mockReturnValue(featureFlags)
+        builtInsightVizDataLogic.actions.updateQuerySource({ ...makeTrendsQuery(), kind } as unknown as TrendsQuery)
+
+        const logic = chartAlternativesLogic({ embedded, ...insightProps })
+        logic.mount()
+
+        expect(logic.values.canShowAlternatives).toBe(false)
+        expect(readFlags).not.toContain(FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES)
+        logic.unmount()
+        jest.restoreAllMocks()
     })
 })

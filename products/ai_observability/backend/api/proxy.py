@@ -48,8 +48,12 @@ from products.ai_observability.backend.llm import (
     ModelInfo,
     get_playground_models,
 )
-from products.ai_observability.backend.llm.errors import UnsupportedProviderError
-from products.ai_observability.backend.models.provider_keys import LLMProvider, LLMProviderKey
+from products.ai_observability.backend.llm.errors import ProviderConfigurationError, UnsupportedProviderError
+from products.ai_observability.backend.models.provider_keys import (
+    LLMProvider,
+    LLMProviderKey,
+    llm_completion_provider_choices,
+)
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
@@ -63,6 +67,7 @@ def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
 
 
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
+    "system_one": "System One",
     "openai": "OpenAI",
     "anthropic": "Anthropic",
     "gemini": "Gemini",
@@ -71,6 +76,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "azure_openai": "Azure OpenAI",
     "minimax": "MiniMax",
     "zeabur": "Zeabur AI Hub",
+    "openai_compatible": "OpenAI-compatible",
 }
 
 
@@ -78,7 +84,7 @@ class LLMProxyCompletionSerializer(serializers.Serializer):
     system = serializers.CharField(allow_blank=True)
     messages = serializers.ListField(child=serializers.DictField())
     model = serializers.CharField()
-    provider = serializers.ChoiceField(choices=LLMProvider.choices)
+    provider = serializers.ChoiceField(choices=llm_completion_provider_choices())
     thinking = serializers.BooleanField(default=False, required=False)
     temperature = serializers.FloatField(required=False)
     top_p = serializers.FloatField(required=False)
@@ -189,7 +195,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
             raise ValueError("Provider key not found")
 
         api_key = key.encrypted_config.get("api_key")
-        if not api_key:
+        if not api_key and key.provider != LLMProvider.SYSTEM_ONE:
             raise ValueError("No API key configured for this provider key")
 
         if touch_last_used:
@@ -223,6 +229,10 @@ class LLMProxyViewSet(viewsets.ViewSet):
                         on_error(Exception("Client disconnected"), perf_counter() - started)
                     return
                 yield chunk.to_sse().encode()
+        except ProviderConfigurationError as e:
+            if on_error:
+                on_error(e, perf_counter() - started)
+            yield f"data: {json.dumps({'error': str(e), 'status_code': 400})}\n\n".encode()
         except Exception as e:
             if on_error:
                 on_error(e, perf_counter() - started)
@@ -362,6 +372,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
 
         except UnsupportedProviderError:
             return Response({"error": "Unsupported provider"}, status=400)
+
+        except ProviderConfigurationError as e:
+            # The key's stored configuration is unusable and a retry cannot fix it, so report the
+            # reason instead of logging an exception on every attempt and returning a 500.
+            return Response({"error": str(e)}, status=400)
 
         except Exception as e:
             logger.exception("llm_proxy_error", error=str(e))

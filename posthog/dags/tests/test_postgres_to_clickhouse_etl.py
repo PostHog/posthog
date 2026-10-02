@@ -643,7 +643,7 @@ class TestDagsterWiring:
 
     def test_hourly_schedule_wires_to_etl_job(self):
         assert postgres_to_clickhouse_hourly_schedule.job_name == postgres_to_clickhouse_etl_job.name
-        assert postgres_to_clickhouse_hourly_schedule.cron_schedule == "0 * * * *"
+        assert postgres_to_clickhouse_hourly_schedule.cron_schedule == "17 * * * *"
         assert postgres_to_clickhouse_hourly_schedule.execution_timezone == "UTC"
 
     @parameterized.expand(

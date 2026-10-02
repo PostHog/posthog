@@ -544,7 +544,7 @@ class TestCloseOutTaskSummary(SimpleTestCase):
 
 
 class TestCloseOutSummaryToolContract(SimpleTestCase):
-    _HARNESS_ROOT = Path(__file__).parents[3] / "desktop/packages/harness/src/extensions"
+    _HARNESS_ROOT = Path(__file__).parents[4] / "packages/agent/packages/harness/src/extensions"
 
     def test_prompt_names_the_tool_the_harness_registers(self) -> None:
         # The prompt hardcodes the qualified tool id the scout calls. The harness owns both halves
@@ -885,6 +885,11 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         # from the prompt, not from a refused call.
         assert "Scanners spend credits" not in granted
         assert "Scanners spend credits" in _prompt(write_scopes=["replay_scanner:write"])
+        # Tasks are assigned to people, so the task grant has to say whose tasks a scout may change.
+        assert "Tasks belong to people" not in granted
+        task_granted = _prompt(write_scopes=["customer_task:write"])
+        assert "Customer analytics tasks" in task_granted
+        assert "Tasks belong to people" in task_granted
 
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
@@ -2853,6 +2858,7 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         patch(
             "products.signals.backend.temporal.agentic.scout_scheduler.capture_signal_report_quota_paused"
         ) as capture_quota,
+        patch("products.signals.backend.temporal.agentic.scout_scheduler.notify_scout_quota_paused") as notify_quota,
         patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         env = ActivityEnvironment()
@@ -2879,6 +2885,12 @@ async def test_activity_skips_run_attributed_to_the_limit_that_fired(
         assert capture_daily.call_args.kwargs["stage"] == "scout_run"
     else:
         capture_daily.assert_not_called()
+    # The user-facing pause notification only fires when the quota actually blocks: a
+    # dark-launch pause still runs, and the daily limit surfaces in the usage widget.
+    if expected_skip_reason == "quota_limited":
+        notify_quota.assert_called_once_with(ateam)
+    else:
+        notify_quota.assert_not_called()
 
 
 @pytest.mark.asyncio

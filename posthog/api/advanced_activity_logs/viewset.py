@@ -109,7 +109,7 @@ def restrict_canvas_activity(queryset: QuerySet[ActivityLog], team_id: int, user
     """
     from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    visible_ids = canvas_activity.visible_canvas_ids(team_id, user)
+    visible_ids = canvas_activity.visible_canvas_ids(team_id, getattr(user, "id", None))
     return queryset.exclude(Q(scope="Canvas") & ~Q(item_id__in=visible_ids))
 
 
@@ -120,7 +120,7 @@ def restrict_canvas_activity_for_org(queryset: QuerySet[ActivityLog], organizati
     """
     from products.canvas.backend.facade import access as canvas_activity  # noqa: PLC0415
 
-    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, user)
+    hidden_ids = canvas_activity.hidden_canvas_ids_for_org(organization_id, getattr(user, "id", None))
     if not hidden_ids:
         return queryset
     return queryset.exclude(Q(scope="Canvas") & Q(item_id__in=hidden_ids))
@@ -150,7 +150,25 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ActivityLog
-        fields = "__all__"
+        # An explicit list, so that a new internal column such as `credential_id` stays out. This
+        # serializer also builds the `$activity_log_entry_created` event, so a field listed here
+        # reaches the advanced API, the export and customer destinations at the same time.
+        fields = [
+            "id",
+            "user",
+            "unread",
+            "team_id",
+            "organization_id",
+            "was_impersonated",
+            "is_system",
+            "client",
+            "ip_address",
+            "activity",
+            "item_id",
+            "scope",
+            "detail",
+            "created_at",
+        ]
 
     def get_unread(self, obj: ActivityLog) -> bool:
         """is the date of this log item newer than the user's bookmark"""

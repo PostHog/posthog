@@ -30,19 +30,22 @@ from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_telemetry import capture_report_check_created
+from products.signals.backend.report_check_timing import metric_check_ready_at
 from products.signals.backend.report_checks import (
-    DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
-    MAX_CHECK_SOAK_HOURS,
-    MIN_CHECK_SOAK_HOURS,
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    check_schedule_expires_at,
     parse_check_config,
+    soak_minutes_from_gap,
+    validate_metric_check_for_write,
 )
 
 logger = structlog.get_logger(__name__)
+
+_METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
 
 
 class CheckCreationError(ValueError):
@@ -81,24 +84,7 @@ def create_check(
     if (next_run_at is None) == (soak_minutes is None):
         raise CheckCreationError("a check names either a next_run_at or a soak_minutes, not both and not neither")
 
-    try:
-        parsed = parse_check_config(kind, config)
-    except CheckConfigValidationError as error:
-        raise CheckCreationError(str(error)) from None
-
-    stored_config = dict(config)
-    if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
-        if parsed.query is not None:
-            raise CheckCreationError(
-                "provide either metric_id or query, not both. The metric's query is copied onto the check."
-            )
-        # Resolved now and stored, rather than at each run: an unresolvable reference would
-        # otherwise sit idle for the whole soak window before retiring, and one resolved late would
-        # measure whatever the metric had become.
-        try:
-            stored_config["query"] = resolve_check_query(parsed, report)
-        except ValueError as error:
-            raise CheckCreationError(f"This check cannot run: {error}.") from None
+    stored_config = _stored_config(report, kind, config)
 
     now = timezone.now()
 
@@ -106,6 +92,11 @@ def create_check(
         locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
+        metric_ready_at = None
+        if kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+            metric_ready_at = metric_check_ready_at(stored_config["query"], locked_report.team, now)
+            if metric_ready_at >= now + MAX_CHECK_HORIZON:
+                raise CheckCreationError("The full measurement window must fit within the check's 90-day horizon.")
         open_checks = SignalReportCheck.objects.for_team(locked_report.team_id).filter(
             report_id=locked_report.id, status__in=SignalReportCheck.OPEN_STATUSES
         )
@@ -116,17 +107,24 @@ def create_check(
             if next_run_at is None:
                 assert soak_minutes is not None
                 next_run_at = now + timedelta(minutes=soak_minutes)
+            if soak_minutes is None:
+                soak_minutes = soak_minutes_from_gap(next_run_at, now)
+            if metric_ready_at is not None:
+                next_run_at = max(next_run_at, metric_ready_at)
+                if expires_at is not None and expires_at <= next_run_at:
+                    raise CheckCreationError("The expiry must allow a full post-resolution measurement window.")
             if expires_at is None:
-                expires_at = min(
-                    _last_run_at(next_run_at, run_interval_minutes, runs_remaining)
-                    + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
-                    now + MAX_CHECK_HORIZON,
+                expires_at = check_schedule_expires_at(
+                    next_run_at=next_run_at,
+                    run_interval_minutes=run_interval_minutes,
+                    runs_remaining=runs_remaining,
+                    start_at=now,
                 )
         else:
             status = SignalReportCheck.Status.PENDING
             if soak_minutes is None:
                 assert next_run_at is not None
-                soak_minutes = _soak_from_first_run(next_run_at, now)
+                soak_minutes = soak_minutes_from_gap(next_run_at, now)
             # Provisional, and rewritten at arm time. The horizon is real though: a report that
             # never resolves retires its pending checks rather than holding them forever.
             next_run_at = now + timedelta(minutes=soak_minutes)
@@ -140,6 +138,9 @@ def create_check(
             rationale=rationale,
             kind=kind,
             config=stored_config,
+            measurement_start_at=now
+            if status == SignalReportCheck.Status.ACTIVE and metric_ready_at is not None
+            else None,
             status=status,
             next_run_at=next_run_at,
             soak_minutes=soak_minutes,
@@ -159,6 +160,65 @@ def create_check(
         # never counted as written.
         transaction.on_commit(partial(capture_report_check_created, report.team, check))
         return check
+
+
+def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
+    try:
+        parsed = parse_check_config(kind, config)
+    except CheckConfigValidationError as error:
+        raise CheckCreationError(str(error)) from None
+
+    stored_config = dict(config)
+    if isinstance(parsed, MetricThresholdConfig) and parsed.metric_id is not None:
+        if parsed.query is not None:
+            raise CheckCreationError(
+                "provide either metric_id or query, not both. The metric's query is copied onto the check."
+            )
+        # Resolved now and stored, rather than at each run: an unresolvable reference would
+        # otherwise sit idle for the whole soak window before retiring, and one resolved late would
+        # measure whatever the metric had become.
+        try:
+            stored_config["query"] = resolve_check_query(parsed, report)
+        except ValueError as error:
+            raise CheckCreationError(f"This check cannot run: {error}.") from None
+        # The query comes from the named metric, so its display fields do too. Values the caller
+        # sends could draw that query with another metric's format or unit.
+        stored_config = _with_metric_display(
+            report,
+            {key: value for key, value in stored_config.items() if key not in _METRIC_DISPLAY_FIELDS},
+            parsed.metric_id,
+        )
+        try:
+            parse_check_config(kind, stored_config)
+        except CheckConfigValidationError as error:
+            raise CheckCreationError(str(error)) from None
+
+    if isinstance(parsed, MetricThresholdConfig):
+        stored_config = _with_metric_display(report, stored_config, parsed.metric_id)
+        try:
+            normalized = parse_check_config(kind, stored_config)
+            assert isinstance(normalized, MetricThresholdConfig)
+            validate_metric_check_for_write(normalized)
+        except CheckConfigValidationError as error:
+            raise CheckCreationError(str(error)) from None
+    # Accept metadata before writers persist it, so old workers can read checks during rollout.
+    return {key: value for key, value in stored_config.items() if key not in _METRIC_DISPLAY_FIELDS}
+
+
+def _with_metric_display(report: SignalReport, config: dict, metric_id: str | None) -> dict:
+    """Fill a metric check's display fields from the report metric it names, keeping any it already has."""
+    filled = dict(config)
+    for metric in report.metrics or []:
+        if isinstance(metric, dict) and metric.get("metric_id") == metric_id:
+            filled.setdefault("metric_kind", metric.get("kind", "custom"))
+            filled.setdefault("value_format", metric.get("value_format", "number"))
+            filled.setdefault("unit", metric.get("unit"))
+            break
+    if "comparison" in filled:
+        filled["metric_kind"] = filled.get("metric_kind") or "custom"
+        filled["value_format"] = filled.get("value_format") or "number"
+        filled.setdefault("unit", None)
+    return filled
 
 
 def create_checks_from_specs(
@@ -255,16 +315,27 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
     are derived from the row's own soak and schedule.
     """
     pending = list(
-        SignalReportCheck.objects.for_team(team_id).filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+        SignalReportCheck.objects.for_team(team_id)
+        .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+        .select_related("report__team")
     )
-    horizon = resolved_at + MAX_CHECK_HORIZON
     armed = 0
     for check in pending:
         next_run_at = resolved_at + timedelta(minutes=check.soak_minutes or 0)
-        expires_at = min(
-            _last_run_at(next_run_at, check.run_interval_minutes, check.runs_remaining)
-            + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
-            horizon,
+        if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+            try:
+                config = parse_check_config(check.kind, check.config)
+                assert isinstance(config, MetricThresholdConfig)
+                query = resolve_check_query(config, check.report)
+                next_run_at = max(next_run_at, metric_check_ready_at(query, check.report.team, resolved_at))
+            except (CheckConfigValidationError, ValueError):
+                # An invalid legacy config must not prevent the report's other checks from arming.
+                pass
+        expires_at = check_schedule_expires_at(
+            next_run_at=next_run_at,
+            run_interval_minutes=check.run_interval_minutes,
+            runs_remaining=check.runs_remaining,
+            start_at=resolved_at,
         )
         armed += (
             SignalReportCheck.objects.for_team(team_id)
@@ -272,24 +343,9 @@ def arm_pending_checks(*, team_id: int, report_id: str | uuid.UUID, resolved_at:
             .update(
                 status=SignalReportCheck.Status.ACTIVE,
                 next_run_at=next_run_at,
+                measurement_start_at=resolved_at if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD else None,
                 expires_at=expires_at,
                 updated_at=resolved_at,
             )
         )
     return armed
-
-
-def _soak_from_first_run(next_run_at: datetime, now: datetime) -> int:
-    """The soak a dated check keeps when its report has not resolved yet.
-
-    The author left a gap before the first run to allow for deploy and soak time, so that gap is
-    what the check waits out once the report resolves, bounded by what a soak may be.
-    """
-    minutes = round((next_run_at - now).total_seconds() / 60)
-    return max(MIN_CHECK_SOAK_HOURS * 60, min(minutes, MAX_CHECK_SOAK_HOURS * 60))
-
-
-def _last_run_at(next_run_at: datetime, run_interval_minutes: int | None, runs_remaining: int) -> datetime:
-    if not run_interval_minutes:
-        return next_run_at
-    return next_run_at + timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))

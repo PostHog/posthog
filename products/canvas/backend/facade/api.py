@@ -4,10 +4,14 @@ This module pulls the build path (and Temporal) onto import. Put reads that run 
 ``django.setup()`` or on hot request paths in ``facade/search.py`` or ``facade/access.py``.
 """
 
-from django.http import HttpRequest
+from django.http import Http404, HttpRequest
 
 from products.canvas.backend.actions import canvas_actions_disabled as canvas_actions_disabled
-from products.canvas.backend.artifacts import canvas_artifact as _canvas_artifact
+from products.canvas.backend.artifacts import (
+    canvas_artifact as _canvas_artifact,
+    canvas_sandbox_document as _canvas_sandbox_document,
+    create_canvas_sandbox_document_url as create_canvas_sandbox_document_url,
+)
 from products.canvas.backend.connectors import (
     call_connector_tool as call_connector_tool,
     canvas_connectors_enabled as canvas_connectors_enabled,
@@ -97,6 +101,21 @@ def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none
     if if_none_match is not None:
         request.META["HTTP_IF_NONE_MATCH"] = if_none_match
     response = _canvas_artifact(request, token, artifact_path)
+    return CanvasArtifact(
+        status_code=response.status_code,
+        body=response.content,
+        headers=dict(response.items()),
+    )
+
+
+def render_canvas_sandbox_document(*, host: str, content_hash: str) -> CanvasArtifact | None:
+    """The sandbox bootstrap document for `content_hash`, or None when this host or hash serves none."""
+    request = HttpRequest()
+    request.META["HTTP_HOST"] = host
+    try:
+        response = _canvas_sandbox_document(request, content_hash)
+    except Http404:
+        return None
     return CanvasArtifact(
         status_code=response.status_code,
         body=response.content,

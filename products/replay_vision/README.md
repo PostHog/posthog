@@ -8,6 +8,7 @@ A sub-product of Session Replay. Users configure named **scanners** that PostHog
 Carries a prompt, a scanner type (`monitor` / `classifier` / `scorer` / `summarizer`), a `RecordingsQuery` that selects matching sessions, a Gemini model (which sets the per-observation credit price), and two volume levers: `sampling_mode` (a quality pre-filter over the matched sessions) and `sampling_rate` (a random downsample applied after it).
 Each enabled scanner has a Temporal schedule that fires every 5 minutes and sweeps for newly settled recordings past the scanner's watermark (`last_swept_at`); disabling a scanner removes its schedule, and re-enabling restarts the sweep from now rather than backfilling the gap (see **Backfill** for the explicit way to cover history).
 Every succeeded observation is embedded (the summary, or the reasoning) for downstream free-text search.
+The Search tab ranks observations by embedding distance, then a decision model rereads the query and each of the top 20 together and reorders them by how well they match. The reorder has a two-second budget, and search falls back to the embedding order when the model is slow, failing, or not configured.
 A scanner with `emits_signals` also pushes one signal per finding into the Signals inbox (`replay_vision` / `scanner_finding`), which is what the editor's Self-driving step turns on.
 
 **Inline scan** — a prompt pointed at named sessions with nothing saved, for a one-off question (`POST /vision/scanners/inline_scan/`, and the path agents take instead of creating a throwaway scanner). An observation belongs to a scanner, so a scan mints one keyed by a fingerprint of its config: the same question reuses the observations it already has, a different question gets its own. Those rows carry `origin=inline`, are never listed or swept, and are reaped once they have nothing to show. See `backend/inline_scan.py` for why they exist and `backend/scanner_access.py` for how results are read back.
@@ -62,15 +63,17 @@ The template lives in `frontend/src/scenes/experiments/replayVisionScanner.ts` a
 
 ## Layout
 
-- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions.
+- `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, observation labels (ratings), usage receipts, quota grants, prompt suggestions, and `TeamReplayVisionConfig` (the team's cross-scanner search suggestions).
 - `backend/api/` — DRF viewsets and serializers (scanners, observations, backfills, prompt suggestions, quota, stats, live progress over SSE).
 - `backend/queries/` — ClickHouse candidate selection (watermark + settle window + eligibility + sampling), the backfill's bounded descending walk and its exact count, and volume estimates.
 - `backend/temporal/` — the apply workflow and its activities, per-scanner sweep, per-backfill tick, schedule reconciler (+ observation and backfill-schedule reapers), estimate refresher, prompt evaluation, vision alerts, and the Gemini file cleanup sweep.
 - `backend/quota.py` + `backend/billing.py` — credit accounting: the per-model price table, the receipt ledger, the quota snapshot the meter reads, and the per-org credit-limit override described below.
 - `backend/enqueue_claims.py` — atomic slot claims that keep on-demand scans inside the in-flight caps.
 - `backend/embeddings.py` — the embedding identity shared by the write and search sides.
+- `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
 - `backend/prompt_suggestions.py` + `backend/proposers/` — rating-driven prompt rewrites, one proposer per scanner type. `backend/prompt_evaluation.py` re-runs a suggestion against rated sessions before it's applied, and `backend/feedback_themes.py` clusters written thumbs-down feedback.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
+- `backend/search_suggestions.py` — example searches for the Search tab's empty state, per scanner and per team. A scheduled workflow generates them for every active scanner and team before anyone opens the tab, from an outcome-labeled sample of new observations and each scanner's instructions.
 - `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
 - `backend/scanner_access.py` — scanner-level RBAC shared by the API and the alert engine.

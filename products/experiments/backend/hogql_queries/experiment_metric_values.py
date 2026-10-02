@@ -34,10 +34,7 @@ MetricSource = Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
 def get_conversion_window_seconds(metric: ExperimentMetric) -> int:
-    """
-    Returns the conversion window in seconds for the current metric.
-    Returns 0 if no conversion window is configured.
-    """
+    """Returns 0 when the metric has no conversion window."""
     if metric.conversion_window and metric.conversion_window_unit:
         return conversion_window_to_seconds(
             metric.conversion_window,
@@ -47,18 +44,10 @@ def get_conversion_window_seconds(metric: ExperimentMetric) -> int:
 
 
 def build_conversion_window_predicate(conversion_window_seconds: int) -> ast.Expr:
-    """
-    Build the predicate for limiting metric events to the conversion window for the user.
-    Uses "metric_events" as the events alias.
-    """
     return build_conversion_window_predicate_for_events("metric_events", conversion_window_seconds)
 
 
 def build_session_conversion_window_predicate(conversion_window_seconds: int) -> ast.Expr:
-    """
-    Build the predicate for limiting session metric events to the conversion window.
-    Uses first_event_timestamp from metric_events_by_session for temporal filtering.
-    """
     if conversion_window_seconds > 0:
         return parse_expr(
             """
@@ -70,16 +59,12 @@ def build_session_conversion_window_predicate(conversion_window_seconds: int) ->
             },
         )
     else:
-        # No conversion window limit - just return true since temporal filtering
-        # is already handled by the >= first_exposure_timestamp condition in the join
+        # Without a conversion window there is no upper bound. The join already
+        # requires first_event_timestamp >= first_exposure_time.
         return ast.Constant(value=True)
 
 
 def build_conversion_window_predicate_for_events(events_alias: str, conversion_window_seconds: int) -> ast.Expr:
-    """
-    Build the predicate for limiting metric events to the conversion window for the user.
-    Parameterized to support different event table aliases (for ratio metrics).
-    """
     if conversion_window_seconds > 0:
         return parse_expr(
             f"""
@@ -105,11 +90,9 @@ def build_metric_predicate(
     cuped_lookback_days: int | None = None,
 ) -> ast.Expr:
     """
-    Builds the metric predicate as an AST expression.
     For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
-    For mean metrics, pass the resolved metric source explicitly with "events" alias.
+    For mean metrics, pass the resolved metric source explicitly with the "events" alias.
     """
-    # Data warehouse sources use different table and predicate logic
     timestamp_field_chain: list[str | int]
     if isinstance(source, ExperimentDataWarehouseNode):
         # For DW tables, don't prefix with table name since:
@@ -150,20 +133,13 @@ def build_metric_predicate(
 
 def build_value_expr(source: MetricSource, apply_coalesce: bool = True) -> ast.Expr:
     """
-    Extracts the value expression from the metric source configuration.
     For ratio metrics, pass the specific source (numerator or denominator).
     For mean metrics, pass the resolved metric source explicitly.
 
-    Args:
-        source: The metric source configuration
-        apply_coalesce: If True, wrap numeric values with coalesce(..., 0) so that
-                       NULL property values are treated as 0. This should be True
-                       for event CTEs (metric_events, numerator_events, denominator_events)
-                       so that downstream aggregations don't need to distinguish between
-                       metric types.
-
-    Note: For count distinct math types (UNIQUE_SESSION, DAU, UNIQUE_GROUP), coalesce
-    is not applied since the value is an ID, not a numeric value.
+    apply_coalesce wraps numeric values in coalesce(..., 0), so a NULL property
+    value counts as 0. Event CTEs (metric_events, numerator_events,
+    denominator_events) need it, so that downstream aggregations do not have to
+    distinguish between metric types.
     """
     base_expr = get_source_value_expr(source)
 
@@ -180,10 +156,8 @@ def build_value_expr(source: MetricSource, apply_coalesce: bool = True) -> ast.E
     ]:
         return base_expr
 
-    # Wrap numeric values with coalesce so NULL property values become 0
-    # We need toFloat to ensure type consistency - base_expr could be String (HOGQL),
-    # Float64 (continuous), or UInt8 (count). Coalesce requires matching types.
-    # Skip wrapping with toFloat if base_expr is already a toFloat call (e.g., continuous metrics)
+    # coalesce() needs matching argument types, and base_expr can be Float64
+    # (continuous) or UInt8 (count), so cast it to Float before the coalesce.
     if isinstance(base_expr, ast.Call) and base_expr.name == "toFloat":
         float_expr = base_expr
     else:
@@ -198,19 +172,14 @@ def build_value_aggregation_expr(
     value_expr: ast.Expr | None = None,
 ) -> ast.Expr:
     """
-    Returns the value aggregation expression based on math type.
     For ratio metrics, pass the specific source (numerator or denominator) and events_alias.
-    For mean metrics, pass the resolved metric source explicitly with "metric_events" alias.
+    For mean metrics, pass the resolved metric source explicitly with the "metric_events" alias.
+    value_expr, when set, replaces the {events_alias}.{column_name} column.
 
-    Args:
-        source: The metric source configuration
-        events_alias: The table/CTE alias to use (e.g., "metric_events", "combined_events")
-        column_name: The column name containing the value (e.g., "value", "numerator_value")
-
-    Note: NULL handling (coalesce) is applied upstream in _build_value_expr() when building
-    the event CTEs. This method does not need to handle NULLs - aggregation functions will
-    naturally ignore NULLs from combined_events (ratio metrics), while NULL property values
-    have already been coalesced to 0 at the source.
+    build_value_expr() already coalesces NULL property values to 0 in the event CTEs.
+    The aggregated rows can still hold NULL: the LEFT JOIN from exposures gives NULL
+    for an entity without events, and a CUPED value_expr is NULL outside its window.
+    Each branch below returns 0, not NULL, for an entity with only NULL values.
     """
     math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
     column_ref = f"{events_alias}.{column_name}"
@@ -280,14 +249,12 @@ def build_value_aggregation_expr(
                 if not aggregation_needs_numeric_input(aggregation_function):
                     agg_call = ast.Call(name="toFloat", args=[agg_call])
                 return ast.Call(name="coalesce", args=[agg_call, ast.Constant(value=0)])
-        # Fallback to SUM
+        # A math_hogql without a known aggregation function falls back to sum.
         if value_expr is not None:
             return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
         return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")
     else:
-        # SUM (default) - coalesce is needed here because sum(NULL) returns NULL.
-        # For ratio metrics with combined_events, when there are no events of one type,
-        # all values for that type are NULL (from UNION ALL structure), and we want 0 not NULL.
+        # SUM (default). sum() over only NULL values returns NULL, so coalesce each value.
         if value_expr is not None:
             return parse_expr("sum(coalesce(toFloat({value_expr}), 0))", placeholders={"value_expr": value_expr})
         return parse_expr(f"sum(coalesce(toFloat({column_ref}), 0))")

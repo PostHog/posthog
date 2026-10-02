@@ -28,11 +28,7 @@ from posthog.dags.person_pg_cleanup_drain import (
     pg_recovery,
 )
 from posthog.personhog_client.fake_client import FakePersonHogClient, get_active_fake
-from posthog.personhog_client.proto import (
-    DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse,
-    GetPersonByUuidRequest,
-)
+from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse
 from posthog.persons_db import persons_db_url
 
 TEAM_A = 4242
@@ -132,7 +128,7 @@ def seed_big(fake: FakePersonHogClient, team_id: int, person_id: int, distinct_i
 
 
 def present(fake: FakePersonHogClient, team_id: int, uuid: str) -> bool:
-    return fake.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=uuid)).HasField("person")
+    return fake.stored_person(team_id, uuid) is not None
 
 
 def delete_requests(fake: FakePersonHogClient) -> list:
@@ -140,7 +136,8 @@ def delete_requests(fake: FakePersonHogClient) -> list:
 
 
 def distinct_id_count(fake: FakePersonHogClient, team_id: int, uuid: str) -> int:
-    person = fake.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=uuid)).person
+    person = fake.stored_person(team_id, uuid)
+    assert person is not None
     return len(fake._distinct_ids.get((team_id, person.id), []))
 
 

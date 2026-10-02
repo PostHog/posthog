@@ -1,9 +1,9 @@
 """Exported enums for canvas."""
 
-from django.db import models
+from posthog.enums import LabeledStrEnum
 
 
-class ConnectorCallStatus(models.TextChoices):
+class ConnectorCallStatus(LabeledStrEnum):
     OK = "ok"
     NOT_CONNECTED = "not_connected"
     NEEDS_REAUTH = "needs_reauth"
@@ -14,12 +14,12 @@ class ConnectorCallStatus(models.TextChoices):
     UPSTREAM_ERROR = "upstream_error"
 
 
-class ConnectorKind(models.TextChoices):
+class ConnectorKind(LabeledStrEnum):
     NATIVE = "native"
     MCP = "mcp"
 
 
-class CanvasAccess(models.TextChoices):
+class CanvasAccess(LabeledStrEnum):
     """Which canvases a request may reach, by the kind of operation it performs."""
 
     # Reads: list, retrieve, source, builds, state, and the other read actions.

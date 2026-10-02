@@ -92,3 +92,85 @@ class TestCanvasFacade(TestCase):
         record = search.searchable_canvas(team_id=self.team.id, canvas_id=canvas_id)
         assert record is not None
         assert record.name == "Burn rate"
+
+    def _private_space(self, owner, members):
+        channel = Channel.objects.create(
+            team=self.team, name=f"private-{uuid4()}", channel_type=Channel.ChannelType.PRIVATE, created_by=owner
+        )
+        for member in members:
+            channel.memberships.create(team=self.team, user=member)
+        return channel
+
+    @parameterized.expand(
+        [
+            ("member_of_the_private_space", {}, True),
+            ("sandbox_of_a_member_who_did_not_create_it", {"sandbox": True}, False),
+            ("sandbox_of_its_creator", {"sandbox": True, "as_creator": True}, True),
+            ("task_that_built_it", {"task": "builder"}, True),
+            ("task_that_did_not_build_it", {"task": "other"}, False),
+            ("space_deleted", {"space_deleted": True}, False),
+        ]
+    )
+    def test_canvas_comments_accessible_follows_space_sandbox_and_task(self, _name, case, expected):
+        creator = User.objects.create(email=f"creator-{uuid4()}@example.com", distinct_id=str(uuid4()))
+        member = User.objects.create(email=f"member-{uuid4()}@example.com", distinct_id=str(uuid4()))
+        space = self._private_space(creator, [creator, member])
+        builder_task_id = uuid4()
+        canvas_id = testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=space.id,
+            name="Private plan",
+            created_by_id=creator.id,
+            generation_task_id=builder_task_id,
+        )
+        if case.get("space_deleted"):
+            Channel.objects.filter(id=space.id).update(deleted=True)
+        task_id = {"builder": builder_task_id, "other": uuid4()}.get(case.get("task", ""))
+
+        assert (
+            access.canvas_comments_accessible(
+                team_id=self.team.id,
+                user_id=(creator if case.get("as_creator") else member).id,
+                canvas_id=str(canvas_id),
+                task_id=task_id,
+                sandbox=case.get("sandbox", False),
+            )
+            is expected
+        )
+
+    def test_visible_canvas_user_ids_keeps_only_users_who_can_see_the_space(self):
+        member = User.objects.create(email="member@example.com", distinct_id="member-user")
+        outsider = User.objects.create(email="outsider@example.com", distinct_id="outsider-user")
+        candidates = {self.user.id, member.id, outsider.id}
+        private_id = testing.create_canvas(
+            team_id=self.team.id,
+            channel_id=self._private_space(self.user, [self.user, member]).id,
+            name="Private plan",
+            created_by_id=self.user.id,
+        )
+
+        assert (
+            access.visible_canvas_user_ids(team_id=self.team.id, canvas_id=str(self._canvas()), user_ids=candidates)
+            == candidates
+        )
+        assert access.visible_canvas_user_ids(team_id=self.team.id, canvas_id=str(private_id), user_ids=candidates) == {
+            self.user.id,
+            member.id,
+        }
+
+    def test_live_visible_canvas_ids_drops_ids_that_are_not_visible_canvases(self):
+        public_id = self._canvas()
+        deleted_id = self._canvas(deleted=True)
+
+        assert access.live_visible_canvas_ids(
+            self.team.id, self.user.id, ["not-a-uuid", str(public_id), str(deleted_id)]
+        ) == {str(public_id)}
+
+    def test_canvas_owner_activity_skips_deleted_and_ownerless_canvases(self):
+        self._canvas()
+        self._canvas(deleted=True)
+        testing.create_canvas(team_id=self.team.id, channel_id=self.channel.id, name="Ownerless")
+
+        activity = access.canvas_owner_activity(team_id=self.team.id, channel_ids=[self.channel.id])
+
+        assert [(row.channel_id, row.created_by_id) for row in activity] == [(self.channel.id, self.user.id)]

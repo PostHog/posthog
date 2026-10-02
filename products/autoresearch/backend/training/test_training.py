@@ -10,6 +10,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
+from products.autoresearch.backend.dataset.labeling import TrainingSample
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 from products.autoresearch.backend.testing import TeamScopedTestMixin
@@ -57,6 +58,20 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         # Step 3 is the sandbox fit/eval loop.
         assert "fit and evaluate" in prompt
         assert "roc_auc_score" in prompt
+
+    @parameterized.expand(
+        [
+            ("sampled", TrainingSample(population=100_000, positives=2_000, negative_sample_rate=0.4), True),
+            ("unsampled", TrainingSample(population=1_000, positives=100, negative_sample_rate=1.0), False),
+        ]
+    )
+    def test_prompt_states_the_training_sample(self, _name: str, sample: TrainingSample, corrected: bool) -> None:
+        prompt = build_agent_description(
+            pipeline=self._make_pipeline(), iteration_budget=5, training_run_id="run-123", training_sample=sample
+        )
+        assert f"about {sample.expected_size} people, {sample.positives} of them positive" in prompt
+        assert f"**Negative sample rate (r)**: {sample.negative_sample_rate:g}" in prompt
+        assert ("logit(p) + log(r)" in prompt) is corrected
 
     def test_prompt_drives_materialize_features_not_execute_sql_pull(self) -> None:
         pipeline = self._make_pipeline()
@@ -164,6 +179,7 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
         kwargs = facade.create_and_run_task.call_args.kwargs
         assert kwargs["posthog_mcp_scopes"] == TRAINING_MCP_SCOPES
+        assert "user:read" in kwargs["posthog_mcp_scopes"]
         assert kwargs["extra_run_state"] == {
             "autoresearch_training_run_id": str(training_run.id),
             "config_snapshot": {"connectors": {"mcp_installation_ids": []}},

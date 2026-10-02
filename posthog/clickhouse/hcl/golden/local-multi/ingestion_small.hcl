@@ -8,6 +8,27 @@ node "small" {
 }
 
 database "posthog" {
+  table "distributed_person_group_membership_config" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "enabled" {
+      type = "UInt8"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "person_group_membership_config"
+      sharding_key    = "sipHash64(team_id)"
+    }
+  }
+
   table "kafka_app_metrics" {
     column "team_id" {
       type = "Int64"
@@ -1030,6 +1051,18 @@ database "posthog" {
       type  = "String"
       alias = "if(is_initial_query, JSONExtractRaw(toString(log_comment), 'modifiers'), '')"
     }
+    column "lc_plan_fingerprint" {
+      type  = "String"
+      alias = "ifNull(dynamicElement(log_comment.plan_fingerprint, 'String'), '')"
+    }
+    column "lc_estimated_rows" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_rows, 'Int64'), 0)"
+    }
+    column "lc_estimated_bytes" {
+      type  = "Int64"
+      alias = "ifNull(dynamicElement(log_comment.estimated_bytes, 'Int64'), 0)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -1617,6 +1650,33 @@ database "posthog" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "person_distinct_id_overrides"
+    }
+  }
+
+  table "writable_person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "last_seen" {
+      type = "SimpleAggregateFunction(max, DateTime64(6, 'UTC'))"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_person_group_membership"
+      sharding_key    = "sipHash64(team_id, group_type_index, group_key)"
     }
   }
 
@@ -2913,6 +2973,31 @@ SQL
     }
     column "event_count" {
       type = "AggregateFunction(sum, UInt64)"
+    }
+  }
+
+  dictionary "person_group_membership_config_dict" {
+    primary_key = ["team_id"]
+    lifetime {
+      min = 60
+      max = 120
+    }
+    attribute "team_id" {
+      type = "Int64"
+    }
+    attribute "group_type_index" {
+      type    = "UInt8"
+      default = "255"
+    }
+    attribute "enabled" {
+      type    = "UInt8"
+      default = "0"
+    }
+    source "clickhouse" {
+      user  = "default"
+      query = "SELECT team_id, config.1 AS group_type_index, config.2 AS enabled FROM (SELECT team_id, argMax(tuple(group_type_index, enabled), version) AS config FROM posthog.distributed_person_group_membership_config GROUP BY team_id) WHERE enabled = 1 AND group_type_index <= 4"
+    }
+    layout "complex_key_hashed" {
     }
   }
 }

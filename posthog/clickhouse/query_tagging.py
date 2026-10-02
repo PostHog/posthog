@@ -7,7 +7,7 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, assert_never
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, assert_never
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -129,6 +129,7 @@ class Feature(StrEnum):
     EVENTS_VALUES_API = "events_values_api"
     SESSIONS_VALUES_API = "sessions_values_api"
     USAGE_REPORT = "usage_report"
+    API_QUERIES_BUDGET = "api_queries_budget"
     DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
     QUOTA_LIMITING = "quota_limiting"
@@ -289,6 +290,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
         case (
             NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
+            | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALLS_AND_ERRORS_QUERY
             | NodeKind.MCP_TOOL_TOP_USERS_QUERY
@@ -494,6 +496,17 @@ class QueryTags(BaseModel):
     # in-session exposure evidence, which adds a live events scan and a GLOBAL IN set on top of the
     # population read. Separates that heavier read from a plain exposure listing in the query log.
     experiment_exposures_in_session: Optional[bool] = None
+    # Set on a recordings-list read whose event filters only match inside each recording's window.
+    # That path adds a GLOBAL JOIN on the per-recording bounds to every events subquery, so the tag
+    # separates its cost from the default session-scoped listing in the query log.
+    replay_event_match_scope: Optional[str] = None  # "recording"; absent for the default session scope
+    # Set on recordings-list reads with positive events-table filters, in both scopes, to compare the combined scan.
+    replay_event_query_strategy: Optional[Literal["separate", "combined"]] = None
+    replay_event_filter_count: Optional[int] = None
+    replay_event_query_property_filter_count: Optional[int] = None
+    replay_combined_event_query_eligible: Optional[bool] = None
+    replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
+    replay_event_query_range_days: Optional[float] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
@@ -539,6 +552,14 @@ class QueryTags(BaseModel):
     contains_user_hogql: Optional[bool] = None
 
     hogql_features: Optional[HogQLFeatures] = None
+
+    # Structural hash of the HogQL AST with literals stripped (posthog/hogql/cost/fingerprint.py), so
+    # query_log can group actual cost by plan shape and join it to the estimate recorded below.
+    plan_fingerprint: Optional[str] = None
+    # Set by the HogQL cost planner before execution and compared against read_rows / read_bytes in
+    # query_log to calibrate it. None until the estimator runs.
+    estimated_rows: Optional[int] = None
+    estimated_bytes: Optional[int] = None
 
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
