@@ -110,6 +110,41 @@ _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
 }
 
 
+@frozen
+class LogsAlertCondition:
+    """The logs bound, which the platform keeps under `source_config["condition"]`."""
+
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
+        condition = check.condition
+        return cls(
+            threshold_count=condition["threshold_count"],
+            threshold_operator=condition["threshold_operator"],
+            window_minutes=condition["window_minutes"],
+        )
+
+    def as_source_config(self) -> dict[str, int | str]:
+        return {
+            "threshold_count": self.threshold_count,
+            "threshold_operator": self.threshold_operator,
+            "window_minutes": self.window_minutes,
+        }
+
+
+def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
+    """A bound the cohort query cannot read. Caught here, because the cohort key reads it for
+    every check in the batch, so one malformed row would otherwise stop the whole batch."""
+    try:
+        LogsAlertCondition.of(check)
+    except (KeyError, TypeError):
+        return "The alert's threshold is missing from its configuration"
+    return None
+
+
 def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
     """Names the scheduled check, and the window it answered for.
 
@@ -127,7 +162,7 @@ def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
     return (
-        check.window_minutes,
+        LogsAlertCondition.of(check).window_minutes,
         check.evaluation_periods,
         check.check_interval_minutes,
         is_projection_eligible(check.source_config),
@@ -320,8 +355,9 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 def _evaluate_one(
     check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
+    condition = LogsAlertCondition.of(check)
     current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, check.threshold_count, check.threshold_operator, check.evaluation_periods
+        buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
     ) or (False,)
     return _verdict(
         check,
@@ -453,7 +489,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     evaluable: list[PlatformAlertCheckInput] = []
     muted_ids: set[UUID] = set()
     for check in checks:
-        broken_reason = _detect_broken_filter_config(check.source_config)
+        broken_reason = _detect_broken_filter_config(check.source_config) or _broken_condition(check)
         if broken_reason is not None:
             logger.warning(
                 "Marking a logs alert BROKEN for an invalid filter config",

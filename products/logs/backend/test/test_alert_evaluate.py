@@ -26,6 +26,7 @@ from products.alerts_platform.backend.facade.temporal import SOURCE_EVALUATION_T
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
 from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
@@ -33,6 +34,7 @@ from products.logs.backend.temporal.alert_evaluate import (
 )
 
 _MODULE = "products.logs.backend.alert_source_cycle"
+CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
 
 
@@ -46,10 +48,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
             "team_id": self.team.id,
             "name": "API errors",
             "source_kind": SourceKind.LOGS,
-            "source_config": {},
-            "threshold_count": 10,
-            "threshold_operator": "above",
-            "window_minutes": 5,
+            "source_config": {"condition": CONDITION},
             "check_interval_minutes": 10,
             "next_check_at": self.cutoff - timedelta(minutes=1),
         }
@@ -105,6 +104,25 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
+
+    def test_a_backfilled_alert_evaluates_against_the_bound_it_was_copied_with(self) -> None:
+        LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="API errors",
+            threshold_count=1000,
+            threshold_operator="below",
+            window_minutes=5,
+            filters={"serviceNames": ["api"]},
+            next_check_at=self.cutoff - timedelta(minutes=1),
+        )
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        with team_scope(self.team.id):
+            (check,) = due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff)
+            copied = platform_testing.configuration(check.id)
+
+        evaluation, _ = self._run(copied)
+
+        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
@@ -197,8 +215,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
 
-    def test_a_broken_filter_config_stops_being_discovered(self) -> None:
-        configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
+    @parameterized.expand(
+        [
+            ("filter_group", {"condition": CONDITION, "filterGroup": {"type": "nonsense"}}),
+            ("missing_condition", {}),
+            ("null_condition", {"condition": None}),
+        ]
+    )
+    def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:
+        configuration = self._configuration(source_config=source_config)
 
         evaluation, query = self._run(configuration)
         self._record(evaluation)

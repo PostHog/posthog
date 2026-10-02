@@ -16,6 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    source_condition,
 )
 from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
 from products.alerts_platform.backend.facade.scheduling import (
@@ -112,9 +113,6 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         team_id=c.team_id,
         name=c.name,
         source_config=c.source_config,
-        threshold_count=c.threshold_count,
-        threshold_operator=c.threshold_operator,
-        window_minutes=c.window_minutes,
         check_interval_minutes=c.check_interval_minutes,
         evaluation_periods=c.evaluation_periods,
         datapoints_to_alarm=c.datapoints_to_alarm,
@@ -151,11 +149,12 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     only through a hand-run backfill command, and only for a configuration already copied whose
     source row changed since. The row then states the new condition beside a verdict measured
     against the old one. Carry the snapshot on the outcome if that stops being acceptable.
+
+    The source's bound is flattened in beside the platform's own fields, so a reader finds it at
+    the top level whatever shape the source gives it.
     """
     return {
-        "threshold_count": configuration.threshold_count,
-        "threshold_operator": configuration.threshold_operator,
-        "window_minutes": configuration.window_minutes,
+        **source_condition(configuration.source_config),
         "evaluation_periods": configuration.evaluation_periods,
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
@@ -297,9 +296,6 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
                 "enabled": upsert.enabled,
                 "source_kind": upsert.source_kind.value,
                 "source_config": upsert.source_config,
-                "threshold_count": upsert.threshold_count,
-                "threshold_operator": upsert.threshold_operator,
-                "window_minutes": upsert.window_minutes,
                 "check_interval_minutes": upsert.check_interval_minutes,
                 "recurrence_unit": upsert.recurrence_unit,
                 "anchor_time": anchor_time,
