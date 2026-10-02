@@ -26,7 +26,7 @@ import type { DataQualitySubjectApi } from 'products/data_quality/frontend/gener
 import { MATERIALIZING_TYPES } from '../freshness'
 import type { NodeTypeEnumApi } from '../generated/api.schemas'
 
-export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'tests', 'history'] as const
+export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'data-quality', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
 
 export interface NodeDetailSceneLogicProps {
@@ -220,7 +220,7 @@ export interface nodeDetailSceneLogicActions {
         value: true
     }
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
-        tab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests' | null
+        tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
     updateNodeDescription: (description: string) => {
         description: string
@@ -264,9 +264,9 @@ export interface nodeDetailSceneLogicMeta {
         isMaterialized: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         defaultTab: (node: DataModelingNode | null, isMaterialized: boolean) => NodeDetailSceneTab
         effectiveTab: (
-            currentTab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests' | null,
-            availableTabs: ('history' | 'lineage' | 'materialization' | 'query' | 'tests')[],
-            defaultTab: 'history' | 'lineage' | 'materialization' | 'query' | 'tests'
+            currentTab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null,
+            availableTabs: ('data-quality' | 'history' | 'lineage' | 'materialization' | 'query')[],
+            defaultTab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query'
         ) => NodeDetailSceneTab | null
         effectiveLastRunAt: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => string | null
         effectiveLastRunStatus: (
@@ -489,7 +489,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                         'lineage',
                         ...(featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] &&
                         (node.warehouse_table_id || node.origin === 'posthog')
-                            ? ['tests' as const]
+                            ? ['data-quality' as const]
                             : []),
                     ]
                 }
@@ -506,7 +506,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     tabs.push('materialization')
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && node.saved_query_id) {
-                    tabs.push('tests')
+                    tabs.push('data-quality')
                 }
                 if (node.saved_query_id) {
                     tabs.push('history')
@@ -660,6 +660,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         // is still mounted while the new URL lands, so it must ignore routes for another id.
         const applyTab = (id: string | undefined, tab: unknown): void => {
             if (id !== props.id) {
+                return
+            }
+            // `tests` is the tab's old URL segment; keep links built before the rename working.
+            if (tab === 'tests') {
+                router.actions.replace(urls.nodeDetail(id, 'data-quality'))
                 return
             }
             actions.setCurrentTab(isNodeDetailSceneTab(tab) ? tab : null)
