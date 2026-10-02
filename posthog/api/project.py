@@ -1314,9 +1314,14 @@ class ProjectBackwardCompatSerializer(
                 **validated_data["modifiers"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null
+        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
         if conversations_lock_applied:
-            merge_conversations_settings_locked(team, validated_data, patch_conversations_settings)
+            locked_conversations = merge_conversations_settings_locked(
+                team, validated_data, patch_conversations_settings
+            )
+            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+            team_before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+            team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
 
         # Persist only the fields this request changes. A full-row save() writes back every
         # column from this request's snapshot of the team, so two concurrent PATCHes clobber

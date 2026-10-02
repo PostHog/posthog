@@ -923,6 +923,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "teams_channel_name": "Test channel",
             "teams_channels": [],
             "email_enabled": True,
+            "github_enabled": True,
+            "github_integration_id": 123,
+            "github_repos": ["example-org/example-repo"],
         }
         self.team.conversations_enabled = True
         self.team.conversations_settings = {**managed, "widget_color": "#123456"}
@@ -976,7 +979,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         else:
             payload = {"conversations_enabled": True}
 
-        with CaptureQueriesContext(connection) as queries:
+        with (
+            CaptureQueriesContext(connection) as queries,
+            patch("posthog.api.team.report_user_action") as mock_report,
+        ):
             with patch.object(Team.objects, "select_for_update", simulate_integration_update):
                 if serializer_class is TeamSerializer:
                     TeamSerializer(context={"request": MagicMock(user=self.user)}).update(self.team, payload)
@@ -1006,6 +1012,10 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         settings_saves = [q for q in queries.captured_queries if q["sql"].startswith('UPDATE "posthog_team"')]
         self.assertEqual(len(settings_saves), 2, [q["sql"][:120] for q in settings_saves])
         self.assertIn("integration-token", settings_saves[0]["sql"])
+
+        # The integration's own keys must not be reported as this user's setting changes.
+        reported = [c.args[2]["setting"] for c in mock_report.call_args_list if c.args[1] == "support setting changed"]
+        self.assertEqual(reported, [] if mode == "enabled" else ["widget_color"])
 
     def test_generate_conversations_public_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
