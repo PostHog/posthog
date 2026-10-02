@@ -1,13 +1,17 @@
 import { type ReactNode } from 'react'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconChevronLeft } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill-primitives'
 
 import { dayjs } from 'lib/dayjs'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
+import { QuillSceneName } from '~/layout/scenes/components/QuillSceneName'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
@@ -16,6 +20,8 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
+import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
+import { sessionIconFields } from '~/layout/today/todayWorkItems'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -23,7 +29,6 @@ import { TaskSourceIcon } from '../../../components/TaskSourceIcon'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import type { Task } from '../../../types/taskTypes'
 import { QuillTaskMenu } from './QuillTaskMenu'
-import { QuillTaskTitle } from './QuillTaskTitle'
 import { TaskDebugLogsPanelToggle } from './TaskDebugLogsPanelToggle'
 import { TaskPanelSkeleton, TaskRunMetadataSkeleton } from './taskDetailSkeletons'
 import { TaskErrorBanner } from './TaskErrorBanner'
@@ -69,7 +74,6 @@ export function TaskRunSceneShell({
     children,
 }: TaskRunSceneShellProps): JSX.Element {
     const skin = useThreadSkin()
-    const icon = <TaskSourceIcon originProduct={task?.origin_product} environment={task?.latest_run?.environment} />
     return (
         <SceneContent className="h-full min-h-0 gap-y-0">
             {/* The quill skin moves the panel's facts and actions into the title's overflow menu (QuillTaskMenu). */}
@@ -140,34 +144,58 @@ export function TaskRunSceneShell({
                     )}
 
                     {skin === 'quill' ? (
-                        <header className={cn('px-2', taskError && 'mt-4')}>
-                            <QuillTaskTitle
-                                name={task?.title || 'Task'}
-                                icon={icon}
-                                isLoading={isHeaderLoading}
-                                onRename={onRename}
-                                backTo={isMobile ? { label: 'PostHog AI', path: urls.ai() } : undefined}
-                                actions={
-                                    <div data-quill className="flex flex-wrap items-center gap-1">
-                                        {titleActions}
-                                        {task && (
-                                            <QuillTaskMenu
-                                                task={task}
-                                                selectedRun={selectedRun}
-                                                onArchive={onArchive}
-                                            />
-                                        )}
-                                    </div>
-                                }
-                            />
-                        </header>
+                        <QuillSceneHeader
+                            className={cn(taskError && 'mt-4')}
+                            back={
+                                isMobile ? (
+                                    <Button
+                                        variant="default"
+                                        size="icon-sm"
+                                        nativeButton={false}
+                                        render={<LinkPrimitive to={urls.ai()} />}
+                                        aria-label="Back to PostHog AI"
+                                    >
+                                        <IconChevronLeft />
+                                    </Button>
+                                ) : undefined
+                            }
+                            icon={<TodaySessionIcon item={sessionIconFields(task?.latest_run)} />}
+                            title={
+                                <QuillSceneName
+                                    name={task?.title || 'Task'}
+                                    isLoading={isHeaderLoading}
+                                    onChange={onRename}
+                                    canEdit={!!onRename}
+                                    // One write when the field is left, rather than one per keystroke.
+                                    saveOnBlur
+                                    renameDebounceMs={0}
+                                    editDataAttr="task-rename"
+                                />
+                            }
+                            actions={
+                                <>
+                                    {titleActions}
+                                    {task && (
+                                        <QuillTaskMenu task={task} selectedRun={selectedRun} onArchive={onArchive} />
+                                    )}
+                                </>
+                            }
+                        />
                     ) : (
                         <header className={cn('flex flex-col gap-y-2 px-4 pt-2', taskError && 'mt-4')}>
                             <SceneTitleSection
                                 className="-mt-2"
                                 name={task?.title || 'Task'}
                                 description={null}
-                                resourceType={{ type: 'task', forceIcon: icon }}
+                                resourceType={{
+                                    type: 'task',
+                                    forceIcon: (
+                                        <TaskSourceIcon
+                                            originProduct={task?.origin_product}
+                                            environment={task?.latest_run?.environment}
+                                        />
+                                    ),
+                                }}
                                 isLoading={isHeaderLoading}
                                 canEdit={!!onRename}
                                 onNameChange={onRename}
