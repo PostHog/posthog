@@ -5,6 +5,7 @@ import React, { useCallback, useState } from 'react'
 import {
     IconActivity,
     IconClockRewind,
+    IconExternal,
     IconPauseFilled,
     IconPencil,
     IconPlay,
@@ -12,9 +13,10 @@ import {
     IconTarget,
     IconWarning,
 } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 
 import { DataModelingNode } from '~/types'
 
@@ -49,10 +51,12 @@ export interface LineageNodeState {
     isRunning?: boolean
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
+    isSelected?: boolean
+    loading?: 'placeholder' | 'focus'
 }
 
 export interface LineageNodeCallbacks {
-    onClick?: () => void
+    onClick?: (event: React.MouseEvent | React.KeyboardEvent) => void
     onEdit?: () => void
     onMaterialize?: () => void
     onRunUpstream?: () => void
@@ -65,6 +69,8 @@ export interface LineageNodeData extends Record<string, unknown> {
     node: LineageNodeShape
     variant: LineageVariant
     direction: ElkDirection
+    draggable?: boolean
+    openUrl?: string
     state: LineageNodeState
     callbacks: LineageNodeCallbacks
     handles: NodeHandle[]
@@ -192,6 +198,7 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
 export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
+    const loadingRef = useCancelAnimationsOnUnmount<HTMLDivElement>()
 
     const showMetadata = MATERIALIZING_TYPES.has(node.type)
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
@@ -206,6 +213,58 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         callbacks.onMouseLeave?.()
     }, [callbacks])
 
+    if (state.loading) {
+        return (
+            <div
+                ref={loadingRef}
+                className={clsx(
+                    'relative flex h-full w-full min-w-[180px] animate-pulse flex-col rounded-lg border bg-bg-light/70 motion-reduce:animate-none',
+                    state.loading === 'focus' ? 'border-border' : 'border-border/50'
+                )}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    borderColor:
+                        state.loading === 'focus' ? `color-mix(in srgb, ${color} 60%, transparent)` : undefined,
+                }}
+            >
+                {data.handles.map((handle) => (
+                    <Handle
+                        key={handle.id}
+                        id={handle.id}
+                        type={handle.type}
+                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                        className="opacity-0"
+                        isConnectable={false}
+                    />
+                ))}
+                <div className="flex flex-1 flex-col justify-center gap-2 px-3">
+                    {state.loading === 'focus' ? (
+                        <div className="opacity-70">
+                            <NodeTypeTag type={node.type} />
+                        </div>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-16" active={false} />
+                    )}
+                    {node.name ? (
+                        <span
+                            className={clsx(
+                                'truncate text-sm font-medium',
+                                state.loading === 'focus' ? 'text-primary' : 'text-secondary'
+                            )}
+                        >
+                            {node.name}
+                        </span>
+                    ) : (
+                        <LemonSkeleton className="h-4 w-4/5" active={false} />
+                    )}
+                </div>
+                <div className="flex h-6 items-center rounded-b-lg bg-primary/50 px-3">
+                    <LemonSkeleton className="h-2 w-2/3" />
+                </div>
+            </div>
+        )
+    }
+
     const stop = (fn?: () => void) => (e: React.MouseEvent) => {
         e.stopPropagation()
         fn?.()
@@ -214,7 +273,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const handleKeyDown = (e: React.KeyboardEvent): void => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
-            callbacks.onClick?.()
+            callbacks.onClick?.(e)
         }
     }
 
@@ -230,11 +289,23 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         <Tooltip title={node.name} delayMs={500}>
             <div
                 className={clsx(
-                    'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
-                    state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
-                    !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                    !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
-                    node.lineage_issue && !state.isRunning && !state.isHighlighted && 'border-warning',
+                    'relative rounded-lg border bg-bg-light min-w-[180px]',
+                    callbacks.onClick && 'cursor-pointer',
+                    !callbacks.onClick && data.draggable && 'cursor-grab active:cursor-grabbing',
+                    state.isRunning && 'animate-pulse',
+                    state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
+                    state.isSelected && 'border-link ring-4 ring-link/40',
+                    !state.isRunning && !state.isSelected && state.isHighlighted && 'border-link ring-2 ring-link/30',
+                    !state.isRunning &&
+                        !state.isSelected &&
+                        !state.isHighlighted &&
+                        !state.isCurrent &&
+                        'border-border',
+                    node.lineage_issue &&
+                        !state.isRunning &&
+                        !state.isSelected &&
+                        !state.isHighlighted &&
+                        'border-warning',
                     state.isCurrent && 'border-2'
                 )}
                 // eslint-disable-next-line react/forbid-dom-props
@@ -248,6 +319,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 role={callbacks.onClick ? 'button' : undefined}
                 tabIndex={callbacks.onClick ? 0 : undefined}
                 aria-label={callbacks.onClick ? ariaLabel : undefined}
+                data-attr="lineage-node"
             >
                 {data.handles.map((handle) => (
                     <Handle
@@ -286,11 +358,27 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                             <NodeTypeTag type={node.type} />
                             {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
                         </div>
-                        {node.user_tag && (
-                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
-                                #{node.user_tag}
-                            </span>
-                        )}
+                        <div className="flex items-center gap-1">
+                            {node.user_tag && (
+                                <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
+                                    #{node.user_tag}
+                                </span>
+                            )}
+                            {data.openUrl && (
+                                <LemonButton
+                                    className="nodrag nopan"
+                                    size="xxsmall"
+                                    type="secondary"
+                                    to={data.openUrl}
+                                    targetBlank
+                                    stopPropagation
+                                    tooltip={`Open ${node.name} in new tab`}
+                                    aria-label={`Open ${node.name} in new tab`}
+                                    icon={<IconExternal />}
+                                    data-attr="lineage-node-open"
+                                />
+                            )}
+                        </div>
                     </div>
                     <div className="flex items-center justify-between gap-2 py-2">
                         <span className="font-medium text-sm truncate">{node.name}</span>

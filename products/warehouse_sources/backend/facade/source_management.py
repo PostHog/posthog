@@ -17,6 +17,7 @@ _LAZY = {
     "draft_manifest_sync": "sources.custom.ai_builder",
     "fetch_docs_text": "sources.custom.ai_builder",
     "CDCSourceAdapter": "cdc.adapters",
+    "add_table_failure_message": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
     "CDCRepairError": "cdc.repair",

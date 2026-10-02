@@ -32,7 +32,7 @@ def evaluation_usage_id(suggestion_id: uuid.UUID, session_id: str, started_at: s
 
 
 EVALUATION_SUPPORTED_TYPES = (ScannerType.MONITOR, ScannerType.CLASSIFIER)
-EVALUATION_PREVIEW_TYPES = (ScannerType.SCORER, ScannerType.SUMMARIZER)
+EVALUATION_PREVIEW_TYPES = (ScannerType.SCORER, ScannerType.SUMMARIZER, ScannerType.EXPERIMENT)
 
 EvaluationOutcome = Literal["kept", "regressed", "fixed", "still_wrong", "error", "preview"]
 

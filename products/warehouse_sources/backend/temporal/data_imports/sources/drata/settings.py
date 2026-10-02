@@ -103,6 +103,29 @@ DRATA_ENDPOINTS: dict[str, DrataEndpointConfig] = {
         fan_out_parent_id_column="workspaceId",
         primary_keys=["workspaceId", "id"],
     ),
+    "control_requirements": DrataEndpointConfig(
+        name="control_requirements",
+        path="/workspaces/{workspaceId}/controls/{parent_id}/requirements",
+        fan_out_parent="controls",
+        fan_out_parent_id_column="controlId",
+        fan_out_path_params={"parent_id": "id", "workspaceId": "workspaceId"},
+        fan_out_extra_parent_columns={"workspaceId": "workspaceId"},
+        # The control-to-requirement junction: one requirement is mapped by many controls, so the
+        # requirement's own id repeats and the control id has to be part of the key.
+        primary_keys=["workspaceId", "controlId", "id"],
+    ),
+    "control_owners": DrataEndpointConfig(
+        name="control_owners",
+        path="/workspaces/{workspaceId}/controls/{parent_id}/owners",
+        fan_out_parent="controls",
+        fan_out_parent_id_column="controlId",
+        fan_out_path_params={"parent_id": "id", "workspaceId": "workspaceId"},
+        fan_out_extra_parent_columns={"workspaceId": "workspaceId"},
+        # `id` here is the owning user's id, which repeats across every control they own.
+        # The row's only timestamp is the user's own `createdAt`, which is stable enough to
+        # partition on.
+        primary_keys=["workspaceId", "controlId", "id"],
+    ),
     "monitoring_tests": DrataEndpointConfig(
         name="monitoring_tests",
         path="/workspaces/{parent_id}/monitoring-tests",
@@ -142,6 +165,23 @@ DRATA_ENDPOINTS: dict[str, DrataEndpointConfig] = {
         fan_out_parent="workspaces",
         fan_out_parent_id_column="workspaceId",
         primary_keys=["workspaceId", "id"],
+    ),
+    "audits": DrataEndpointConfig(
+        name="audits",
+        path="/workspaces/{parent_id}/audits",
+        fan_out_parent="workspaces",
+        fan_out_parent_id_column="workspaceId",
+        primary_keys=["workspaceId", "id"],
+    ),
+    "audit_requests": DrataEndpointConfig(
+        name="audit_requests",
+        path="/workspaces/{workspaceId}/audits/{parent_id}/requests",
+        fan_out_parent="audits",
+        fan_out_parent_id_column="auditId",
+        fan_out_path_params={"parent_id": "id", "workspaceId": "workspaceId"},
+        fan_out_extra_parent_columns={"workspaceId": "workspaceId"},
+        # Request ids are numbered within their audit, so both ancestor ids join the key.
+        primary_keys=["workspaceId", "auditId", "id"],
     ),
     "frameworks": DrataEndpointConfig(
         name="frameworks",

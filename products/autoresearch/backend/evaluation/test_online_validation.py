@@ -25,7 +25,7 @@ from products.autoresearch.backend.evaluation.online_validation import (
     run_online_validation_for_pipeline,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult
+from products.autoresearch.backend.query import BATCH_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 
 FROZEN_NOW = "2026-09-11T12:00:00Z"
@@ -324,7 +324,7 @@ def _fake_hogql(
     """Answer the prediction query with ``predictions`` and the label query with ``labels``, recording each call."""
     state = {"labels_failed": False}
 
-    def side_effect(*, team, query, user, execution_mode):
+    def side_effect(*, team, query, user, execution_mode, query_context):
         if "argMax" in query.query:
             return HogQLResult(columns=["model_id", "person_id", "p_y", "emitted_role"], rows=predictions)
         if fail_labels_once and not state["labels_failed"]:
@@ -352,7 +352,7 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"], ["user-1"]])
 
         with patch.object(online_validation, "run_hogql", hogql):
-            runs = run_online_validation_for_pipeline(self.pipeline)
+            runs = run_online_validation_for_pipeline(self.pipeline, query_context=BATCH_QUERY)
 
         assert [r.status for r in runs] == [AutoresearchRun.Status.COMPLETED]
         run = runs[0]
@@ -370,6 +370,7 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
         assert find_pending_validation_dates(self.pipeline) == []
 
         prediction_call, label_call = hogql.call_args_list
+        assert prediction_call.kwargs["query_context"] == label_call.kwargs["query_context"] == BATCH_QUERY
         assert prediction_call.kwargs["user"] == self.user
         assert prediction_call.kwargs["query"].values["limit"] == 5
         assert prediction_call.kwargs["query"].values["model_ids"] == (str(self.champion.pk),)
@@ -413,6 +414,28 @@ class TestRunOnlineValidationForPipeline(TeamScopedTestMixin, BaseTest):
             ("2026-09-02", AutoresearchRun.Status.COMPLETED),
         ]
         assert "Realized labels query failed" in runs[0].error
+
+    @parameterized.expand(
+        [
+            ("deadline_passed", timedelta(0), ["2026-09-01"], [date(2026, 9, 2)]),
+            ("deadline_ahead", timedelta(minutes=1), ["2026-09-01", "2026-09-02"], []),
+        ]
+    )
+    def test_a_claim_deadline_leaves_the_rest_of_the_backlog_pending(
+        self, _name, deadline_offset, validated, still_pending
+    ):
+        _inference_run(self.pipeline, self.champion, date(2026, 9, 2), rows_scored=4)
+        hogql = _fake_hogql(predictions=self._prediction_rows(4), labels=[["user-0"]])
+
+        with patch.object(online_validation, "run_hogql", hogql):
+            runs = run_online_validation_for_pipeline(
+                self.pipeline, claim_deadline=django_timezone.now() + deadline_offset
+            )
+
+        assert [(r.metrics["prediction_date"], r.status) for r in runs] == [
+            (d, AutoresearchRun.Status.COMPLETED) for d in validated
+        ]
+        assert [p.prediction_date for p in find_pending_validation_dates(self.pipeline)] == still_pending
 
     @parameterized.expand(
         [

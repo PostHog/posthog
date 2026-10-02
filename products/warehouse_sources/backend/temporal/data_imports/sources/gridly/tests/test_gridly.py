@@ -29,9 +29,9 @@ def _records_response(records: list[dict[str, Any]], total: int | None) -> mock.
     return resp
 
 
-def _view_response(view: dict[str, Any]) -> mock.MagicMock:
+def _view_response(data: dict[str, Any] | list[dict[str, Any]]) -> mock.MagicMock:
     resp = mock.MagicMock()
-    resp.json.return_value = view
+    resp.json.return_value = data
     resp.status_code = 200
     resp.ok = True
     return resp
@@ -147,6 +147,48 @@ class TestColumns:
         mock_session.return_value.get.return_value = _view_response({"id": "view", "columns": []})
 
         assert list(get_rows("key", "view", "columns", mock.MagicMock(), _manager())) == []
+
+
+_HIERARCHY_RESPONSES: dict[tuple[str, tuple[tuple[str, Any], ...]], list[dict[str, Any]]] = {
+    ("/v1/projects", ()): [{"id": 1, "name": "P1"}, {"id": 2, "name": "P2"}],
+    ("/v1/databases", (("projectId", 1),)): [{"id": "db1", "name": "D1"}],
+    ("/v1/databases", (("projectId", 2),)): [],
+    ("/v1/grids", (("dbId", "db1"),)): [{"id": "g1", "name": "G1"}, {"id": "g2", "name": "G2"}],
+    ("/v1/views", (("gridId", "g1"),)): [{"id": "v1", "name": "Default view"}],
+    ("/v1/views", (("gridId", "g2"),)): [{"id": "v2", "name": "Default view"}, {"id": "v3", "name": "Fr"}],
+}
+
+
+def _hierarchy_get(url: str, params: dict[str, Any], **_kwargs: Any) -> mock.MagicMock:
+    return _view_response(_HIERARCHY_RESPONSES[(urlparse(url).path, tuple(sorted(params.items())))])
+
+
+class TestHierarchy:
+    @pytest.mark.parametrize(
+        "endpoint, expected_batches",
+        [
+            ("projects", [[{"id": 1, "name": "P1"}, {"id": 2, "name": "P2"}]]),
+            ("databases", [[{"id": "db1", "name": "D1", "projectId": 1}]]),
+            (
+                "grids",
+                [[{"id": "g1", "name": "G1", "dbId": "db1"}, {"id": "g2", "name": "G2", "dbId": "db1"}]],
+            ),
+            (
+                "views",
+                [
+                    [{"id": "v1", "name": "Default view", "gridId": "g1"}],
+                    [{"id": "v2", "name": "Default view", "gridId": "g2"}, {"id": "v3", "name": "Fr", "gridId": "g2"}],
+                ],
+            ),
+        ],
+    )
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_walks_hierarchy_and_tags_rows_with_parent_id(self, mock_session, endpoint, expected_batches):
+        mock_session.return_value.get.side_effect = _hierarchy_get
+
+        batches = list(get_rows("key", "view", endpoint, mock.MagicMock(), _manager()))
+
+        assert batches == expected_batches
 
 
 class TestRetries:

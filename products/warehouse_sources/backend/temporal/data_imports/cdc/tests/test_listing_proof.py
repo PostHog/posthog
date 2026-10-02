@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 from posthog.test.base import BaseTest
@@ -8,11 +9,15 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_JOB_IDS_KEY,
     record_companion_job,
     retire_orphaned_companions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
+    BUFFER_LISTED_TAIL_KEY,
+    ListingProof,
+    buffer_may_have_expired_unread,
     clear_listing,
     read_completed_listing_proof,
 )
@@ -31,10 +36,21 @@ class TestCompletedListingProof(BaseTest):
         )
         return ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
 
-    def _job(self, schema, *, status, listed_at=None, companion_of=None, billable=True) -> ExternalDataJob:
+    def _job(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        status: str,
+        listed_at: dt.datetime | None = None,
+        companion_of: uuid.UUID | None = None,
+        billable: bool = True,
+        tail: dict[str, str] | None = None,
+    ) -> ExternalDataJob:
         snapshot: dict = {}
         if listed_at is not None:
             snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+        if tail is not None:
+            snapshot[BUFFER_LISTED_TAIL_KEY] = tail
         if companion_of is not None:
             snapshot["companion_of"] = str(companion_of)
         job = ExternalDataJob.objects.create(
@@ -55,9 +71,9 @@ class TestCompletedListingProof(BaseTest):
         # leave no companion row. An empty companion set has to count as proof.
         schema = self._schema()
         listed = dt.datetime(2026, 1, 1, 12, 0, tzinfo=dt.UTC)
-        self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=listed)
+        self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=listed, tail={"f.parquet": "etag-1"})
 
-        assert self._proof(schema) == listed
+        assert self._proof(schema) == ListingProof(listed_at=listed, tail={"f.parquet": "etag-1"})
 
     def test_a_run_still_going_proves_nothing(self):
         schema = self._schema()
@@ -85,7 +101,7 @@ class TestCompletedListingProof(BaseTest):
         )
         self._job(schema, status=ExternalDataJob.Status.FAILED, companion_of=newer.id, billable=False)
 
-        assert self._proof(schema) == older
+        assert self._proof(schema) == ListingProof(listed_at=older, tail={})
 
     def test_a_run_that_never_listed_proves_nothing(self):
         # The in-flight no-op tick returns an empty response without listing, so it must not count.
@@ -99,6 +115,89 @@ class TestCompletedListingProof(BaseTest):
         self._job(schema, status=ExternalDataJob.Status.COMPLETED, listed_at=dt.datetime(2026, 1, 1, 12, 0))
 
         assert self._proof(schema) is None
+
+
+class TestBufferExpiredUnread(BaseTest):
+    def _schema(self, *, synced_days_ago: int | None) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Postgres"
+        )
+        now = dt.datetime.now(tz=dt.UTC)
+        synced = None if synced_days_ago is None else now - dt.timedelta(days=synced_days_ago)
+        return ExternalDataSchema.objects.create(
+            team=self.team, source=source, name="users", last_synced_at=synced, sync_type_config={}
+        )
+
+    def _completed_job(self, schema: ExternalDataSchema, *, days_ago: int, snapshot: dict) -> None:
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=0,
+            schema_snapshot=snapshot,
+        )
+        ExternalDataJob.objects.filter(id=job.id).update(
+            created_at=dt.datetime.now(tz=dt.UTC) - dt.timedelta(days=days_ago)
+        )
+
+    @parameterized.expand(
+        [
+            ("never_synced", None, None, False),
+            ("no_completion_since_retention", 15, None, True),
+            ("only_stand_downs_since_retention", 1, (1, {}), True),
+            ("a_run_listed_the_buffer", 1, (10, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}), False),
+            ("a_snapshot_reseeded_the_table", 1, (3, {"sync_type_config": {"cdc_mode": "snapshot"}}), False),
+            (
+                "the_last_listing_is_older_than_retention",
+                1,
+                (20, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00"}),
+                True,
+            ),
+        ]
+    )
+    def test_only_a_listing_or_a_snapshot_proves_the_buffer_was_read(
+        self,
+        _name: str,
+        synced_days_ago: int | None,
+        job: tuple[int, dict] | None,
+        expired: bool,
+    ) -> None:
+        schema = self._schema(synced_days_ago=synced_days_ago)
+        if job is not None:
+            self._completed_job(schema, days_ago=job[0], snapshot=job[1])
+
+        assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is expired
+
+    @parameterized.expand([("running", "Running"), ("failed", "Failed")])
+    def test_a_listing_whose_history_lane_did_not_finish_proves_nothing(
+        self, _name: str, companion_status: str
+    ) -> None:
+        # The buffer's changes landed on one of the `both` table's two lanes only, so the other one
+        # still owes them and the files that held them are about to go.
+        schema = self._schema(synced_days_ago=1)
+        companion = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=schema.source,
+            schema=schema,
+            status=companion_status,
+            rows_synced=0,
+            billable=False,
+        )
+        self._completed_job(
+            schema,
+            days_ago=1,
+            snapshot={
+                BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00",
+                COMPANION_JOB_IDS_KEY: [str(companion.id)],
+            },
+        )
+
+        assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is True
+
+        ExternalDataJob.objects.filter(id=companion.id).update(status=ExternalDataJob.Status.COMPLETED)
+
+        assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is False
 
 
 class TestRecordCompanionJob(BaseTest):
@@ -140,7 +239,10 @@ class TestClearListing(BaseTest):
 
     def test_only_the_stamp_comes_off(self):
         schema = self._schema()
-        job = self._job(schema, {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00", "name": "users"})
+        job = self._job(
+            schema,
+            {BUFFER_LISTED_AT_KEY: "2026-01-01T00:00:00+00:00", BUFFER_LISTED_TAIL_KEY: {"f": "e"}, "name": "users"},
+        )
 
         clear_listing(str(job.id), self.team.id)
 
