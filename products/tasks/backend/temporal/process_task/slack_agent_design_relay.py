@@ -62,6 +62,12 @@ _SANDBOX_SETUP_STEP = "sandbox"
 _PATCH_ID_STREAM_ENDED = "tasks-slack-relay-stream-ended"
 
 
+def _trace_key(trace_id: Optional[str]) -> Optional[str]:
+    """The trace id in one form. The relay endpoint sends it as a hyphenated UUID, and the turn-complete
+    event sends the W3C form, which is the same 32 hex digits without hyphens."""
+    return trace_id.replace("-", "").lower() if trace_id else None
+
+
 @frozen
 class SlackAgentDesignRelayInput:
     slack_thread_context: dict[str, Any]
@@ -102,6 +108,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # so it is kept apart from the deltas and replaces them at close.
         self._final_text: str = ""
         self._final_text_trace_id: Optional[str] = None
+        # Whether this turn's agent sent a tool call or prose yet.
+        self._turn_has_activity: bool = False
         self._stream: Optional[SlackAgentDesignStream] = None
         # Slack closed the stream early. Later appends to it can only fail.
         self._stream_ended: bool = False
@@ -118,6 +126,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
     async def agent_status_update(self, payload: dict[str, Any] | str) -> None:
         """A tool call or a new agent todo list. Either ends the prose burst before it."""
         self._last_signal_at = workflow.now()
+        self._turn_has_activity = True
         narrative, self._narrative = self._narrative, ""
         if narrative.strip():
             self._last_burst = narrative
@@ -210,9 +219,14 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._last_signal_at = workflow.now()
         if isinstance(text, str) and text:
             self._narrative += text
+            self._turn_has_activity = True
 
     @workflow.signal
     async def agent_final_text(self, payload: dict[str, Any]) -> None:
+        # The agent server sends a turn's final text after the turn ends. A late one can reach the
+        # relay of the next turn, which has no activity yet, and must not become its answer.
+        if not self._turn_has_activity:
+            return
         text = payload.get("text")
         if isinstance(text, str) and text.strip():
             self._final_text = text.strip()
@@ -305,7 +319,8 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
 
     def _final_answer(self) -> str:
         # A trace id that differs from this turn's means the text is a late answer of an earlier turn.
-        stale = bool(self._final_text_trace_id and self._trace_id and self._final_text_trace_id != self._trace_id)
+        final_trace, turn_trace = _trace_key(self._final_text_trace_id), _trace_key(self._trace_id)
+        stale = bool(final_trace and turn_trace and final_trace != turn_trace)
         if self._final_text and not stale:
             return self._final_text
         return (self._narrative if self._narrative.strip() else self._last_burst).strip()
