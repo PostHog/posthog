@@ -102,6 +102,7 @@ import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
     featureFlagsList,
+    featureFlagsRetrieve,
     featureFlagsStatusRetrieve,
 } from 'products/feature_flags/frontend/generated/api'
 import type {
@@ -3024,7 +3025,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const sourceId = router.values.searchParams.sourceId
 
                 // Used when "duplicating a feature flag". This populates the form with the source flag's data.
-                const sourceFlag = props.id === 'new' && sourceId ? await api.featureFlags.get(sourceId) : null
+                const sourceFlag =
+                    props.id === 'new' && sourceId
+                        ? ((await featureFlagsRetrieve(
+                              String(values.currentProjectId),
+                              Number(sourceId)
+                          )) as unknown as FeatureFlagType)
+                        : null
                 if (sourceFlag && !isV1FeatureFlagConfig(sourceFlag.filters)) {
                     // The form edits only v1 documents, so a duplicate link to another version starts a blank flag.
                     lemonToast.error("This flag's configuration format can't be duplicated yet.")
