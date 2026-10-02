@@ -107,7 +107,7 @@
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(toString(exposures.exposure_identifier_denom), toString(denominator_events.entity_id))
-     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
@@ -1538,7 +1538,7 @@
             sum(coalesce(accurateCastOrNull(denominator_events.value, 'Float64'), 0)) AS value
      FROM denominator_events
      JOIN exposures ON equals(toString(exposures.exposure_identifier_denom), toString(denominator_events.entity_id))
-     WHERE greaterOrEquals(denominator_events.timestamp, toDateTime64(toTimeZone(exposures.first_exposure_time, 'UTC'), 6, 'UTC'))
+     WHERE greaterOrEquals(denominator_events.timestamp, toTimeZone(exposures.first_exposure_time, 'UTC'))
      GROUP BY exposures.entity_id),
        entity_metrics AS
     (SELECT exposures.variant AS variant,
