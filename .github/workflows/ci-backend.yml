@@ -323,6 +323,8 @@ jobs:
                         - docker-compose.base.yml
                         - bin/wait-for-docker
                         - bin/ci-wait-for-docker
+                        # pytest builds each ClickHouse test database through this wrapper
+                        - bin/clickhouse-schema
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
                         # Markdown-only changes (e.g. a README under posthog/) match the
@@ -374,6 +376,8 @@ jobs:
                         - docker-compose.base.yml
                         - bin/wait-for-docker
                         - bin/ci-wait-for-docker
+                        # pytest builds each ClickHouse test database through this wrapper
+                        - bin/clickhouse-schema
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
                         # Same rationale as the backend filter's excludes above: docs-only
@@ -2300,121 +2304,6 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
-
-            - name: List this PR's ClickHouse migrations
-              env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
-              run: |
-                  set -euo pipefail
-                  export LC_ALL=C
-                  DIFF_BASE=origin/master
-                  if [ -n "$BASE_SHA" ]; then
-                      if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-                          git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_SHA"
-                      fi
-                      DIFF_BASE="$BASE_SHA"
-                  fi
-                  ch_migrations() {
-                      # Migrations share most of their text, so rename detection would pair this PR's
-                      # migration with one master added later and report it as R, dropping it here.
-                      git diff --no-renames --name-only --diff-filter="$1" "$2"..HEAD -- 'posthog/clickhouse/migrations/[0-9]*' | sort
-                  }
-                  ch_migrations A origin/master > "$RUNNER_TEMP/ch-master-added.txt"
-                  ch_migrations AM origin/master > "$RUNNER_TEMP/ch-master-changed.txt"
-                  # A stacked branch can carry master's migrations, and master can edit one later.
-                  # Only a file that master lacks counts as this PR's addition.
-                  ch_migrations A "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-added.txt" > "$RUNNER_TEMP/ch-migrations-added.txt"
-                  ch_migrations AM "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-changed.txt" > "$RUNNER_TEMP/ch-migrations-changed.txt"
-                  cat "$RUNNER_TEMP/ch-migrations-changed.txt"
-
-            - name: Check CH migrations
-              run: python manage.py test_ch_migrations_are_safe < "$RUNNER_TEMP/ch-migrations-added.txt"
-
-            - name: Render CH migration SQL per cloud environment
-              # CH migrations can build different `operations` lists at import time depending on
-              # `settings.CLOUD_DEPLOYMENT` (e.g. cloud-only Kafka tables). Render the SQL each
-              # environment will execute so reviewers can spot per-env divergence and verify gated
-              # branches don't sneak in ON CLUSTER or other forbidden patterns. We render once per
-              # environment and reuse the output both for the Actions log groups and the CI report
-              # (environment -> node type(s) -> SQL). Environments that render identically are
-              # grouped together; if all environments match, the environment level is collapsed.
-              id: render_ch_sql
-              if: github.event_name == 'pull_request'
-              run: |
-                  CHANGED=$(cat "$RUNNER_TEMP/ch-migrations-changed.txt")
-                  if [ -z "$CHANGED" ]; then
-                      echo "No ClickHouse migrations changed."
-                      echo "has_changes=false" >> "$GITHUB_OUTPUT"
-                      exit 0
-                  fi
-                  echo "has_changes=true" >> "$GITHUB_OUTPUT"
-                  echo "migration_count=$(echo "$CHANGED" | grep -c .)" >> "$GITHUB_OUTPUT"
-                  {
-                      echo '<!-- ch-migration-sql -->'
-                      echo '## ClickHouse migration SQL per cloud environment'
-                      echo ''
-                  } > ch_migration_sql_comment.md
-                  mkdir -p ch_sql_env
-                  DEPLOYMENTS=('' US EU DEV)
-                  LABELS=(unset US EU DEV)
-                  # Bucket environments by identical rendered output (parallel indexed arrays;
-                  # avoids bash 4 associative arrays) so divergent SQL prints once.
-                  BUCKET_HASH=()
-                  BUCKET_LABEL=()
-                  BUCKET_FILE=()
-                  for idx in "${!DEPLOYMENTS[@]}"; do
-                      file="ch_sql_env/${idx}.md"
-                      # Render once per environment; the same output feeds both the log group and the comment.
-                      # On failure (e.g. an import error in the migration) write a visible marker rather than
-                      # silently dropping the environment — stderr still shows in the step log for debugging.
-                      if ! CLOUD_DEPLOYMENT="${DEPLOYMENTS[$idx]}" python manage.py print_ch_migration_sql --format markdown ${CHANGED} > "$file"; then
-                          echo '- _⚠️ failed to render SQL for this environment — see the workflow logs_' > "$file"
-                      fi
-                      echo "::group::CLOUD_DEPLOYMENT=${LABELS[$idx]}"
-                      cat "$file"
-                      echo "::endgroup::"
-                      h=$(sha1sum "$file" | cut -d' ' -f1)
-                      found=-1
-                      for b in "${!BUCKET_HASH[@]}"; do
-                          if [ "${BUCKET_HASH[$b]}" = "$h" ]; then found=$b; break; fi
-                      done
-                      if [ "$found" -ge 0 ]; then
-                          BUCKET_LABEL[$found]="${BUCKET_LABEL[$found]}, ${LABELS[$idx]}"
-                      else
-                          BUCKET_HASH+=("$h")
-                          BUCKET_LABEL+=("${LABELS[$idx]}")
-                          BUCKET_FILE+=("$file")
-                      fi
-                  done
-                  if [ "${#BUCKET_HASH[@]}" -eq 1 ]; then
-                      # Every environment renders the same SQL — collapse the environment level.
-                      echo '_Identical across all cloud environments (unset, US, EU, DEV)._' >> ch_migration_sql_comment.md
-                      echo '' >> ch_migration_sql_comment.md
-                      cat "${BUCKET_FILE[0]}" >> ch_migration_sql_comment.md
-                  else
-                      for b in "${!BUCKET_HASH[@]}"; do
-                          echo "- **${BUCKET_LABEL[$b]}**" >> ch_migration_sql_comment.md
-                          sed 's/^/  /' "${BUCKET_FILE[$b]}" >> ch_migration_sql_comment.md
-                      done
-                  fi
-
-            - name: Post CH migration SQL to CI report comment
-              # Sticky section in the shared CI report comment so pushes don't spam the PR.
-              # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
-              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
-              # unread, and each section write spends shared GITHUB_TOKEN budget.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
-              env:
-                  HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
-                  CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  if [ -f .github/scripts/post-ch-migration-section.mjs ]; then
-                      node .github/scripts/post-ch-migration-section.mjs
-                      node frontend/bin/ci-report/delete-legacy-comments.mjs
-                  else
-                      echo "Skipping CH migration section — script not present on this checkout"
-                  fi
 
     mirror-schema-cache:
         needs: [check-migrations]

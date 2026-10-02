@@ -69,20 +69,11 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
             echo "1" > $CLICKHOUSE_STATUS
             exit $CH_MIGRATE_STATUS
         fi
-        
-        python manage.py sync_replicated_schema
-        SYNC_STATUS=$?
-        if [ $SYNC_STATUS -ne 0 ]; then
-            echo "Error in sync_replicated_schema, setting error status."
-            echo "1" > $CLICKHOUSE_STATUS
-            exit $SYNC_STATUS
-        fi
     ) &
     CLICKHOUSE_PID=$!
     elif [ "$RUN_CLICKHOUSE" = "1" ]; then
     # ClickHouse only - run directly
     python manage.py migrate_clickhouse || { echo "Error in migrate_clickhouse, exiting."; exit 1; }
-    python manage.py sync_replicated_schema || { echo "Error in sync_replicated_schema, exiting."; exit 1; }
 fi
 
 if [ "$RUN_POSTGRES" = "1" ]; then
