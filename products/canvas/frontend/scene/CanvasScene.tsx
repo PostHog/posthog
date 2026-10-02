@@ -14,6 +14,7 @@ import {
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { canvasEditLogic } from '../editing/canvasEditLogic'
@@ -24,6 +25,8 @@ import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
 import { CanvasSelectionCommentAction } from '../sidePanel/comments/CanvasSelectionCommentAction'
 import { CanvasEmptyBody } from './CanvasEmptyBody'
+import { CanvasFullscreenExit } from './CanvasFullscreenExit'
+import { canvasFullscreenLogic } from './canvasFullscreenLogic'
 import { CanvasGeneratingState } from './CanvasGeneratingState'
 import { CanvasRenderer } from './CanvasRenderer'
 import { CanvasSceneHeader } from './CanvasSceneHeader'
@@ -146,6 +149,22 @@ function CanvasBody(): JSX.Element {
     }
 }
 
+function CanvasMain(): JSX.Element {
+    const { fullscreen } = useValues(canvasFullscreenLogic)
+
+    return (
+        <main
+            className={cn(
+                'min-h-0 flex-1',
+                fullscreen ? 'fixed inset-0 z-[var(--z-drawer)] bg-background' : 'relative'
+            )}
+        >
+            <CanvasBody />
+            <CanvasFullscreenExit />
+        </main>
+    )
+}
+
 export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { viewMissing } = useValues(canvasSceneLogic({ id }))
@@ -158,14 +177,14 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
             <BindLogic logic={canvasHistoryLogic} props={{ id }}>
                 <BindLogic logic={canvasCommentsLogic} props={{ id }}>
                     <BindLogic logic={canvasEditLogic} props={{ id }}>
-                        <div data-quill className="flex h-full min-h-0 flex-col bg-background">
-                            <CanvasSceneHeader />
-                            <main className="relative min-h-0 flex-1">
-                                <CanvasBody />
-                            </main>
-                            <CanvasSelectionCommentAction />
-                            <CanvasHistoryConfirmDialog />
-                        </div>
+                        <BindLogic logic={canvasFullscreenLogic} props={{ id }}>
+                            <div data-quill className="flex h-full min-h-0 flex-col bg-background">
+                                <CanvasSceneHeader />
+                                <CanvasMain />
+                                <CanvasSelectionCommentAction />
+                                <CanvasHistoryConfirmDialog />
+                            </div>
+                        </BindLogic>
                     </BindLogic>
                 </BindLogic>
             </BindLogic>
