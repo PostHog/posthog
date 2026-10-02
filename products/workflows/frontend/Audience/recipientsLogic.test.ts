@@ -86,9 +86,10 @@ describe('recipientsLogic', () => {
         logic.actions.setSearchValue(textSearch('jamie'))
         expect(router.values.searchParams.q).toBeUndefined()
         jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
-        expect(router.values.searchParams.q).toBe('jamie')
         jest.useRealTimers()
         await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
+
+        expect(router.values.searchParams.q).toBe('jamie')
 
         expect(requests.map((params) => params.get('search'))).toEqual([null, 'jamie'])
     })

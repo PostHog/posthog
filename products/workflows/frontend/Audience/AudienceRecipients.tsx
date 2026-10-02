@@ -73,7 +73,7 @@ export function AudienceRecipients(): JSX.Element {
                     facets={facets}
                     value={searchValue}
                     onChange={setSearchValue}
-                    placeholder="Search by address, or filter by topic, suppression or person"
+                    placeholder="Search by address or add a filter"
                     dataAttr="audience-recipients-search"
                 />
             </div>
