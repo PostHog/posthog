@@ -93,7 +93,7 @@ Core sometimes needs behavior from a product, not data: query runners it dispatc
 These cross the boundary as classes — allowed only under all three rules:
 
 1. **Approved interface.**
-   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn`, and Celery's `@shared_task`.
+   The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn` and `Interceptor` (the worker in `posthog/temporal/common/worker.py` registers each one), and Celery's `@shared_task`.
    Core code may rely only on the base's interface, never on product-specific members.
    Extending the list is a core PR: define the base and validate at the registration point.
    DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; the `facade must not import presentation or DRF` import-linter contract enforces both, with the existing violations grandfathered in its TODO list) — their soundness is governed by the presentation rules above.

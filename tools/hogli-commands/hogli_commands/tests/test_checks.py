@@ -463,6 +463,9 @@ _WIRING_SOURCES: dict[str, dict[str, str]] = {
         "temporal/base.py": "from posthog.hogql_queries.query_runner import QueryRunner\n\n\nclass Base(QueryRunner):\n    pass\n",
         "temporal/flows.py": "from .base import Base\n\n\nclass Handed(Base):\n    pass\n",
     },
+    "approved_library_base": {
+        "temporal/flows.py": "from temporalio.worker import Interceptor\n\n\nclass Handed(Interceptor):\n    pass\n",
+    },
     "plain_client": {"temporal/flows.py": "class Handed:\n    pass\n"},
     "unreadable_base": {"temporal/flows.py": "class Handed(Mystery):\n    pass\n"},
 }
@@ -474,6 +477,7 @@ class TestWiringInterfaces:
         [
             ("decorated_workflow", set()),
             ("approved_base_through_product_class", set()),
+            ("approved_library_base", set()),
             ("plain_client", {("Handed", "unapproved")}),
             ("unreadable_base", {("Handed", "unresolved")}),
         ],

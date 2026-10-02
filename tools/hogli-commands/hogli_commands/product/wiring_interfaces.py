@@ -24,6 +24,7 @@ APPROVED_WIRING_BASES: frozenset[str] = frozenset(
     {
         "ee.hogai.tool.MaxTool",
         "posthog.hogql_queries.query_runner.QueryRunner",
+        "temporalio.worker.Interceptor",
     }
 )
 APPROVED_WIRING_DECORATORS: frozenset[str] = frozenset(
