@@ -44,7 +44,7 @@ pub(crate) struct PreparedPayload {
 
 /// What happened to one published payload.
 #[derive(Debug)]
-pub(crate) enum Outcome {
+pub enum Outcome {
     Published,
     Failed(CaptureError),
 }
@@ -61,7 +61,7 @@ pub(crate) enum Outcome {
 /// `fold_results` is the only consumer and ignores it; drop this note when
 /// the uuid gains its consumer.
 #[derive(Debug)]
-pub(crate) struct SinkResult {
+pub struct SinkResult {
     // Unread outside tests until the per-event response model consumes it;
     // see the doc comment above.
     #[allow(dead_code)]
@@ -70,14 +70,14 @@ pub(crate) struct SinkResult {
 }
 
 impl SinkResult {
-    pub(crate) fn published(uuid: Uuid) -> Self {
+    pub fn published(uuid: Uuid) -> Self {
         Self {
             uuid,
             outcome: Outcome::Published,
         }
     }
 
-    pub(crate) fn failed(uuid: Uuid, err: CaptureError) -> Self {
+    pub fn failed(uuid: Uuid, err: CaptureError) -> Self {
         Self {
             uuid,
             outcome: Outcome::Failed(err),

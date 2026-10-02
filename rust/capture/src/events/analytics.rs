@@ -2904,6 +2904,16 @@ mod tests {
             }
         }
 
+        #[async_trait::async_trait]
+        impl crate::outputs::PublishPrepared for RejectingSink {
+            async fn publish_prepared(
+                &self,
+                _events: Vec<crate::outputs::PreparedEvent>,
+            ) -> Vec<crate::sinks::sink::SinkResult> {
+                unreachable!("v0 endpoints publish events")
+            }
+        }
+
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -4070,6 +4080,16 @@ mod tests {
                 _events: Vec<ProcessedEvent>,
             ) -> Result<(), CaptureError> {
                 Err(CaptureError::RetryableSinkError)
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl crate::outputs::PublishPrepared for RejectingSink {
+            async fn publish_prepared(
+                &self,
+                _events: Vec<crate::outputs::PreparedEvent>,
+            ) -> Vec<crate::sinks::sink::SinkResult> {
+                unreachable!("v0 endpoints publish events")
             }
         }
 
