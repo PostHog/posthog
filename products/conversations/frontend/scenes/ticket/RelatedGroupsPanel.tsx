@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useCallback, useMemo } from 'react'
 
 import { LemonCollapse, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -105,13 +106,26 @@ function PersonRelatedGroups({
 
     // When the snapshot group isn't in the live related list, fetch it and append it as a real row
     // (type + name + link) rather than a bare key, tagged via highlightGroupKey below.
-    const extraActors: ActorType[] = showFallback && creationGroup ? [toGroupActor(creationGroup)] : []
+    const extraActors = useMemo<ActorType[]>(
+        () => (showFallback && creationGroup ? [toGroupActor(creationGroup)] : []),
+        [showFallback, creationGroup]
+    )
 
     // Every row reads from one logic keyed by the full list, so the panel issues a single revenue query.
-    const groupKeys = Array.from(
-        new Set(
-            [...relatedActors, ...extraActors].flatMap((actor) => (actor.type === 'group' ? [actor.group_key] : []))
-        )
+    const groupKeys = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    [...relatedActors, ...extraActors].flatMap((actor) =>
+                        actor.type === 'group' ? [actor.group_key] : []
+                    )
+                )
+            ),
+        [relatedActors, extraActors]
+    )
+    const renderGroupDetail = useCallback(
+        (actor: GroupActorType) => <GroupRevenueDetail actor={actor} groupKeys={groupKeys} />,
+        [groupKeys]
     )
 
     return (
@@ -127,7 +141,7 @@ function PersonRelatedGroups({
             highlightStale={!fromChannelAccount && showFallback}
             highlightStaleTooltip={STALE_TOOLTIP}
             extraActors={extraActors}
-            renderGroupDetail={(actor) => <GroupRevenueDetail actor={actor} groupKeys={groupKeys} />}
+            renderGroupDetail={renderGroupDetail}
         />
     )
 }

@@ -7,7 +7,6 @@ const meta: Meta<typeof GroupRevenue> = {
     component: GroupRevenue,
     parameters: { layout: 'padded', viewMode: 'story' },
     decorators: [
-        // The ticket sidebar can shrink to this width.
         (Story) => (
             <div className="w-[300px]">
                 <Story />

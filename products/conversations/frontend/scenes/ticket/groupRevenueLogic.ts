@@ -51,7 +51,6 @@ export type groupRevenueLogicType = MakeLogicType<
     groupRevenueLogicMeta
 >
 
-// Loads revenue analytics figures for every group in the ticket's related-groups panel with one query.
 export const groupRevenueLogic = kea<groupRevenueLogicType>([
     props({} as GroupRevenueLogicProps),
     key((props) => [...props.groupKeys].sort().join(',')),
@@ -86,8 +85,7 @@ export const groupRevenueLogic = kea<groupRevenueLogicType>([
                         }
                         return revenueByGroupKey
                     } catch (error) {
-                        // The query fails for teams without revenue analytics set up. The panel then
-                        // shows the revenue group properties instead, so the failure is not surfaced.
+                        // The panel falls back to the revenue group properties, so the failure is not surfaced.
                         posthog.captureException(error, { tag: 'ticket_group_revenue_query_failed' })
                         return {}
                     }
