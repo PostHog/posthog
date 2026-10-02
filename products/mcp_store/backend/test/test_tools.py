@@ -513,6 +513,27 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert installation.tools.get(tool_name="search").annotations == {"destructiveHint": False}
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_long_title_is_cut_and_long_name_is_skipped(self, mock_fetch):
+        installation = self._installation()
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="existing",
+            approval_state="approved",
+            last_seen_at=timezone.now(),
+        )
+        mock_fetch.return_value = [
+            {"name": "search", "title": "t" * 300},
+            {"name": "existing", "displayName": "d" * 300},
+            {"name": "n" * 201, "title": "Too long"},
+        ]
+
+        sync_installation_tools(installation)
+
+        assert installation.tools.get(tool_name="search").display_name == "t" * 200
+        assert installation.tools.get(tool_name="existing").display_name == "d" * 200
+        assert set(installation.tools.values_list("tool_name", flat=True)) == {"search", "existing"}
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     def test_disappeared_tool_marked_removed_state_preserved(self, mock_fetch):
         installation = self._installation()
         mock_fetch.return_value = [{"name": "search"}]
