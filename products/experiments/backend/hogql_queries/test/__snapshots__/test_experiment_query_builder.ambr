@@ -334,7 +334,7 @@
          timestamp AS timestamp,
          uuid AS event_uuid,
                  $session_id AS session_id,
-                 [_toUInt8(if(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, '__EXPERIMENT_DATE_TO__'), and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0)),
+                 [_toUInt8(if(and(and(equals(event, '$feature_flag_called'), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test'])), 1, 0)),
                   _toUInt8(if(equals(event, '$pageview'), 1, 0)),
                   _toUInt8(if(equals(event, 'purchase'), 1, 0))] AS steps
   FROM events
@@ -342,7 +342,7 @@
   '''
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precompute_write.1
-  'cca1bbde5c0b616ffbade64b2deea49522b9fdab341f6c969d97667c05592896'
+  '6307e2ad5206d6cbdc8881bea666f3c24090e5f826ae2acc79b9a254d9fd0ace'
 # ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precomputed
   '''
@@ -360,7 +360,7 @@
     (SELECT toUUID(t.entity_id) AS entity_id,
             t.timestamp AS timestamp,
             t.event_uuid AS uuid,
-            arrayElement(t.steps, 1) AS step_0,
+            if(and(equals(arrayElement(t.steps, 1), 1), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00')))), 1, 0) AS step_0,
             arrayElement(t.steps, 2) AS step_1,
             arrayElement(t.steps, 3) AS step_2
      FROM experiment_metric_events_preaggregated AS t

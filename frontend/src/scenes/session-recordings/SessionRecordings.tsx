@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
@@ -31,12 +31,10 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
-import { ReplayComments } from 'products/replay/frontend/comments/ReplayComments'
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
-import { playlistFiltersLogic } from './playlist/playlistFiltersLogic'
 import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import {
@@ -45,7 +43,6 @@ import {
 } from './playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
-import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
@@ -81,6 +78,7 @@ function Header(): JSX.Element {
                     <ScenePanel>
                         <ScenePanelActionsSection>
                             <Link
+                                data-attr="replay-open-file-playback"
                                 to={urls.replayFilePlayback()}
                                 buttonProps={{
                                     menuItem: true,
@@ -89,6 +87,7 @@ function Header(): JSX.Element {
                                 <IconDocument /> Playback from PostHog JSON file
                             </Link>
                             <Link
+                                data-attr="replay-open-kiosk"
                                 to={urls.replayKiosk()}
                                 buttonProps={{
                                     menuItem: true,
@@ -206,10 +205,6 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
-            ) : tab === ReplayTabs.Comments ? (
-                <ReplayComments />
-            ) : tab === ReplayTabs.Templates ? (
-                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
@@ -229,41 +224,19 @@ const ReplayPageTabs: ReplayTab[] = [
         tooltip: 'View & create collections',
         'data-attr': 'session-recordings-collections-tab',
     },
-    {
-        label: 'Comments',
-        key: ReplayTabs.Comments,
-        tooltip: 'Comments you added to recordings',
-        'data-attr': 'session-recordings-comments-tab',
-    },
-    {
-        label: 'Filter templates',
-        key: ReplayTabs.Templates,
-        'data-attr': 'session-recordings-templates-tab',
-    },
 ]
 
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
-    const { templatesInFiltersPanel } = useValues(playlistFiltersLogic)
-    const visibleTabs = templatesInFiltersPanel
-        ? ReplayPageTabs.filter((replayTab) => replayTab.key !== ReplayTabs.Templates)
-        : ReplayPageTabs
+    const { tab } = useValues(sessionReplaySceneLogic)
     return (
         <LemonTabs
             activeKey={tab}
             onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
             sceneInset
             className="-mt-4"
-            tabs={visibleTabs.map((replayTab): LemonTab<string> => {
+            tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
+                    label: replayTab.label,
                     key: replayTab.key,
                     link: urls.replay(replayTab.key),
                     tooltip: replayTab.tooltip,

@@ -616,6 +616,7 @@ export const ObservationStatusEnumApi = {
  * * `classifier` - Classifier
  * * `scorer` - Scorer
  * * `summarizer` - Summarizer
+ * * `experiment` - Experiment
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -624,6 +625,7 @@ export const ScannerTypeEnumApi = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -632,12 +634,13 @@ export const ScannerTypeEnumApi = {
 export interface ScannerSnapshotApi {
     /** Scanner name at run time. */
     name: string
-    /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+    /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
      *
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
@@ -718,6 +721,7 @@ export interface ReplayObservationLabelApi {
 /**
  * * `thumbnail` - Thumbnail
  * * `clip` - Clip
+ * * `chapter` - Chapter
  */
 export type ReplayObservationMediaKindEnumApi =
     (typeof ReplayObservationMediaKindEnumApi)[keyof typeof ReplayObservationMediaKindEnumApi]
@@ -725,6 +729,7 @@ export type ReplayObservationMediaKindEnumApi =
 export const ReplayObservationMediaKindEnumApi = {
     Thumbnail: 'thumbnail',
     Clip: 'clip',
+    Chapter: 'chapter',
 } as const
 
 /**
@@ -733,11 +738,14 @@ export const ReplayObservationMediaKindEnumApi = {
 export interface ReplayObservationMediaApi {
     /** Id of this media entry. */
     readonly id: string
-    /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
+    /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
      *
      * * `thumbnail` - Thumbnail
-     * * `clip` - Clip */
+     * * `clip` - Clip
+     * * `chapter` - Chapter */
     readonly kind: ReplayObservationMediaKindEnumApi
+    /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
+    readonly position: number
     /** Export asset holding the bytes; fetch it from the export content endpoint. */
     readonly asset_id: number
     /**
@@ -1083,7 +1091,8 @@ export interface ReplayScannerApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /**
      * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -1217,7 +1226,8 @@ export interface PatchedReplayScannerApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type?: ScannerTypeEnumApi
     /**
      * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -2416,7 +2426,8 @@ export interface DraftScannerResponseApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
     scanner_config: unknown
@@ -2530,7 +2541,8 @@ export interface InlineScanRequestApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type?: ScannerTypeEnumApi
     /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
     scanner_config?: unknown
@@ -2575,6 +2587,7 @@ export interface ScannerStatsByTypeApi {
     classifier: ScannerTypeStatsApi
     scorer: ScannerTypeStatsApi
     summarizer: ScannerTypeStatsApi
+    experiment: ScannerTypeStatsApi
 }
 
 /**
@@ -2585,7 +2598,7 @@ export interface ScannerStatsResponseApi {
     total: number
     /** Number of enabled scanners on the team. */
     enabled: number
-    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
     by_type: ScannerStatsByTypeApi
 }
 
@@ -2897,6 +2910,14 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+}
+
+export type VisionObservationsThumbnailRetrieveParams = {
+    /**
+     * Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the observation's thumbnail.
+     * @minimum 0
+     */
+    chapter?: number
 }
 
 export type VisionObservationsSearchRetrieveParams = {
@@ -3224,6 +3245,14 @@ export type VisionScannersObservationsSignalReportsListParams = {
     verdict?: string
 }
 
+export type VisionScannersObservationsThumbnailRetrieveParams = {
+    /**
+     * Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the observation's thumbnail.
+     * @minimum 0
+     */
+    chapter?: number
+}
+
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
      * Only observations dispatched by this backfill.
@@ -3319,6 +3348,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
@@ -3342,4 +3372,5 @@ export const VisionScannersWatchFeedRetrieveScannerType = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
+    Experiment: 'experiment',
 } as const

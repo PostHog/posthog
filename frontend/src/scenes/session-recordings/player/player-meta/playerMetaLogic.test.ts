@@ -2,13 +2,13 @@ import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
+import { getPropertyDisplayInfo, playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { SessionRecordingType } from '~/types'
+import { PropertyFilterType, SessionRecordingType } from '~/types'
 
 import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
@@ -36,6 +36,16 @@ describe('playerMetaLogic', () => {
         featureFlagLogic.mount()
         logic = playerMetaLogic(playerProps)
         logic.mount()
+    })
+
+    describe('getPropertyDisplayInfo', () => {
+        it.each([
+            ['core session property the recording lacks', '$entry_pathname', {}, PropertyFilterType.Session],
+            ['unknown key the recording lacks', 'plan', {}, PropertyFilterType.Person],
+            ['unknown key the recording has', 'custom', { custom: 1 }, PropertyFilterType.Event],
+        ])('types a %s', (_, property, recordingProperties, expected) => {
+            expect(getPropertyDisplayInfo(property, recordingProperties).propertyFilterType).toBe(expected)
+        })
     })
 
     describe('core assumptions', () => {

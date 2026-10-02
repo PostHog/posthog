@@ -22,6 +22,7 @@ import { TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.sche
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 import { TaskUserAvatar, taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
+import { TodayHoverCardFact } from './TodayHoverCardFact'
 import { cardMenuParts } from './todayMenuParts'
 import { TodaySessionPreview } from './todayPreviewCards'
 import { TodaySessionActionItems } from './TodaySessionActionItems'
@@ -29,17 +30,6 @@ import { useTodayArchiveShortcut } from './todaySessionArchiveShortcut'
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 import { TodaySessionStatusDot } from './TodaySessionStatusDot'
 import { activityDetail } from './todayWorkItems'
-
-function Fact({ label, children }: { label: string; children: JSX.Element | string }): JSX.Element {
-    return (
-        <div className="flex min-w-0 items-center gap-2 text-xs">
-            <Text size="xs" variant="muted" render={<span />} className="w-16 shrink-0">
-                {label}
-            </Text>
-            <span className="min-w-0 flex-1 truncate">{children}</span>
-        </div>
-    )
-}
 
 function BranchLine({ branch }: { branch: string }): JSX.Element {
     const { copyBranchName } = useActions(todaySessionMenuLogic)
@@ -124,19 +114,34 @@ export function TodaySessionHoverCard({
                         <span className="min-w-0 font-semibold">{preview.title}</span>
                     </ItemTitle>
                     <div className="flex flex-col gap-1 pl-6">
-                        {preview.repository && <Fact label="Repo">{preview.repository}</Fact>}
+                        {preview.repository && (
+                            <TodayHoverCardFact label="Repo">{preview.repository}</TodayHoverCardFact>
+                        )}
                         {preview.branch && (
-                            <Fact label="Branch">
+                            <TodayHoverCardFact label="Branch">
                                 <BranchLine branch={preview.branch} />
-                            </Fact>
+                            </TodayHoverCardFact>
                         )}
-                        {preview.spaceName && <Fact label="Space">{preview.spaceName}</Fact>}
+                        {preview.spaceName && (
+                            <TodayHoverCardFact label="Space">{preview.spaceName}</TodayHoverCardFact>
+                        )}
                         {updated && (
-                            <Fact label="Updated">
+                            <TodayHoverCardFact label="Updated">
                                 <span title={updated.title}>{updated.text}</span>
-                            </Fact>
+                            </TodayHoverCardFact>
                         )}
-                        {preview.source && <Fact label="Source">{preview.source}</Fact>}
+                        {preview.source && (
+                            <TodayHoverCardFact label="Source">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                    {preview.sourceIcon && (
+                                        <span className="flex size-3 shrink-0 text-muted-foreground [&>svg]:size-full">
+                                            {preview.sourceIcon}
+                                        </span>
+                                    )}
+                                    <span className="truncate">{preview.source}</span>
+                                </span>
+                            </TodayHoverCardFact>
+                        )}
                     </div>
                 </ItemContent>
                 {author && (
