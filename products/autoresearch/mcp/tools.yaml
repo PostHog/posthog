@@ -507,7 +507,7 @@ tools:
             model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a
             future run should try next) — these are stored in the run summary and read back by the next run during
             orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded
-            iterations.
+            iterations. If you built a report notebook for this run, pass its short_id as report_notebook_short_id.
         feature_flag: autoresearch
         response:
             include:
