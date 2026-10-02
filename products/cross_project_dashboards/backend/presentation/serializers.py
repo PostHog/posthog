@@ -1,5 +1,6 @@
 """DRF serializers for cross_project_dashboards. They convert JSON to and from facade contracts."""
 
+import json
 from typing import Any
 
 from rest_framework import serializers
@@ -10,6 +11,17 @@ TILE_FILTERS_HELP = (
     "Filters applied to this tile only, overriding the dashboard's. Supports a date range and an interval. "
     "Filters carrying a project-specific id are rejected."
 )
+# Every list page carries these blobs, so each one has a size ceiling.
+MAX_DASHBOARD_FILTERS_BYTES = 16_384
+MAX_TILE_JSON_BYTES = 4_096
+
+
+def _within(value: Any, max_bytes: int) -> Any:
+    if len(json.dumps(value)) > max_bytes:
+        raise serializers.ValidationError(f"Keep this under {max_bytes} bytes.")
+    return value
+
+
 DASHBOARD_FILTERS_HELP = (
     "Dashboard-level filters applied to every tile. Supports a date range, an interval, and property filters "
     "that refer to a property by name. Filters carrying a project-specific id are rejected."
@@ -26,8 +38,11 @@ class CrossProjectDashboardTileSerializer(serializers.Serializer):
     )
     filters_overrides = serializers.JSONField(default=dict, help_text=TILE_FILTERS_HELP)
 
+    def validate_layouts(self, value: Any) -> Any:
+        return _within(value, MAX_TILE_JSON_BYTES)
+
     def validate_filters_overrides(self, value: Any) -> dict[str, Any]:
-        return validate_cross_project_filters(value)
+        return validate_cross_project_filters(_within(value, MAX_TILE_JSON_BYTES))
 
 
 class CrossProjectDashboardTileUpdateSerializer(serializers.Serializer):
@@ -45,8 +60,11 @@ class CrossProjectDashboardTileUpdateSerializer(serializers.Serializer):
     )
     filters_overrides = serializers.JSONField(required=False, help_text=TILE_FILTERS_HELP)
 
+    def validate_layouts(self, value: Any) -> Any:
+        return _within(value, MAX_TILE_JSON_BYTES)
+
     def validate_filters_overrides(self, value: Any) -> dict[str, Any]:
-        return validate_cross_project_filters(value)
+        return validate_cross_project_filters(_within(value, MAX_TILE_JSON_BYTES))
 
 
 class CrossProjectDashboardCreatorSerializer(serializers.Serializer):
@@ -80,4 +98,4 @@ class CrossProjectDashboardSerializer(serializers.Serializer):
     )
 
     def validate_filters(self, value: Any) -> dict[str, Any]:
-        return validate_cross_project_filters(value)
+        return validate_cross_project_filters(_within(value, MAX_DASHBOARD_FILTERS_BYTES))

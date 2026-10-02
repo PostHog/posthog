@@ -7,6 +7,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -34,6 +35,12 @@ def _uuid(value: str) -> UUID:
         return UUID(value)
     except ValueError:
         raise NotFound()
+
+
+class CrossProjectDashboardPagination(LimitOffsetPagination):
+    # The shared paginator has no ceiling, so ?limit= could ask a single request for every row.
+    default_limit = 100
+    max_limit = 100
 
 
 class OrganizationWideCredentialPermission(BasePermission):
@@ -73,6 +80,7 @@ class CrossProjectDashboardViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin, vie
     scope_object = "cross_project_dashboard"
     serializer_class = CrossProjectDashboardSerializer
     lookup_field = "id"
+    pagination_class = CrossProjectDashboardPagination
     # Server-side rollout boundary: the flag gates the API, not only the UI.
     posthog_feature_flag = "cross-project-dashboards"
     permission_classes = [PostHogFeatureFlagPermission, OrganizationWideCredentialPermission]
@@ -152,6 +160,7 @@ class CrossProjectDashboardTileViewSet(TeamAndOrgViewSetMixin, _FacadePageMixin,
     scope_object = "cross_project_dashboard"
     serializer_class = CrossProjectDashboardTileSerializer
     lookup_field = "id"
+    pagination_class = CrossProjectDashboardPagination
     posthog_feature_flag = "cross-project-dashboards"
     permission_classes = [PostHogFeatureFlagPermission, OrganizationWideCredentialPermission]
 
