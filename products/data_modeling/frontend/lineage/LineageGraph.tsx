@@ -62,6 +62,8 @@ export interface LineageGraphProps {
     nodeCallbacks?: (node: DataModelingNode) => LineageNodeCallbacks
     /** Convenience click handler, used when nodeCallbacks is not provided */
     onNodeClick?: (node: DataModelingNode) => void
+    /** Dedicated new-tab link shown on each node */
+    nodeOpenUrl?: (node: DataModelingNode) => string
     /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
     panelPosition?: PanelPosition
@@ -71,7 +73,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { fitView, setNodes, viewportInitialized } = useReactFlow()
     const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
-    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, focusNodeIds, searchFocusRequest } = props
+    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, nodeOpenUrl, focusNodeIds, searchFocusRequest } =
+        props
     const { layout } = useValues(
         lineageGraphLogic({
             nodes: props.loading ? EMPTY_NODES : props.nodes,
@@ -101,6 +104,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                     position: props.nodePositions?.[node.id] ?? rfNode.position,
                     data: {
                         ...rfNode.data,
+                        draggable: props.nodesDraggable,
+                        openUrl: nodeOpenUrl?.(node),
                         state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
                         callbacks: {
                             ...callbacks,
@@ -120,7 +125,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                     },
                 }
             }) ?? [],
-        [currentNodeId, layout, nodeCallbacks, nodeState, onNodeClick, props.nodePositions]
+        [
+            currentNodeId,
+            layout,
+            nodeCallbacks,
+            nodeOpenUrl,
+            nodeState,
+            onNodeClick,
+            props.nodePositions,
+            props.nodesDraggable,
+        ]
     )
 
     useEffect(() => {

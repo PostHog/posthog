@@ -164,6 +164,7 @@ export function ModelsLineageTab(): JSX.Element {
                     interactive
                     nodesDraggable={nodesDraggable}
                     nodePositions={nodesDraggable ? nodePositions : undefined}
+                    nodeOpenUrl={nodesDraggable ? lineageNodeUrl : undefined}
                     onNodeDragStop={nodesDraggable ? (node, position) => nodeDragStopped(node.id, position) : undefined}
                     onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
                     showControls
@@ -178,7 +179,7 @@ export function ModelsLineageTab(): JSX.Element {
                         isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
                     })}
-                    onNodeClick={(node) => router.actions.push(lineageNodeUrl(node))}
+                    onNodeClick={nodesDraggable ? undefined : (node) => router.actions.push(lineageNodeUrl(node))}
                     panelPosition="bottom-left"
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />

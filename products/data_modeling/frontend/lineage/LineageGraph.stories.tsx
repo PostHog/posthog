@@ -220,6 +220,23 @@ export const DraggableNodes: Story = {
             },
         }),
     ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const openButton = await canvas.findByLabelText('Open orders in new tab')
+        const nodeCard = canvas.getByText('orders').closest<HTMLElement>('[data-attr="lineage-node"]')
+
+        if (
+            openButton.tagName !== 'A' ||
+            !openButton.getAttribute('href') ||
+            openButton.getAttribute('target') !== '_blank' ||
+            !openButton.classList.contains('nodrag')
+        ) {
+            throw new Error('The explicit node link must open in a new tab')
+        }
+        if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
+            throw new Error('A draggable node must not navigate as a card')
+        }
+    },
 }
 
 export const MovedNodeFocus: Story = {
