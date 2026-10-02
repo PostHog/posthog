@@ -82,6 +82,7 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                                     <LemonTextArea
                                         className="text-sm"
                                         placeholder="Enter a test value"
+                                        aria-label={`Value for {{${name}}}`}
                                         value={getVariableValue(variableValues, name)}
                                         onChange={(value) => setVariableValue(name, value)}
                                         minRows={1}
