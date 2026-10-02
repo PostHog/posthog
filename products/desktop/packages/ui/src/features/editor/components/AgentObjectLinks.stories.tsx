@@ -4,19 +4,24 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import { useEffect } from "react";
 
 const PROJECT = "https://us.posthog.com/project/2";
 const sql = (query: string) =>
   `${PROJECT}/sql?open_query=${encodeURIComponent(query)}`;
 
 const signedIn: Decorator = (Story) => {
-  useAuthStore.setState({
-    authState: {
-      ...ANONYMOUS_AUTH_STATE,
-      cloudRegion: "us",
-      currentProjectId: 2,
-    },
-  });
+  useEffect(() => {
+    const previous = useAuthStore.getState().authState;
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        cloudRegion: "us",
+        currentProjectId: 2,
+      },
+    });
+    return () => useAuthStore.setState({ authState: previous });
+  }, []);
   return (
     <div className="max-w-xl">
       <Story />

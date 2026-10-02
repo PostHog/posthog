@@ -255,6 +255,12 @@ describe("PostHog object links in agent markdown", () => {
     expect(screen.queryByTestId("report-chart")).toBeNull();
   });
 
+  it("does not run an object link in untrusted content", () => {
+    renderUntrustedMarkdown(`[DAU](${PROJECT}/sql?open_query=SELECT%201)\n`);
+    expect(screen.queryByTestId("report-chart")).toBeNull();
+    expect(screen.getByLabelText("external link icon")).toBeDefined();
+  });
+
   it("labels a bare object URL with its kind", () => {
     renderMarkdown(`Gated by ${PROJECT}/feature_flags/42 since Jan 3.`);
     expect(screen.getByText("Feature flag 42")).toBeDefined();
@@ -277,20 +283,6 @@ describe("object tags in untrusted markdown (default)", () => {
     expect(container.querySelector("code")?.textContent).toContain(
       '"mode":"hogql"',
     );
-  });
-
-  it("does not render an object link as a live chart card", () => {
-    useAuthStore.setState({
-      authState: {
-        ...ANONYMOUS_AUTH_STATE,
-        cloudRegion: "us",
-        currentProjectId: 2,
-      },
-    });
-    renderUntrustedMarkdown(`[DAU](${PROJECT}/sql?open_query=SELECT%201)\n`);
-    expect(screen.queryByTestId("report-chart")).toBeNull();
-    expect(screen.getByLabelText("external link icon")).toBeDefined();
-    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
   });
 
   it("does not render an evidence: link as a reference chip", () => {

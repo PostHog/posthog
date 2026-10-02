@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("mermaid", () => ({
   default: {
@@ -195,6 +195,10 @@ describe("resolveLocalImage", () => {
 });
 
 describe("ChatMarkdown object tags", () => {
+  afterEach(() => {
+    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  });
+
   // The chat thread has its own sanitized renderer, which silently dropped
   // object tags while the session view rendered them; these lock the thread
   // to the same tag support.
@@ -251,7 +255,6 @@ describe("ChatMarkdown object tags", () => {
     );
     const html = container.innerHTML;
     unmount();
-    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
     expect(html).toContain(expected);
     expect(html).not.toContain('target="_blank"');
   });
