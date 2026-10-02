@@ -680,6 +680,7 @@ SPECTACULAR_SETTINGS = {
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
+            "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],

@@ -104740,6 +104740,65 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export interface TracePerson {
+      distinctId: string;
+      label: string;
+    }
+
+    export interface TraceNodeStats {
+      costUsd: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      cacheReadTokens: number | null;
+      cacheWriteTokens: number | null;
+      latencyMs: number | null;
+    }
+
+    export type TraceNodeKindEnum = typeof TraceNodeKindEnum[keyof typeof TraceNodeKindEnum];
+
+
+    export const TraceNodeKindEnum = {
+      Trace: 'trace',
+      Span: 'span',
+      Generation: 'generation',
+      Embedding: 'embedding',
+    } as const;
+
+    export interface TraceNode {
+      id: string;
+      kind: TraceNodeKindEnum;
+      name: string;
+      model: string | null;
+      stats: TraceNodeStats;
+      hasError: boolean;
+      children: TraceNode[];
+    }
+
+    export interface TraceTimelineRow {
+      id: string;
+      kind: TraceNodeKindEnum;
+      name: string;
+      depth: number;
+      startMs: number;
+      durationMs: number | null;
+      hasError: boolean;
+    }
+
+    export interface Trace {
+      id: string;
+      name: string | null;
+      createdAt: string;
+      sessionId: string | null;
+      person: TracePerson | null;
+      totals: TraceNodeStats;
+      hasError: boolean;
+      errorCount: number;
+      tree: TraceNode[];
+      timeline: TraceTimelineRow[];
+      totalMs: number;
+      threadNodeIds: string[];
+    }
+
     export interface TraceReviewCreate {
       /**
          * Trace ID for the review. Only one active review can exist per trace and team.
@@ -112366,6 +112425,13 @@ export namespace Schemas {
      * @maxLength 255
      */
     suite_key?: string;
+    };
+
+    export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
     };
 
     export type AlertsListParams = {
