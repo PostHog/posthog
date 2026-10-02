@@ -95,83 +95,46 @@
 .TodaySidebar__list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 2px;
 }
 
 .TodayNavItem {
-    --report-color: #5c5c57;
-
-    display: flex;
-    gap: 14px;
-    align-items: center;
-    width: 100%;
-    padding: 11px;
-    text-align: left;
     border-radius: 10px;
-    transition:
-        background 0.16s,
-        transform 0.2s var(--today-ease-nudge);
-
-    &[data-active='true'] {
-        background: var(--today-soft);
-
-        .TodayNavItem__marker {
-            color: #fff;
-            background: var(--report-color);
-            border-color: var(--report-color);
-        }
-
-        .TodayNavItem__title {
-            color: var(--today-ink);
-        }
-    }
-
-    @media (hover: hover) and (pointer: fine) {
-        &:hover {
-            background: var(--today-soft);
-        }
-    }
 }
 
+// The colored tile is the playful part of the row; it fills with the report color when the row is selected.
 .TodayNavItem__marker {
-    position: relative;
-    display: flex;
-    flex: 0 0 40px;
-    align-items: center;
-    justify-content: center;
     width: 40px;
     height: 40px;
     color: var(--report-color);
     background: color-mix(in sRGB, var(--report-color) 10%, var(--today-card));
     border: 1px solid color-mix(in sRGB, var(--report-color) 25%, var(--today-card));
-    border-radius: 11px;
+    border-radius: var(--radius-sm);
     transition:
         color 0.16s,
         background 0.16s,
         border-color 0.16s;
 
+    // Center the tile; quill nudges media down when an item has a description.
+    &.quill-item__media {
+        align-self: center;
+        translate: none;
+    }
+
     svg {
-        width: 21px;
-        height: 21px;
+        width: 20px;
+        height: 20px;
     }
 }
 
-.TodayNavItem__copy {
-    min-width: 0;
-}
-
-.TodayNavItem__title,
-.TodayNavItem__meta {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.TodayNavItem[data-active='true'] .TodayNavItem__marker {
+    color: #fff;
+    background: var(--report-color);
+    border-color: var(--report-color);
 }
 
 .TodayNavItem__title {
-    font-size: 13px;
-    line-height: 1.4;
-    color: var(--today-body-text);
+    min-width: 0;
 }
 
 .TodayNavItem[data-state='done'] .TodayNavItem__title,
@@ -180,15 +143,9 @@
 }
 
 // Dismissed is not done: it stays readable, only quieter, and the left bar says why.
-.TodayNavItem[data-state='dismissed'] .TodayNavItem__copy,
+.TodayNavItem[data-state='dismissed'] .quill-item__content,
 .TodayReportLink[data-state='dismissed'] {
     opacity: 0.55;
-}
-
-.TodayNavItem__meta {
-    margin-top: 3px;
-    font-size: 11px;
-    color: var(--today-faint);
 }
 
 // Home

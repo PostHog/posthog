@@ -235,14 +235,9 @@ export function TodaySpacesSidebar(): JSX.Element {
                                     {recentGroups.map((group, index) => (
                                         <Fragment key={group.key}>
                                             {group.label && (
-                                                <Text
-                                                    size="xs"
-                                                    weight="medium"
-                                                    variant="muted"
-                                                    className={cn('block px-2 pb-1', index === 0 ? 'pt-1' : 'pt-3')}
-                                                >
+                                                <TodayPaneGroupLabel first={index === 0}>
                                                     {group.label}
-                                                </Text>
+                                                </TodayPaneGroupLabel>
                                             )}
                                             {group.items.map((item) =>
                                                 renderItem(

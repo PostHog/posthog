@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconWrench,
 } from '@posthog/icons'
-import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Separator, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
@@ -44,9 +44,9 @@ function RailUtility({
                 render={
                     <Button
                         variant="default"
-                        size="icon-lg"
+                        size="icon"
                         aria-label={label}
-                        className="relative text-muted-foreground [&_svg]:size-5"
+                        className="relative size-10 rounded-md text-muted-foreground hover:text-foreground [&_svg]:size-5"
                         {...props}
                     />
                 }
@@ -68,12 +68,16 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] px-1 pt-1.5 pb-2"
+            className="flex shrink-0 flex-col items-center gap-3 border-r border-[var(--border)] pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <div className="mb-1 flex size-9 items-center justify-center" aria-hidden>
-                <Logomark className="h-auto w-6" />
+            {/* h-12 matches QuillSceneHeader, so the line under the logo meets the pane header's bottom border. */}
+            <div className="mb-1 flex h-12 w-full shrink-0 flex-col items-center" aria-hidden>
+                <div className="flex flex-1 items-center">
+                    <Logomark className="h-auto w-6" />
+                </div>
+                <Separator className="w-11" />
             </div>
             {RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
@@ -83,6 +87,7 @@ export function TodayRail(): JSX.Element {
                     active={activePane === pane}
                     onClick={() => pickPane(pane)}
                     dataAttr={`today-rail-${pane}`}
+                    className={pane === 'home' ? '-mt-2' : undefined}
                 />
             ))}
             <div className="mt-auto flex flex-col items-center gap-1">
