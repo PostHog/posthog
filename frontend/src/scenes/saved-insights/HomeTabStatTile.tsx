@@ -2,9 +2,9 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { MetricCard } from '@posthog/quill-charts'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { formatPercentage } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { formatItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
@@ -25,6 +25,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
     const { response, responseError, responseLoading } = useValues(
         dataNodeLogic({ query: stat.query, key, dataNodeCollectionId: key })
     )
+    const loading = responseLoading || (!response && !responseError)
 
     const results = (response as TrendsQueryResponse | undefined)?.results ?? (response as { result?: unknown })?.result
     const current = (results as TrendResult[] | undefined)?.[0]
@@ -46,50 +47,37 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
         )
 
     let content: JSX.Element
-    if (responseLoading || (!response && !responseError)) {
+    if (loading) {
         content = (
-            <>
-                <LemonSkeleton className="h-7 w-20" />
+            <span className="flex w-full flex-col gap-2">
+                <LemonSkeleton className="h-3 w-16" />
+                <LemonSkeleton className="h-9 w-24" />
                 <LemonSkeleton className="h-3 w-24" />
-            </>
+            </span>
         )
     } else if (responseError) {
         content = <span className="text-sm text-danger">Could not load</span>
     } else if (value == null) {
         content = <span className="text-sm text-secondary">No data for this period</span>
     } else {
-        let comparison: string
+        let subtitle: string
         if (!compare) {
-            comparison = 'For selected period'
+            subtitle = 'For selected period'
         } else if (previousValue == null) {
-            comparison = 'No previous period data'
-        } else if (previousValue === 0) {
-            comparison = value === 0 ? 'No change vs prior' : 'New vs prior period'
-        } else if (changeFromPreviousPct === 0) {
-            comparison = 'No change vs prior'
-        } else if (changeFromPreviousPct != null) {
-            comparison = `${changeFromPreviousPct > 0 ? '↑' : '↓'} ${formatPercentage(Math.abs(changeFromPreviousPct), {
-                compact: true,
-            })} vs prior`
+            subtitle = 'No previous period data'
         } else {
-            comparison = 'No comparison data'
+            subtitle = `vs. ${formatItem(previousValue, stat.kind)} prior`
         }
 
         content = (
-            <>
-                <span className="w-full truncate text-2xl font-semibold leading-tight tabular-nums" translate="no">
-                    {formatItem(value, stat.kind)}
-                </span>
-                <Tooltip
-                    title={
-                        previousValue != null ? `${formatItem(previousValue, stat.kind)} in previous period` : undefined
-                    }
-                >
-                    <span className="w-full truncate text-xs text-secondary" translate="no">
-                        {comparison}
-                    </span>
-                </Tooltip>
-            </>
+            <MetricCard
+                title={<span className={selected ? 'text-accent' : undefined}>{label}</span>}
+                value={value}
+                change={changeFromPreviousPct ? { value: changeFromPreviousPct } : null}
+                goodDirection="up"
+                formatValue={(statValue) => formatItem(statValue, stat.kind)}
+                subtitle={<span translate="no">{subtitle}</span>}
+            />
         )
     }
 
@@ -98,19 +86,17 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             type="button"
             onClick={onSelect}
             aria-pressed={selected}
-            aria-busy={responseLoading || (!response && !responseError)}
+            aria-busy={loading}
             data-attr={`home-tab-metric-${stat.key}`}
             className={clsx(
-                'relative flex h-full min-h-24 w-full min-w-0 flex-col items-start gap-2 rounded border px-3 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-accent',
+                'relative flex h-full w-full min-w-0 flex-col rounded border p-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-accent',
                 selected
                     ? 'border-accent bg-accent-highlight-secondary'
                     : 'border-primary bg-surface-primary hover:border-accent'
             )}
         >
-            <span className={clsx('w-full text-xs font-medium', selected ? 'text-accent' : 'text-secondary')}>
-                {label}
-            </span>
-            <span className="flex w-full min-w-0 flex-col gap-1">{content}</span>
+            {!loading && (responseError || value == null) && <span className="mb-2 text-sm font-medium">{label}</span>}
+            {content}
         </button>
     )
 }

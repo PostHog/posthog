@@ -188,7 +188,7 @@ export function getHomeTabStatQueries(dateRange: DateRange, compare: boolean): H
         ),
         statQuery(
             'session_duration',
-            'Avg. session duration',
+            'Session duration',
             'duration_s',
             activityEvent(PropertyMathType.Average, '$session_duration'),
             dateRange,
