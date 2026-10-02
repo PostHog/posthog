@@ -130,6 +130,15 @@ describe('newCategoryLogic', () => {
         expect(logic.values.categoryForm.key).toBe('weekly-digest')
     })
 
+    it.each([' ', '製品'])('shows no field errors before Create while the name is %j', (name) => {
+        const logic = newCategoryLogic({})
+        logic.mount()
+
+        typeInto(logic, 'name', name)
+
+        expect(logic.values.categoryFormErrors).toEqual({})
+    })
+
     it('leaves the key alone while workflows-audience is off', () => {
         setAudienceFlag(false)
         const logic = newCategoryLogic({})
