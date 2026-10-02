@@ -1,10 +1,12 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.test import Client
 from django.urls import reverse
+from django.utils import timezone
 
 from parameterized import parameterized
 from requests import Response
@@ -734,17 +736,21 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("first_row_from_add_opt_out", "add_opt_out", False, 1),
-            ("first_row_from_remove_opt_out", "remove_opt_out", False, 1),
-            ("team_already_had_a_preference", "add_opt_out", True, 0),
+            ("first_row_from_add_opt_out", "add_opt_out", None, 1),
+            ("first_row_from_remove_opt_out", "remove_opt_out", None, 1),
+            ("team_already_had_a_preference", "add_opt_out", timedelta(days=-1), 0),
+            ("concurrent_first_row_committed_before_the_check", "add_opt_out", timedelta(seconds=1), 1),
         ]
     )
     @patch("posthoganalytics.capture")
     def test_first_preference_received_is_reported_once_per_team(
-        self, _name, first_endpoint, has_earlier_preference, expected_reports, mock_capture
+        self, _name, first_endpoint, other_row_created_after_now, expected_reports, mock_capture
     ):
-        if has_earlier_preference:
-            MessageRecipientPreference.objects.create(team=self.team, identifier="imported@example.com")
+        if other_row_created_after_now is not None:
+            other = MessageRecipientPreference.objects.create(team=self.team, identifier="other@example.com")
+            MessageRecipientPreference.objects.filter(id=other.id).update(
+                created_at=timezone.now() + other_row_created_after_now
+            )
 
         self._post_preference(first_endpoint, "first@example.com")
         self._post_preference("add_opt_out", "first@example.com")
