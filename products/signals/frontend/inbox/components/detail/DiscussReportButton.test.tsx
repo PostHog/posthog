@@ -12,6 +12,7 @@ import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import {
     inboxTaskKickoffLogic,
+    MERGE_PR_REQUEST,
     REPORT_AI_PANEL,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
 } from '../../inboxTaskKickoffLogic'
@@ -25,6 +26,30 @@ jest.mock('../../inboxAnalytics', () => ({
 }))
 
 const SUGGESTION = 'Which teams are hitting this exception the most?'
+
+function withPullRequest(
+    report: SignalReport,
+    state: 'open' | 'merged',
+    reviewDecision: 'approved' | 'review_required'
+): SignalReport {
+    return {
+        ...report,
+        status: SignalReportStatus.IN_PROGRESS,
+        pull_requests: [
+            {
+                id: 'pr-1',
+                url: 'https://github.com/org/repo/pull/1',
+                state,
+                merged: state === 'merged',
+                review_decision: reviewDecision,
+                merged_at: null,
+                claim_id: null,
+                attached_at: null,
+                attached_by: null,
+            },
+        ],
+    }
+}
 
 function makeReport(suggestedPrompts?: string[]): SignalReport {
     return {
@@ -235,6 +260,39 @@ describe('DiscussReportButton', () => {
         await openPanel(report)
 
         expect(screen.queryByTestId('inbox-report-ask-ai-suggestion')).not.toBeInTheDocument()
+    })
+
+    it('fills Get it merged into the box and sends it with the merge intent only on submit', async () => {
+        const user = await openPanel(withPullRequest(makeReport(), 'open', 'approved'))
+
+        await user.click(screen.getByText('Get it merged'))
+
+        expect(discussReport).not.toHaveBeenCalled()
+        expect(screen.getByRole('textbox')).toHaveValue(MERGE_PR_REQUEST)
+        await user.type(screen.getByRole('textbox'), ' Use squash.')
+        await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
+
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            `${MERGE_PR_REQUEST} Use squash.`,
+            undefined,
+            'merge_pr'
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            question_source: 'edited_suggestion',
+            suggestion_count: 1,
+            question_intent: 'merge_pr',
+        })
+    })
+
+    it.each([
+        ['needs review', withPullRequest(makeReport(), 'open', 'review_required')],
+        ['already merged', withPullRequest(makeReport(), 'merged', 'approved')],
+    ])('does not offer Get it merged when the PR %s', async (_name, report) => {
+        await openPanel(report)
+
+        expect(screen.queryByText('Get it merged')).not.toBeInTheDocument()
     })
 
     it('does not invite actions where the kickoff wrapper would only answer', async () => {
