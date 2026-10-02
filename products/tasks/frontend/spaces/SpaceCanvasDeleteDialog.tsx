@@ -36,7 +36,6 @@ export function SpaceCanvasDeleteDialog({ spaceId }: { spaceId: string }): JSX.E
                 <AlertDialogFooter>
                     <Button
                         variant="outline"
-                        size="sm"
                         onClick={() => setCanvasDeleteTarget(null)}
                         disabled={canvasDeleting}
                         data-attr="today-space-canvases-delete-cancel"
@@ -44,8 +43,7 @@ export function SpaceCanvasDeleteDialog({ spaceId }: { spaceId: string }): JSX.E
                         Cancel
                     </Button>
                     <Button
-                        variant="destructive"
-                        size="sm"
+                        variant="destructive-outline"
                         loading={canvasDeleting}
                         disabled={canvasDeleting}
                         onClick={() => confirmCanvasDelete()}
