@@ -338,4 +338,36 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ templatePickerOpen: true })
         })
     })
+
+    describe('starter template from the Email brand', () => {
+        const STARTER_DESIGN = { counters: {}, schemaVersion: 16, body: { id: 'brand-starter-body', rows: [] } }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/email_brand/starter_design/': {
+                        name: 'Acme starter template',
+                        description: 'Created from your Email brand.',
+                        subject: 'Hello from Acme',
+                        design: STARTER_DESIGN,
+                    },
+                },
+            })
+        })
+
+        it('opens the new-template editor preloaded with the starter design instead of the picker', async () => {
+            logic = messageTemplateLogic({ id: 'new', fromEmailBrand: true })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadStarterDesignSuccess']).toFinishAllListeners()
+
+            expect(logic.values.templatePickerOpen).toBe(false)
+            expect(logic.values.template).toMatchObject({
+                id: 'new',
+                name: 'Acme starter template',
+                description: 'Created from your Email brand.',
+                content: { email: { subject: 'Hello from Acme', design: STARTER_DESIGN, html: '' } },
+            })
+        })
+    })
 })

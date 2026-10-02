@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { attachedContextItemKey, attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
+import { isEmailBrandStarter } from './constants'
 import {
     PICKED_TEMPLATE_DISMISS_GROUP,
     buildNewTemplateComposerContext,
@@ -167,7 +168,9 @@ export const newTemplateAgentLogic = kea<newTemplateAgentLogicType>([
                     featureFlags,
                     sceneIntegrationEnabled,
                     searchParams,
-                    isNewTemplateRoute(location.pathname) && !searchParams.messageId
+                    isNewTemplateRoute(location.pathname) &&
+                        !searchParams.messageId &&
+                        !isEmailBrandStarter(searchParams)
                 ),
         ],
         agentContextItems: [

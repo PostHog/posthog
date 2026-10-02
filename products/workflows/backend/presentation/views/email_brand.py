@@ -33,11 +33,7 @@ from products.workflows.backend.services.email_brand_detection import (
     RepositoryUnreadable,
     detect_repository_brand,
 )
-from products.workflows.backend.services.email_brand_starter_template import (
-    STARTER_TEMPLATE_DESCRIPTION,
-    StarterTemplate,
-    build_starter_template,
-)
+from products.workflows.backend.services.email_brand_starter_template import StarterTemplate, build_starter_template
 
 BRAND_DETECTION_FEATURE_FLAG = "workflows-brand-detection"
 
@@ -172,6 +168,7 @@ class EmailBrandSerializer(serializers.ModelSerializer):
 
 class EmailBrandStarterDesignSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Suggested name for the starter template.")
+    description = serializers.CharField(help_text="Description the starter template is saved with.")
     subject = serializers.CharField(help_text="Suggested email subject line.")
     design = UnlayerDesignField(
         help_text="Email editor design built from the Email brand: logo header, heading, body, button and "
@@ -308,7 +305,8 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             return render_design_html(starter.design)
         except UnlayerError as error:
-            # The email editor exports the same design in the browser without a key, so the flow falls back to it.
+            # Any render failure falls back to the email editor, which exports the same design in the browser
+            # and needs no key.
             raise DesignRenderingUnavailable() from error
 
     def _create_template(self, starter: StarterTemplate, html: str) -> MessageTemplate:
@@ -316,7 +314,7 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.team.id,
             created_by=self.request.user,
             name=starter.name,
-            description=STARTER_TEMPLATE_DESCRIPTION,
+            description=starter.description,
             type="email",
             content={
                 "templating": "liquid",

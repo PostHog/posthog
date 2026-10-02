@@ -15,6 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { isEmailBrandStarter } from './constants'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
@@ -26,9 +27,10 @@ import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
     logic: messageTemplateSceneLogic,
-    paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
+    paramsToProps: ({ params: { id }, searchParams }) => ({
         id: id || 'new',
-        messageId,
+        messageId: searchParams.messageId,
+        fromEmailBrand: isEmailBrandStarter(searchParams),
     }),
     productKey: ProductKey.WORKFLOWS,
 }

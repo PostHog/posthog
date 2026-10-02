@@ -66,6 +66,7 @@ class TestEmailBrandStarterTemplateAPI(APIBaseTest):
 
         assert validate_design(design) == []
         assert starter["name"] == "Acme starter template"
+        assert starter["description"] == "Created from your Email brand."
         assert "Acme" in starter["subject"]
         logo_block = _content(design, "brand-starter-logo")
         assert logo_block["values"]["src"]["url"].endswith(f"/uploaded_media/{logo.id}")

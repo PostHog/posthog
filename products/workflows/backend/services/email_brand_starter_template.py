@@ -68,6 +68,7 @@ EDITABLE_BLOCK = {
 @frozen
 class StarterTemplate:
     name: str
+    description: str
     subject: str
     design: dict[str, Any]
 
@@ -75,6 +76,7 @@ class StarterTemplate:
 def build_starter_template(brand: EmailBrand) -> StarterTemplate:
     return StarterTemplate(
         name=f"{brand.name} starter template" if brand.name else "Starter template",
+        description=STARTER_TEMPLATE_DESCRIPTION,
         subject=f"Hello from {brand.name}" if brand.name else "Hello",
         design=build_starter_design(brand),
     )

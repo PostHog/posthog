@@ -310,6 +310,8 @@ export type EmailBrandStarterDesignApiDesign = {
 export interface EmailBrandStarterDesignApi {
     /** Suggested name for the starter template. */
     name: string
+    /** Description the starter template is saved with. */
+    description: string
     /** Suggested email subject line. */
     subject: string
     /** Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer. */
