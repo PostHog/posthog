@@ -70,7 +70,9 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                                     {/* h-10 matches LemonTextArea's 2.5rem min-height, centering the
                                         label and icon on the textarea's first row */}
                                     <div className="flex h-10 items-center gap-1.5 self-start">
-                                        <code className="text-xs whitespace-nowrap">{`{{${name}}}`}</code>
+                                        <code className="text-xs max-w-40 truncate" title={`{{${name}}}`}>
+                                            {`{{${name}}}`}
+                                        </code>
                                         {unfilled ? (
                                             <Tooltip title="No value set. The placeholder is sent as written.">
                                                 {warningIcon}
