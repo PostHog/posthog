@@ -89,7 +89,7 @@ PROJECTIONS: tuple[Projection, ...] = (
         inputs=("posthog/scopes.py",),
         outputs=(
             "services/mcp/src/lib/oauth-scopes.generated.ts",
-            "frontend/src/lib/scopes.generated.ts",
+            "frontend/src/lib/oauthScopes.generated.ts",
         ),
     ),
 )

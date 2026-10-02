@@ -1,4 +1,5 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
@@ -8,14 +9,13 @@ import {
     getScopeDescription,
     scopeMatchesSearch,
 } from 'lib/scopes'
-import { OAUTH_HIDDEN_SCOPE_OBJECTS } from 'lib/scopes.generated'
 
 import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
+const OAUTH_HIDDEN_SCOPE_OBJECTS = new Set(OAUTH_SCOPES_HIDDEN.map((scope) => scope.split(':')[0]))
+
 // The pickers never show an OAuth-hidden object, so only the rest need a row and a group.
-const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter(
-    (obj) => !(OAUTH_HIDDEN_SCOPE_OBJECTS as readonly string[]).includes(obj)
-)
+const PICKER_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi).filter((obj) => !OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -82,7 +82,7 @@ describe('API_SCOPE_GROUPS', () => {
         // A hidden object with a row would show in the key picker, and a group that exists only for
         // hidden objects carries a label that no person should ever see.
         const shown = [...filed, ...API_SCOPES.map(({ key }) => key)]
-        const hidden = shown.filter((obj) => (OAUTH_HIDDEN_SCOPE_OBJECTS as readonly string[]).includes(obj))
+        const hidden = shown.filter((obj) => OAUTH_HIDDEN_SCOPE_OBJECTS.has(obj))
         expect(hidden).toEqual([])
     })
 

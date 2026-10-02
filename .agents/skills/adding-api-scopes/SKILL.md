@@ -38,7 +38,7 @@ Then decide two more things, separately from the kind:
    - A custom `@action` needs `required_scopes`, for example `required_scopes=["<object>:write"]`. Use `:read` if it only reads data, and `:write` if it changes data. Without it, token requests get a 403.
    - An endpoint set to `scope_object = "INTERNAL"` accepts only logged-in sessions. Change it to the new object to open it to tokens.
    - Then call each custom action with a personal API key that has only the new scope. No test checks this.
-3. **Regenerate.** Run `hogli build:openapi`, which carries the object to the frontend type, and `hogli build:projections`, which updates the MCP OAuth list and the frontend's OAuth-hidden and privileged lists. **DO NOT EDIT GENERATED FILES BY HAND.**
+3. **Regenerate.** Run `hogli build:openapi`, which carries the object to the frontend type, and `hogli build:projections`, which updates the OAuth lists of the MCP server and the web app. **DO NOT EDIT GENERATED FILES BY HAND.**
 4. **Show it in the pickers.** Skip this step for an OAuth-hidden object: no picker shows it, and the tests do not ask for a row or a group. Otherwise, in `frontend/src/lib/scopes.tsx`:
    - Add a row to `API_SCOPES` with a sentence-case label and plural (`/writing-user-facing-copy`). Disable `write` if no endpoint writes. If the key modal should not offer the object, add a reason to `API_SCOPES_OMITTED_FROM_MODAL` instead.
    - Add the object to one group in `API_SCOPE_GROUPS`. See "Choose a group".
@@ -81,5 +81,4 @@ Use these instead of writing your own list of scopes.
 - **Frontend type:** `APIScopeObject` from `~/types`.
 - **Frontend list at runtime:** `Object.values(ScopeObjectEnumApi)`, from `products/access_control/frontend/generated/api.schemas`.
 - **Frontend labels and groups:** `API_SCOPES`, `API_SCOPE_GROUPS` and `getScopeDescription` from `lib/scopes`.
-- **Frontend OAuth-hidden and privileged objects:** `OAUTH_HIDDEN_SCOPE_OBJECTS` and `PRIVILEGED_SCOPE_OBJECTS` from `lib/scopes.generated`.
-- **MCP server:** `OAUTH_SCOPES_SUPPORTED` and `OAUTH_SCOPES_HIDDEN` from `services/mcp/src/lib/oauth-scopes.generated.ts`.
+- **OAuth lists:** `OAUTH_SCOPES_SUPPORTED` and `OAUTH_SCOPES_HIDDEN`, from `lib/oauthScopes.generated` in the web app and `services/mcp/src/lib/oauth-scopes.generated.ts` in the MCP server. The two files are the same.
