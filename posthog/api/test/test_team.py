@@ -752,34 +752,6 @@ def team_api_test_factory():
                 ]
             )
 
-        def test_retiring_a_legacy_token_deletes_its_migrated_psak_row(self):
-            from posthog.models.project_secret_api_key import ProjectSecretAPIKey
-            from posthog.models.utils import hash_key_value
-
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            primary = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            self.team.secret_api_token = primary
-            self.team.secret_api_token_backup = backup
-            self.team.save()
-            for token, label in ((primary, "Migrated legacy secret API key"), (backup, "Migrated legacy key (backup)")):
-                ProjectSecretAPIKey.objects.create(
-                    team=self.team, label=label, secure_value=hash_key_value(token), scopes=["feature_flag:read"]
-                )
-
-            # Rotation drops the old backup; its PSAK row must stop authenticating with it.
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
-            self.assertTrue(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
-
-            # Deleting the backup (the rotated-out primary) retires its row too.
-            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
-
         @parameterized.expand(
             [
                 ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),

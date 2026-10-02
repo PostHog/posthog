@@ -1,0 +1,73 @@
+from typing import Any
+
+from posthog.test.base import TestMigrations
+
+from posthog.models.project_secret_api_key import find_project_secret_api_key
+from posthog.models.utils import hash_key_value
+
+PRIMARY = "phs_backfill_test_primary_token"
+BACKUP = "phs_backfill_test_backup_token"
+COLLIDING = "phs_backfill_test_label_collision_token"
+
+
+class TestBackfillSecretTokensToPsak(TestMigrations):
+    migrate_from = "1391_organization_provisioning"
+    migrate_to = "1392_backfill_secret_tokens_to_psak"
+
+    def setUpBeforeMigration(self, apps: Any) -> None:
+        Team = apps.get_model("posthog", "Team")
+        ProjectSecretAPIKey = apps.get_model("posthog", "ProjectSecretAPIKey")
+
+        Team.objects.filter(id=self.team.id).update(secret_api_token=PRIMARY, secret_api_token_backup=BACKUP)
+        # The primary already has a row (a rerun, or a key the customer made themselves):
+        # the backfill must not duplicate it or touch its label.
+        ProjectSecretAPIKey.objects.create(
+            team_id=self.team.id,
+            label="Customer-made key",
+            secure_value=hash_key_value(PRIMARY),
+            scopes=["feature_flag:read"],
+        )
+
+        self.collision_team_id = Team.objects.create(
+            organization_id=self.organization.id,
+            project_id=self.team.project_id,
+            name="label collision",
+            secret_api_token=COLLIDING,
+        ).id
+        ProjectSecretAPIKey.objects.create(
+            team_id=self.collision_team_id,
+            label="Migrated legacy secret API key",
+            secure_value=hash_key_value("phs_backfill_test_unrelated_token"),
+            scopes=["feature_flag:read"],
+        )
+
+        self.empty_team_id = Team.objects.create(
+            organization_id=self.organization.id,
+            project_id=self.team.project_id,
+            name="no legacy token",
+            secret_api_token="",
+        ).id
+
+    def test_backfill_covers_backup_dedup_label_collision_and_empty(self) -> None:
+        assert self.apps is not None
+        ProjectSecretAPIKey = self.apps.get_model("posthog", "ProjectSecretAPIKey")
+
+        # The backup gets its own row, resolvable like any PSAK.
+        migrated = find_project_secret_api_key(BACKUP)
+        assert migrated is not None
+        assert migrated.team_id == self.team.id
+        assert migrated.scopes == ["feature_flag:read", "support_ticket:read"]
+        assert migrated.label == "Migrated legacy key (backup)"
+        assert migrated.mask_value
+
+        # The primary's pre-existing row is left alone: no duplicate, label untouched.
+        primary_rows = ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(PRIMARY))
+        assert [row.label for row in primary_rows] == ["Customer-made key"]
+
+        # A taken base label falls back to a suffixed one instead of violating (team, label).
+        collision_row = find_project_secret_api_key(COLLIDING)
+        assert collision_row is not None
+        assert collision_row.label == f"Migrated legacy secret API key {hash_key_value(COLLIDING)[-8:]}"
+
+        # A team with an empty legacy token gets nothing.
+        assert not ProjectSecretAPIKey.objects.filter(team_id=self.empty_team_id).exists()

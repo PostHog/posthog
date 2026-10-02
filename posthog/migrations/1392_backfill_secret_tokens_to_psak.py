@@ -15,6 +15,41 @@ BATCH_SIZE = 500
 MIGRATED_SCOPES = ["feature_flag:read", "support_ticket:read"]
 
 
+def _flush(ProjectSecretAPIKey, db, pending: list[dict]) -> int:
+    """Insert one chunk with three queries, so row locks last seconds overall instead
+    of one round trip per token."""
+    existing = set(
+        ProjectSecretAPIKey.objects.using(db)
+        .filter(secure_value__in=[p["secure_value"] for p in pending])
+        .values_list("secure_value", flat=True)
+    )
+    # A customer may already use these exact labels; (team, label) is unique.
+    taken = set(
+        ProjectSecretAPIKey.objects.using(db)
+        .filter(team_id__in={p["team_id"] for p in pending}, label__in={p["label"] for p in pending})
+        .values_list("team_id", "label")
+    )
+    rows = []
+    for p in pending:
+        if p["secure_value"] in existing:
+            continue
+        existing.add(p["secure_value"])
+        label = p["label"]
+        if (p["team_id"], label) in taken:
+            label = f"{label} {p['secure_value'][-8:]}"
+        rows.append(
+            ProjectSecretAPIKey(
+                team_id=p["team_id"],
+                label=label,
+                secure_value=p["secure_value"],
+                mask_value=p["mask_value"],
+                scopes=MIGRATED_SCOPES,
+            )
+        )
+    ProjectSecretAPIKey.objects.using(db).bulk_create(rows)
+    return len(rows)
+
+
 def backfill_tokens(apps, schema_editor):
     """
     Create a ProjectSecretAPIKey row holding the SHA256 of every existing legacy
@@ -38,31 +73,33 @@ def backfill_tokens(apps, schema_editor):
     )
 
     created_total = 0
+    pending: list[dict] = []
     for team in teams.iterator(chunk_size=BATCH_SIZE):
         tokens = [(team.secret_api_token, "Migrated legacy secret API key")]
         if team.secret_api_token_backup:
             tokens.append((team.secret_api_token_backup, "Migrated legacy key (backup)"))
         for token, label in tokens:
-            secure_value = hash_key_value(token)
-            if ProjectSecretAPIKey.objects.using(db).filter(secure_value=secure_value).exists():
-                continue
-            # A customer may already use this exact label; (team, label) is unique.
-            if ProjectSecretAPIKey.objects.using(db).filter(team_id=team.id, label=label).exists():
-                label = f"{label[:31]} {secure_value.removeprefix('sha256$')[:8]}"
-            ProjectSecretAPIKey.objects.using(db).create(
-                team_id=team.id,
-                label=label,
-                secure_value=secure_value,
-                mask_value=mask_key_value(token),
-                scopes=MIGRATED_SCOPES,
+            pending.append(
+                {
+                    "team_id": team.id,
+                    "secure_value": hash_key_value(token),
+                    "mask_value": mask_key_value(token),
+                    "label": label,
+                }
             )
-            created_total += 1
+        if len(pending) >= BATCH_SIZE:
+            created_total += _flush(ProjectSecretAPIKey, db, pending)
+            pending = []
+    if pending:
+        created_total += _flush(ProjectSecretAPIKey, db, pending)
 
     logger.info("backfilled_secret_tokens_to_psak", created_rows=created_total)
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1391_organization_provisioning")]
+    dependencies = [
+        ("posthog", "1391_organization_provisioning"),
+    ]
 
     operations = [
         migrations.RunPython(backfill_tokens, migrations.RunPython.noop, elidable=True),

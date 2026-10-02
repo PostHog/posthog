@@ -262,17 +262,15 @@ class SecretAlert(APIView):
                 local_found = revocation.found
                 key_kind = "project_secret_api_key" if revocation.found else None
 
-                # Not an else-branch: a backfilled PSAK (#63111) carries the same hash as a
-                # team token, so a leaked team token can match both. Rolling the PSAK alone
-                # leaves the team token valid — the admins must still be told to rotate it.
-                try:
-                    team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
-                    local_found = True
-                    key_kind = "team_secret_token"
-                    send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
+                if not revocation.found:
+                    try:
+                        team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
+                        local_found = True
+                        key_kind = "team_secret_token"
+                        send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
 
-                except Team.DoesNotExist:
-                    pass
+                    except Team.DoesNotExist:
+                        pass
 
                 pending_events.append(
                     {
