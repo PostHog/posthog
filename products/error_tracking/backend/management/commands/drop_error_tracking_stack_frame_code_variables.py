@@ -1,8 +1,10 @@
 """Remove code variables from the stored error tracking stack frames of one team.
 
-Run this command after cymbal drops code variables for the team through
-`ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS`. Before that, cymbal can resolve a frame again from
-an incoming event and write the variables back behind the backfill cursor.
+Run this command after every cymbal processing pod runs with the team in
+`ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS`. Cymbal reads that list at startup, so a pod from
+before the rollout can resolve a frame again from an incoming event and write the variables back
+behind the backfill cursor. After the live run, a dry run reports `matched=0` when no frame of the
+team keeps code variables.
 
 Usage:
     python manage.py drop_error_tracking_stack_frame_code_variables --team-id 2
