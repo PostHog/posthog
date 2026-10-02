@@ -1454,10 +1454,32 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                               )
                                                                                           })
                                                                                   } else {
-                                                                                      setSurveyValue(
-                                                                                          'linked_flag',
-                                                                                          flag
-                                                                                      )
+                                                                                      if (flag) {
+                                                                                          setSurveyValue(
+                                                                                              'linked_flag',
+                                                                                              flag
+                                                                                          )
+                                                                                      } else {
+                                                                                          // A pick from the Recent
+                                                                                          // category carries only the
+                                                                                          // flag id, and the variant
+                                                                                          // selector below reads the
+                                                                                          // flag itself.
+                                                                                          api.featureFlags
+                                                                                              .get(id)
+                                                                                              .then((linkedFlag) => {
+                                                                                                  setSurveyValue(
+                                                                                                      'linked_flag',
+                                                                                                      linkedFlag
+                                                                                                  )
+                                                                                              })
+                                                                                              .catch(() => {
+                                                                                                  setSurveyValue(
+                                                                                                      'linked_flag_id',
+                                                                                                      null
+                                                                                                  )
+                                                                                              })
+                                                                                      }
                                                                                       // Reset variant selection when flag changes
                                                                                       const {
                                                                                           linkedFlagVariant,
