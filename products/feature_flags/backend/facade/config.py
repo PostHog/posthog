@@ -13,8 +13,9 @@ A JSON string or boolean never selects a version, and a stored value that is not
 reader with only a v1 branch checks the format before it touches any v1 key.
 
 The v2 DTOs are structural reads of a stored document. They carry the fields later consumers
-route on (return type, ordered rule identities and values, experiment identity) and nothing
-else. The full v2 schema lives in the contract; do not grow this module into a second copy of it.
+route on (return type, ordered rule identities and values, experiment identity, and the cohort
+and flag targeting predicates) and nothing else. The full v2 schema lives in the contract; do not
+grow this module into a second copy of it.
 
 Deliberately free of Django/DRF imports (same reason as ``facade.filters``): consumer model
 modules import this at module level.
@@ -112,7 +113,7 @@ class ConfigV2:
 
 
 @frozen
-class V1Config:
+class ConfigV1:
     # The stored document. Its v1 keys are read where they are needed; no v1 type is built here.
     filters: Mapping[str, Any]
 
@@ -122,7 +123,7 @@ class UnsupportedConfig:
     config_format: ConfigFormat
 
 
-DecodedConfig = V1Config | ConfigV2 | UnsupportedConfig
+DecodedConfig = ConfigV1 | ConfigV2 | UnsupportedConfig
 
 
 def decode_config(document: object) -> DecodedConfig:
@@ -134,7 +135,7 @@ def decode_config(document: object) -> DecodedConfig:
     """
     config_format = detect_config_format(document)
     if config_format.kind == "v1":
-        return V1Config(filters=document if isinstance(document, Mapping) else {})
+        return ConfigV1(filters=document if isinstance(document, Mapping) else {})
     if config_format.kind == "v2" and isinstance(document, Mapping):
         try:
             return parse_v2_config(document)

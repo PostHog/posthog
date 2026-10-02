@@ -483,14 +483,22 @@ class TestFlagDependencyVersionSync(BaseTest):
             transitions.append((change["before"], change["after"]))
         assert sorted(transitions) == [(1, 2), (2, 3)]
 
-    def test_sibling_flag_with_non_dict_filters_does_not_block_save_or_bump(self):
+    @parameterized.expand(
+        [
+            ("non_dict_filters", [{"properties": []}, {"type": "flag"}]),
+            ("groups_not_a_list", {"groups": {"type": "flag"}}),
+            ("properties_not_a_list", {"groups": [{"properties": {"dependency": {"type": "flag", "key": "1"}}}]}),
+            ("properties_not_iterable", {"groups": [{"properties": 5, "note": {"type": "flag"}}]}),
+        ]
+    )
+    def test_sibling_flag_with_malformed_filters_does_not_block_save_or_bump(self, _name, filters):
         base, dependent, _ = self._create_chain()
-        # filters is a JSONField with no shape validation, so a row can hold a non-dict;
-        # FeatureFlag.conditions calls .get() on it and raises. That must not abort the
-        # save being made to an unrelated flag. The malformed-key case in the chain test
-        # can't reach this: a bad key inside a well-shaped dict is caught further in.
+        # filters is a JSONField with no shape validation, so a row can hold any JSON the
+        # dependency prefilter matches. That must not abort the save being made to an unrelated
+        # flag. The malformed-key case in the chain test can't reach this: a bad key inside a
+        # well-shaped document is skipped further in.
         broken = self._create_flag("broken", _flag_dependency_filters(base.pk))
-        FeatureFlag.objects.filter(pk=broken.pk).update(filters=[{"properties": []}, {"type": "flag"}])
+        FeatureFlag.objects.filter(pk=broken.pk).update(filters=filters)
 
         base.filters = {"groups": [{"properties": [], "rollout_percentage": 25}]}
         base.save()

@@ -133,8 +133,8 @@ from products.feature_flags.backend.facade import (
 )
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
+    ConfigV1,
     UnsupportedConfig,
-    V1Config,
     decode_config,
     detect_config_format,
     require_v1_config,
@@ -2837,10 +2837,12 @@ class FeatureFlagSerializer(
         """Find all disabled flags that the given flag depends on."""
         config = decode_config(flag_to_check.filters)
         if isinstance(config, UnsupportedConfig):
-            # A stored document no reader can read names no dependency; the write checks that follow reject it.
+            # validate() rejected every other unsupported format, so this is a v2 document parse_v2_config
+            # cannot read. Under the row lock _apply_v2_update rejects it through config_writes.validate_stored,
+            # or, when the request also sends filters, _resolve_v2_document validates the replacement.
             return []
         # A non-integer flag id raises in v1, as it always did; v2 skips it and leaves the 400 to the validator.
-        invalid_ids: InvalidIds = "raise" if isinstance(config, V1Config) else "skip"
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
         dependency_ids = references(config, invalid_flag_ids=invalid_ids).flag_ids
         if not dependency_ids:
             return []

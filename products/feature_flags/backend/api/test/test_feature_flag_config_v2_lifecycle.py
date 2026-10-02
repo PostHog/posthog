@@ -290,6 +290,27 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
         assert (flag.active, flag.version) == (False, 5)
         assert [entry.activity for entry in self.activity(flag)] == ["updated", "updated"]
 
+    def test_enabling_reports_a_disabled_flag_the_rule_targeting_depends_on(self) -> None:
+        dependency = FeatureFlag.objects.create(team=self.team, key="base-flag", active=False, created_by=self.user)
+        # Stored past the validator, which does not admit flag targeting yet. The non-integer key is skipped.
+        targeting = {
+            "properties": [
+                {"key": str(dependency.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                {"key": "checkout-flow", "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+            ]
+        }
+        stored = config(targeted(targeting=targeting))
+        flag = self.flag(stored, active=False)
+
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Cannot enable this feature flag because it depends on disabled flags" in detail
+        assert f"base-flag (ID: {dependency.id})" in detail
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 3, stored)
+
     @parameterized.expand(
         [
             ("malformed", {"version": 2, "rules": "broken"}, settings.MAX_FEATURE_FLAG_FILTER_SIZE_BYTES),

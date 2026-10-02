@@ -266,6 +266,11 @@ def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
         return set(references(decode_config(flag.filters)).flag_ids)
     except ConfigFormatError:
         return set()
+    except (AttributeError, TypeError):
+        # references() raises these for v1 groups or properties that are not lists of objects.
+        logger.exception("flag_version_sync_dependency_parse_failed", flag_id=flag.pk, team_id=flag.team_id)
+        capture_exception()
+        return set()
 
 
 def flags_with_flag_dependencies(project_ids: Collection[int]) -> QuerySet[FeatureFlag]:

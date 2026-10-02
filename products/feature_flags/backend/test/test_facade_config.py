@@ -8,10 +8,10 @@ from parameterized import parameterized
 from products.feature_flags.backend.facade.config import (
     ConfigFormat,
     ConfigFormatError,
+    ConfigV1,
     ConfigV2,
     RuleV2,
     UnsupportedConfig,
-    V1Config,
     decode_config,
     detect_config_format,
     parse_v2_config,
@@ -239,7 +239,7 @@ class TestDecodeConfig:
         ]
     )
     def test_v1_documents_decode_to_the_v1_arm(self, _name: str, document: Any, filters: dict) -> None:
-        assert decode_config(document) == V1Config(filters=filters)
+        assert decode_config(document) == ConfigV1(filters=filters)
 
     def test_v2_rules_carry_their_cohort_and_flag_predicates(self) -> None:
         document = deepcopy(V2_STRING_GROUP_ASSIGNMENT)

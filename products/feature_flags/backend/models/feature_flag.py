@@ -22,7 +22,7 @@ from posthog.models.utils import RootTeamManager, RootTeamMixin, RootTeamQuerySe
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.models.experiment import live_experiment_exists
-from products.feature_flags.backend.facade.config import ConfigFormatError, V1Config, decode_config, require_v1_config
+from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
@@ -437,7 +437,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         cohort_ids = set()
         # Unreadable formats raise. A non-integer id raises in v1, as it always did; v2 skips it, as Rust does.
         config = decode_config(self.get_filters())
-        invalid_ids: InvalidIds = "raise" if isinstance(config, V1Config) else "skip"
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
         direct_ids = references(config, invalid_cohort_ids=invalid_ids).cohort_ids
         for cohort_id in direct_ids:
             try:

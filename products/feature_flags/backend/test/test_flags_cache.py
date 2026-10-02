@@ -723,18 +723,26 @@ class TestOmitUnsupportedFlags(BaseTest):
                 {"key": str(unsupported.id), "type": "flag", "operator": "flag_evaluates_to", "value": True}
             ),
         }
+        created: dict[str, FeatureFlag] = {}
         for key, filters in rows.items():
-            flag = FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, filters={})
-            FeatureFlag.objects.filter(id=flag.id).update(filters=filters)
+            created[key] = FeatureFlag.objects.create(team=self.team, key=key, created_by=self.user, filters={})
+            FeatureFlag.objects.filter(id=created[key].id).update(filters=filters)
 
         # Admitted here because the validator does not admit cohort or flag targeting yet.
-        with patch("products.feature_flags.backend.flags_cache._validates_v2", return_value=True):
+        with (
+            patch("products.feature_flags.backend.flags_cache._validates_v2", return_value=True),
+            capture_logs() as log_events,
+        ):
             single = _get_feature_flags_for_service(self.team)
             batch = _get_feature_flags_for_teams_batch([self.team])[self.team.id]
 
         for payload in (single, batch):
             assert [f["key"] for f in payload["flags"]] == ["rules-cohort"]
             assert [c["id"] for c in payload["cohorts"]] == [cohort.id]
+        # Omitted as a dependent, which only a read of its flag reference can decide.
+        expected = {"unsupported_flag_ids": [unsupported.id], "dependent_flag_ids": [created["rules-dependent"].id]}
+        omissions = [e for e in log_events if e["event"] == "Omitted flags the service cache cannot carry"]
+        assert [{k: e[k] for k in expected} for e in omissions] == [expected, expected]
 
     def test_unsupported_flag_in_one_team_leaves_other_teams_in_the_batch_intact(self):
         other_team = Team.objects.create(organization=self.organization, name="other")

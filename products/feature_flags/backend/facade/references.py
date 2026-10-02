@@ -1,10 +1,9 @@
-"""The cohorts, flags and group types a feature flag's stored config references.
+"""The cohorts and flags a feature flag's stored config references.
 
 ``references`` reads a decoded config of either format and returns identities only: cohort
-ids, flag ids and aggregation group type indexes, never the stored dicts. Config version 1 holds cohort
-and flag references as ``groups[*].properties`` with ``type == "cohort"`` or ``type == "flag"``.
-Config version 2 holds the same property shapes in each rule's targeting and assigns by
-group through its top-level ``aggregation_group_type_index``. An unsupported document raises
+ids and flag ids, never the stored dicts. Config version 1 holds cohort and flag references
+as ``groups[*].properties`` with ``type == "cohort"`` or ``type == "flag"``. Config version 2
+holds the same property shapes in each rule's targeting. An unsupported document raises
 ``ConfigFormatError``; it is never read as a flag with no references.
 
 ``referenced_cohort_ids`` and ``flag_dependency_properties`` serve the SDK definitions
@@ -24,10 +23,11 @@ from posthog.dataclasses import frozen
 
 from products.feature_flags.backend.facade.config import (
     ConfigFormatError,
+    ConfigV1,
     DecodedConfig,
     UnsupportedConfig,
-    V1Config,
-    detect_config_format,
+    decode_config,
+    require_v1_config,
 )
 from products.feature_flags.backend.types import FlagProperty, PropertyFilterType
 
@@ -39,35 +39,27 @@ InvalidIds = Literal["skip", "raise"]
 class FlagReferences:
     cohort_ids: tuple[int, ...] = ()  # first-seen order
     flag_ids: tuple[int, ...] = ()  # first-seen order
-    # Flag-level and (v1) per-condition aggregation indexes; group property filter indexes are not collected.
-    aggregation_group_type_indexes: tuple[int, ...] = ()
 
 
 def references(
     config: DecodedConfig, *, invalid_cohort_ids: InvalidIds = "skip", invalid_flag_ids: InvalidIds = "skip"
 ) -> FlagReferences:
-    """The cohorts, flags and group types a decoded config names.
+    """The cohorts and flags a decoded config names.
 
     A v1 document whose groups or properties are not lists of objects raises AttributeError or
     TypeError, as the v1 readers always did; the caller decides whether that skips the row or
-    fails. A stored group type index that is not an integer is left out.
+    fails.
     """
     if isinstance(config, UnsupportedConfig):
         raise ConfigFormatError(config.config_format)
-    if isinstance(config, V1Config):
+    if isinstance(config, ConfigV1):
         groups = config.filters.get("groups") or []
         predicates = [prop for group in groups for prop in group.get("properties") or []]
-        indexes = [config.filters.get("aggregation_group_type_index")]
-        indexes += [group.get("aggregation_group_type_index") for group in groups]
     else:
         predicates = [prop for rule in config.rules for prop in rule.reference_predicates]
-        indexes = [config.aggregation_group_type_index]
     return FlagReferences(
         cohort_ids=_ids(predicates, PropertyFilterType.COHORT, "value", invalid_cohort_ids),
         flag_ids=_ids(predicates, PropertyFilterType.FLAG, "key", invalid_flag_ids),
-        aggregation_group_type_indexes=tuple(
-            dict.fromkeys(index for index in indexes if isinstance(index, int) and not isinstance(index, bool))
-        ),
     )
 
 
@@ -94,16 +86,8 @@ def referenced_cohort_ids(filters: Mapping[str, Any] | None) -> set[int]:
     integer is skipped, the same tolerance every producer already applied; a consumer
     that needs strictness resolves the ids itself.
     """
-    cohort_ids: set[int] = set()
-    for prop in _v1_properties(filters, PropertyFilterType.COHORT):
-        value = prop.get("value")
-        if value is None:
-            continue
-        try:
-            cohort_ids.add(int(value))
-        except (TypeError, ValueError):
-            continue
-    return cohort_ids
+    require_v1_config(filters)
+    return set(references(decode_config(filters)).cohort_ids)
 
 
 def flag_dependency_properties(filters: Mapping[str, Any] | None) -> list[FlagProperty]:
@@ -117,9 +101,7 @@ def flag_dependency_properties(filters: Mapping[str, Any] | None) -> list[FlagPr
 
 
 def _v1_properties(filters: Mapping[str, Any] | None, property_type: PropertyFilterType) -> list[FlagProperty]:
-    config_format = detect_config_format(filters)
-    if config_format.kind != "v1":
-        raise ConfigFormatError(config_format)
+    require_v1_config(filters)
     # Only ``groups`` can hold cohort or flag properties: ``feature_enrollment`` is a
     # boolean gate evaluated against ``$feature_enrollment/*`` person properties, and
     # ``holdout`` carries no property filters. Explicit nulls occur in stored v1 data
