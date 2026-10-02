@@ -6,6 +6,8 @@ const INJECTED_TAGS = [
     'posthog_trusted_context',
     'posthog_untrusted_context',
     'posthog_context',
+    // Context a PostHog page attaches to a question, such as the Today home's briefing or report.
+    'context',
     'onboarding_brief',
     'slack_thread_context',
 ]

@@ -108,10 +108,18 @@ function contextLines(context: Exclude<TodayAskContext, { kind: 'none' }>): stri
 /**
  * The question with the Today page's context under it, as Markdown. PostHog AI reads the briefing and reports
  * through the MCP tools the context names, so the context holds ids rather than the full report text.
+ *
+ * The context goes in a `<context>` block. The chat hides that block from the person's message (`INJECTED_TAGS` in
+ * spaceFeedPreview, and `injectedBlocks` in PostHog Desktop), so the chat shows only the question, but the agent and
+ * the run log keep the full prompt.
  */
 export function todayAskPrompt(question: string, context: TodayAskContext): string {
     if (context.kind === 'none' || (context.kind === 'reports' && context.reports.length === 0)) {
         return question
     }
-    return [question, '', '---', '', contextHeading(context), '', ...contextLines(context)].join('\n')
+    // A literal tag in a report title would end the block early, and the rest would show in the chat.
+    const body = [contextHeading(context), '', ...contextLines(context)]
+        .join('\n')
+        .replace(/<(\/?)context\b/gi, '<\\$1context')
+    return [question, '', '<context>', body, '</context>'].join('\n')
 }
