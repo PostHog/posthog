@@ -317,7 +317,8 @@ describe('reportListLogic', () => {
             releaseCount['P0']()
             await waitUntil(() => logic.values.count === 1)
             releaseCount['any']()
-            await new Promise((resolve) => setTimeout(resolve, 50))
+            // The older count is the only loader still running, so this waits for its stale answer.
+            await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.count).toBe(1)
             expect(logic.values.totalCount).toBe(1)

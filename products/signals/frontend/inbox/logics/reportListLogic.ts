@@ -273,7 +273,7 @@ export interface reportListLogicActions {
     ensureLoaded: () => {
         value: true
     }
-    loadCount: () => any
+    loadCount: (_: void) => void
     loadCountFailure: (
         error: string,
         errorObject?: any
@@ -283,10 +283,10 @@ export interface reportListLogicActions {
     }
     loadCountSuccess: (
         count: number,
-        payload?: any
+        payload?: void
     ) => {
         count: number
-        payload?: any
+        payload?: void
     }
     loadMore: () => {
         value: true
@@ -476,7 +476,7 @@ export const reportListLogic = kea<reportListLogicType>([
         count: [
             null as number | null,
             {
-                loadCount: async (_, breakpoint) => {
+                loadCount: async (_: void, breakpoint) => {
                     const params = values.listApiParams
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
