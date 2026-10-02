@@ -18,6 +18,7 @@ import {
     getHomeTabBreakdownOptions,
     getHomeTabChartOptions,
     getHomeTabExploreUrl,
+    getHomeTabInterval,
     getHomeTabStatQueries,
     getHomeTabStatValue,
 } from './homeTabDefaultTiles'
@@ -143,6 +144,14 @@ describe('homeTabDefaultTiles', () => {
         for (const key of statKeys) {
             expect(charts.find((chart) => chart.key === key)?.query.source.kind).toBe(NodeKind.TrendsQuery)
         }
+    })
+
+    it.each([
+        ['2026-09-01', '2026-09-30', 'week'],
+        ['2024-01-01', '2026-01-01', 'month'],
+        ['2024-01-01T12:00:00', '2026-01-01T12:00:00', 'month'],
+    ])('uses a suitable interval for custom dates %s to %s', (date_from, date_to, interval) => {
+        expect(getHomeTabInterval({ date_from, date_to })).toBe(interval)
     })
 
     it('labels the selected time bucket in activity charts', () => {

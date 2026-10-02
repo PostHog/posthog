@@ -376,7 +376,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 const redirectAfterCreation = values.redirectAfterCreation
                 const setAsHomeTabDashboard = values.setAsHomeTabDashboardAfterCreation
                 const openAI = values.openAIAfterCreation
-                actions.setAsHomeTabDashboardAfterCreation(false)
                 try {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsCreate() from 'products/dashboards/frontend/generated/api' instead.
                     const result: DashboardType = await api.create(
