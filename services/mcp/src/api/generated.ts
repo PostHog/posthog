@@ -956,6 +956,7 @@ export namespace Schemas {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1014,6 +1015,7 @@ export namespace Schemas {
       Action: 'action',
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
+      BusinessKnowledge: 'business_knowledge',
       CustomerAnalytics: 'customer_analytics',
       CustomerJourney: 'customer_journey',
       CustomerTask: 'customer_task',
@@ -1075,6 +1077,7 @@ export namespace Schemas {
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
+       * * `business_knowledge` - business_knowledge
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -1338,6 +1341,7 @@ export namespace Schemas {
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
+       * * `business_knowledge` - business_knowledge
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -1424,6 +1428,7 @@ export namespace Schemas {
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
+       * * `business_knowledge` - business_knowledge
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -69667,6 +69672,8 @@ export namespace Schemas {
       readonly status: SignalReportCheckStatusEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
       config: SignalReportCheckConfig;
+      /** @nullable */
+      readonly approved_at: string | null;
       /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
       readonly next_run_at: string;
       /**
@@ -94455,6 +94462,21 @@ export namespace Schemas {
       failed_count: number;
       /** Number of requested ids not visible to the caller. */
       not_found_count: number;
+    }
+
+    export interface SignalReportCheckReplacement {
+      /**
+         * Label for the new metric check.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * Why this check is better.
+         * @maxLength 2000
+         */
+      rationale?: string;
+      /** Metric threshold configuration, including a bounded query and comparison. */
+      config: MetricThresholdConfig;
     }
 
     export interface SignalReportClaim {

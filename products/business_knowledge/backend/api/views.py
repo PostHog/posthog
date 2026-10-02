@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import QuerySet
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -19,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import groups
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
@@ -593,6 +595,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]
+        try:
+            posthoganalytics.capture(
+                distinct_id=str(self.team.uuid),
+                event="business knowledge searched",
+                properties={"result_count": len(results), "surface": "api"},
+                groups=groups(team=self.team),
+            )
+        except Exception:
+            logger.warning("business_knowledge_search_capture_failed", team_id=self.team_id, exc_info=True)
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
 
     def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:
