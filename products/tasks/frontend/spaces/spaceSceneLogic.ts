@@ -14,7 +14,7 @@ import { userLogic } from 'scenes/userLogic'
 import { recentSourceOptions } from '~/layout/today/todayRecentFilters'
 import { TodayRecentSort } from '~/layout/today/todayRecentOrder'
 import { todaySessionMenuLogic } from '~/layout/today/todaySessionMenuLogic'
-import { SPACE_COMPOSE_PARAM, spaceLabel, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+import { spaceLabel, todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { TodayWorkItem, sessionItem } from '~/layout/today/todayWorkItems'
 import { Breadcrumb, TeamPublicType, TeamType, UserType } from '~/types'
 
@@ -1018,15 +1018,6 @@ export const spaceSceneLogic = kea<spaceSceneLogicType>([
         },
     })),
     urlToAction(({ actions, props }) => ({
-        [urls.taskSpace(':id')]: ({ id }, searchParams, hashParams) => {
-            if (id !== props.id || !searchParams[SPACE_COMPOSE_PARAM]) {
-                return
-            }
-            actions.focusComposer()
-            // Drop the param, so a reload or a back navigation does not focus the composer again.
-            const { [SPACE_COMPOSE_PARAM]: _compose, ...rest } = searchParams
-            router.actions.replace(urls.taskSpace(props.id), rest, hashParams)
-        },
         [urls.taskSpaceCanvases(':id')]: ({ id }) => {
             if (id === props.id) {
                 actions.ensureCanvases()
