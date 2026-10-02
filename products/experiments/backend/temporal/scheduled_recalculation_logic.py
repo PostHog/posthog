@@ -7,7 +7,6 @@ workflow's activities in `scheduled_recalculation_activities` are thin wrappers 
 from datetime import timedelta
 from typing import Final
 
-from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -84,20 +83,12 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
     """
     # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
     # activities.py, which imports back into products.experiments.backend.facade.timeseries.
-    from posthog.temporal.experiments.utils import (  # noqa: PLC0415 — breaks that cycle
-        DEFAULT_EXPERIMENT_RECALCULATION_HOUR,
-    )
+    from posthog.temporal.experiments.utils import recalculation_hour_filter  # noqa: PLC0415 — breaks that cycle
 
     now = timezone.now()
     hour = now.hour
-    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = (
-            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
-            | Q(team__teamexperimentsconfig__isnull=True)
-        )
-    else:
-        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
+
+    time_filter = recalculation_hour_filter(hour)
 
     rows = (
         Experiment.objects.filter(
