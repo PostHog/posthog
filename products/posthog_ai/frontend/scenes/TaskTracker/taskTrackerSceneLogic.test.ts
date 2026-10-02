@@ -15,7 +15,6 @@ import { initKeaTests } from '~/test/init'
 import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
-import { agentPreferencesLogic } from '../../logics/agentPreferencesLogic'
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
@@ -23,6 +22,7 @@ import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
@@ -439,9 +439,9 @@ describe('taskTrackerSceneLogic', () => {
         const useTaskDefaultsMocks = (): void => {
             useMocks({
                 get: {
-                    '/api/projects/:team/tasks/@me/agent_preferences/': {
-                        start_in_plan_mode: true,
-                        auto_publish_cloud_runs: true,
+                    '/api/projects/:team/tasks/@me/config/': {
+                        ...myConfigResponse(null),
+                        task_defaults: { start_in_plan_mode: true, auto_publish_cloud_runs: true },
                     },
                 },
             })
@@ -459,7 +459,7 @@ describe('taskTrackerSceneLogic', () => {
                     [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
                 })
                 logic.mount()
-                await expectLogic(agentPreferencesLogic).toFinishAllListeners()
+                await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
                 logic.actions.setNewTaskData({ description: 'do the thing' })
                 logic.actions.submitNewTask()
 
@@ -489,7 +489,7 @@ describe('taskTrackerSceneLogic', () => {
             if (pickedMode) {
                 logic.actions.pickPermissionMode(pickedMode)
             }
-            await expectLogic(agentPreferencesLogic).toFinishAllListeners()
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
             logic.actions.submitNewTask()
 
             await expectLogic(logic).toFinishAllListeners()
