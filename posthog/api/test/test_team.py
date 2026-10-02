@@ -4127,7 +4127,13 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         [
             (serializer, scopes, allowed)
             for serializer in (TeamSerializer, ProjectBackwardCompatSerializer)
-            for scopes, allowed in ((None, True), (["project:read"], False), (["query:read"], True), (["*"], True))
+            for scopes, allowed in (
+                (None, True),
+                (["project:read"], False),
+                (["query:read"], True),
+                (["query:write"], True),
+                (["*"], True),
+            )
         ]
     )
     def test_live_events_token_requires_query_access(
