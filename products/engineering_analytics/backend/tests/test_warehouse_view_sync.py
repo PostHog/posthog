@@ -6,21 +6,16 @@ from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
-from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.logic.sources import (
     DEPOT_JOB_ATTEMPTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.engineering_analytics.backend.logic.stored_views import is_in_use, mark_in_use
+from products.engineering_analytics.backend.logic.stored_views import mark_in_use
 from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs, job_costs, pr_friction
-from products.engineering_analytics.backend.tests._github_fixtures import (
-    connect_github_source_without_data,
-    create_depot_source,
-)
-from products.engineering_analytics.backend.tests._logic_helpers import _RUN_QUERY, _resp
+from products.engineering_analytics.backend.tasks.tasks import rebuild_stored_views
+from products.engineering_analytics.backend.tests._github_fixtures import create_depot_source
 from products.engineering_analytics.backend.warehouse_view_sync import sync_engineering_analytics_views
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
@@ -30,6 +25,12 @@ _STORED_VIEWS = "products.engineering_analytics.backend.logic.stored_views"
 
 
 class TestSyncEngineeringAnalyticsViews(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # The in-use mark and the rebuild throttle live in the cache, which outlives a test.
+        cache.clear()
+        self.addCleanup(cache.clear)
+
     def _github_source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=self.team,
@@ -138,62 +139,62 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("rebuild_starts", True, None),
-            ("rebuild_cannot_start", True, RuntimeError("temporal is down")),
-            # Nobody read the product lately, so a rebuild would spend compute on a table nobody reads.
-            ("product_idle", False, None),
+            ("rebuild_starts", True, None, False, 1, 1),
+            ("rebuild_cannot_start", True, RuntimeError("temporal is down"), False, 1, 1),
+            # Nobody used the product lately, so a rebuild would spend compute on a table nobody reads.
+            ("product_idle", False, None, False, 1, 0),
+            # A start keeps the suspension but still runs, so each load would run the failing rebuild again.
+            ("view_suspended", True, None, True, 1, 0),
+            # Several repositories and tables load within one cycle, and each load calls the hook.
+            ("second_load_soon_after", True, None, False, 2, 1),
         ]
     )
     @patch(f"{_STORED_VIEWS}.capture_exception")
+    @patch(f"{_STORED_VIEWS}.data_modeling.suspension_state_for_saved_query")
     @patch(f"{_STORED_VIEWS}.data_modeling.materialize_saved_query")
     @patch.object(DataWarehouseManagedViewSet, "sync_views")
-    def test_load_rebuilds_the_stored_views_while_the_product_is_in_use(
+    def test_load_rebuilds_the_view_it_made_out_of_date_while_the_product_is_in_use(
         self,
         _name: str,
         in_use: bool,
         error: Exception | None,
+        suspended: bool,
+        loads: int,
+        expected_rebuilds: int,
         _mock_sync: MagicMock,
         mock_materialize: MagicMock,
+        mock_suspension: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
-        cache.clear()
         if in_use:
             mark_in_use(self.team.pk)
         source = self._qualifying_source()
         schema = ExternalDataSchema.objects.get(source=source, name=WORKFLOW_JOBS_SCHEMA)
         self._create_views()
         mock_materialize.side_effect = error
+        mock_suspension.return_value = {"clickhouse": {"reason": "too many failures"}} if suspended else {}
 
-        sync_engineering_analytics_views(schema, source)
+        for _ in range(loads):
+            sync_engineering_analytics_views(schema, source)
 
-        rebuilt = {ci_runs.VIEW_NAME, ci_jobs.VIEW_NAME} if in_use else set()
-        assert {call.args[0].name for call in mock_materialize.call_args_list} == rebuilt
+        # A jobs load leaves the runs view as it was.
+        rebuilt = [call.args[0].name for call in mock_materialize.call_args_list]
+        assert rebuilt == [ci_jobs.VIEW_NAME] * expected_rebuilds
         # A load is not a person asking for a retry, so it must not lift the suspension of a failing view.
         assert all(call.kwargs == {"resume": False} for call in mock_materialize.call_args_list)
-        assert mock_capture.call_count == (2 if error else 0)
+        assert mock_capture.call_count == (1 if error else 0)
+
+    def test_only_the_first_request_after_an_idle_period_finds_the_product_idle(self) -> None:
+        assert [mark_in_use(self.team.pk), mark_in_use(self.team.pk)] == [True, False]
 
     @patch(f"{_STORED_VIEWS}.data_modeling.materialize_saved_query")
-    def test_only_the_first_read_after_an_idle_spell_starts_a_rebuild(self, mock_materialize: MagicMock) -> None:
-        cache.clear()
+    def test_rebuild_task_starts_every_stored_view(self, mock_materialize: MagicMock) -> None:
         self._create_views()
 
-        mark_in_use(self.team.pk)
-        mark_in_use(self.team.pk)
+        rebuild_stored_views(team_id=self.team.pk)
 
-        assert sorted(call.args[0].name for call in mock_materialize.call_args_list) == sorted(
-            [ci_runs.VIEW_NAME, ci_jobs.VIEW_NAME]
-        )
-
-    @parameterized.expand([("person_or_agent", True), ("system", False)])
-    def test_only_a_read_with_a_user_keeps_the_product_in_use(self, _name: str, has_user: bool) -> None:
-        cache.clear()
-        connect_github_source_without_data(self.team)
-        user_access_control = UserAccessControl(user=self.user, team=self.team) if has_user else None
-
-        with patch(_RUN_QUERY, return_value=_resp([(0, 0, 0, 0)])):
-            api.get_ci_cards(team=self.team, user_access_control=user_access_control)
-
-        assert is_in_use(self.team.pk) is has_user
+        rebuilt = sorted(call.args[0].name for call in mock_materialize.call_args_list)
+        assert rebuilt == sorted([ci_runs.VIEW_NAME, ci_jobs.VIEW_NAME])
 
     @parameterized.expand([("operational", OperationalError), ("interface", InterfaceError)])
     @patch("products.engineering_analytics.backend.warehouse_view_sync.capture_exception")

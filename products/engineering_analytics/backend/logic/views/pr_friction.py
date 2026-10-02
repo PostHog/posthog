@@ -41,7 +41,11 @@ from posthog.hogql.database.models import (
 from products.engineering_analytics.backend.logic.delivery_scope import CI_LOOKBACK
 from products.engineering_analytics.backend.logic.merge_queue import GATE_RUN_LOOKBACK, gate_attempt_expr
 from products.engineering_analytics.backend.logic.pr_timeline import MASTER_FAILURE_PROXIMITY
-from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    JOB_FLOOR_SLACK_ON_RUN_STARTED,
+    raw_date_floor,
+)
 from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import (
     issue_events,
@@ -96,8 +100,7 @@ def _days(delta: timedelta) -> int:
 
 
 def _raw_floor(days: int) -> str:
-    # Date-only string one day below the window, compared against the raw ISO strings the source lands.
-    return f"toString(toDate(now() - INTERVAL {days + 1} DAY))"
+    return raw_date_floor(timedelta(days=days))
 
 
 def _strip_shard(expr: str) -> str:
@@ -118,8 +121,7 @@ def build_query(
     window_days = _days(FRICTION_WINDOW)
     run_days = window_days + _days(CI_LOOKBACK)
     gate_days = window_days + _days(GATE_RUN_LOOKBACK)
-    # Re-runs create their jobs before the run's newest start, so the jobs floor sits a week lower.
-    job_floor_days = run_days + 7
+    job_floor_days = run_days + _days(JOB_FLOOR_SLACK_ON_RUN_STARTED)
     proximity_hours = int(MASTER_FAILURE_PROXIMITY.total_seconds() // 3600)
 
     prs = f"({pull_requests.build_query(pull_requests_table)})"

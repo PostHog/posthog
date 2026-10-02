@@ -2,7 +2,6 @@
 author-to-team rule the DORA team filter uses."""
 
 from dataclasses import fields
-from datetime import timedelta
 from typing import Self
 
 from posthog.hogql import ast
@@ -12,10 +11,7 @@ from posthog.dataclasses import frozen
 from products.engineering_analytics.backend.facade.contracts import DeliveryScopeKind
 from products.engineering_analytics.backend.logic._shared import _require_repo
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
-
-# How far before the window a merged PR's CI is still counted. A PR merged in the window usually
-# ran its CI days before; older runs are left out so the runs and jobs scans stay bounded.
-CI_LOOKBACK = timedelta(days=30)
+from products.engineering_analytics.backend.logic.queries._workflow_filters import CI_LOOKBACK as CI_LOOKBACK
 
 _FIELDS_BY_KIND = {
     DeliveryScopeKind.AUTHOR: {"author"},

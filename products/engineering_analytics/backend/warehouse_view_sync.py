@@ -79,7 +79,7 @@ def sync_engineering_analytics_views(schema: ExternalDataSchema, source: Externa
             team_id=schema.team_id,
             source_id=str(source.id),
         )
-        rebuild_after_load(schema.team_id)
+        rebuild_after_load(schema.team_id, schema.name)
     except (OperationalError, InterfaceError) as e:
         # Transient pooler connection drop — swallowed, so the view stays stale until the next
         # runs/jobs load re-runs this hook on a fresh connection. Log for visibility but don't

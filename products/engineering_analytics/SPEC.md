@@ -39,7 +39,7 @@ graph TB
 
     subgraph "Surface (thin)"
         Endpoints["named typed DRF endpoints<br/>@extend_schema → OpenAPI → MCP tools + UI client"]
-        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction"]
+        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures<br/>ci_runs / ci_jobs / pr_friction"]
     end
 
     subgraph "Curated read layer (domain rules defined ONCE)"
@@ -102,7 +102,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 Per-team managed views (`DataWarehouseSavedQuery`, kind `engineering_analytics`) expose the curated CI substrate to insights, subscriptions, other products, and `execute-sql`: the only surface where the read layer is reachable as data rather than through the named endpoints.
 One gate for the three per-job views: a team gets them only when a GitHub source has **both** `workflow_runs` and `workflow_jobs` synced, so they appear together or not at all.
 They are non-materialized: the rendered SQL is persisted per team and re-synced on every runs/jobs load and every Depot job-attempts load, so a builder change reaches active teams within one sync cycle.
-The three views after them are materialized: the two stored CI views and the per-PR friction view.
+Three more views are materialized: the two stored CI views and the per-PR friction view.
 A materialized view spends the team's warehouse compute, so it exists only for organizations the `engineering-analytics-friction` flag targets.
 The flag is evaluated per organization, because the view sync runs with no user.
 When the flag service gives no answer, the sync keeps the views the team already has.
@@ -134,14 +134,15 @@ When the flag service gives no answer, the sync keeps the views the team already
 
 #### `engineering_analytics_ci_runs` and `engineering_analytics_ci_jobs`
 
-- The stored CI tables: one row per workflow run, and one row per job attempt with its cost. Their rows are the output of the same builders every product read uses, so attribution, the merge-queue rule, the hand-off shell filter and the cost model apply once per rebuild.
-- They exist so a product read can take parsed rows from a table. A read at query time parses every raw payload and repeats the shell filter in each query.
-- Rebuilt after a runs, jobs or Depot job-attempts load, so a table trails its raw tables by one rebuild. A load that lands while a rebuild runs waits for the rebuild that the next load starts.
-- A load starts a rebuild only while the product is in use: a person or an agent read it in the last hour. A rebuild costs the same whether or not anyone reads its table, so this keeps the cost in line with the use. A system read, such as the signals sweep, does not count. The first read after an idle hour starts a rebuild itself, because no load rebuilt the tables in the meantime.
-- They keep a rolling window, defined once in `logic/views/stored_window.py`: what a page range of 30 days needs, including the earlier CI a timeline reads and the previous period of a comparison. A rebuild reads every row it stores, so the window keeps its cost flat as the history grows. A longer range reads the raw tables.
+- The stored CI views: one row per workflow run, and one row per job attempt with its cost. Their rows are the output of the same builders every product read uses, so attribution, the merge-queue rule, the hand-off shell filter and the cost model apply once per rebuild.
+- They are materialized, so each has a table of parsed rows. A query on the raw tables parses every payload and repeats the shell filter each time.
+- A runs load rebuilds the runs view, a jobs load rebuilds the jobs view, and a Depot job-attempts load rebuilds both. Each view also joins the other raw tables, and takes those rows as of their last load. A load that lands while a rebuild runs waits for the rebuild that the next load starts.
+- A load starts a rebuild only while the product is in use: a person or an agent sent it an API request in the last hour. A rebuild costs the same whether or not anyone reads its table, so an idle product starts no rebuild. A system read, such as the signals sweep, sends no request and does not count. The first request after an idle hour starts a rebuild itself, because no load rebuilt the views in the meantime.
+- A view starts at most one rebuild in ten minutes, and a view that data_modeling suspended after repeated failures starts none. The managed-view schedule of data_modeling still rebuilds both views, in use or not.
+- They keep a rolling window, defined once in `logic/views/stored_view.py`: what a page range of 30 days needs, including the earlier CI a timeline reads and the previous period of a comparison. A rebuild reads only the rows inside the window, so its cost stays flat as the history grows.
 - `engineering_analytics_ci_runs` leaves out `stopped_reporting`. That column depends on the clock, and a stored row would keep the answer of its last rebuild. A reader derives it from `status` and `updated_at`.
-- `engineering_analytics_ci_jobs` holds the rows of `engineering_analytics_job_costs` plus the run's start time and branch, which the cost reads window and filter on, and the remaining columns of the jobs builder. One table then serves a read of job rows and a read of job costs. The public cost view stays computed at query time, so its contract does not change.
-- Each row carries its `source_id`, for the same reason as the friction view below, and its `repository` (lowercased `owner/name`). A job whose run row is missing has no repository columns of its own, so `repository` is how a read keeps it in the right repository.
+- `engineering_analytics_ci_jobs` holds every column of the cost builder: the columns of `engineering_analytics_job_costs`, the run's start time and branch, and the remaining columns of the jobs builder. One table then answers a read of job rows and a read of job costs. The public `engineering_analytics_job_costs` view does not read this table.
+- Each row carries its `source_id`, for the same reason as the friction view below, and its `repository` (`owner/name` in lower case). A job whose run row is missing has no repository columns of its own, so `repository` is how a read keeps it in the right repository.
 - A repository that two GitHub sources sync carries its Depot CI rows under each source. A read filters on one source, so they never count twice. Sum over the whole view only per `source_id`.
 
 #### `engineering_analytics_pr_friction`

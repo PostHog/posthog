@@ -59,7 +59,7 @@ class GitHubSourceNotConnectedError(Exception):
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # Gates every materialized view of the product. Evaluated per organization, not per person: the view
 # sync runs with no user, and a materialized view spends the team's warehouse compute, so no team gets
-# one without opting in. The key names only the friction view, because the flag is rolled out under that key.
+# one without opting in. The key names only the friction view. Renaming it needs a new flag.
 MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
 
 

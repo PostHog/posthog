@@ -27,8 +27,6 @@ from uuid import UUID
 
 from django.db.models import QuerySet
 
-from posthog.hogql.escape_sql import escape_hogql_string
-
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
@@ -235,25 +233,17 @@ class JobSourceTables:
         """The jobs to read: the GitHub jobs table plus this repo's Depot CI job attempts when synced."""
         return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
 
-    @property
-    def identity_columns(self) -> str:
-        """The ``source_id`` and ``repository`` columns of a stored view row. A stored view unions every
-        repository of every source, and a member can be denied some sources, so each row names where
-        it came from and a read filters on the one source and repository it may use."""
-        source_id = escape_hogql_string(str(UUID(self.source_id)))
-        return f"{source_id} AS source_id, {escape_hogql_string(self.repository)} AS repository"
 
-
-def _job_source_entries(team: Team) -> list[JobSourceTables]:
+def _repositories_with_jobs(team: Team) -> list[JobSourceTables]:
     """Every synced repository with both the jobs and the runs endpoints, without its Depot CI."""
-    entries: list[JobSourceTables] = []
+    repositories: list[JobSourceTables] = []
     for source in _github_sources(team):
         for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
             tables = repo_tables.names
             runs = tables.get(WORKFLOW_RUNS_SCHEMA)
             jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
             if runs and jobs:
-                entries.append(
+                repositories.append(
                     JobSourceTables(
                         github_workflow_jobs=jobs,
                         github_workflow_runs=runs,
@@ -264,7 +254,7 @@ def _job_source_entries(team: Team) -> list[JobSourceTables]:
                         repository=repository,
                     )
                 )
-    return entries
+    return repositories
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
@@ -281,7 +271,7 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     # The views union every entry, so a repository that two GitHub sources sync takes its Depot table on
     # one entry only, or every Depot job and its cost would count twice. Entries with the PR snapshot go
     # first, because the friction view reads only those entries.
-    entries = sorted(_job_source_entries(team), key=lambda entry: entry.pull_requests is None)
+    entries = sorted(_repositories_with_jobs(team), key=lambda entry: entry.pull_requests is None)
     depot_tables = resolve_depot_job_attempts_tables(team)
     return [replace(entry, depot_job_attempts=depot_tables.pop(entry.repository, None)) for entry in entries]
 
@@ -289,12 +279,13 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
 def resolve_stored_view_sources(team: Team) -> list[JobSourceTables]:
     """The same repositories as ``resolve_job_source_tables``, for the stored CI views.
 
-    Every source of a repository carries the repository's Depot CI here. A read of a stored view
-    filters on one source, as a request does, so the Depot rows cannot count twice.
+    Every source of a repository carries the repository's Depot CI here. Each row of a stored CI view
+    names its source, so a read that filters on one source counts the Depot rows once.
     """
     depot_tables = resolve_depot_job_attempts_tables(team)
     return [
-        replace(entry, depot_job_attempts=depot_tables.get(entry.repository)) for entry in _job_source_entries(team)
+        replace(repository, depot_job_attempts=depot_tables.get(repository.repository))
+        for repository in _repositories_with_jobs(team)
     ]
 
 

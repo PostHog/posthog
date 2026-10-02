@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
 
+from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     ENGINEERING_ANALYTICS_FEATURE_FLAG,
     GitHubSourceNotConnectedError,
@@ -168,6 +169,12 @@ class EngineeringAnalyticsViewSetBase(TeamAndOrgViewSetMixin, viewsets.GenericVi
     # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
     permission_classes = [PostHogFeatureFlagPermission]
     posthog_feature_flag = ENGINEERING_ANALYTICS_FEATURE_FLAG
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        # A request that passed the permission checks is a person or an agent using the product. A
+        # system read, such as the signals sweep, calls the facade with no request and does not count.
+        api.mark_in_use(team_id=self.team_id)
 
     def handle_exception(self, exc: Exception) -> Response:
         # No GitHub warehouse source connected: every read action degrades the same way.

@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     FloatDatabaseField,
@@ -55,7 +56,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_provider,
     render_vcpu,
 )
-from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
+from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -123,48 +124,33 @@ FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-# The two endpoint-only run pass-through columns — the run's start time and the *run's* head branch
-# (distinct from the job's ``head_branch``), used only by the product's endpoint cost queries to
-# window and branch-filter on run attributes. One source of truth: the innermost join layer renders
-# "<expr> AS <alias>" and every outer layer re-projects the bare aliases, so a new pass-through is
-# added in exactly one place. Deliberately kept out of the public view (``build_team_view`` uses the
-# default): ``run_head_branch`` would duplicate ``head_branch`` for the exposed grain, and the view
-# already carries ``created_at`` for time filtering.
-_RUN_PASSTHROUGH: tuple[tuple[str, str], ...] = (
-    ("run_started_at", "r.run_started_at"),
-    ("run_head_branch", "r.head_branch"),
+# The pass-through columns: the builder returns them, and the public view leaves them out. Each entry
+# is the expression the innermost join layer reads and the column it becomes. Every outer layer
+# re-projects the bare column names, so a new pass-through is added in exactly one place.
+_PASSTHROUGH: tuple[tuple[str, DatabaseField], ...] = (
+    # The run's start time and the *run's* head branch (distinct from the job's ``head_branch``). The
+    # product's endpoint cost queries window and branch-filter on them. The public view omits them:
+    # ``run_head_branch`` would duplicate ``head_branch`` for the exposed grain, and the view already
+    # carries ``created_at`` for time filtering. NULL for a job whose run row is missing.
+    ("r.run_started_at", DateTimeDatabaseField(name="run_started_at", nullable=True)),
+    ("r.head_branch", StringDatabaseField(name="run_head_branch", nullable=True)),
+    # The jobs builder's columns that cost does not need, so one row also answers a read of job rows.
+    ("j.id", IntegerDatabaseField(name="id")),
+    ("j.head_sha", StringDatabaseField(name="head_sha")),
+    ("j.labels", StringDatabaseField(name="labels")),
+    ("j.provisioning_seconds", IntegerDatabaseField(name="provisioning_seconds", nullable=True)),
+    # The job's own branch. ``head_branch`` falls back to the run's.
+    ("j.head_branch", StringDatabaseField(name="job_head_branch")),
 )
 
-# The jobs builder's columns that the cost view does not expose. The stored jobs view carries them,
-# so one table serves a read of job rows as well as a read of job costs. ``job_head_branch`` is the
-# job's own branch: ``head_branch`` falls back to the run's.
-_JOB_PASSTHROUGH: tuple[tuple[str, str], ...] = (
-    ("id", "j.id"),
-    ("head_sha", "j.head_sha"),
-    ("labels", "j.labels"),
-    ("provisioning_seconds", "j.provisioning_seconds"),
-    ("job_head_branch", "j.head_branch"),
-)
+# Every column ``build_query`` returns, in its order: the public contract, then the pass-through columns.
+BUILDER_FIELDS: dict[str, FieldOrTable] = {**FIELDS, **{field.name: field for _, field in _PASSTHROUGH}}
+
+_PASSTHROUGH_DEFS = "".join(f",\n                    {expr} AS {field.name}" for expr, field in _PASSTHROUGH)
+_PASSTHROUGH_ALIASES = "".join(f",\n            {field.name}" for _, field in _PASSTHROUGH)
 
 
-def _passthrough_defs(columns: tuple[tuple[str, str], ...]) -> str:
-    """ "<expr> AS <alias>" for each pass-through — the innermost join layer that first reads them."""
-    return "".join(f",\n                    {expr} AS {alias}" for alias, expr in columns)
-
-
-def _passthrough_aliases(columns: tuple[tuple[str, str], ...]) -> str:
-    """Bare aliases for each pass-through — re-projected by every layer above the join."""
-    return "".join(f",\n            {alias}" for alias, _ in columns)
-
-
-def build_query(
-    *,
-    jobs_table: workflow_jobs.JobsTable,
-    runs_table: str,
-    include_run_columns: bool = False,
-    include_job_columns: bool = False,
-    created_floor: bool = False,
-) -> str:
+def build_query(*, jobs_table: workflow_jobs.JobsTable, runs_table: str, created_floor: bool = False) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
     Grain is one row per job attempt (a retry appears once per attempt — correct for cost). The
@@ -179,9 +165,7 @@ def build_query(
     the tier layer derives ``provider`` / ``os`` / ``vcpu`` from those two cheap columns; the final
     layer derives ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``.
 
-    ``include_run_columns`` threads the ``_RUN_PASSTHROUGH`` run columns through every layer — used
-    only by the endpoint cost queries; the public view omits them. ``include_job_columns`` does the
-    same for ``_JOB_PASSTHROUGH``, for the stored jobs view.
+    The result has the ``BUILDER_FIELDS`` columns. The public view selects its ``FIELDS`` from them.
 
     ``created_floor`` threads the jobs builder's raw-string scan floor (its ``{job_created_floor}``
     placeholder, which the caller must register) down to the jobs scan. Every windowed cost query
@@ -199,10 +183,6 @@ def build_query(
     # [] for any non-array/invalid JSON, matching cost._parse_labels' empty-on-bad-input behavior.
     labels_array = "JSONExtract(labels, 'Array(String)')"
     billed_seconds = render_billed_elapsed_seconds("j.duration_seconds", "j.provisioning_seconds")
-
-    passthrough = (_RUN_PASSTHROUGH if include_run_columns else ()) + (_JOB_PASSTHROUGH if include_job_columns else ())
-    inner_run_columns = _passthrough_defs(passthrough)
-    run_columns = _passthrough_aliases(passthrough)
 
     return f"""
         SELECT
@@ -231,7 +211,7 @@ def build_query(
             is_merge_queue,
             is_rerun_copy,
             created_at_raw,
-            ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id{run_columns}
+            ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id{_PASSTHROUGH_ALIASES}
         FROM (
             SELECT
                 repo_owner,
@@ -257,7 +237,7 @@ def build_query(
                 ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
-                {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
+                {render_vcpu("depot_label", "hosted_label")} AS vcpu{_PASSTHROUGH_ALIASES}
             FROM (
                 SELECT
                     repo_owner,
@@ -282,7 +262,7 @@ def build_query(
                     created_at_raw,
                     ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                     {render_depot_label("labels_arr")} AS depot_label,
-                    {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
+                    {render_hosted_label("labels_arr")} AS hosted_label{_PASSTHROUGH_ALIASES}
                 FROM (
                     SELECT
                         r.repo_owner AS repo_owner,
@@ -314,13 +294,19 @@ def build_query(
                         j.native_workflow_run_id AS native_workflow_run_id,
                         j.native_job_id AS native_job_id,
                         j.native_attempt_id AS native_attempt_id,
-                        {labels_array} AS labels_arr{inner_run_columns}
+                        {labels_array} AS labels_arr{_PASSTHROUGH_DEFS}
                     FROM ({jobs}) AS j
                     LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.ci_engine = r.ci_engine
                 )
             )
         )
     """
+
+
+def build_source_query(source: JobSourceTables) -> str:
+    """The public view's rows for one repository."""
+    rows = build_query(jobs_table=source.jobs_source, runs_table=source.runs_source)
+    return f"SELECT {', '.join(FIELDS)} FROM ({rows})"
 
 
 def build_team_view(team: "Team") -> str | None:
@@ -332,5 +318,4 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    selects = [build_query(jobs_table=source.jobs_source, runs_table=source.runs_source) for source in sources]
-    return "\nUNION ALL\n".join(selects)
+    return "\nUNION ALL\n".join(build_source_query(source) for source in sources)

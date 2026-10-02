@@ -10,23 +10,15 @@ import posthoganalytics
 
 from posthog.models.team import Team
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.contracts import (
     MATERIALIZED_VIEWS_FEATURE_FLAG,
     ExpectedWarehouseView,
 )
-from products.engineering_analytics.backend.logic.views import (
-    ci_failures,
-    ci_job_history,
-    ci_jobs,
-    ci_runs,
-    job_costs,
-    pr_friction,
-)
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+from products.engineering_analytics.backend.logic.stored_views import STORED_VIEWS, managed_views
+from products.engineering_analytics.backend.logic.views import ci_failures, ci_job_history, job_costs, pr_friction
 
 _QUERY_TIME_VIEWS = (job_costs, ci_job_history, ci_failures)
-_MATERIALIZED_VIEWS = (ci_runs, ci_jobs, pr_friction)
+_MATERIALIZED_VIEWS = (*STORED_VIEWS, pr_friction)
 
 
 def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
@@ -37,20 +29,21 @@ def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
     per-job cost, per-job-attempt history with commit attribution, and fingerprinted CI failure lines.
     They are computed at query time.
 
-    The materialized views exist only for organizations the materialized-views flag targets: the CI
-    runs and the CI jobs as stored tables for the product's own reads, and the per-PR friction, which
-    also needs the pull-request snapshot and is too heavy to replay on each read.
+    The materialized views exist only for organizations the materialized-views flag targets: the two
+    stored CI views, and the per-PR friction, which also needs the pull-request snapshot and is too
+    heavy to replay on each read.
     """
-    modules = [(module, False) for module in _QUERY_TIME_VIEWS]
-    if _materialized_views_enabled(team):
-        modules += [(module, True) for module in _MATERIALIZED_VIEWS]
+    modules = _QUERY_TIME_VIEWS + (_MATERIALIZED_VIEWS if _materialized_views_enabled(team) else ())
     views: list[ExpectedWarehouseView] = []
-    for module, materialized in modules:
+    for module in modules:
         query = module.build_team_view(team)
         if query is not None:
             views.append(
                 ExpectedWarehouseView(
-                    name=module.VIEW_NAME, query=query, fields=module.FIELDS, materialized=materialized
+                    name=module.VIEW_NAME,
+                    query=query,
+                    fields=module.FIELDS,
+                    materialized=module in _MATERIALIZED_VIEWS,
                 )
             )
     return views
@@ -70,14 +63,5 @@ def _materialized_views_enabled(team: Team) -> bool:
     if enabled is None:
         # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
         # does not expect, so keep the views the team has rather than drop a materialized table on an outage.
-        return (
-            # Only this product's managed views count: a user's own saved query can carry the same name.
-            DataWarehouseSavedQuery.objects.filter(
-                team_id=team.id,
-                name__in=[module.VIEW_NAME for module in _MATERIALIZED_VIEWS],
-                managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
-            )
-            .exclude(deleted=True)
-            .exists()
-        )
+        return managed_views(team.id, [module.VIEW_NAME for module in _MATERIALIZED_VIEWS]).exists()
     return enabled

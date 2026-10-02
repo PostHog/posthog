@@ -1,11 +1,16 @@
 """When the stored CI views rebuild.
 
-A rebuild costs the same whether or not anyone reads its table. So the tables rebuild only while a
-person or an agent reads the product, and the cost follows the use: the first read after an idle
-period starts a rebuild, and each data load starts the next one for as long as the reads continue.
+A rebuild costs the same whether or not anyone reads its table. So a rebuild starts only while a
+person or an agent uses the product: the first request after an idle period starts one, and each
+data load starts the next one for as long as the requests continue. An idle product starts none.
+
+The managed-view schedule of data_modeling also rebuilds each view, whether or not the product is in use.
 """
 
+from collections.abc import Collection
+
 from django.core.cache import cache
+from django.db.models import QuerySet
 
 import structlog
 
@@ -20,47 +25,50 @@ logger = structlog.get_logger(__name__)
 
 # The friction view is materialized too, but it keeps the managed-view schedule, because its replay is
 # too heavy to run after every load.
-STORED_VIEW_NAMES = (ci_runs.VIEW_NAME, ci_jobs.VIEW_NAME)
+STORED_VIEWS = (ci_runs, ci_jobs)
 
-# Long enough to span the gaps inside one working session, so the tables stay fresh between page views.
+# Long enough to span the gaps inside one working session, so the tables stay recent between page views.
 _IN_USE_SECONDS = 60 * 60
+
+# A view starts at most one rebuild in this time, however many loads and repositories feed it.
+_MIN_REBUILD_GAP_SECONDS = 10 * 60
 
 
 def _in_use_key(team_id: int) -> str:
     return f"engineering_analytics:in_use:{team_id}"
 
 
-def stored_views(team_id: int) -> list[DataWarehouseSavedQuery]:
-    """The team's stored views that have a table."""
-    return list(
-        DataWarehouseSavedQuery.objects.filter(
-            team_id=team_id,
-            name__in=STORED_VIEW_NAMES,
-            # Only this product's managed views count: a user's own saved query can carry the same name.
-            managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
-            is_materialized=True,
-        ).exclude(deleted=True)
-    )
+def _rebuild_started_key(team_id: int, view_name: str) -> str:
+    return f"engineering_analytics:rebuild_started:{team_id}:{view_name}"
 
 
-def mark_in_use(team_id: int) -> None:
-    """Record a read by a person or an agent. No load rebuilt the tables while nobody read them, so
-    the first read after an idle period starts a rebuild. A failure here must not fail the read."""
+def managed_views(team_id: int, names: Collection[str]) -> QuerySet[DataWarehouseSavedQuery]:
+    """The team's managed views of this product that carry one of ``names``. A user's own saved query
+    can carry the same name, and it does not count."""
+    return DataWarehouseSavedQuery.objects.filter(
+        team_id=team_id,
+        name__in=names,
+        managed_viewset__kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS,
+    ).exclude(deleted=True)
+
+
+def mark_in_use(team_id: int) -> bool:
+    """Record a request by a person or an agent. True when the product was idle before it: no load
+    rebuilt the views in that time, so the caller starts a rebuild. A cache that fails reads as not
+    idle, because it must not fail the request."""
     key = _in_use_key(team_id)
     try:
-        was_idle = cache.add(key, True, timeout=_IN_USE_SECONDS)
-        if not was_idle:
-            cache.touch(key, timeout=_IN_USE_SECONDS)
+        # The key is there for all but the first request of a session, so most requests cost one call.
+        if cache.touch(key, timeout=_IN_USE_SECONDS):
+            return False
+        return cache.add(key, True, timeout=_IN_USE_SECONDS)
     except Exception:
         logger.warning("engineering_analytics_in_use_mark_failed", team_id=team_id, exc_info=True)
-        return
-    if was_idle:
-        _start_rebuild(team_id)
+        return False
 
 
 def is_in_use(team_id: int) -> bool:
-    """False when the cache gives no answer: a skipped rebuild only delays the tables, and a read
-    of a table that is too old takes the raw tables instead."""
+    """False when the cache gives no answer, because a skipped rebuild only delays the tables."""
     try:
         return bool(cache.get(_in_use_key(team_id)))
     except Exception:
@@ -68,31 +76,30 @@ def is_in_use(team_id: int) -> bool:
         return False
 
 
-def rebuild_after_load(team_id: int) -> None:
-    """Start a rebuild of each stored view while the product is in use, so its table trails the load
-    that just landed by one rebuild."""
+def rebuild_after_load(team_id: int, schema_name: str) -> None:
+    """Start a rebuild of the views that the load of ``schema_name`` made out of date, while the
+    product is in use."""
     if is_in_use(team_id):
-        _start_rebuild(team_id)
+        _start_rebuilds(team_id, [view.VIEW_NAME for view in STORED_VIEWS if schema_name in view.REBUILT_AFTER])
 
 
-def _start_rebuild(team_id: int) -> None:
-    """A rebuild that is already running absorbs the request, so a load that lands during it is picked
-    up by the rebuild that the next load starts. A failure is reported, never raised."""
-    try:
-        views = stored_views(team_id)
-    except Exception as e:
-        _report_rebuild_failure(e, team_id=team_id, view_name=None)
-        return
-    for saved_query in views:
+def rebuild_all(team_id: int) -> None:
+    """Start a rebuild of every stored CI view."""
+    _start_rebuilds(team_id, [view.VIEW_NAME for view in STORED_VIEWS])
+
+
+def _start_rebuilds(team_id: int, view_names: Collection[str]) -> None:
+    """A start during a running rebuild does nothing, so the rebuild that the next load starts reads
+    that load. A view that cannot start logs the error, and the other views still start."""
+    for saved_query in managed_views(team_id, view_names).filter(is_materialized=True):
+        if not cache.add(_rebuild_started_key(team_id, saved_query.name), True, timeout=_MIN_REBUILD_GAP_SECONDS):
+            continue
+        # A suspended view failed its recent rebuilds. A start with ``resume=False`` keeps the suspension
+        # but still runs, so without this check every load would run the failing rebuild again.
+        if data_modeling.suspension_state_for_saved_query(saved_query):
+            continue
         try:
-            # Nobody asked for this run, so it must not clear the suspension of a view that keeps failing.
             data_modeling.materialize_saved_query(saved_query, resume=False)
         except Exception as e:
-            _report_rebuild_failure(e, team_id=team_id, view_name=saved_query.name)
-
-
-def _report_rebuild_failure(error: Exception, *, team_id: int, view_name: str | None) -> None:
-    logger.exception(
-        "rebuild_engineering_analytics_view_failed", team_id=team_id, view_name=view_name, error=str(error)
-    )
-    capture_exception(error)
+            logger.exception("rebuild_engineering_analytics_view_failed", team_id=team_id, view_name=saved_query.name)
+            capture_exception(e)
