@@ -184,6 +184,58 @@ describe('Home dashboard creation', () => {
         expect(sidePanelStateLogic.values.selectedTabOptions).toContain('Ask me what I want to track')
     })
 
+    it('waits for the Home assignment to be saved before opening AI', async () => {
+        let finishPatch: () => void = () => {}
+        const patchBarrier = new Promise<void>((resolve) => {
+            finishPatch = resolve
+        })
+        useMocks({
+            patch: {
+                '/api/environments/:team': async ({ request }) => {
+                    await patchBarrier
+                    const data = (await request.json()) as Record<string, unknown>
+                    return [200, { ...MOCK_DEFAULT_TEAM, ...data }]
+                },
+            },
+        })
+
+        const logic = newDashboardLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitNewDashboardSuccessWithResult({ id: 123 } as DashboardType, undefined, true, true)
+        }).toDispatchActions(teamLogic, ['updateCurrentTeam'])
+
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBeNull()
+
+        finishPatch()
+        await expectLogic(logic).toDispatchActions(teamLogic, ['updateCurrentTeamSuccess']).toFinishAllListeners()
+
+        expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBe(123)
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+    })
+
+    it('does not open AI when the Home assignment fails', async () => {
+        useMocks({
+            patch: {
+                '/api/environments/:team': [500, { type: 'server_error', detail: 'Unable to save Home' }],
+            },
+        })
+
+        const logic = newDashboardLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitNewDashboardSuccessWithResult({ id: 123 } as DashboardType, undefined, true, true)
+        })
+            .toDispatchActions(teamLogic, ['updateCurrentTeamFailure'])
+            .toFinishAllListeners()
+
+        expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBeNull()
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
     it('sets a dashboard created from a template as Home', async () => {
         const logic = newDashboardLogic()
         logic.mount()
