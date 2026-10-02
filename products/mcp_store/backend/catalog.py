@@ -324,7 +324,6 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         disabled=True,
         # Private-channel, DM, email, and write scopes require separate security approval.
         oauth_scope_allowlist=(
-            "canvases:read",
             "channels:read",
             "channels:history",
             "search:read.public",

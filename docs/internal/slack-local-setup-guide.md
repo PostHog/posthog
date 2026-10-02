@@ -116,6 +116,7 @@ oauth_config:
       - openid
       - email
       - profile
+      - canvases:read
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
@@ -144,6 +145,8 @@ Django must be up at that moment.
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
+
+> The `canvases:read` user scope lets the Slack MCP connection read canvases that the authorizing user can access.
 
 > `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
 > them a 👍/👎 reaction on a reply records nothing, again with no error.
