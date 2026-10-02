@@ -20,23 +20,37 @@ export function RootCausePrompt({ scannerId }: { scannerId: string }): JSX.Eleme
     const logic = scannerScoutLogic({ scannerId, scannerName })
     const { scoutConfigs, rootCauseScout, createTemplateKey } = useValues(logic)
     const { openCreateModal } = useActions(logic)
-    const { coverageStats } = useValues(scannerOverviewLogic({ scannerId }))
+    const { monitorStats, classifierTagStats, scorerSummary } = useValues(scannerOverviewLogic({ scannerId }))
     // pinned: dismissKey is stored in localStorage, so renaming it brings back every dismissed prompt.
     const dismissal = lemonBannerLogic({ dismissKey: `vision-root-cause-prompt-${scannerId.toLowerCase()}` })
     const { isDismissed } = useValues(dismissal)
     const { dismiss } = useActions(dismissal)
 
     // Without the roster the prompt can't tell whether the scanner already has a root cause scout.
+    // Mirrors the template's bucket per type: yes verdicts, the largest category, the worst quarter of scores.
+    const explainedSessions =
+        scanner?.scanner_type === 'monitor'
+            ? monitorStats.yesTotal
+            : scanner?.scanner_type === 'classifier'
+              ? (classifierTagStats.fixedRanked[0]?.[1] ?? 0)
+              : Math.floor((scorerSummary?.count ?? 0) / 4)
+    // Rendered whatever the gates say: a roster or stats refresh can hide the prompt while the form is
+    // open, and unmounting it then would drop the draft and leave the create key set.
+    const form =
+        createTemplateKey === 'root-cause' ? (
+            <ScannerScoutFormModal scannerId={scannerId} scannerName={scannerName} />
+        ) : null
     if (
         !scanner ||
         scoutConfigs === null ||
         rootCauseScout ||
         isDismissed ||
-        // Below the scout's minimum it can't name a cause, so the offer waits for enough results.
-        coverageStats.totalSessions < ROOT_CAUSE_MIN_SESSIONS ||
+        // Below the scout's minimum it can't name a cause, so the offer waits until the sessions it
+        // would explain reach it.
+        explainedSessions < ROOT_CAUSE_MIN_SESSIONS ||
         !hasRootCauseTemplate(scanner.scanner_type)
     ) {
-        return null
+        return form
     }
     return (
         <div
@@ -71,9 +85,7 @@ export function RootCausePrompt({ scannerId }: { scannerId: string }): JSX.Eleme
                     data-attr="vision-root-cause-prompt-dismiss"
                 />
             </div>
-            {createTemplateKey === 'root-cause' && (
-                <ScannerScoutFormModal scannerId={scannerId} scannerName={scannerName} />
-            )}
+            {form}
         </div>
     )
 }

@@ -248,7 +248,7 @@ const TREND_LENSES: Record<ScannerTypeEnumApi, TrendLens> = {
         metric: "each tag's share of distinct sessions",
         seriesSelect: "arrayJoin(JSONExtract(properties.scanner_output_tags, 'Array(String)')) AS tag",
         seriesNote:
-            "Group by `day, tag`, and divide each tag's sessions by that day's total distinct sessions for its share. A tag's raw count rises with traffic, so only its share can show it concentrating.",
+            "Group by `day, tag`, run a second query for each day's total distinct sessions, and divide each tag's sessions by that total for its share. A tag's raw count rises with traffic, so only its share can show it concentrating.",
         notable:
             "One tag's share concentrating across many distinct sessions compared with its own prior weeks, or a tag appearing that the scanner had not applied before. The finding is the concentration, never a single tagged session.",
         skip: "- A tag that has always been the scanner's most common one, with no change in share.\n- A tag whose rise tracks overall volume rather than concentrating.",
@@ -295,12 +295,14 @@ const ROOT_CAUSE_LENSES: Partial<Record<ScannerTypeEnumApi, RootCauseLens>> = {
     },
     scorer: {
         bucket: 'the sessions at the problem end of the scale. Read the prompt and the scale label to decide which end that is (for a frustration score, the high end), then take roughly the worst quarter of scored sessions in the window: the threshold is `quantile(0.75)(toFloat64OrNull(properties.scanner_output_score))`, or `quantile(0.25)` when the low end is the problem',
-        bucketFilter: 'toFloat64OrNull(properties.scanner_output_score) beyond that threshold',
-        listFilter: '`min_score` or `max_score` at that threshold, and `order_by` the worst score first',
+        bucketFilter:
+            'toFloat64OrNull(properties.scanner_output_score) >= <threshold>, or <= <threshold> when the low end is the problem',
+        listFilter:
+            '`min_score` or `max_score` at that threshold, and `order_by` `-result_score` (or `result_score` when the low end is the problem)',
         contrast: 'sessions at the other end of the scale',
     },
     classifier: {
-        bucket: 'the sessions carrying each problem tag. Read the prompt and the tag vocabulary to decide which tags describe a problem (`blocked_by_error` or `task_abandoned`, say), and take up to three of them, largest by sessions. When no tag reads as a problem, take the three largest tags',
+        bucket: 'the sessions carrying each problem tag. Read the prompt and the configured tag vocabulary (not freeform tags) to decide which tags describe a problem (`blocked_by_error` or `task_abandoned`, say), and take up to three of them, largest by sessions. When no tag reads as a problem, take the three largest tags',
         bucketFilter: "has(JSONExtract(properties.scanner_output_tags, 'Array(String)'), '<tag>')",
         listFilter: '`tags=<tag>`',
         contrast: 'sessions without that tag',
@@ -334,7 +336,7 @@ function rootCauseTemplate(scannerId: string, scannerName: string, lens: RootCau
             window: 'Your window is the last 30 days, whatever ran before, because a cause needs more sessions than one week collects. The previous run tells you which causes you already reported.',
             reads: `1. The reasoning, which is your primary evidence. \`execute-sql\` over \`$recording_observed\` for the bucket in the window (\`${lens.bucketFilter}\`): \`properties.session_id\`, \`properties.scanner_output_reasoning\`, and \`properties.scanner_output_key_moment_ms\`, ordered by \`properties.scanner_output_notability\` descending. Read up to about 150. The scanner wrote this reasoning from the recording itself, so it says what was on screen. Group it into causes you name yourself (a modal over the submit button, a spinner that never resolves, an error message below the fold) and count the distinct sessions behind each. Never group on the raw text.
 2. The contrast. Read a similar sample of reasoning from ${lens.contrast}. A cause that shows up there just as often does not explain the bucket: drop it, or say that it is everywhere.
-3. The moments. For each cause you keep, \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`, ${lens.listFilter}) for its clearest sessions, and take the chip timestamps in \`reasoning_segments\` to link the moment it happens.
+3. The moments. For each cause you keep, \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`, \`date_from=-30d\`, ${lens.listFilter}) for its clearest sessions, and take the chip timestamps in \`reasoning_segments\` to link the moment it happens.
 4. Event data, only to corroborate. \`execute-sql\` over \`events\` joined on \`$session_id\` for the bucket sessions that show a cause can confirm or narrow it: their \`$exception\` types, \`$pathname\`, \`$browser\`, \`$device_type\`, app version, or person properties. A pattern that only the events show, with no counterpart in the reasoning, is not yours to report. This scout explains what the recordings show; it does not rebuild a session summary from analytics events.`,
             notable: `A cause that covers a real part of the bucket (roughly 5+ distinct sessions and 10%+ of the bucket) and is clearly more common there than in the contrast. One session never establishes a cause.
 
@@ -368,7 +370,7 @@ function weeklyThemesTemplate(scannerId: string, scannerName: string): ScannerSc
             window: 'Your window is the last 7 days, whatever ran before. The previous run tells you which themes you reported last week.',
             reads: `- \`execute-sql\` over \`$recording_observed\` for the window: \`properties.session_id\`, \`properties.scanner_output_title\`, and \`properties.scanner_output_summary\`. Read up to about 200 summaries.
 - Group them into themes you name yourself: the journey people took, what they set out to do, and where they got stuck or gave up. Never group on the raw text. Count the distinct sessions behind each theme.
-- \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`) for the clearest sessions of each theme, and the chip timestamps in \`summary_segments\` to link the moment that defines it.
+- \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`, \`date_from=-7d\`) for the clearest sessions of each theme, and the chip timestamps in \`summary_segments\` to link the moment that defines it.
 - Your previous report, through its \`report:\` pointer, so you can say which themes grew, shrank, appeared, or faded.`,
             notable: `Every run reports the week's themes. Lead with what changed: a theme that is new this week, or one that grew or shrank sharply. Then the largest themes. A theme about a failure or a dead end outranks a larger theme of ordinary use.`,
             quiet: 'A week where the same themes held at the same sizes is still a report: the themes, their sizes, and that they held.',
@@ -469,7 +471,7 @@ ${lens.skip}`,
                 heading: 'Replay Vision new issue watch',
                 role: 'You watch one Replay Vision scanner for problems in the product that it has never reported before. A known problem getting worse belongs to another scout; yours is the thing that just appeared, caught while it is still fresh enough to tie to what changed.',
                 reads: `- Your catalog of what this scanner has already seen, kept as \`${scannerId}:pattern:known-issues\` scratchpad entries: the tags, verdict shapes, error messages, and summary themes it has reported before. This catalog is what makes "new" mean anything, so read it first and refresh it at the end of every run.
-- On your first run, and whenever the catalog looks thin, build it first: query the scanner's output across the last 60 days and record the recurring shapes. Report nothing as new from that build. Say in the report what the catalog now holds (how many shapes, the largest few by sessions), so the reader knows what later runs diff against. A single occurrence in the current window that clears the severity bar below still gets reported.
+- On your first run, and whenever the catalog looks thin, build it first: query the scanner's output across the last 60 days and record the recurring shapes. The shapes found by that build are your baseline, not findings. Say in the report what the catalog now holds (how many shapes, the largest few by sessions), so the reader knows what later runs diff against. A single occurrence in the current window that clears the severity bar below still gets reported.
 - \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`) and \`execute-sql\` over \`$recording_observed\` for the window since your last run. Diff what you find against the catalog: a tag not in it, an error string not in it, a friction theme described that has no counterpart in it.
 - For anything that looks new, pin the onset: the earliest observation showing it, to the hour. Then look for what changed around that time — a first-seen exception in error tracking, a feature flag whose rollout moved, a release or deploy event if the project sends one, or a version change in the sessions affected. Name the correlation as a lead, never as proven cause.
 - \`vision-scanners-get\` — \`scanner_version\` and \`updated_at\`. A scanner edited near the onset may simply have started reporting something it always saw.`,
