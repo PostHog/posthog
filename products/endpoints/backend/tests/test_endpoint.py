@@ -1916,7 +1916,7 @@ class TestOptionalBreakdownProperties(ClickhouseTestMixin, APIBaseTest):
 class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "endpoints"
 
-    def _create_endpoints(self, count: int) -> None:
+    def _create_endpoints(self, count: int, materialized: bool) -> None:
         for i in range(count):
             endpoint_name = f"list_perf_{count}_{i}"
             endpoint = create_endpoint_with_version(
@@ -1929,6 +1929,8 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 },
                 created_by=self.user,
             )
+            if not materialized:
+                continue
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=endpoint_name,
@@ -1957,9 +1959,9 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 last_run_at=timezone.now(),
             )
 
-    def _list_query_count(self, endpoint_count: int) -> int:
+    def _list_query_count(self, endpoint_count: int, materialized: bool) -> int:
         Endpoint.objects.all().delete()
-        self._create_endpoints(endpoint_count)
+        self._create_endpoints(endpoint_count, materialized)
         url = f"/api/environments/{self.team.id}/endpoints/"
         self.client.get(url)
         with CaptureQueriesContext(connection) as ctx:
@@ -1968,13 +1970,14 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(endpoint_count, len(response.json()["results"]))
         return len(ctx.captured_queries)
 
-    def test_list_query_count_does_not_grow_with_endpoint_count(self):
-        few = self._list_query_count(2)
-        many = self._list_query_count(8)
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_list_query_count_does_not_grow_with_endpoint_count(self, _name: str, materialized: bool):
+        few = self._list_query_count(2, materialized)
+        many = self._list_query_count(8, materialized)
 
         self.assertEqual(few, many, f"listing 8 endpoints cost {many} queries vs {few} for 2, so something N+1s")
 
-    def _versions_query_count(self, version_count: int) -> int:
+    def _versions_query_count(self, version_count: int, materialized: bool) -> int:
         Endpoint.objects.all().delete()
         endpoint = create_endpoint_with_version(
             name=f"versions_perf_{version_count}",
@@ -1996,6 +1999,8 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                     columns=[{"name": "result", "type": "integer"}],
                 )
             )
+            if not materialized:
+                continue
             saved_query = DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=f"versions_perf_{version_count}_v{version_number}",
@@ -2023,9 +2028,10 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(version_count, len(response.json()["results"]))
         return len(ctx.captured_queries)
 
-    def test_versions_query_count_does_not_grow_with_version_count(self):
-        few = self._versions_query_count(2)
-        many = self._versions_query_count(8)
+    @parameterized.expand([("materialized", True), ("unmaterialized", False)])
+    def test_versions_query_count_does_not_grow_with_version_count(self, _name: str, materialized: bool):
+        few = self._versions_query_count(2, materialized)
+        many = self._versions_query_count(8, materialized)
 
         self.assertEqual(few, many, f"listing 8 versions cost {many} queries vs {few} for 2, so something N+1s")
 
