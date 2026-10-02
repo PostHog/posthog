@@ -1,4 +1,5 @@
 import json
+import datetime as dt
 from typing import Any
 
 import pytest
@@ -11,6 +12,7 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.heroku.heroku import (
     HEROKU_API_ACCEPT,
     HerokuResumeConfig,
+    _month_window,
     heroku_source,
     validate_credentials,
 )
@@ -261,6 +263,46 @@ class TestFanOut:
         assert headers[1]["Range"] == INITIAL_RANGE
 
 
+class TestTeamMonthlyUsage:
+    @parameterized.expand(
+        [
+            ("mid_year", dt.date(2026, 10, 2), {"start": "2025-11", "end": "2026-10"}),
+            ("january", dt.date(2026, 1, 31), {"start": "2025-02", "end": "2026-01"}),
+            ("december", dt.date(2026, 12, 1), {"start": "2026-01", "end": "2026-12"}),
+        ]
+    )
+    def test_month_window_spans_twelve_months_including_current(
+        self, _name: str, today: dt.date, expected: dict[str, str]
+    ) -> None:
+        assert _month_window(today) == expected
+
+    @mock.patch(SESSION_PATCH)
+    def test_fans_out_over_enterprise_teams_only_with_month_window(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        headers, urls = _wire(
+            session,
+            [
+                _response(
+                    200,
+                    [
+                        {"id": "team-ent", "enterprise_account": {"id": "ea-1", "name": "acme"}},
+                        {"id": "team-plain", "enterprise_account": None},
+                    ],
+                ),
+                _response(200, [{"id": "team-ent", "month": "2026-09"}, {"id": "team-ent", "month": "2026-10"}]),
+            ],
+        )
+
+        rows = _rows(_source("team_monthly_usage", _make_manager()))
+
+        assert rows == [{"id": "team-ent", "month": "2026-09"}, {"id": "team-ent", "month": "2026-10"}]
+        assert urls == ["https://api.heroku.com/teams", "https://api.heroku.com/teams/team-ent/usage/monthly"]
+        usage_request = session.prepare_request.call_args_list[1].args[0]
+        assert set(usage_request.params) == {"start", "end"}
+        # Usage is a single array, not a Range-cursored list.
+        assert "Range" not in headers[1]
+
+
 class TestSensitiveFieldRedaction:
     @parameterized.expand(
         [
@@ -287,6 +329,12 @@ class TestSensitiveFieldRedaction:
                 {"id": "d-1", "attach_url": None, "state": "up"},
             ),
             (
+                "addon_attachment_log_input_url_nulled",
+                "addon_attachments",
+                {"id": "att-1", "log_input_url": "https://token:t.secret@1.us.logplex.io/logs", "name": "DATABASE"},
+                {"id": "att-1", "log_input_url": None, "name": "DATABASE"},
+            ),
+            (
                 "row_without_sensitive_fields_untouched",
                 "builds",
                 {"id": "b-2", "status": "succeeded"},
@@ -299,7 +347,8 @@ class TestSensitiveFieldRedaction:
         self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any], MockSession: mock.MagicMock
     ) -> None:
         session = MockSession.return_value
-        _wire(session, [_response(200, [{"id": "app-1"}]), _response(200, [row])])
+        parent_pages = [_response(200, [{"id": "app-1"}])] if HEROKU_ENDPOINTS[endpoint].fan_out_parent else []
+        _wire(session, [*parent_pages, _response(200, [row])])
 
         rows = _rows(_source(endpoint, _make_manager()))
 
