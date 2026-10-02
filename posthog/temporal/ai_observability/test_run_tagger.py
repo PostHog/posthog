@@ -7,6 +7,7 @@ from typing import Any, TypedDict
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
 from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
@@ -14,7 +15,11 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
 
-from products.ai_observability.backend.llm.errors import OutputTokenLimitError, StructuredOutputParseError
+from products.ai_observability.backend.llm.errors import (
+    OutputTokenLimitError,
+    ProviderRequestRejectedError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
@@ -811,14 +816,17 @@ class TestSkippedResultsStayOutOfErrorTracking:
         assert SKIPPED_RESULT_ERROR_TYPES <= EXPECTED_CONTROL_FLOW_ERROR_TYPES
 
     @pytest.mark.parametrize(
-        "llm_error",
+        "llm_error,error_type",
         [
-            OutputTokenLimitError("The model reached its output token limit."),
-            StructuredOutputParseError("The reply did not match the schema."),
+            (OutputTokenLimitError("The model reached its output token limit."), "parse_error"),
+            (StructuredOutputParseError("The reply did not match the schema."), "parse_error"),
+            (ProviderRequestRejectedError("The response exceeds the limit."), "request_rejected"),
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_unusable_reply_is_skipped_not_captured(self, setup_data: SetupData, llm_error: Exception) -> None:
+    def test_unusable_reply_is_skipped_not_captured(
+        self, setup_data: SetupData, llm_error: Exception, error_type: str
+    ) -> None:
         team = setup_data["team"]
         tagger = {
             "id": str(setup_data["tagger"].id),
@@ -838,7 +846,56 @@ class TestSkippedResultsStayOutOfErrorTracking:
             with pytest.raises(ApplicationError) as exc_info:
                 execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=create_mock_event_data(team.id)))
 
-        assert exc_info.value.details[0]["error_type"] == "parse_error"
-        assert exc_info.value.type == "tagger_parse_error"
+        assert exc_info.value.details[0]["error_type"] == error_type
+        assert exc_info.value.type == f"tagger_{error_type}"
         assert is_expected_activity_failure(exc_info.value)
         mock_capture_exception.assert_not_called()
+
+
+def test_custom_provider_tagger_uses_bounded_completion() -> None:
+    key = LLMProviderKey(
+        id=uuid.uuid4(),
+        provider="openai_compatible",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "test-key", "base_url": "https://8.8.8.8/v1"},
+    )
+    payload = json.dumps(
+        {
+            "id": "fixture",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "some-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps({"tags": ["billing"], "reasoning": "Billing question"}),
+                    },
+                }
+            ],
+        }
+    ).encode()
+    with (
+        patch.object(key, "save"),
+        patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as configs,
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            return_value=httpx.Response(200, stream=httpx.ByteStream(payload)),
+        ),
+    ):
+        configs.objects.get_or_create.return_value = (MagicMock(active_provider_key=key), False)
+        result = execute_tagger_activity(
+            ExecuteTaggerInputs(
+                tagger={
+                    "id": "test-tagger",
+                    "team_id": 1,
+                    "tagger_config": make_tagger_config(),
+                    "model_configuration": {"provider": "openai_compatible", "model": "some-model"},
+                },
+                event_data=create_mock_event_data(1),
+            )
+        )
+    assert result["tags"] == ["billing"]
+    assert result["reasoning"] == "Billing question"

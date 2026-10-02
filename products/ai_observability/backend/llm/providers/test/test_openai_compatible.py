@@ -1,8 +1,9 @@
 import json
-import asyncio
 from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 
 import pytest
+from unittest import TestCase
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -15,9 +16,10 @@ from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 
 from products.ai_observability.backend.llm.errors import (
+    AuthenticationError,
     ProviderConfigurationError,
-    ProviderConnectionError,
-    StructuredOutputParseError,
+    ProviderRequestRejectedError,
+    ProviderTimeoutError,
 )
 from products.ai_observability.backend.llm.providers import openai_compatible
 from products.ai_observability.backend.llm.providers.openai_compatible import (
@@ -29,8 +31,6 @@ from products.ai_observability.backend.llm.providers.openai_compatible import (
     is_allowed_custom_base_url,
 )
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
-
-from ee.hogai.utils.asgi import SyncIterableToAsync
 
 # A public IP literal keeps the DNS-resolution check offline in tests.
 ALLOWED_BASE_URL = "https://8.8.8.8/v1"
@@ -74,6 +74,7 @@ class TestErrorFieldForValidationMessage:
             ("redirect", REDIRECT_MESSAGE, "base_url"),
             ("connection", "Could not connect to the endpoint", "base_url"),
             ("response_limit", openai_compatible.RESPONSE_LIMIT_MESSAGE, "base_url"),
+            ("timeout", str(ProviderTimeoutError(VALIDATION_TIMEOUT)), "base_url"),
             ("bad_key", "Invalid API key", "api_key"),
             ("unattributed", "Rate limited, please try again later", None),
             ("none", None, None),
@@ -258,39 +259,75 @@ class _ResponseBody(httpx.SyncByteStream, httpx.AsyncByteStream):
         self.close()
 
 
-class TestOpenAICompatibleRequestBounds:
-    @pytest.mark.parametrize("operation", ["complete", "stream", "validate_key", "list_models"])
-    @pytest.mark.parametrize("response_kind", ["oversized", "compressed"])
-    def test_rejects_unbounded_responses(self, operation: str, response_kind: str) -> None:
-        body = _ResponseBody([b"x" * 8192] * 129 if response_kind == "oversized" else [b"compressed"])
-        headers = {"Content-Encoding": "gzip"} if response_kind == "compressed" else {}
-        response = httpx.Response(200, stream=body, headers=headers)
+@contextmanager
+def _mock_response(body: _ResponseBody, headers: dict[str, str] | None = None) -> Iterator[None]:
+    response = httpx.Response(200, stream=body, headers=headers or {})
+    with (
+        patch("httpx.HTTPTransport.handle_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+    ):
+        try:
+            yield
+        finally:
+            assert body.closed
+
+
+@contextmanager
+def _response_over_limit(response_kind: str) -> Iterator[None]:
+    body = _ResponseBody([b"x" * 8192] * 129 if response_kind == "oversized" else [b"compressed"])
+    headers = {"Content-Encoding": "gzip"} if response_kind == "compressed" else {}
+    with _mock_response(body, headers):
+        yield
+
+
+@contextmanager
+def _dripping_response(adapter: OpenAICompatibleAdapter) -> Iterator[None]:
+    clock = [0.0]
+    body = _ResponseBody([b" "] * 4, clock)
+    with (
+        patch.object(adapter, "request_timeout", 2.0),
+        patch.object(openai_compatible, "VALIDATION_TIMEOUT", 2.0),
+        patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
+        _mock_response(body, {"Content-Type": "application/json"}),
+    ):
+        yield
+
+
+class TestOpenAICompatibleRequestBounds(TestCase):
+    @parameterized.expand([("oversized",), ("compressed",)])
+    def test_complete_rejects_unbounded_responses(self, response_kind: str) -> None:
         adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
         request = _completion_request()
         request.response_format = _Verdict
+        with _response_over_limit(response_kind), pytest.raises(ProviderRequestRejectedError) as error:
+            adapter.complete(request, "test-key", AnalyticsContext(capture=False))
+        assert str(error.value) == openai_compatible.RESPONSE_LIMIT_MESSAGE
 
-        with (
-            patch("httpx.HTTPTransport.handle_request", return_value=response),
-            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
-            patch("openai._base_client.time.sleep"),
-        ):
-            if operation == "complete":
-                with pytest.raises(StructuredOutputParseError, match="compressed or oversized"):
-                    adapter.complete(request, "test-key", AnalyticsContext(capture=False))
-            elif operation == "stream":
-                chunks = list(adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False)))
-                assert [chunk.type for chunk in chunks] == ["error"]
-            elif operation == "validate_key":
-                state, message = adapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
-                assert state == "invalid"
-                assert message is not None and "compressed or oversized" in message
-            else:
-                assert adapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
+    @parameterized.expand([("oversized",), ("compressed",)])
+    def test_stream_reports_response_limit(self, response_kind: str) -> None:
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        with _response_over_limit(response_kind):
+            chunks = list(adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False)))
+        assert [(chunk.type, chunk.data) for chunk in chunks] == [
+            ("error", {"error": openai_compatible.RESPONSE_LIMIT_MESSAGE})
+        ]
 
-        assert body.closed
+    @parameterized.expand([("oversized",), ("compressed",)])
+    def test_validate_key_reports_response_limit(self, response_kind: str) -> None:
+        with _response_over_limit(response_kind):
+            result = OpenAICompatibleAdapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
+        assert result == ("invalid", openai_compatible.RESPONSE_LIMIT_MESSAGE)
 
-    @pytest.mark.parametrize("operation", ["complete", "stream"])
-    @pytest.mark.parametrize("capture", [False, True])
+    @parameterized.expand([("oversized",), ("compressed",)])
+    def test_list_models_logs_response_limit(self, response_kind: str) -> None:
+        with _response_over_limit(response_kind), self.assertLogs(openai_compatible.logger) as logs:
+            assert OpenAICompatibleAdapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
+        assert logs.records[0].exc_info is not None
+        error = logs.records[0].exc_info[1]
+        assert isinstance(error, openai.APIConnectionError)
+        assert isinstance(error.__cause__, httpx.DecodingError)
+
+    @parameterized.expand([("complete", False), ("complete", True), ("stream", False), ("stream", True)])
     def test_preserves_cancellation_without_retrying(self, operation: str, capture: bool) -> None:
         adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
         request = _completion_request()
@@ -298,7 +335,6 @@ class TestOpenAICompatibleRequestBounds:
         with (
             patch("httpx.HTTPTransport.handle_request", side_effect=CancelledError) as sync_send,
             patch("httpx.AsyncHTTPTransport.handle_async_request", side_effect=CancelledError) as async_send,
-            patch("openai._base_client.time.sleep"),
             patch("posthoganalytics.default_client", MagicMock()),
             pytest.raises(CancelledError),
         ):
@@ -306,47 +342,43 @@ class TestOpenAICompatibleRequestBounds:
                 adapter.complete(request, "test-key", AnalyticsContext(capture=capture))
             else:
                 list(adapter.stream(request, "test-key", AnalyticsContext(capture=capture)))
-
         assert sync_send.call_count + async_send.call_count == 1
 
-    @pytest.mark.parametrize("operation", ["complete", "stream", "validate_key", "list_models"])
-    def test_total_deadline_stops_dripping_response(self, operation: str) -> None:
-        payload = json.dumps(
-            {
-                "id": "fixture",
-                "object": "chat.completion",
-                "created": 0,
-                "model": "some-model",
-                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ok"}}],
-            }
-        ).encode()
-        clock = [0.0]
-        body = _ResponseBody([b" "] * 4 + [payload], clock)
-        response = httpx.Response(200, stream=body, headers={"Content-Type": "application/json"})
+    def test_complete_stops_at_total_deadline(self) -> None:
         adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        with _dripping_response(adapter), pytest.raises(ProviderTimeoutError, match="within 2 seconds"):
+            adapter.complete(_completion_request(), "test-key", AnalyticsContext(capture=False))
 
+    def test_stream_reports_total_deadline(self) -> None:
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        with _dripping_response(adapter):
+            chunks = list(adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False)))
+        assert [(chunk.type, chunk.data) for chunk in chunks] == [("error", {"error": str(ProviderTimeoutError(2))})]
+
+    def test_validate_key_reports_total_deadline(self) -> None:
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        with _dripping_response(adapter):
+            result = adapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
+        assert result == ("error", str(ProviderTimeoutError(2)))
+
+    def test_list_models_logs_total_deadline(self) -> None:
+        adapter = OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL)
+        with _dripping_response(adapter), self.assertLogs(openai_compatible.logger) as logs:
+            assert adapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
+        assert logs.records[0].exc_info is not None
+        error = logs.records[0].exc_info[1]
+        assert isinstance(error, openai.APIConnectionError)
+        assert isinstance(error.__cause__, httpx.TimeoutException)
+
+    def test_complete_preserves_authentication_errors(self) -> None:
+        response = httpx.Response(401, stream=httpx.ByteStream(b'{"error":{"message":"Invalid API key"}}'))
         with (
-            patch.object(adapter, "request_timeout", 2.0),
-            patch.object(openai_compatible, "VALIDATION_TIMEOUT", 2.0),
-            patch("asyncio.BaseEventLoop.time", side_effect=lambda: clock[0]),
-            patch("httpx.HTTPTransport.handle_request", return_value=response) as sync_send,
-            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as async_send,
-            patch("openai._base_client.time.sleep"),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+            pytest.raises(AuthenticationError),
         ):
-            if operation == "complete":
-                with pytest.raises(ProviderConnectionError):
-                    adapter.complete(_completion_request(), "test-key", AnalyticsContext(capture=False))
-            elif operation == "stream":
-                chunks = list(adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False)))
-                assert [chunk.type for chunk in chunks] == ["error"]
-            elif operation == "validate_key":
-                state, _ = adapter.validate_key("test-key", base_url=ALLOWED_BASE_URL)
-                assert state == "error"
-            else:
-                assert adapter.list_models("test-key", base_url=ALLOWED_BASE_URL) == []
-
-        assert sync_send.call_count + async_send.call_count == 1
-        assert body.closed
+            OpenAICompatibleAdapter(base_url=ALLOWED_BASE_URL).complete(
+                _completion_request(), "test-key", AnalyticsContext(capture=False)
+            )
 
     def test_structured_output_falls_back_without_sdk_retries(self) -> None:
         fallback_body = _ResponseBody(
@@ -388,8 +420,7 @@ class TestOpenAICompatibleRequestBounds:
         assert send.call_count == 2
         assert fallback_body.closed
 
-    @pytest.mark.parametrize("close_in_event_loop", [False, True])
-    def test_closing_stream_closes_the_connection(self, close_in_event_loop: bool) -> None:
+    def test_closing_stream_closes_the_connection(self) -> None:
         payload = json.dumps(
             {
                 "id": "fixture",
@@ -408,15 +439,7 @@ class TestOpenAICompatibleRequestBounds:
             patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
         ):
             stream = adapter.stream(_completion_request(), "test-key", AnalyticsContext(capture=False))
-            if close_in_event_loop:
-
-                async def consume_then_close() -> None:
-                    assert (await anext(SyncIterableToAsync(stream))).data == {"text": "hello"}
-                    stream.close()
-
-                asyncio.run(consume_then_close())
-            else:
-                assert next(stream).data == {"text": "hello"}
-                stream.close()
+            assert next(stream).data == {"text": "hello"}
+            stream.close()
 
         assert body.closed

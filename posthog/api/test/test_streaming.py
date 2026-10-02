@@ -144,9 +144,15 @@ class TestSSEStreamMetrics:
         assert _closed_total("test_async_complete", "completed") == 1.0
 
     async def test_async_stream_early_close_counts_client_disconnect(self):
+        closed = False
+
         async def endless():
-            while True:
-                yield b": ping\n\n"
+            nonlocal closed
+            try:
+                while True:
+                    yield b": ping\n\n"
+            finally:
+                closed = True
 
         # An abandoned async stream is aclosed by the event loop's async
         # generator finalizer, not by response.close() (Django's resource
@@ -161,6 +167,7 @@ class TestSSEStreamMetrics:
         await inner.__anext__()
         assert _open_connections("test_async_disconnect") == 1.0
         await inner.aclose()
+        assert closed
         assert _open_connections("test_async_disconnect") == 0.0
         assert _closed_total("test_async_disconnect", "client_disconnect") == 1.0
         assert streaming._active_stream_count == baseline

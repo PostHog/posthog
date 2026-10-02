@@ -606,17 +606,25 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
 
 
 @pytest.mark.parametrize(
-    "status, expected_skip_reason",
-    [(301, "endpoint_blocked"), (400, "request_rejected"), (422, "request_rejected")],
+    "provider,status,encoding,expected_skip_reason",
+    [
+        ("system_one", 301, "identity", "endpoint_blocked"),
+        ("system_one", 400, "identity", "request_rejected"),
+        ("system_one", 422, "identity", "request_rejected"),
+        ("system_one", 200, "gzip", "request_rejected"),
+        ("openai_compatible", 200, "gzip", "request_rejected"),
+    ],
 )
-def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
-    status: int, expected_skip_reason: str
+def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
+    provider: str, status: int, encoding: str, expected_skip_reason: str
 ) -> None:
     key = MagicMock(
-        provider="system_one",
+        provider=provider,
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
-    response = httpx.Response(status, stream=httpx.ByteStream(b"Invalid request"))
+    response = httpx.Response(
+        status, stream=httpx.ByteStream(b"Invalid request"), headers={"Content-Encoding": encoding}
+    )
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
@@ -626,7 +634,7 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
+            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
         )
         result = call_llm_judge(
             evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
@@ -644,6 +652,9 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         assert "provider_key_state" not in result
     assert "model" not in result
     assert "provider" not in result
+
+    if encoding == "gzip":
+        assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
 
 
 def test_system_one_rate_limit_retries_without_disabling_the_evaluation() -> None:
