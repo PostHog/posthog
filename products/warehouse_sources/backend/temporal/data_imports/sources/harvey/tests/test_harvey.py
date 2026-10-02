@@ -700,7 +700,9 @@ class TestVaultProjectRows:
 class TestProjectFanOutRows:
     def _get_batches(
         self, endpoint: str, responses: list[Response], manager: _FakeManager | None = None
-    ) -> tuple[list[list[dict[str, Any]]], mock.MagicMock]:
+    ) -> tuple[  # nosemgrep: tuple-return-prefer-dataclass -- test helper returns heterogeneous batches and session
+        list[list[dict[str, Any]]], mock.MagicMock
+    ]:
         session = _session_with(responses)
         with mock.patch(f"{HARVEY_MODULE}.make_tracked_session", return_value=session):
             batches = list(
