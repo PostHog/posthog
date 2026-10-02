@@ -66,7 +66,7 @@ export interface newSessionSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         space: (sortedSpaces: ChannelDTOApi[], pickedSpaceId: string | null) => ChannelDTOApi | null
         spaceGroups: (sortedSpaces: ChannelDTOApi[]) => NewSessionSpaceGroup[]
-        composerRepositoryConfig: (space: any) => SpaceComposerRepositoryConfig
+        composerRepositoryConfig: (space: ChannelDTOApi | null) => SpaceComposerRepositoryConfig
     }
 }
 
