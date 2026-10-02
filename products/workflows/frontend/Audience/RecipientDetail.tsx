@@ -63,7 +63,7 @@ function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Eleme
 
 function RecipientDetailBody(): JSX.Element {
     const { recipientView } = useValues(recipientDetailLogic)
-    const { loadRecipient } = useActions(recipientDetailLogic)
+    const { loadAudienceRecipient } = useActions(recipientDetailLogic)
 
     switch (recipientView.state) {
         case 'loading':
@@ -72,7 +72,11 @@ function RecipientDetailBody(): JSX.Element {
             return (
                 <LemonBanner
                     type="error"
-                    action={{ children: 'Try again', onClick: loadRecipient, 'data-attr': 'audience-recipient-retry' }}
+                    action={{
+                        children: 'Try again',
+                        onClick: loadAudienceRecipient,
+                        'data-attr': 'audience-recipient-retry',
+                    }}
                 >
                     Couldn't load this recipient. Try again in a moment.
                 </LemonBanner>

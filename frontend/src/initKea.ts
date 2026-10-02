@@ -27,6 +27,8 @@ mostly to avoid user confusion.
 const ERROR_FILTER_ALLOW_LIST = [
     'loadAudienceRecipients', // The Audience recipients list renders its own error state with a retry.
     'loadAudienceCoverage', // The unreachable persons line hides itself when its count fails to load.
+    'loadAudienceRecipient', // The Audience recipient page renders its own error state with a retry.
+    'loadRecipientTimeline', // The recipient email activity table renders its own error state with a retry.
     'loadOfflineExperiments', // Offline views provide inline retry states.
     'loadOfflineScorerOptions',
     'loadOfflineSuggestedScorers',

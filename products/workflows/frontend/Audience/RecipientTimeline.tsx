@@ -48,7 +48,7 @@ function TimelineDetails({
 
 function RecipientTimelineTable(): JSX.Element {
     const { timeline, timelineLoading, loadFailed } = useValues(recipientTimelineLogic)
-    const { loadTimeline } = useActions(recipientTimelineLogic)
+    const { loadRecipientTimeline } = useActions(recipientTimelineLogic)
     const { categories } = useValues(optOutCategoriesLogic)
 
     if (loadFailed) {
@@ -57,7 +57,7 @@ function RecipientTimelineTable(): JSX.Element {
                 type="error"
                 action={{
                     children: 'Try again',
-                    onClick: loadTimeline,
+                    onClick: loadRecipientTimeline,
                     'data-attr': 'audience-recipient-timeline-retry',
                 }}
             >
