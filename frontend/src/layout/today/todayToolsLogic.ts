@@ -27,7 +27,7 @@ export interface todayToolsLogicActions {
 export interface todayToolsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         toolGroups: (tools: FileSystemImport[], search: string) => ToolGroup[]
-        recentTools: (recentToolHrefs: any, tools: FileSystemImport[], search: string) => FileSystemImport[]
+        recentTools: (recentToolHrefs: string[], tools: FileSystemImport[], search: string) => FileSystemImport[]
     }
 }
 

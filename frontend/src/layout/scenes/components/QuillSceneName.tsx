@@ -66,9 +66,9 @@ export function QuillSceneName({
                     value={name || ''}
                     readOnly={isGeneratingMetadata}
                     placeholder="Enter name"
-                    onChange={(event) => change(event.target.value)}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value)}
                     onBlur={blur}
-                    onKeyDown={(event) => {
+                    onKeyDown={(event: React.KeyboardEvent<HTMLInputElement>) => {
                         if (event.key === 'Enter') {
                             event.preventDefault()
                             saveFromEnter(event.currentTarget.value)
