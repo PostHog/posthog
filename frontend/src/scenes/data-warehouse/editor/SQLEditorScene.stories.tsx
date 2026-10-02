@@ -391,6 +391,9 @@ export const BIModeWorksheet: Story = {
 export const LazySchema: Story = {
     parameters: {
         pageUrl: urls.sqlEditor({ query: 'SELECT * FROM events LIMIT 100' }),
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-posthog"]'],
+        },
         msw: {
             mocks: {
                 get: {
