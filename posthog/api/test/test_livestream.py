@@ -24,7 +24,17 @@ class TestLivestreamAuthorization(APIBaseTest):
             audience,
         )
 
-    @parameterized.expand([("membership", 403), ("project_access", 403), ("user", 401), ("project_token", 401)])
+    @parameterized.expand(
+        [
+            ("membership", 403),
+            ("project_access", 403),
+            ("user", 401),
+            ("project_token", 401),
+            ("inactive_organization", 403),
+            ("organization_with_unknown_active_state", 403),
+            ("organization_pending_deletion", 403),
+        ]
+    )
     def test_rechecks_current_access(self, revoked: str, expected_status: int) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
@@ -44,9 +54,18 @@ class TestLivestreamAuthorization(APIBaseTest):
         elif revoked == "user":
             self.user.is_active = False
             self.user.save(update_fields=["is_active"])
-        else:
+        elif revoked == "project_token":
             self.team.api_token = "test-rotated-project-token"
             self.team.save(update_fields=["api_token"])
+        elif revoked == "inactive_organization":
+            self.organization.is_active = False
+            self.organization.save(update_fields=["is_active"])
+        elif revoked == "organization_with_unknown_active_state":
+            self.organization.is_active = None
+            self.organization.save(update_fields=["is_active"])
+        else:
+            self.organization.is_pending_deletion = True
+            self.organization.save(update_fields=["is_pending_deletion"])
 
         self.assertEqual(
             self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, expected_status

@@ -3,9 +3,13 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
@@ -18,6 +22,25 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushed chan struct{}
+}
+
+func (r *flushRecorder) Flush() {
+	r.ResponseRecorder.Flush()
+	select {
+	case r.flushed <- struct{}{}:
+	default:
+	}
+}
 
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 	logger := echo.New().Logger
@@ -158,6 +181,126 @@ func createJWTToken(audience string, claims jwt.MapClaims) string {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, newClaims)
 	tokenString, _ := token.SignedString([]byte(viper.GetString("jwt.secret")))
 	return tokenString
+}
+
+func TestStreamEventsHandlerDeliversEventsDuringPeriodicAccessCheck(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-periodic-access-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		var activeCalls atomic.Int32
+		var maxActiveCalls atomic.Int32
+		periodicStarted := make(chan struct{})
+		periodicStatus := make(chan int)
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			call := calls.Add(1)
+			active := activeCalls.Add(1)
+			for {
+				maxActive := maxActiveCalls.Load()
+				if active <= maxActive || maxActiveCalls.CompareAndSwap(maxActive, active) {
+					break
+				}
+			}
+			defer activeCalls.Add(-1)
+
+			if call == 1 {
+				return accessResponse(http.StatusNoContent), nil
+			}
+			if call == 2 {
+				close(periodicStarted)
+			}
+			select {
+			case status := <-periodicStatus:
+				return accessResponse(status), nil
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			}
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		requestContext, cancelRequest := context.WithCancel(context.Background())
+		defer cancelRequest()
+		request := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token",
+		}))
+		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 1)}
+		e := echo.New()
+		subChan := make(chan events.Subscription, 1)
+		unSubChan := make(chan events.Subscription, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, recorder))
+		}()
+
+		subscription := <-subChan
+		time.Sleep(30 * time.Second)
+		<-periodicStarted
+
+		subscription.EventChan <- map[string]string{"event": "received"}
+		<-recorder.flushed
+		assert.Contains(t, recorder.Body.String(), `"event":"received"`)
+		assert.Equal(t, int32(2), calls.Load())
+		assert.Equal(t, int32(1), maxActiveCalls.Load())
+
+		periodicStatus <- http.StatusForbidden
+		require.NoError(t, <-done)
+	})
+}
+
+func TestStreamEventsHandlerCancelsPeriodicAccessCheck(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-periodic-cancel-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		periodicStarted := make(chan struct{})
+		periodicCanceled := make(chan struct{})
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return accessResponse(http.StatusNoContent), nil
+			}
+			close(periodicStarted)
+			<-request.Context().Done()
+			close(periodicCanceled)
+			return nil, request.Context().Err()
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		requestContext, cancelRequest := context.WithCancel(context.Background())
+		request := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token",
+		}))
+		e := echo.New()
+		subChan := make(chan events.Subscription, 1)
+		unSubChan := make(chan events.Subscription, 1)
+		done := make(chan error, 1)
+		go func() {
+			done <- StreamEventsHandler(e.Logger, subChan, unSubChan)(e.NewContext(request, httptest.NewRecorder()))
+		}()
+
+		<-subChan
+		time.Sleep(30 * time.Second)
+		<-periodicStarted
+		cancelRequest()
+
+		require.NoError(t, <-done)
+		<-periodicCanceled
+	})
+}
+
+func accessResponse(status int) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader("")),
+		Header:     make(http.Header),
+	}
 }
 
 func TestHandlersRejectRevokedAccess(t *testing.T) {
