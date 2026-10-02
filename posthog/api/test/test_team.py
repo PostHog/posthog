@@ -767,8 +767,6 @@ def team_api_test_factory():
                 create_project_secret_api_key(team=self.team, label=label, value=token)
 
             # Rotation drops the old backup; its PSAK row must stop authenticating with it.
-            # (No cross-team case: secure_value is globally unique, so another team can
-            # never hold a row with this hash.)
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
@@ -778,6 +776,24 @@ def team_api_test_factory():
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(primary)).exists())
+
+        def test_retiring_a_token_never_touches_another_teams_row(self):
+            # secure_value is globally unique, so when two teams hold the same string the
+            # single row belongs to one of them — retiring the other team's token must
+            # not delete it.
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+
+            token = "phs_string_shared_by_two_teams_somehow"
+            self.team.secret_api_token = "phs_this_teams_own_primary_token_value"
+            self.team.secret_api_token_backup = token
+            self.team.save()
+            other_team = Team.objects.create(organization=self.organization, project=self.project, name="other")
+            row, _ = create_project_secret_api_key(team=other_team, label="Twin value", value=token)
+
+            response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
 
         @parameterized.expand(
             [
