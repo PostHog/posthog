@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -29,15 +30,32 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 
 type flushRecorder struct {
 	*httptest.ResponseRecorder
-	flushed chan struct{}
+	flushed chan string
 }
 
 func (r *flushRecorder) Flush() {
 	r.ResponseRecorder.Flush()
 	select {
-	case r.flushed <- struct{}{}:
+	case r.flushed <- r.Body.String():
 	default:
 	}
+}
+
+type notificationRedisClient struct {
+	rueidis.Client
+	receiveCallback chan func(rueidis.PubSubMessage)
+	receiveCanceled chan struct{}
+}
+
+func (c *notificationRedisClient) Receive(
+	ctx context.Context,
+	_ rueidis.Completed,
+	callback func(rueidis.PubSubMessage),
+) error {
+	c.receiveCallback <- callback
+	<-ctx.Done()
+	close(c.receiveCanceled)
+	return ctx.Err()
 }
 
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
@@ -225,7 +243,7 @@ func TestStreamEventsHandlerDeliversEventsDuringPeriodicAccessCheck(t *testing.T
 		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
 			"team_id": 1, "api_token": "test-project-token",
 		}))
-		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 1)}
+		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan string, 1)}
 		e := echo.New()
 		subChan := make(chan events.Subscription, 1)
 		unSubChan := make(chan events.Subscription, 1)
@@ -246,6 +264,75 @@ func TestStreamEventsHandlerDeliversEventsDuringPeriodicAccessCheck(t *testing.T
 
 		periodicStatus <- http.StatusForbidden
 		require.NoError(t, <-done)
+	})
+}
+
+func TestNotificationsHandlerDeliversMessagesDuringPeriodicAccessCheck(t *testing.T) {
+	miniredisServer := miniredis.RunT(t)
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{miniredisServer.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	defer client.Close()
+
+	synctest.Test(t, func(t *testing.T) {
+		viper.Set("jwt.secret", "test-notification-access-secret")
+		viper.Set("jwt.authorization_url", "http://authorization.test")
+		defer viper.Set("jwt.authorization_url", "")
+
+		var calls atomic.Int32
+		periodicStarted := make(chan struct{})
+		periodicStatus := make(chan int)
+		originalTransport := http.DefaultTransport
+		http.DefaultTransport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			if calls.Add(1) == 1 {
+				return accessResponse(http.StatusNoContent), nil
+			}
+			close(periodicStarted)
+			select {
+			case status := <-periodicStatus:
+				return accessResponse(status), nil
+			case <-request.Context().Done():
+				return nil, request.Context().Err()
+			}
+		})
+		defer func() { http.DefaultTransport = originalTransport }()
+
+		redisClient := &notificationRedisClient{
+			Client:          client,
+			receiveCallback: make(chan func(rueidis.PubSubMessage), 1),
+			receiveCanceled: make(chan struct{}),
+		}
+
+		requestContext, cancelRequest := context.WithCancel(context.Background())
+		defer cancelRequest()
+		request := httptest.NewRequest(http.MethodGet, "/notifications", nil).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer "+createJWTToken(auth.ExpectedScope, jwt.MapClaims{
+			"team_id": 1, "api_token": "test-project-token", "user_id": 42, "organization_id": "test-organization",
+		}))
+		recorder := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan string, 2)}
+		e := echo.New()
+		done := make(chan error, 1)
+		go func() {
+			done <- NotificationsHandler(redisClient)(e.NewContext(request, recorder))
+		}()
+
+		receive := <-redisClient.receiveCallback
+		time.Sleep(15 * time.Second)
+		<-periodicStarted
+		receive(rueidis.PubSubMessage{Message: `{"resolved_user_ids":[42],"body":"delivered"}`})
+
+		for {
+			body := <-recorder.flushed
+			if strings.Contains(body, `"body":"delivered"`) {
+				break
+			}
+		}
+
+		periodicStatus <- http.StatusForbidden
+		require.NoError(t, <-done)
+		<-redisClient.receiveCanceled
 	})
 }
 
