@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
+
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
@@ -11,7 +13,7 @@ import {
 } from '~/types'
 
 import { QuickFilterItem, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { resolveSavedFilter, universalFiltersLogic } from './universalFiltersLogic'
+import { universalFiltersLogic } from './universalFiltersLogic'
 
 const propertyFilter: AnyPropertyFilter = {
     key: '$geoip_country_code',
@@ -379,28 +381,41 @@ describe('universalFiltersLogic', () => {
         })
     })
 
-    describe('resolveSavedFilter', () => {
+    describe('addGroupFilter with a saved replay filter', () => {
         const savedFilter = {
             short_id: 'abc123',
             name: 'Rage clicks',
             filters: { date_from: '-7d' },
         } as unknown as SessionRecordingPlaylistType
-        const unfiltered = { short_id: 'def456', name: 'Draft' } as unknown as SessionRecordingPlaylistType
+        const savedFiltersGroup = { type: TaxonomicFilterGroupType.ReplaySavedFilters } as TaxonomicFilterGroup
 
-        it('resolves a Recent row, which carries a short id and no filters', () => {
-            const recent = { name: 'Rage clicks', short_id: 'abc123' }
-            expect(resolveSavedFilter(recent, 'abc123', [savedFilter])).toBe(savedFilter)
+        beforeEach(() => {
+            sessionRecordingSavedFiltersLogic.mount()
         })
 
-        it('keeps the saved filter the list hands back without consulting the list', () => {
-            expect(resolveSavedFilter(savedFilter, 'abc123', [])).toBe(savedFilter)
+        it('applies the saved filter the Saved filters list hands back', async () => {
+            await expectLogic(sessionRecordingSavedFiltersLogic, () => {
+                logic.actions.addGroupFilter(savedFiltersGroup, 'abc123', savedFilter)
+            }).toDispatchActions([
+                sessionRecordingSavedFiltersLogic.actionCreators.requestApplySavedFilter(savedFilter),
+            ])
         })
 
-        it.each([
-            ['a short id no saved filter matches', 'gone', [savedFilter]],
-            ['a match that has no filters to apply', 'def456', [unfiltered]],
-        ])('resolves nothing for %s', (_name: string, shortId: string, list: SessionRecordingPlaylistType[]) => {
-            expect(resolveSavedFilter({ short_id: shortId }, shortId, list)).toBeNull()
+        it('asks for a Recent row by short id, because the row holds no filters', async () => {
+            const recentRow = {
+                name: 'Rage clicks',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.ReplaySavedFilters,
+                    sourceGroupName: 'Saved filters',
+                    sourceValue: 'abc123',
+                },
+            }
+
+            await expectLogic(sessionRecordingSavedFiltersLogic, () => {
+                logic.actions.addGroupFilter(savedFiltersGroup, 'abc123', recentRow)
+            }).toDispatchActions([
+                sessionRecordingSavedFiltersLogic.actionCreators.requestApplySavedFilterByShortId('abc123'),
+            ])
         })
     })
 })
