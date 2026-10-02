@@ -17,6 +17,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryResponse,
+    HogQLQueryModifiers,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -695,12 +696,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         # Only this path reads flag_evaluations. Callers that run to_query() in their own context keep reading
         # events. Their select or database may need columns that flag_evaluations lacks.
         table = self._list_table()
+        modifiers = self._query_modifiers(table)
         query_result = self.paginator.execute_hogql_query(
             query=self._build_query(table),
             team=self.team,
             query_type="EventsQuery",
             timings=self.timings,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             limit_context=self.limit_context,
             user=self.user,
             context=self._query_context(table),
@@ -723,7 +725,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             types=[t for _, t in query_result.types] if query_result.types else [],
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             nextCursor=self._next_cursor(),
             **self.paginator.response_params(),
         )
@@ -829,6 +831,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             )
             names.update((str(person_id), name) for person_id, name in response.results if name)
         return names
+
+    def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
+        # flag_evaluations rows carry no person properties, so a person filter joins persons.
+        # The pushdown limits that join to the persons that the page's flag calls reach.
+        # An explicit personIdPushdown value on the team or the query still wins.
+        if table is FLAG_EVALUATIONS_LIST_TABLE and self.modifiers.personIdPushdown is None:
+            return self.modifiers.model_copy(update={"personIdPushdown": True})
+        return self.modifiers
 
     def _expand_person_columns(self, person_indices: list[int]) -> None:
         with self.timings.measure("person_column_extra_query"):
