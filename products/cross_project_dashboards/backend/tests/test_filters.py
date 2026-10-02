@@ -29,12 +29,15 @@ def test_empty_filters_are_allowed():
         {"type": "data_warehouse", "key": "col", "operator": "exact", "value": "x"},
         {"type": "error_tracking_issue", "key": "id", "operator": "exact", "value": "x"},
         {"type": "hogql", "key": "1 = 1"},
+        # The schema reads a leaf with no type as a cohort filter.
+        {"value": 42},
+        {"type": "behavioral", "key": "$pageview", "value": "performed_event", "event_type": "events"},
     ],
 )
 def test_project_bound_property_filters_are_rejected(property_filter):
     with pytest.raises(ValidationError) as err:
         validate_cross_project_filters({"properties": [property_filter]})
-    assert property_filter["type"] in str(err.value)
+    assert property_filter.get("type", "untyped") in str(err.value)
 
 
 @pytest.mark.parametrize(
@@ -69,9 +72,13 @@ def test_cohort_breakdown_in_the_breakdowns_list_is_rejected():
         validate_cross_project_filters({"breakdown_filter": {"breakdowns": [{"type": "cohort", "property": 42}]}})
 
 
-def test_cohort_breakdown_is_rejected():
+@pytest.mark.parametrize(
+    "breakdown",
+    [{"breakdown_type": "cohort", "breakdown": [42]}, {"breakdown_type": "hogql", "breakdown": "person.foo"}],
+)
+def test_project_bound_breakdown_types_are_rejected(breakdown):
     with pytest.raises(ValidationError):
-        validate_cross_project_filters({"breakdown_filter": {"breakdown_type": "cohort", "breakdown": [42]}})
+        validate_cross_project_filters({"breakdown_filter": breakdown})
 
 
 def test_group_breakdown_is_rejected():

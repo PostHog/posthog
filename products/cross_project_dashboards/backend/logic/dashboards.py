@@ -219,6 +219,7 @@ def update_tile(
     *, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User, changes: contracts.TileChanges
 ) -> contracts.CrossProjectTile:
     tile = _tile_row(organization_id, dashboard_id, tile_id, user)
+    _assert_can_change(organization_id, tile.dashboard, user)
     updated = [name for name in ("layouts", "color", "filters_overrides") if name in changes.fields]
     for name in updated:
         setattr(tile, name, getattr(changes, name))
@@ -229,5 +230,6 @@ def update_tile(
 
 def delete_tile(*, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User) -> None:
     tile = _tile_row(organization_id, dashboard_id, tile_id, user)
+    _assert_can_change(organization_id, tile.dashboard, user)
     tile.deleted = True
     tile.save(update_fields=["deleted"])

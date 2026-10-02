@@ -71,12 +71,12 @@ def create_tile(
 def update_tile(
     *, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User, changes: contracts.TileChanges
 ) -> contracts.CrossProjectTile:
-    """Raises TileNotFoundError. A tile's project and insight never change."""
+    """Raises TileNotFoundError or DashboardChangeDeniedError. A tile's project and insight never change."""
     return dashboards.update_tile(
         organization_id=organization_id, dashboard_id=dashboard_id, tile_id=tile_id, user=user, changes=changes
     )
 
 
 def delete_tile(*, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User) -> None:
-    """Soft-deletes the tile. Raises TileNotFoundError."""
+    """Soft-deletes the tile. Raises TileNotFoundError or DashboardChangeDeniedError."""
     dashboards.delete_tile(organization_id=organization_id, dashboard_id=dashboard_id, tile_id=tile_id, user=user)

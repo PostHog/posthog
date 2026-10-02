@@ -15,21 +15,12 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     normalize_dashboard_filters_properties,
 )
 
-# Property filter types carrying an id that only resolves inside one project.
-PROJECT_BOUND_PROPERTY_TYPES = frozenset(
-    {
-        "cohort",
-        "group",
-        "flag",
-        "feature",
-        "data_warehouse",
-        "data_warehouse_person_property",
-        "error_tracking_issue",
-        "hogql",
-    }
-)
+# Filter types that name a property, which resolves the same way in every project. Everything else
+# is refused, including a filter with no type, because the schema reads a type-less leaf as a cohort.
+NAME_BASED_PROPERTY_TYPES = frozenset({"event", "person", "element", "session", "event_metadata"})
 
-PROJECT_BOUND_BREAKDOWN_TYPES = frozenset({"cohort", "group", "data_warehouse"})
+# A breakdown with no type is an event breakdown, so None is allowed here.
+NAME_BASED_BREAKDOWN_TYPES = frozenset({None, "event", "person", "session", "event_metadata"})
 
 REFUSAL = (
     "This filter only works inside one project, so a cross-project dashboard cannot apply it. "
@@ -57,12 +48,12 @@ def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
 
     for property_filter in leaves:
         property_type = property_filter.get("type")
-        if property_type in PROJECT_BOUND_PROPERTY_TYPES:
-            raise serializers.ValidationError({"properties": f"{property_type}: {REFUSAL}"})
+        if property_type not in NAME_BASED_PROPERTY_TYPES:
+            raise serializers.ValidationError({"properties": f"{property_type or 'untyped'}: {REFUSAL}"})
 
     breakdown = normalized.get("breakdown_filter")
     if isinstance(breakdown, dict):
-        if breakdown.get("breakdown_type") in PROJECT_BOUND_BREAKDOWN_TYPES:
+        if breakdown.get("breakdown_type") not in NAME_BASED_BREAKDOWN_TYPES:
             raise serializers.ValidationError({"breakdown_filter": REFUSAL})
         if breakdown.get("breakdown_group_type_index") is not None:
             raise serializers.ValidationError({"breakdown_filter": REFUSAL})
@@ -71,7 +62,7 @@ def validate_cross_project_filters(filters: Any) -> dict[str, Any]:
             raise serializers.ValidationError({"breakdown_filter": "Breakdowns must be a list."})
         for item in breakdowns:
             if isinstance(item, dict) and (
-                item.get("type") in PROJECT_BOUND_BREAKDOWN_TYPES or item.get("group_type_index") is not None
+                item.get("type") not in NAME_BASED_BREAKDOWN_TYPES or item.get("group_type_index") is not None
             ):
                 raise serializers.ValidationError({"breakdown_filter": REFUSAL})
 
