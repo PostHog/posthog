@@ -455,7 +455,7 @@ class TrinoArrowColumn(Column):
 
 def filter_trino_incremental_fields(
     columns: list[tuple[str, str, bool]],
-) -> list[tuple[str, IncrementalFieldType, bool]]:
+) -> list[tuple[str, IncrementalFieldType, bool]]:  # nosemgrep: tuple-return-prefer-dataclass -- SQLSource protocol
     results: list[tuple[str, IncrementalFieldType, bool]] = []
     for column_name, data_type, nullable in columns:
         if _is_nested_trino_type(data_type):
@@ -577,7 +577,7 @@ class TrinoImplementation(SQLSourceImplementation[TrinoSourceConfig, Any, Any], 
         conn: Any,
         config: TrinoSourceConfig,
         names: list[str] | None,
-    ) -> dict[str, list[tuple[str, str, bool]]]:
+    ) -> dict[str, list[tuple[str, str, bool]]]:  # nosemgrep: tuple-return-prefer-dataclass -- SQLSource protocol
         return {
             table.name if config.schema else f"{table.schema}.{table.name}": [
                 (column.name, column.data_type, column.nullable) for column in table.columns
