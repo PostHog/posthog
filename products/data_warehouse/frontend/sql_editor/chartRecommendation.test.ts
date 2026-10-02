@@ -62,16 +62,224 @@ describe('SQL chart recommendations', () => {
             columns,
             rows
         )!
-        expect(result.outputTab).toBe(layout)
-        if (layout === OutputTab.Results) {
-            expect(result.display).toBe(ChartDisplayType.ActionsTable)
-        } else {
-            expect(result.chartSettings).toEqual({
-                xAxis: { column: 'day' },
-                yAxis: [{ column: 'revenue' }],
-                seriesBreakdownColumn: 'region',
-            })
+        expect(result.outputTab).toBe(layout === OutputTab.Results ? OutputTab.Visualization : layout)
+        expect(result.display).toBe(ChartDisplayType.ActionsLineGraph)
+        expect(result.chartSettings).toEqual({
+            xAxis: { column: 'day' },
+            yAxis: [{ column: 'revenue' }],
+            seriesBreakdownColumn: 'region',
+        })
+    })
+
+    it.each([
+        {
+            name: 'single integer',
+            types: ['Int64'],
+            rows: [[1]],
+            chart: ChartDisplayType.BoldNumber,
+            x: 'none',
+            value: 'c0',
+        },
+        {
+            name: 'single decimal',
+            types: ['Float64'],
+            rows: [[12.5]],
+            chart: ChartDisplayType.BoldNumber,
+            x: 'none',
+            value: 'c0',
+        },
+        {
+            name: 'single zero',
+            types: ['UInt8'],
+            rows: [[0]],
+            chart: ChartDisplayType.BoldNumber,
+            x: 'none',
+            value: 'c0',
+        },
+        {
+            name: 'text records',
+            types: ['String'],
+            rows: [['hello'], ['world']],
+            chart: ChartDisplayType.ActionsTable,
+            x: 'none',
+            value: 'none',
+        },
+        {
+            name: 'category comparison',
+            types: ['String', 'Int64'],
+            rows: [
+                ['Books', 12],
+                ['Games', 20],
+            ],
+            chart: ChartDisplayType.ActionsBar,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'numeric relationship',
+            types: ['Float64', 'Float64'],
+            rows: [
+                [1.5, 2.5],
+                [2.5, 3.5],
+            ],
+            chart: ChartDisplayType.ScatterPlot,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'part to whole',
+            types: ['String', 'Int64'],
+            rows: [
+                ['Books', 12],
+                ['Games', 20],
+            ],
+            chart: ChartDisplayType.ActionsPie,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'part to whole with total',
+            types: ['String', 'Int64'],
+            rows: [
+                ['Books', 12],
+                ['Games', 20],
+            ],
+            chart: ChartDisplayType.ActionsDonut,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'volume over time',
+            types: ['DateTime', 'Float64'],
+            rows: [
+                ['2026-01-01', 12],
+                ['2026-01-02', 20],
+            ],
+            chart: ChartDisplayType.ActionsAreaGraph,
+            x: 'c0',
+            value: 'c1',
+        },
+    ])('renders $name with its supported chart and axes', ({ types, rows, chart, x, value }) => {
+        const fields = columnsFromResponse({
+            columns: types.map((_, i) => `field${i}`),
+            types: types.map((type, i) => [`field${i}`, type]),
+        })
+        const result = readChartDecision(
+            answer({ chart, layout: OutputTab.Visualization, x, value, dimension: 'none' }),
+            fields,
+            rows
+        )!
+        expect(result.display).toBe(chart)
+        expect(result.outputTab).toBe(
+            chart === ChartDisplayType.ActionsTable ? OutputTab.Results : OutputTab.Visualization
+        )
+        if (chart !== ChartDisplayType.ActionsTable) {
+            expect(result.chartSettings.yAxis).toEqual([{ column: value === 'c0' ? 'field0' : 'field1' }])
+            expect(result.chartSettings.xAxis).toEqual(x === 'none' ? undefined : { column: 'field0' })
         }
+    })
+
+    it('keeps a headline number visible even when the layout answer requests a table', () => {
+        const fields = columnsFromResponse({ columns: ['total'], types: [['total', 'Int64']] })
+        expect(
+            readChartDecision(
+                answer({ chart: ChartDisplayType.BoldNumber, layout: OutputTab.Results, value: 'c0', x: 'none' }),
+                fields,
+                [[1]]
+            )
+        ).toMatchObject({ display: ChartDisplayType.BoldNumber, outputTab: OutputTab.Visualization })
+        const request = buildChartDecision(fields, [[1]])!
+        expect(request.questions.layout.criteria).not.toHaveProperty(OutputTab.Results)
+    })
+
+    it('does not ask a single-option measure question for text-only results', () => {
+        const fields = columnsFromResponse({ columns: ['message'], types: [['message', 'String']] })
+        const request = buildChartDecision(fields, [['hello']])!
+        expect(request.questions.value).toBeUndefined()
+        expect(
+            readChartDecision(
+                answer({ chart: ChartDisplayType.ActionsTable, layout: OutputTab.Visualization }),
+                fields,
+                [['hello']]
+            )
+        ).toMatchObject({ display: ChartDisplayType.ActionsTable, outputTab: OutputTab.Results })
+    })
+
+    it('uses the other numeric measure when independent scatter answers select the same axis', () => {
+        const fields = columnsFromResponse({
+            columns: ['height', 'weight'],
+            types: [
+                ['height', 'Float64'],
+                ['weight', 'Float64'],
+            ],
+        })
+        expect(
+            readChartDecision(
+                answer({ chart: ChartDisplayType.ScatterPlot, layout: OutputTab.Both, x: 'c0', value: 'c0' }),
+                fields,
+                [
+                    [160, 60],
+                    [180, 80],
+                ]
+            )
+        ).toMatchObject({ chartSettings: { xAxis: { column: 'height' }, yAxis: [{ column: 'weight' }] } })
+    })
+
+    it.each([
+        {
+            name: 'multiple scalar rows',
+            types: ['Int64'],
+            rows: [[1], [2]],
+            chart: ChartDisplayType.BoldNumber,
+            x: 'none',
+            value: 'c0',
+        },
+        {
+            name: 'text scalar',
+            types: ['String'],
+            rows: [['hello']],
+            chart: ChartDisplayType.BoldNumber,
+            x: 'none',
+            value: 'c0',
+        },
+        {
+            name: 'category on a time axis',
+            types: ['String', 'Int64'],
+            rows: [['Books', 12]],
+            chart: ChartDisplayType.ActionsLineGraph,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'category on a scatter axis',
+            types: ['String', 'Int64'],
+            rows: [['Books', 12]],
+            chart: ChartDisplayType.ScatterPlot,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'negative pie values',
+            types: ['String', 'Int64'],
+            rows: [['Books', -12]],
+            chart: ChartDisplayType.ActionsPie,
+            x: 'c0',
+            value: 'c1',
+        },
+        {
+            name: 'too many pie categories',
+            types: ['String', 'Int64'],
+            rows: Array.from({ length: 13 }, (_, i) => [`category${i}`, i]),
+            chart: ChartDisplayType.ActionsDonut,
+            x: 'c0',
+            value: 'c1',
+        },
+    ])('rejects $name', ({ types, rows, chart, x, value }) => {
+        const fields = columnsFromResponse({
+            columns: types.map((_, i) => `field${i}`),
+            types: types.map((type, i) => [`field${i}`, type]),
+        })
+        expect(readChartDecision(answer({ chart, layout: OutputTab.Visualization, x, value }), fields, rows)).toBeNull()
     })
 
     it('binds both heatmap dimensions and the color measure', () => {

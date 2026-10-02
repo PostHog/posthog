@@ -160,7 +160,74 @@ describe('aiChartRecommendationLogic', () => {
         expect(visualization.values.selectedXAxis).toBe('category')
         expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
         expect(logic.values.choosingChart).toBe(false)
+        expect(logic.values.statusMessage).toContain('could not finish')
     })
+
+    it.each(['values', 'query text', 'label', 'type', 'column', 'row shape'])(
+        'reuses a decision only when the output stays compatible after changing %s',
+        async (change) => {
+            await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
+            if (change === 'query text') {
+                visualization.actions._setQuery({
+                    ...visualization.values.query,
+                    source: { kind: NodeKind.HogQLQuery, query: 'select category, value where value > 20' },
+                })
+            }
+            const next = {
+                ...response,
+                columns:
+                    change === 'label'
+                        ? ['category', 'revenue']
+                        : change === 'column'
+                          ? ['category', 'value', 'extra']
+                          : response.columns,
+                types:
+                    change === 'type'
+                        ? [
+                              ['category', 'Date'],
+                              ['value', 'Int64'],
+                          ]
+                        : change === 'column'
+                          ? [...response.types, ['extra', 'String']]
+                          : response.types,
+                results:
+                    change === 'row shape'
+                        ? [['One', 30]]
+                        : [
+                              ['One', 30],
+                              ['Two', 40],
+                          ],
+            }
+            const metadata = jest.spyOn(queryApi, 'performQuery').mockResolvedValue({
+                isValid: true,
+                errors: [],
+                warnings: [],
+                notices: [],
+                output_columns: next.columns.map((name, index) => ({ name, type: next.types[index]?.[1] ?? 'String' })),
+            })
+            try {
+                dataNodeLogic({
+                    key: 'jev-test',
+                    query: visualization.values.query.source,
+                    doNotLoad: true,
+                    cachedResults: response,
+                })
+                await expectLogic(logic, () => logic.actions.loadData()).toFinishAllListeners()
+                expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Both)
+                await expectLogic(logic, () => logic.actions.loadDataSuccess(next)).toFinishAllListeners()
+                expect(decide).toHaveBeenCalledTimes(['values', 'query text'].includes(change) ? 1 : 2)
+                if (['values', 'query text'].includes(change)) {
+                    expect(logic.values.recommendationStatus).toBe('reused')
+                } else {
+                    expect(Object.values(JSON.parse(decide.mock.calls[1][1].state).fields)).toEqual(
+                        visualization.values.columns.map((column) => `${column.name} (${column.type.name})`)
+                    )
+                }
+            } finally {
+                metadata.mockRestore()
+            }
+        }
+    )
 
     it('returns to the existing auto behavior on the next run when consent is revoked', async () => {
         await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
@@ -182,7 +249,7 @@ describe('aiChartRecommendationLogic', () => {
         expect(outputPaneLogic({ tabId: 'jev-test' }).values.activeTab).toBe(OutputTab.Results)
     })
 
-    it.each(['consent', 'flag', 'axes', 'layout', 'query', 'skip', 'rerun'])(
+    it.each(['consent', 'flag', 'axes', 'layout', 'query', 'skip', 'rerun', 'query error'])(
         'ignores an in-flight decision after changing %s',
         async (change) => {
             let resolve!: (result: DecideResponseApi) => void
@@ -217,6 +284,9 @@ describe('aiChartRecommendationLogic', () => {
                 logic.actions.skipRecommendation()
                 expect(logic.values.choosingChart).toBe(false)
                 expect(decide.mock.calls[0][2].signal.aborted).toBe(true)
+            } else if (change === 'query error') {
+                logic.actions.loadDataFailure('Query failed', new Error('Query failed'))
+                expect(logic.values.recommendationStatus).toBe('skipped')
             } else if (change === 'rerun') {
                 dataNodeLogic({
                     key: 'jev-test',
@@ -297,10 +367,8 @@ describe('aiChartRecommendationLogic', () => {
                 expect(logic.values.choosingChart).toBe(false)
                 expect(visualization.values.query.display).toBe(ChartDisplayType.Auto)
                 await expectLogic(logic, () => logic.actions.loadDataSuccess(response)).toFinishAllListeners()
-                expect(decide).toHaveBeenCalledTimes(1)
-                expect(visualization.values.query.display).toBe(
-                    schema === 'different' ? ChartDisplayType.Auto : ChartDisplayType.ActionsBar
-                )
+                expect(decide).toHaveBeenCalledTimes(schema === 'different' ? 2 : 1)
+                expect(visualization.values.query.display).toBe(ChartDisplayType.ActionsBar)
             } finally {
                 metadata.mockRestore()
             }
