@@ -795,6 +795,29 @@ async fn drops_code_variables_replayed_from_stored_frames(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
+async fn does_not_store_code_variables_for_listed_teams(db: PgPool) {
+    let harness = TestHarness::new(db.clone());
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_code_variables(), |config| {
+            config.drop_code_variables_team_ids = "1".to_string();
+        })
+        .await;
+
+    assert!(status.is_success());
+    assert_eq!(frames_with_code_variables(&body), 0);
+    let (stored, stored_with_code_variables): (i64, i64) = sqlx::query_as(
+        "SELECT count(*), count(*) FILTER (WHERE contents ? 'code_variables')
+         FROM posthog_errortrackingstackframe WHERE team_id = 1",
+    )
+    .fetch_one(&db)
+    .await
+    .unwrap();
+    assert!(stored > 0);
+    assert_eq!(stored_with_code_variables, 0);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
 async fn drops_code_variables_from_events_that_fail_to_parse(db: PgPool) {
     let harness = TestHarness::new(db);
     let mut event = python_event_with_code_variables();

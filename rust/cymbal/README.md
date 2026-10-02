@@ -78,7 +78,9 @@ configuration and operator guidance.
 ## Dropping code variables (processing mode)
 
 `ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS` takes a comma-separated list of
-team ids. The default is empty, which keeps code variables for every team. Use
+team ids. The default is empty, which keeps code variables for every team. An
+entry that is not a team id stops processing mode at startup, so a typo cannot
+leave a team out of the list without an error. Use
 it for a team that receives events from senders you cannot upgrade, such as
 old SDK versions that attach frame locals without masking.
 

@@ -182,9 +182,9 @@ impl AppContext {
         let rate_limiter = build_rate_limiter(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
-        let drop_code_variables_team_ids = Arc::new(
-            parse_team_id_allowlist(&config.drop_code_variables_team_ids).unwrap_or_default(),
-        );
+        let drop_code_variables_team_ids = Arc::new(parse_strict_team_id_list(
+            &config.drop_code_variables_team_ids,
+        )?);
 
         Ok(Self {
             health_registry,
@@ -243,8 +243,8 @@ async fn build_rate_limiter(
     ))))
 }
 
-/// Parse a comma-separated team-id list. `None` means the input was empty, which
-/// the rate limiter reads as "all teams" and the code-variables drop reads as "no team".
+/// Parse a comma-separated team-id allowlist. `None` (empty input) means the
+/// rate limiter applies to all teams; `Some(set)` restricts it to those teams.
 fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
     if value.is_empty() {
         return None;
@@ -255,6 +255,22 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
             .filter_map(|s| s.trim().parse::<i32>().ok())
             .collect(),
     )
+}
+
+/// Parse a comma-separated team-id list and reject any entry that is not a team id. An empty
+/// input gives an empty set. A typo must stop startup, because a skipped entry would leave that
+/// team out of the list with no error.
+fn parse_strict_team_id_list(value: &str) -> Result<HashSet<i32>, UnhandledError> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| {
+            entry.parse::<i32>().map_err(|_| {
+                UnhandledError::Other(format!("invalid team id {entry:?} in team id list"))
+            })
+        })
+        .collect()
 }
 
 async fn build_remote_resolution(
@@ -289,4 +305,27 @@ async fn build_remote_resolution(
         Some(RemoteResolutionContext::new(pool, remote_config)),
         Some(refresh_task),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strict_team_id_list_parses_valid_input() {
+        for (input, expected) in [("", vec![]), ("2", vec![2]), (" 2, 3 ,", vec![2, 3])] {
+            assert_eq!(
+                parse_strict_team_id_list(input).unwrap(),
+                expected.into_iter().collect::<HashSet<i32>>(),
+                "input {input:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn strict_team_id_list_rejects_a_typo() {
+        for input in ["2,x3", "2;3", "two"] {
+            assert!(parse_strict_team_id_list(input).is_err(), "input {input:?}");
+        }
+    }
 }
