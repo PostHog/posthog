@@ -801,6 +801,7 @@ class TestLLMSkillAPI(APIBaseTest):
             for endpoint, path in [
                 ("search", "search?query=scope"),
                 ("skill_md", "name/scope-search-skill/skill-md"),
+                ("export", "name/scope-search-skill/export"),
             ]
             for auth_method in ["personal_key", "oauth"]
             for label, scopes, expected_status in [

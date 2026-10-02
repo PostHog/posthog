@@ -1291,7 +1291,12 @@ class LLMSkillViewSet(
         parameters=[LLMSkillFetchQuerySerializer, _FORMAT_QUERY_PARAM_EXCLUDED],
         responses={(200, "application/zip"): OpenApiTypes.BINARY},
     )
-    @action(methods=["GET"], detail=False, url_path=r"name/(?P<skill_name>[^/]+)/export")
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path=r"name/(?P<skill_name>[^/]+)/export",
+        required_scopes=["llm_skill:read"],
+    )
     @llma_track_latency("llma_skills_export")
     @monitor(feature=None, endpoint="llma_skills_export", method="GET")
     def export(self, request: Request, skill_name: str = "", **kwargs) -> Response | HttpResponse:
