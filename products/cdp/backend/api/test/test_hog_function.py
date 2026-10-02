@@ -15,6 +15,8 @@ from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.hog_function import (
@@ -3377,6 +3379,31 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"error": "Each filter must have a 'type' of one of: 'event', 'hogql', 'person'"}
         assert HogFunction.objects.get(id=function_id).batch_export_id is None
+
+    @patch("products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled", return_value=False)
+    def test_enable_backfills_accepts_personal_api_key_with_write_scope(self, mock_feature_enabled):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert response.status_code == status.HTTP_201_CREATED
+        function_id = response.json()["id"]
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["hog_function:write"],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}/enable_backfills/",
+            headers={"authorization": f"Bearer {key_value}"},
+        )
+
+        # The feature flag check runs inside the action, so reaching it proves the token passed the scope check.
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "Backfilling Workflows is not enabled for this team."
+        mock_feature_enabled.assert_called_once()
 
 
 class TestLogTransformationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):

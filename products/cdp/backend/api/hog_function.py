@@ -1017,6 +1017,7 @@ class HogFunctionViewSet(
         "publish",
         "discard_draft",
         "restore_revision",
+        "enable_backfills",
     ]
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend]
