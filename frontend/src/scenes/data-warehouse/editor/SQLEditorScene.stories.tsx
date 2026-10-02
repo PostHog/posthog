@@ -524,7 +524,10 @@ export const BIQuickFiltersNarrow: Story = {
                 ],
             } satisfies BIConfig),
         })}`,
-        testOptions: { waitForSelector: '[data-attr="bi-filter-control"]', viewport: { width: 1050, height: 900 } },
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-filters-pill"]',
+            viewport: { width: 1050, height: 900 },
+        },
     },
 }
 
