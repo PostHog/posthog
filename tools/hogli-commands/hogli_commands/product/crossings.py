@@ -814,7 +814,9 @@ def _wiring_location_exports(product: str, location: str) -> dict[_Export, str]:
         if tree is None:
             continue
         for name, source in _lazy_reexports(tree, product, _module_exists).items():
-            if (REPO_ROOT / source.replace(".", "/")).with_suffix(".py").is_relative_to(root):
+            # The source is a module or a package, so test both the package directory and the .py file.
+            source_path = REPO_ROOT / source.replace(".", "/")
+            if source_path.is_relative_to(root) or source_path.with_suffix(".py").is_relative_to(root):
                 exports[_Export(_dotted_module(facade_path), name)] = label
     return exports
 

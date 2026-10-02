@@ -679,16 +679,21 @@ class TestGarageDrives:
             "helper": "products.product_analytics.backend.logic.helpers",
         }
 
+    @pytest.mark.parametrize(
+        "source",
+        ["products.acme.backend.temporal.workflows", "products.acme.backend.temporal"],
+        ids=["module", "package"],
+    )
     def test_lazy_map_in_a_nested_facade_module_exports_the_wiring_location(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self, source: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         backend = tmp_path / "products" / "acme" / "backend"
         (backend / "temporal").mkdir(parents=True)
+        (backend / "temporal" / "__init__.py").write_text("class SyncWorkflow: ...\n")
         (backend / "temporal" / "workflows.py").write_text("class SyncWorkflow: ...\n")
         (backend / "facade" / "destinations").mkdir(parents=True)
         (backend / "facade" / "destinations" / "lazy.py").write_text(
-            '_LAZY = {"SyncWorkflow": "products.acme.backend.temporal.workflows"}\n\n'
-            "def __getattr__(name):\n    return None\n"
+            f'_LAZY = {{"SyncWorkflow": "{source}"}}\n\ndef __getattr__(name):\n    return None\n'
         )
         monkeypatch.setattr(crossings, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(crossings, "PRODUCTS_DIR", tmp_path / "products")
