@@ -95,7 +95,7 @@ export const AUDIENCE_ENGAGEMENT_TILES: AudienceEngagementTile[] = [
         key: 'unsubscribes-bounces-and-spam',
         name: 'Unsubscribed, bounced and marked as spam',
         description:
-            'Per week, with the current week so far. A rise here is the earliest sign of a sender reputation problem.',
+            'Per week. The first and last bars cover part of a week. A rise here is the earliest sign of a sender reputation problem.',
         emptyStateHeading: 'Nothing unsubscribed, bounced or marked as spam in the last 30 days',
         query: UNSUBSCRIBES_BOUNCES_AND_SPAM_PER_WEEK,
         fullWidth: false,

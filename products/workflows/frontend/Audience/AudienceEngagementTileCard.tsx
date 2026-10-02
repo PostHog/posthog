@@ -40,6 +40,7 @@ export function AudienceEngagementTileCard({ tile }: { tile: AudienceEngagementT
                     icon={<IconGraph />}
                     to={urls.insightNew({ query: tile.query })}
                     onClick={() => insightOpened(tile.key)}
+                    aria-label={`Open ${tile.name} as insight`}
                     data-attr="audience-engagement-open-insight"
                 >
                     Open as insight
