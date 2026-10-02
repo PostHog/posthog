@@ -50,6 +50,7 @@ from products.replay_vision.backend.api.observation_progress import stream_obser
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -738,6 +739,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
+    variant = django_filters.CharFilter(
+        method="_filter_variant",
+        help_text=(
+            "Experiment scanners only: filter to observations attributed to any of the given variant keys "
+            f"(comma-separated). `{UNATTRIBUTED_VARIANT}` matches observations with no attributed variant."
+        ),
+    )
     session_id = MultiChoiceFilter(
         field_name="session_id",
         help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
@@ -861,6 +869,19 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_variant(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        keys = set(split_csv(value))
+        if not keys:
+            return queryset
+        named = keys - {UNATTRIBUTED_VARIANT}
+        q = Q(_variant__in=named) if named else Q(pk__in=[])
+        if UNATTRIBUTED_VARIANT in keys:
+            q |= Q(_variant__isnull=True)
+        # `->>` reads a missing key and a JSON null alike as SQL NULL, so both count as unattributed.
+        return queryset.alias(_variant=KeyTextTransform("experiment_variant", "scanner_result")).filter(q)
 
 
 # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed

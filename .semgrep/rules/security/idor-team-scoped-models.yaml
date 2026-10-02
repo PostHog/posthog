@@ -335,6 +335,7 @@ rules:
                               |ReplayScanner
                               |ReplayScannerBackfill
                               |ReplayScannerPromptSuggestion
+                              |ExperimentSynthesis
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -768,6 +769,7 @@ rules:
                         |ReplayScanner
                         |ReplayScannerBackfill
                         |ReplayScannerPromptSuggestion
+                        |ExperimentSynthesis
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
