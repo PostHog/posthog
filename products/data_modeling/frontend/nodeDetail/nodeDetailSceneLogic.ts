@@ -220,7 +220,7 @@ export interface nodeDetailSceneLogicActions {
         value: true
     }
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
-        tab: 'history' | 'lineage' | 'materialization' | 'query' | 'data-quality' | null
+        tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
     updateNodeDescription: (description: string) => {
         description: string
@@ -264,9 +264,9 @@ export interface nodeDetailSceneLogicMeta {
         isMaterialized: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
         defaultTab: (node: DataModelingNode | null, isMaterialized: boolean) => NodeDetailSceneTab
         effectiveTab: (
-            currentTab: 'history' | 'lineage' | 'materialization' | 'query' | 'data-quality' | null,
-            availableTabs: ('history' | 'lineage' | 'materialization' | 'query' | 'data-quality')[],
-            defaultTab: 'history' | 'lineage' | 'materialization' | 'query' | 'data-quality'
+            currentTab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null,
+            availableTabs: ('data-quality' | 'history' | 'lineage' | 'materialization' | 'query')[],
+            defaultTab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query'
         ) => NodeDetailSceneTab | null
         effectiveLastRunAt: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => string | null
         effectiveLastRunStatus: (
