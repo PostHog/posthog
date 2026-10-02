@@ -88,6 +88,35 @@ The `ExperimentSavedMetricsWorkflow` follows the same structure but:
 - Uses `calculate_experiment_saved_metric` to process each saved metric
 - Does not filter on empty `metrics`/`metrics_secondary` arrays (saved metrics are separate)
 
+### Scheduled recalculations
+
+The timeseries sync row is assembled from that day's points, so its window is approximate and a
+metric the daily run could not compute has no row at all. A separate workflow therefore starts a
+real recalculation for each eligible experiment, on one hourly schedule
+(`products/experiments/backend/temporal/schedule.py`).
+
+That schedule fires at `:30`, after the timeseries runs earlier in the hour, and carries no input.
+Discovery reads the hour and selects the teams configured for it, so one schedule serves all 24
+hours. A team may configure up to two times, at least 6 hours apart, and gets a run at each.
+Both this discovery and the timeseries one call `recalculation_hour_filter`, so the two always
+agree on which teams belong to a given hour.
+
+The coordinator selects experiments with the same rules the daily discovery uses, plus a 12-hour
+minimum age, an organization feature flag, and a 50-exposure floor. It then starts an ordinary
+`ExperimentMetricsRecalculationWorkflow` per experiment, through the same function the API uses.
+
+The timeseries workflows keep one schedule per hour, because each runs its own metric queries and
+can outlive its hour. This one starts other workflows and returns, so a single schedule with a
+`SKIP` overlap policy covers it.
+
+It skips an experiment whose recalculation is already running, or whose last one finished within
+the hour. That freshness check ignores `timeseries_sync` rows: one is published 30 minutes before
+every scheduled run, so counting it would skip every experiment forever.
+
+The coordinator never waits for the runs it starts. Each run's outcome lands on its own
+`ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and
+`experiment scheduled recalculation skipped` events carry the coordinator's own decisions.
+
 ## Key concepts
 
 **Workflow**: A durable function that orchestrates the calculation. If it fails partway through, Temporal can resume it from where it left off.

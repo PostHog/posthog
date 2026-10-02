@@ -27,6 +27,7 @@ class TestGongSource:
             ("transcripts", "started"),
             ("answered_scorecards", "reviewTime"),
             ("interaction_stats", "day"),
+            ("daily_activity", "fromDate"),
         ):
             assert schemas[name].supports_incremental is True
             assert schemas[name].supports_append is True
@@ -36,7 +37,16 @@ class TestGongSource:
         # rather than leaving a call that had no transcript yet stranded below the watermark.
         assert schemas["transcripts"].default_incremental_lookback_seconds == 7 * 24 * 60 * 60
 
-        for name in ("users", "scorecards", "trackers", "workspaces"):
+        for name in (
+            "users",
+            "scorecards",
+            "trackers",
+            "call_outcomes",
+            "library_folders",
+            "library_folder_calls",
+            "flows",
+            "workspaces",
+        ):
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 

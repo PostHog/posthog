@@ -1,6 +1,7 @@
-import { RICH_OUTPUT_TAGS_PROMPT } from "@posthog/shared/rich-output-prompt";
+import { renderRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { describe, expect, it } from "vitest";
 import { getAbsoluteAttachmentPaths } from "../editor/cloud-prompt";
+import { OBJECT_KIND_DATA } from "../inbox/objectKinds.generated";
 import {
   contentToXml,
   type EditorContent,
@@ -442,7 +443,12 @@ describe("xmlToContent", () => {
 });
 
 describe("PostHog object kind prompt", () => {
-  it.each(POSTHOG_OBJECT_KINDS)("teaches agents the %s tag", (kind) => {
-    expect(RICH_OUTPUT_TAGS_PROMPT).toContain(kind);
-  });
+  it.each(POSTHOG_OBJECT_KINDS)(
+    "teaches agents to link the %s page",
+    (kind) => {
+      const template = OBJECT_KIND_DATA[kind].pathTemplate ?? "";
+      expect(template).not.toBe("");
+      expect(renderRichOutputPrompt()).toContain(template.split("{id}")[0]);
+    },
+  );
 });
