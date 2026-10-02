@@ -3880,10 +3880,10 @@ Today (4): `cards`, `collections`, `groups`, `members`
 
 Diffed against: <https://developer.getguru.com/reference/authentication>
 
-- [ ] `team analytics (GET /v1/teams/{id}/analytics)` — the vendor's headline usage stream - card views, searches, copies per user; the main reason to warehouse Guru data (high)
-- [ ] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
-- [ ] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
-- [ ] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
+- [x] `team analytics (GET /v1/teams/{id}/analytics)` — the vendor's headline usage stream - card views, searches, copies per user; the main reason to warehouse Guru data (high)
+- [x] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
+- [x] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
+- [x] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
 - [ ] `card comments (GET /v1/cards/{id}/comments)` — engagement and feedback events attached to synced cards (medium)
 - [ ] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
 - [ ] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
@@ -3901,10 +3901,10 @@ Today (5): `audit_logs`, `client_matters`, `query_history`, `usage_history`, `va
 
 Diffed against: <https://developers.harvey.ai/vault_api.json>
 
-- [ ] `vault project files (GET /api/v1/vault/projects/{project_id}/files)` — the documents inside each synced vault project - per-file processing status, size and timestamps (high)
-- [ ] `vault project users (GET /api/v1/vault/projects/{project_id}/users)` — membership table with access level per user, joining vault_projects to workspace users (high)
-- [ ] `review table rows (GET /api/v1/vault/get_row/{review_table_id}/{file_id})` — the extracted answer grid - the actual analytical output of a Vault review (medium)
-- [ ] `review table metadata (GET /api/v1/vault/review_table/{review_table_id})` — lookup naming each review table and listing the file IDs it covers (medium)
+- [x] `vault project files (GET /api/v1/vault/projects/{project_id}/files)` — the documents inside each synced vault project - per-file processing status, size and timestamps (high)
+- [x] `vault project users (GET /api/v1/vault/projects/{project_id}/users)` — membership table with access level per user, joining vault_projects to workspace users (high)
+- [x] `review table rows (GET /api/v1/vault/get_row/{review_table_id}/{file_id})` — the extracted answer grid - the actual analytical output of a Vault review (medium)
+- [x] `review table metadata (GET /api/v1/vault/review_table/{review_table_id})` — lookup naming each review table and listing the file IDs it covers (medium)
 - [ ] `vault project metadata (GET /api/v1/vault/get_metadata/{project_id})` — storage limits and file counts not present on the projects list response (low)
 - [ ] `recycle bin vaults (GET /api/v1/vault/workspace/recycle_bin)` — deleted-project retention view for lifecycle reporting (low)
 
@@ -3912,18 +3912,19 @@ Note: Harvey publishes six OpenAPI specs (listed in https://developers.harvey.ai
 
 ## Hatchet — gaps
 
-Today (4): `event_keys`, `events`, `tasks`, `workflow_runs`
+Today (8): `event_keys`, `events`, `task_events`, `task_timings`, `tasks`, `workers`, `workflow_runs`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
-- [ ] `workflows (GET /api/v1/tenants/{tenant}/workflows, GET /api/v1/workflows/{workflow}/versions)` — lookup resolving the workflow ID and version carried on every synced workflow run and task (high)
-- [ ] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
-- [ ] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
+- [x] `workflows (GET /api/v1/tenants/{tenant}/workflows)` — lookup resolving the workflow ID carried on every synced workflow run and task (high)
+- [ ] `workflow versions (GET /api/v1/workflows/{workflow}/versions)` — returns one version per call (latest, or one by id), so there is no listable version history to sync (high)
+- [x] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
+- [x] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
 - [ ] `task metrics (GET /api/v1/stable/tenants/{tenant}/task-metrics, /task-point-metrics, /task-stats)` — the vendor's headline throughput and status-count series for queue health dashboards (medium)
 - [ ] `queue metrics (GET /api/v1/tenants/{tenant}/queue-metrics, /step-run-queue-metrics)` — backlog depth per queue - the standard capacity-planning metric (medium)
 - [ ] `scheduled runs (GET /api/v1/tenants/{tenant}/workflows/scheduled)` — upcoming and past scheduled triggers, joinable to workflow_runs (medium)
 - [ ] `crons (GET /api/v1/tenants/{tenant}/workflows/crons)` — cron definitions that explain the trigger source of recurring runs (medium)
-- [ ] `task timings (GET /api/v1/stable/workflow-runs/{id}/task-timings)` — per-task duration breakdown within a run - latency attribution (medium)
+- [x] `task timings (GET /api/v1/stable/workflow-runs/{id}/task-timings)` — per-task duration breakdown within a run - latency attribution (medium)
 - [ ] `tenant members (GET /api/v1/tenants/{tenant}/members)` — membership table for the tenant whose runs are synced (medium)
 - [ ] `logs (GET /api/v1/stable/tenants/{tenant}/logs, /tasks/{task}/logs)` — task log lines for failure triage alongside run rows (medium)
 - [ ] `workflow run metrics (GET /api/v1/tenants/{tenant}/workflows/runs/metrics, GET /api/v1/workflows/{workflow}/metrics)` — success/failure counts per workflow without re-aggregating raw runs (low)
