@@ -103,6 +103,7 @@ the row lists both.
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
+| aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
@@ -916,7 +917,6 @@ doesn't conflict with concurrent PRs.
 - aws_athena
 - aws_batch
 - aws_cloudformation
-- aws_cloudtrail
 - aws_compute_optimizer
 - aws_config
 - aws_connect
