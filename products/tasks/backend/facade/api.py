@@ -616,7 +616,7 @@ def _task_run_detail_to_dto(
     )
 
     state = parse_run_state(run.state)
-    protected_context = _task_run_has_analytics_context(run)
+    protected_context = _task_run_has_analytics_context(run) and not include_agent_state
     can_read_summary = _can_read_task_run_summary(
         run, task=task, user_id=user_id, include_agent_state=include_agent_state
     )

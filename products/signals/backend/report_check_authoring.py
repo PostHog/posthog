@@ -313,7 +313,7 @@ def create_checks_from_specs(
             "signals.report_check.research_spec_dropped",
             report_id=str(report.id),
             team_id=report.team_id,
-            reason=str(error),
+            reason=str(error) if isinstance(error, CheckCreationError) else "invalid_check_config",
         )
         return []
 
