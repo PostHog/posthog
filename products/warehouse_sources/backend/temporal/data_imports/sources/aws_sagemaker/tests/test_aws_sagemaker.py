@@ -317,6 +317,14 @@ def test_transient_validation_error_propagates(config: AwsSagemakerSourceConfig,
     transport.close.assert_called_once()
 
 
+def test_non_object_success_response_is_rejected(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
+    result = response({})
+    result._content = b"[]"
+    transport.post.return_value = result
+    with pytest.raises(ValueError, match="invalid response"):
+        AwsSagemakerClient(config, "2017-07-24").request("ListModels", {})
+
+
 def test_non_json_error_does_not_leak_body(config: AwsSagemakerSourceConfig, transport: MagicMock) -> None:
     result = response({}, 502)
     result._content = b"upstream error with sensitive details"
