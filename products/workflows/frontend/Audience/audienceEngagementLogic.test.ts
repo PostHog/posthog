@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -18,11 +19,6 @@ import { AUDIENCE_ENGAGEMENT_TILES } from './audienceEngagementTiles'
 import { emailMetricsTotalsLogic } from './emailMetricsTotalsLogic'
 
 const CREATED_DASHBOARD_ID = 42
-
-const TEAM_WITH_ENGAGEMENT_EVENTS: TeamType = {
-    ...MOCK_DEFAULT_TEAM,
-    workflows_config: { capture_workflows_engagement_events: true },
-}
 
 const EXPECTED_TILE_QUERIES = [
     {
@@ -189,38 +185,58 @@ describe('audience engagement', () => {
         expect(capturedEvents('audience insight opened')).toEqual([['audience insight opened', { tile: 'funnel' }]])
     })
 
-    const ENTRY_POINTS = [
+    const CAPTURE_CHANGES = [
         {
-            entryPoint: 'the Audience prompt',
-            turnOn: () => engagementEventsLogic.actions.turnOnEngagementEvents('engagement'),
+            change: 'turning engagement events on from the Audience prompt',
+            capturedBefore: false,
+            save: () => engagementEventsLogic.actions.turnOnEngagementEvents('engagement'),
             expectedEvent: ['audience engagement events enabled', { surface: 'engagement' }],
         },
         {
-            entryPoint: 'the settings switch',
-            turnOn: () => engagementEventsLogic.actions.setEngagementEventsCapture(true),
+            change: 'turning engagement events on from the settings switch',
+            capturedBefore: false,
+            save: () => engagementEventsLogic.actions.setEngagementEventsCapture(true),
             expectedEvent: ['workflows engagement events toggled', { enabled: true, surface: 'settings' }],
+        },
+        {
+            change: 'turning engagement events off from the settings switch',
+            capturedBefore: true,
+            save: () => engagementEventsLogic.actions.setEngagementEventsCapture(false),
+            expectedEvent: ['workflows engagement events toggled', { enabled: false, surface: 'settings' }],
         },
     ]
 
     it.each(
-        ENTRY_POINTS.flatMap((entry) => [
-            { ...entry, outcome: 'saves the setting and shows the tiles', status: 200, captured: true },
-            {
-                ...entry,
-                outcome: 'keeps the prompt and tracks nothing when the save is rejected',
-                status: 403,
-                captured: false,
-            },
+        CAPTURE_CHANGES.flatMap((change) => [
+            { ...change, outcome: 'saves only that setting and tracks it', status: 200 },
+            { ...change, outcome: 'keeps the setting and tracks nothing when the save is rejected', status: 403 },
         ])
-    )('turning engagement events on from $entryPoint $outcome', async ({ turnOn, expectedEvent, status, captured }) => {
+    )('$change $outcome', async ({ capturedBefore, save, expectedEvent, status }) => {
         silenceKeaLoadersErrors()
+        const capturedAfterSave = !capturedBefore
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: capturedBefore,
+                email_tracking_consent_mode: 'off',
+            },
+        })
         const teamUpdates: Partial<TeamType>[] = []
         useMocks({
             patch: {
                 '/api/projects/:team_id/': async ({ request }) => {
                     teamUpdates.push((await request.json()) as Partial<TeamType>)
                     return status === 200
-                        ? [200, TEAM_WITH_ENGAGEMENT_EVENTS]
+                        ? [
+                              200,
+                              {
+                                  ...MOCK_DEFAULT_TEAM,
+                                  workflows_config: {
+                                      capture_workflows_engagement_events: capturedAfterSave,
+                                      email_tracking_consent_mode: 'opt_in',
+                                  },
+                              },
+                          ]
                         : [403, { detail: "You don't have sufficient permissions in the project." }]
                 },
             },
@@ -228,14 +244,12 @@ describe('audience engagement', () => {
         logic = audienceEngagementLogic()
         logic.mount()
 
-        turnOn()
+        save()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(engagementEventsLogic).toFinishAllListeners()
 
-        expect(teamUpdates).toEqual([
-            expect.objectContaining({ workflows_config: { capture_workflows_engagement_events: true } }),
-        ])
-        expect(logic.values.engagementEventsCaptured).toBe(captured)
-        expect(capturedEvents(expectedEvent[0] as string)).toEqual(captured ? [expectedEvent] : [])
+        expect(teamUpdates).toEqual([{ workflows_config: { capture_workflows_engagement_events: capturedAfterSave } }])
+        expect(logic.values.engagementEventsCaptured).toBe(status === 200 ? capturedAfterSave : capturedBefore)
+        expect(capturedEvents(expectedEvent[0] as string)).toEqual(status === 200 ? [expectedEvent] : [])
     })
 })
