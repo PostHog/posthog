@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconChevronRight, IconWarning } from '@posthog/icons'
+import { IconWarning } from '@posthog/icons'
 import { LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 
+import { CollapsibleChevronIcon } from './CollapsibleChevronIcon'
 import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
 import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 import { getVariableValue } from './playgroundTemplating'
@@ -31,9 +32,7 @@ export function PlaygroundVariablesPanel(): JSX.Element {
                     data-attr="llma-playground-toggle-variables"
                     className="flex items-center gap-2 cursor-pointer text-sm font-semibold"
                 >
-                    <IconChevronRight
-                        className={`h-3.5 w-3.5 transition-transform ${collapsed ? 'rotate-0' : 'rotate-90'}`}
-                    />
+                    <CollapsibleChevronIcon collapsed={collapsed} />
                     Variables{detectedVariables.length > 0 ? ` (${detectedVariables.length})` : ''}
                 </button>
                 {unfilledVariables.length > 0 && (
