@@ -47,6 +47,7 @@ export function ArtefactTaskRun({
         }
         setLoading(true)
         setError(null)
+        setFetchedTask(null)
         let cancelled = false
         api.tasks
             .get(content.task_id)
