@@ -215,7 +215,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
     async def agent_final_text(self, payload: dict[str, Any]) -> None:
         text = payload.get("text")
         if isinstance(text, str) and text.strip():
-            self._final_text = text
+            self._final_text = text.strip()
             trace_id = payload.get("trace_id")
             self._final_text_trace_id = trace_id if isinstance(trace_id, str) else None
 
@@ -307,7 +307,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # A trace id that differs from this turn's means the text is a late answer of an earlier turn.
         stale = bool(self._final_text_trace_id and self._trace_id and self._final_text_trace_id != self._trace_id)
         if self._final_text and not stale:
-            return self._final_text.strip()
+            return self._final_text
         return (self._narrative if self._narrative.strip() else self._last_burst).strip()
 
     def _idle_for(self) -> timedelta:
