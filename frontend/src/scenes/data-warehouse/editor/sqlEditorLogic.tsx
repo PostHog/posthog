@@ -1805,6 +1805,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             storage?.set({
                 ...getTabHash(values),
                 q: values.queryInput,
+                baseline_query: view?.query?.query,
                 edited_history_id: view
                     ? (values.inProgressViewEdits[view.id] ?? view.latest_history_id ?? undefined)
                     : undefined,
@@ -3604,7 +3605,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         : storedDraft
                     : null
             if (localDraft) {
-                hashParams = restoreWorkingCopy ? { ...hashParams, ...localDraft } : { ...localDraft, ...hashParams }
+                hashParams = restoreWorkingCopy
+                    ? {
+                          ...hashParams,
+                          c: undefined,
+                          raw: undefined,
+                          filters: undefined,
+                          mode: undefined,
+                          bi: undefined,
+                          ...localDraft,
+                      }
+                    : { ...localDraft, ...hashParams }
             }
 
             const outputTabFromUrl = parseOutputTab(searchParams.output_tab ?? hashParams.output_tab)
@@ -3638,13 +3649,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
 
             if (
-                !searchParams.open_query &&
+                !hasOwnProperty(searchParams, 'open_query') &&
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
                 !searchParams.edit_metric &&
                 !searchParams.output_tab &&
-                !hashParams.q &&
+                !hasOwnProperty(hashParams, 'q') &&
                 !hashParams.c &&
                 !hashParams.raw &&
                 !hasFiltersHashParam &&
@@ -3773,8 +3784,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         searchParams.open_query ??
                         (hasOwnProperty(hashParams, 'q') ? String(hashParams.q) : (view.query?.query ?? ''))
 
-                    if (storedDraft?.edited_history_id && storedDraft.q === queryToOpen) {
-                        actions.setInProgressViewEdit(view.id, storedDraft.edited_history_id)
+                    if (localDraft?.baseline_query !== undefined) {
+                        view = {
+                            ...view,
+                            query: { ...view.query, kind: NodeKind.HogQLQuery, query: localDraft.baseline_query },
+                        }
+                    }
+                    if (localDraft?.edited_history_id) {
+                        actions.setInProgressViewEdit(view.id, localDraft.edited_history_id)
                     }
                     if (outputTabFromUrl) {
                         actions.createTab(
@@ -3847,7 +3864,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         searchParams.open_query ?? (hasOwnProperty(hashParams, 'q') ? String(hashParams.q) : query)
 
                     if (insightVisualizationQuery) {
-                        actions.setSourceQuery(applyFiltersFromUrl(insightVisualizationQuery))
+                        let insightSource = applyFiltersFromUrl(insightVisualizationQuery)
+                        if (localDraft || hasOwnProperty(hashParams, 'c') || hasOwnProperty(hashParams, 'raw')) {
+                            insightSource = {
+                                ...insightSource,
+                                source: {
+                                    ...insightSource.source,
+                                    connectionId: connectionIdFromHash,
+                                    sendRawQuery: sendRawQueryFromHash || undefined,
+                                },
+                            }
+                        }
+                        actions.setSourceQuery(insightSource)
                     }
                     actions.editInsight(queryToOpen, insight, biEditorStateFromUrl ?? undefined)
                     if (!outputTabFromUrl) {

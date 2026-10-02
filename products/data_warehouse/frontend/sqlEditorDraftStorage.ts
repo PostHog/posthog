@@ -6,6 +6,7 @@ const draftSchema = z
     .object({
         q: z.string(),
         edited_history_id: z.string().optional(),
+        baseline_query: z.string().optional(),
     })
     .passthrough()
     .nullable()

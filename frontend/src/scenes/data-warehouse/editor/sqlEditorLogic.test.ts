@@ -240,11 +240,13 @@ describe('sqlEditorLogic', () => {
     let materializeEndpointMock: jest.Mock
     // Lets a test control the server's current activity-log head returned by the saved-query GET.
     let serverViewHistoryId: string | null = null
+    let serverViewQuery: string | undefined
 
     beforeEach(async () => {
         localStorage.clear()
         sessionStorage.clear()
         serverViewHistoryId = null
+        serverViewQuery = undefined
         queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
         materializeEndpointMock = jest.fn(() => [200, {}])
         useMocks({
@@ -264,7 +266,11 @@ describe('sqlEditorLogic', () => {
                     if (params.id === MOCK_VIEW.id) {
                         return [
                             200,
-                            { ...MOCK_VIEW, latest_history_id: serverViewHistoryId ?? MOCK_VIEW.latest_history_id },
+                            {
+                                ...MOCK_VIEW,
+                                latest_history_id: serverViewHistoryId ?? MOCK_VIEW.latest_history_id,
+                                query: { ...MOCK_VIEW.query, query: serverViewQuery ?? MOCK_VIEW.query.query },
+                            },
                         ]
                     }
                     return [404]
@@ -353,26 +359,29 @@ describe('sqlEditorLogic', () => {
                 .toNotHaveDispatchedActions(['runQuery'])
         })
 
-        it('restores the connection with an unrun query', async () => {
-            mountEditor()
-            await expectLogic(logic, () =>
-                router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
-            )
-                .toDispatchActions(['createTab', 'setQueryInput'])
-                .toFinishAllListeners()
-            logic.actions.setQueryInput('SELECT unfinished')
-            logic.unmount()
-            initKeaTests()
-            mountEditor()
+        it.each([{}, { open_insight: MOCK_INSIGHT_SHORT_ID }])(
+            'restores the connection with an unrun query (%j)',
+            async (searchParams) => {
+                mountEditor()
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.sqlEditor(), searchParams, { q: 'SELECT 1', c: 'conn-123', raw: '1' })
+                )
+                    .toDispatchActions(['createTab', 'setQueryInput'])
+                    .toFinishAllListeners()
+                logic.actions.setQueryInput('SELECT unfinished')
+                logic.unmount()
+                initKeaTests()
+                mountEditor()
 
-            await expectLogic(logic, () => router.actions.push(urls.sqlEditor()))
-                .toDispatchActions(['createTab', 'setQueryInput'])
-                .toFinishAllListeners()
-                .toMatchValues({
-                    queryInput: 'SELECT unfinished',
-                    sourceQuery: partial({ source: partial({ connectionId: 'conn-123', sendRawQuery: true }) }),
-                })
-        })
+                await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), searchParams))
+                    .toDispatchActions(['createTab', 'setQueryInput'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        queryInput: 'SELECT unfinished',
+                        sourceQuery: partial({ source: partial({ connectionId: 'conn-123', sendRawQuery: true }) }),
+                    })
+            }
+        )
 
         it.each(['SELECT explicit', ''])('prefers explicit SQL over a local draft (%s)', async (query) => {
             mountEditor()
@@ -390,24 +399,46 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({ queryInput: query })
         })
 
+        it.each(['q', 'open_query'])('applies an explicit empty %s to an already open editor', async (param) => {
+            mountEditor()
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1' }))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+            await expectLogic(logic, () =>
+                router.actions.push(
+                    urls.sqlEditor(),
+                    param === 'open_query' ? { open_query: '' } : {},
+                    param === 'q' ? { q: '' } : {}
+                )
+            )
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: '' })
+        })
+
         it.each(['reload', 'back'])(
             'restores the last keystroke on %s before the URL catches up',
             async (navigation) => {
                 mountEditor()
-                await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1' }))
+                const staleHash = { q: 'SELECT 1', c: 'conn-123', raw: '1' }
+                await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), {}, staleHash))
                     .toDispatchActions(['createTab', 'setQueryInput'])
                     .toFinishAllListeners()
                 logic.actions.setQueryInput('SELECT unfinished')
+                logic.actions.setSourceQuery({
+                    ...logic.values.sourceQuery,
+                    source: { ...logic.values.sourceQuery.source, connectionId: undefined, sendRawQuery: undefined },
+                })
                 logic.unmount()
                 initKeaTests()
-                router.actions.push(urls.sqlEditor(), {}, { q: 'SELECT 1' })
+                router.actions.push(urls.sqlEditor(), {}, staleHash)
                 const getEntriesByType = window.performance.getEntriesByType
                 window.performance.getEntriesByType = () => [{ type: navigation } as PerformanceNavigationTiming]
                 if (navigation === 'back') {
                     router.actions.locationChanged({
                         ...router.values.location,
                         searchParams: {},
-                        hashParams: { q: 'SELECT 1' },
+                        hashParams: staleHash,
                         url: urls.sqlEditor(),
                         method: 'POP',
                     })
@@ -416,6 +447,8 @@ describe('sqlEditorLogic', () => {
                     mountEditor()
                     await expectLogic(logic).toDispatchActions(['createTab', 'setQueryInput']).toFinishAllListeners()
                     expect(logic.values.queryInput).toEqual('SELECT unfinished')
+                    expect(logic.values.sourceQuery.source.connectionId).toBeUndefined()
+                    expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
                 } finally {
                     window.performance.getEntriesByType = getEntriesByType
                 }
@@ -447,6 +480,7 @@ describe('sqlEditorLogic', () => {
             logic.unmount()
             initKeaTests()
             serverViewHistoryId = 'new-revision'
+            serverViewQuery = 'SELECT another_edit'
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
                 .toDispatchActions(['createTab', 'setQueryInput'])
@@ -455,6 +489,24 @@ describe('sqlEditorLogic', () => {
             expect(
                 sqlEditorDraftStorage(MOCK_DEFAULT_USER.uuid, MOCK_DEFAULT_TEAM.id, `view:${MOCK_VIEW.id}`)?.get()
             ).toMatchObject({ edited_history_id: 'original-revision' })
+            await expectLogic(logic, () =>
+                logic.actions.updateView({
+                    id: MOCK_VIEW.id,
+                    query: { kind: NodeKind.HogQLQuery, query: 'SELECT unfinished' },
+                    edited_history_id: 'original-revision',
+                    types: [],
+                })
+            )
+                .toDispatchActions(['_setSuggestionPayload'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([
+                    'updateViewSuccess',
+                    dataWarehouseViewsLogic.actionTypes.updateDataWarehouseSavedQuery,
+                ])
+            expect(logic.values.suggestionPayload).toMatchObject({
+                originalValue: 'SELECT another_edit',
+                suggestedValue: 'SELECT unfinished',
+            })
         })
 
         it('clears the local draft after reverting to the saved query', async () => {
