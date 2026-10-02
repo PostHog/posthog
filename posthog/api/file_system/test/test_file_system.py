@@ -24,6 +24,7 @@ from posthog.api.file_system.file_system import (
     MAX_PATH_SEGMENTS,
     FileSystemSerializer,
     UndoDeleteItemSerializer,
+    get_file_system_insight_type,
 )
 from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -145,32 +146,18 @@ class TestFileSystemAPI(APIBaseTest):
             )
             self.assertEqual(refreshed.json()["results"][0]["meta"]["content_type"], "application/json")
 
-    def test_list_insight_types_from_current_queries_and_legacy_filters(self) -> None:
+    def test_list_insight_type_tracks_query_changes(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, name="Report")
         queries = [
-            ("trends", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}),
-            ("funnels", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}),
-            ("retention", {"kind": "RetentionQuery"}),
-            ("paths", {"kind": "PathsQuery"}),
-            ("lifecycle", {"kind": "LifecycleQuery"}),
-            ("stickiness", {"kind": "StickinessQuery"}),
-            ("hog", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
-            ("hog", {"kind": "HogQLQuery", "query": "select 1"}),
-            (
-                "funnels",
-                {"kind": "DataTableNode", "source": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}},
-            ),
-            ("retention", None),
+            {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
+            {"kind": "InsightVizNode", "source": {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery"}}},
+            None,
         ]
-        expected = {}
-        for index, (insight_type, query) in enumerate(queries):
-            insight = Insight.objects.create(
-                team=self.team, filters={"insight": "RETENTION"}, saved=True, name=f"Report {index}"
-            )
-            Insight.objects.filter(team=self.team, pk=insight.pk).update(query=query)
-            expected[insight.short_id] = insight_type
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "insight"})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual({item["ref"]: item["meta"]["insight_type"] for item in response.json()["results"]}, expected)
+        for query, expected_type in zip(queries, ["hog", "hog", "paths"]):
+            Insight.objects.filter(team=self.team, pk=insight.pk).update(query=query, filters={"insight": "JOURNEYS"})
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "insight"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], expected_type)
 
     def test_list_rejects_invalid_content_type_parameter(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"include_content_type": "invalid"})
@@ -2670,3 +2657,25 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([row["path"] for row in response.json()["results"]], ["!"])
+
+
+class TestFileSystemInsightType(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("TrendsQuery", None, "trends"),
+            ("FunnelsQuery", None, "funnels"),
+            ("RetentionQuery", None, "retention"),
+            ("PathsQuery", None, "paths"),
+            ("PathsV2Query", None, "paths"),
+            ("LifecycleQuery", None, "lifecycle"),
+            ("StickinessQuery", None, "stickiness"),
+            ("HogQLQuery", None, "hog"),
+            ("HogQuery", None, "hog"),
+            (None, "RETENTION", "retention"),
+            (None, "JOURNEYS", "paths"),
+            (None, None, "trends"),
+            ("HogQLQuery", "TRENDS", "hog"),
+        ]
+    )
+    def test_insight_type(self, query_kind: str | None, legacy_type: str | None, expected: str) -> None:
+        self.assertEqual(get_file_system_insight_type(query_kind, legacy_type), expected)

@@ -452,7 +452,7 @@ export const FlagOffFlatNav: Story = {
 }
 
 export const FilesInsightTypes: Story = {
-    args: { tab: 'files', recentsCollapsed: true },
+    args: { tab: 'files', recentsCollapsed: false },
     decorators: [
         mswDecorator({
             get: {
