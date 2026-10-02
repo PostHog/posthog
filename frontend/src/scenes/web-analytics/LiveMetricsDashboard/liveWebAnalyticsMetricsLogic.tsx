@@ -838,6 +838,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     cache.reloadQueuedDuringInit = false
                     resetStreamStateAndReload(cache as FlushCache, actions)
                 }
+                // Counted from load completion, so a load slower than the interval is never aborted by the next one.
+                if (!signal.aborted && values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                    cache.disposables.add(() => {
+                        const timeoutId = setTimeout(() => actions.loadInitialData(true), HOGQL_RELOAD_INTERVAL_MS)
+                        return () => clearTimeout(timeoutId)
+                    }, 'hogqlReload')
+                }
             }
         },
         scheduleReload: async (_, breakpoint) => {
@@ -851,11 +858,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             cache.eventsConnection?.abort()
 
             if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
-                // loadInitialData calls this on every load, so each load schedules the next one.
-                cache.disposables.add(() => {
-                    const timeoutId = setTimeout(() => actions.loadInitialData(true), HOGQL_RELOAD_INTERVAL_MS)
-                    return () => clearTimeout(timeoutId)
-                }, 'hogqlReload')
                 return
             }
 
