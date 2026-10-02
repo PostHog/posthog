@@ -231,7 +231,9 @@ export function App({
       task={taskOf(node.taskId)}
       runs={runs ?? null}
       local={isLocal(node.taskId) ? localSessions.get(node.taskId) : undefined}
-      isLocalPane={isLocal(node.taskId)}
+      isLocalPane={
+        isLocal(node.taskId) || (!node.taskId && placeFor(node.id) === "local")
+      }
       newChatPlace={placeFor(node.id)}
       chat={chatFor(node.id, node.taskId)}
       composer={composerFor(node.id)}
