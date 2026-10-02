@@ -229,6 +229,9 @@ describe('pipelineOverviewSceneLogic', () => {
                 { id: 'dest-2', name: 'Analytics Postgres', type: 'Postgres' },
             ],
         })
+        wsApi.externalDataSourcesList.mockResolvedValue({
+            results: [{ id: 'source-1', schemas: [{ id: 'schema-1' }, { id: 'schema-2' }] }],
+        })
         metrics.loadAppMetricsTimeSeries.mockResolvedValue({
             labels: ['2026-09-27', '2026-09-28'],
             interval: 'day',
@@ -240,14 +243,10 @@ describe('pipelineOverviewSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         const asked = metrics.loadAppMetricsTimeSeries.mock.calls.map(([request]: any[]) => request)
-        // One request per destination, plus one unfiltered request for the overall total.
-        expect(
-            asked
-                .map((r: any) => r.instanceId)
-                .filter(Boolean)
-                .sort()
-        ).toEqual(['dest-1', 'dest-2'])
-        expect(asked.filter((r: any) => !r.instanceId)).toHaveLength(1)
+        // One request per destination, plus one request restricted to schema attribution keys.
+        expect(asked.map((r: any) => r.instanceId)).toEqual(
+            expect.arrayContaining(['dest-1', 'dest-2', ['schema-1', 'schema-2']])
+        )
         // The query interpolates `breakdownBy` with no fallback, so omitting it emits
         // `undefined AS breakdown` and the whole chart fails to load. This asserted the
         // omission before, which is how that shipped.
@@ -322,6 +321,9 @@ describe('pipelineOverviewSceneLogic', () => {
                 { id: 'wh', name: 'PostHog warehouse', type: 'PostHogWarehouse' },
                 { id: 'pg', name: 'Analytics Postgres', type: 'Postgres' },
             ],
+        })
+        wsApi.externalDataSourcesList.mockResolvedValue({
+            results: [{ id: 'source-1', schemas: [{ id: 'schema-1' }] }],
         })
         metrics.loadAppMetricsTimeSeries.mockImplementation(async (request: any) => ({
             labels: ['2026-10-01', '2026-10-02'],

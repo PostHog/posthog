@@ -32,7 +32,7 @@ export type AppMetricsCommonParams = {
     appSourceId?: string
     /** Match all app_source_ids starting with this prefix (e.g. `<hog flow id>/` for versioned hog flow metrics). */
     appSourceIdPrefix?: string
-    instanceId?: string
+    instanceId?: string | string[]
     metricName?: string | string[]
     metricKind?: string | string[]
     breakdownBy?: 'metric_name' | 'metric_kind' | 'app_source_id' | 'instance_id'
@@ -113,6 +113,8 @@ export const loadAppMetricsTotals = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    } else if (request.instanceId) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]
@@ -226,6 +228,8 @@ export const loadAppMetricsTimeSeries = async (
     }
     if (typeof request.instanceId === 'string') {
         query = (query + hogql`\nAND instance_id = ${request.instanceId}`) as HogQLQueryString
+    } else if (request.instanceId) {
+        query = (query + hogql`\nAND instance_id IN ${request.instanceId}`) as HogQLQueryString
     }
     if (request.metricName) {
         const metricNames = Array.isArray(request.metricName) ? request.metricName : [request.metricName]

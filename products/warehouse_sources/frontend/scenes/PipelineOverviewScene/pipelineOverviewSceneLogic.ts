@@ -228,14 +228,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                         dateTo,
                     }
                     const timezone = values.currentTeam?.timezone ?? 'UTC'
-                    // One request per destination, filtered on `instanceId`, rather than one
-                    // breakdown over every instance. The breakdown is capped at 100 rows, and a
-                    // team with thousands of tables pushes every destination out of that cap.
-                    //
-                    // The total is fetched alongside: every run reports its rows keyed by schema,
-                    // so this is every row synced however it was routed. Runs from before
-                    // destination attribution landed report no destination at all, and this is
-                    // what lets those rows still appear.
+                    const schemaIds = (values.sources ?? []).flatMap((source: ExternalDataSourceSerializersApi) =>
+                        (source.schemas ?? []).map((schema) => String(schema.id))
+                    )
                     const [answers, total] = await Promise.all([
                         Promise.all(
                             destinations.map(async (destination: ExternalDataDestinationApi) => ({
@@ -246,7 +241,12 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                                 ),
                             }))
                         ),
-                        loadAppMetricsTimeSeries({ ...common, breakdownBy: 'metric_name' }, timezone),
+                        schemaIds.length > 0
+                            ? loadAppMetricsTimeSeries(
+                                  { ...common, instanceId: schemaIds, breakdownBy: 'metric_name' },
+                                  timezone
+                              )
+                            : Promise.resolve({ labels: [], interval, timezone, series: [] }),
                     ])
                     return {
                         labels:
@@ -407,7 +407,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             ): boolean => (jobStatsLoading && jobStats === null) || (healthIssuesLoading && healthIssues === null),
         ],
     }),
-    listeners(({ actions }: any) => ({
+    listeners(({ actions, values }: any) => ({
         // Health is current state and rows are reported per billing period, so neither is
         // windowed. Everything else is.
         setWindow: () => {
@@ -416,9 +416,18 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             actions.loadRecentRuns()
         },
         refresh: () => actions.loadEverything(),
-        // The series are fetched one destination at a time, so the destination list has to land
-        // first. Chaining on success is what guarantees that on a reload as well as on mount.
-        loadDestinationsSuccess: () => actions.loadDestinationRowSeries(),
+        // The destination and schema lists identify the two attribution key types in app_metrics.
+        // Wait for both so the overall request can select schema-keyed rows exactly.
+        loadDestinationsSuccess: () => {
+            if (values.sources !== null) {
+                actions.loadDestinationRowSeries()
+            }
+        },
+        loadSourcesSuccess: () => {
+            if (values.destinations !== null) {
+                actions.loadDestinationRowSeries()
+            }
+        },
         loadEverything: () => {
             actions.loadJobStats()
             actions.loadRowsStats()
