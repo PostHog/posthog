@@ -19,8 +19,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
-from posthog.hogql.direct_sql import get_raw_adapter_for_source
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
@@ -82,15 +81,12 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 user=user if user is not None else self.user,
             )
             if source is None:
-                raise QueryError(INVALID_CONNECTION_ID_ERROR)
+                raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
             direct_engine = source.direct_engine
             if source.has_managed_warehouse_prefix:
                 managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
-                    raise QueryError(INVALID_CONNECTION_ID_ERROR)
-            # Reject invalid SQL before dispatch because async status drops the exception type.
-            if self.query.sendRawQuery and (adapter := get_raw_adapter_for_source(source)) is not None:
-                adapter.prepare_raw_sql(self.query.query)
+                    raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
         self._direct_engine = direct_engine
         self._direct_connection_validated = True

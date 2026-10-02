@@ -14,7 +14,7 @@ from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOT
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.motherduck_connection_cache import cached_motherduck_connection
 
 if TYPE_CHECKING:
@@ -137,18 +137,18 @@ def ensure_read_only_raw_motherduck_statement(sql: str) -> str:
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
-        raise QueryError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
+        raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
     # The connection itself is read-only (DuckDB rejects writes engine-side) and runs in
     # MotherDuck's SaaS mode, so this gate is defense in depth for the raw passthrough path:
     # reject DDL, any DML other than SELECT, and calls to the blocked functions above.
     tokens = list(statements[0].flatten())
     for index, token in enumerate(tokens):
         if token.ttype in sqlparse_tokens.DDL:
-            raise QueryError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
+            raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
-            raise QueryError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
+            raise ExposedHogQLError(RAW_MOTHERDUCK_READ_ONLY_ERROR)
         if _blocked_function_name(token) is not None and _opens_call(tokens, index):
-            raise QueryError(RAW_MOTHERDUCK_BLOCKED_FUNCTION_ERROR)
+            raise ExposedHogQLError(RAW_MOTHERDUCK_BLOCKED_FUNCTION_ERROR)
     return sql
 
 

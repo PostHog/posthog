@@ -12,7 +12,7 @@ from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOT
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
 
 if TYPE_CHECKING:
@@ -122,7 +122,7 @@ def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
-        raise QueryError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
+        raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
     # Snowflake has no read-only session/transaction switch — the Postgres path sets
     # default_transaction_read_only on the connection, but Snowflake offers no equivalent. So
     # this single-read-only-SELECT gate is the enforcement boundary (backed at runtime by the
@@ -132,13 +132,13 @@ def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
     # or alias like 'DELETE' is unaffected.
     for token in statements[0].flatten():
         if token.ttype in sqlparse_tokens.DDL:
-            raise QueryError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
+            raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
-            raise QueryError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
+            raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.Name:
             name = token.value.upper()
             if name.startswith("SYSTEM$") or name in _RAW_SNOWFLAKE_BLOCKED_FUNCTIONS:
-                raise QueryError(RAW_SNOWFLAKE_BLOCKED_FUNCTION_ERROR)
+                raise ExposedHogQLError(RAW_SNOWFLAKE_BLOCKED_FUNCTION_ERROR)
     return sql
 
 

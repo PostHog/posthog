@@ -13,7 +13,7 @@ from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOT
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
-from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.dataclasses import frozen
 
@@ -185,18 +185,18 @@ def ensure_read_only_raw_clickhouse_statement(sql: str) -> str:
     sql = ensure_single_direct_statement(sql)
     statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
-        raise QueryError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+        raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
     statement = statements[0]
     for token in statement.flatten():
         if token.ttype in sqlparse_tokens.DDL:
-            raise QueryError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+            raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
-            raise QueryError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
+            raise ExposedHogQLError(RAW_CLICKHOUSE_READ_ONLY_ERROR)
     for function_name in _iter_function_names(statement):
         if function_name.upper() in _RAW_CLICKHOUSE_BLOCKED_TABLE_FUNCTIONS:
-            raise QueryError(RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR)
+            raise ExposedHogQLError(RAW_CLICKHOUSE_BLOCKED_FUNCTION_ERROR)
     if _has_settings_clause(statement):
-        raise QueryError(RAW_CLICKHOUSE_SETTINGS_ERROR)
+        raise ExposedHogQLError(RAW_CLICKHOUSE_SETTINGS_ERROR)
     return sql
 
 
