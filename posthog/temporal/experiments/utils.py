@@ -1,11 +1,8 @@
 from datetime import datetime
-from typing import Union
 
 from django.db.models import Q
 
 import structlog
-
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
@@ -27,8 +24,7 @@ def recalculation_hour_filter(hour: int) -> Q:
     The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse
     relation. experiment_recalculation_times holds "HH:00:00" strings, so hour membership
     is a jsonb containment check. A null list or a missing config row means the default
-    hour; the deprecated experiment_recalculation_time column is not consulted, because
-    the API keeps the list in sync with it on every write.
+    hour.
     """
     match = Q(team__teamexperimentsconfig__experiment_recalculation_times__contains=[f"{hour:02d}:00:00"])
     if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
@@ -38,18 +34,6 @@ def recalculation_hour_filter(hour: int) -> Q:
             | Q(team__teamexperimentsconfig__isnull=True)
         )
     return match
-
-
-def get_metric(metric_data: dict) -> Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]:
-    metric_type = metric_data.get("metric_type")
-    if metric_type == "mean":
-        return ExperimentMeanMetric(**metric_data)
-    elif metric_type == "funnel":
-        return ExperimentFunnelMetric(**metric_data)
-    elif metric_type == "ratio":
-        return ExperimentRatioMetric(**metric_data)
-    else:
-        raise ValueError(f"Unknown metric type: {metric_type}")
 
 
 def _get_significant_variant_keys(result_dict: dict) -> set[str]:

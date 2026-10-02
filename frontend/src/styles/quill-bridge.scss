@@ -148,7 +148,34 @@
     background-color: var(--fill-expanded);
 }
 
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:bg-fill-selected:hover {
+    background-color: var(--fill-selected);
+}
+
+/*
+ * Use this for a quill hover fill, not `hover:bg-muted`. PostHog's compiled `hover:bg-muted` reads `--muted-3000`,
+ * a dark text colour, and it is `!important` inside a cascade layer, so no rule in this file can override it.
+ */
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:bg-fill-hover:hover {
+    background-color: var(--fill-hover);
+}
+
+[data-quill] .bg-destructive-foreground {
+    background-color: var(--destructive-foreground);
+}
+
 [data-quill] .text-foreground {
+    color: var(--foreground);
+}
+
+[data-quill] .text-foreground\/70 {
+    color: color-mix(in oklab, var(--foreground) 70%, transparent);
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:text-foreground:hover {
     color: var(--foreground);
 }
 
@@ -184,12 +211,20 @@
     color: var(--warning-foreground);
 }
 
+[data-quill] .text-completed-foreground {
+    color: var(--completed-foreground);
+}
+
 [data-quill] .text-accent-foreground {
     color: var(--accent-foreground);
 }
 
 [data-quill] .border-border {
     border-color: var(--border);
+}
+
+[data-quill] .border-muted-foreground {
+    border-color: var(--muted-foreground);
 }
 
 [data-quill] .border-input {
@@ -217,6 +252,14 @@
 
 [data-quill] .ring-foreground\/20 {
     --tw-ring-color: color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+[data-quill] .ring-border {
+    --tw-ring-color: var(--border);
+}
+
+[data-quill] .ring-background {
+    --tw-ring-color: var(--background);
 }
 
 [data-quill] .ring-ring {
@@ -282,4 +325,16 @@
     --color-text-secondary: var(--color-neutral-350);
     --color-border-primary: var(--color-neutral-cool-800);
     --color-border-secondary: var(--color-neutral-cool-600);
+}
+
+/*
+ * Quill also names two of its status fills `--success` and `--warning`, and tokens.scoped.css
+ * sets them on every element under [data-quill], not only on the wrapper. So the hatch must
+ * set Lemon's values on each descendant too, or LemonTag and LemonBanner text turns pale.
+ * base.scss gives these one value for both themes.
+ */
+[data-quill] [data-not-quill],
+[data-quill] [data-not-quill] * {
+    --success: #388600;
+    --warning: #f7a501;
 }

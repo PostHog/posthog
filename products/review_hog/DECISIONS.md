@@ -3255,6 +3255,14 @@ implement what is worth doing and safe to do unattended, answer what isn't, and 
    ARCHITECTURE.md the same date. Deferred to pre-GA: structural (JSON) comment rendering in the resolution prompt
    (e2e-gated — forged author headers / fake SAFE TO FIX), and the author-permission gate policy (which
    `author_association`s may drive a write turn; naive filters drop the bot threads the stage exists for).
+   _2026-09-30 (limited manual rollout decision):_ retain full review and resolution for explicitly enabled,
+   trusted projects reviewing repositories their teams own. This extends the dogfood-only risk acceptance
+   above to that limited rollout. Repository ownership and GitHub App access do not authenticate commenters;
+   untrusted comments can still reach a writable session, and the path backstop still runs after the push.
+   Operators must assess repository and comment trust before enabling a project. The feature flag is an
+   operator allowlist, not an enforced ownership or commenter-trust boundary. Use review without resolution
+   for untrusted PRs. Public rollout and resolution on untrusted PRs or unowned repositories remain blocked
+   on all three hardening items. The manual rollout does not satisfy or remove those gates.
    _Built 2026-08-10 (off the second review round on PR #72074):_ three verified findings fixed. **Watermark
    truncation** — the per-thread `comments(first: 50)` fetch returned the oldest 50 with no overflow detection, so
    a 51+-comment thread's watermark froze below its real newest comment and the thread went permanently blind to

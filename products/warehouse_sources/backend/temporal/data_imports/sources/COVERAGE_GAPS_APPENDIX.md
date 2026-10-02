@@ -3509,10 +3509,10 @@ Diffed against: <https://jsapi.apiary.io/apis/gainsightpx.apib>
 - [x] `events/pageView` — the core page-view event stream underpinning any adoption or navigation analysis (high)
 - [x] `events/session` — session-level events giving visit frequency, duration and stickiness (high)
 - [x] `events/engagementView` — who saw and interacted with each engagement — the only way to measure the engagements table's performance (high)
-- [ ] `survey/responses` — NPS/CES/survey answers, a headline reporting object with no substitute (high)
-- [ ] `events/custom` — customer-defined events captured by PX, typically the business-critical ones (high)
-- [ ] `events/segment_match` — segment entry/exit events that resolve the segments table into per-user membership over time (medium)
-- [ ] `events/identify` — identity resolution events tying anonymous activity to the synced users and accounts (medium)
+- [x] `survey/responses` — NPS/CES/survey answers, a headline reporting object with no substitute (high)
+- [x] `events/custom` — customer-defined events captured by PX, typically the business-critical ones (high)
+- [x] `events/segment_match` — segment entry/exit events that resolve the segments table into per-user membership over time (medium)
+- [x] `events/identify` — identity resolution events tying anonymous activity to the synced users and accounts (medium)
 - [ ] `events/formSubmit` — in-product form submissions, the conversion event for guides and surveys (medium)
 - [ ] `events/email` — email engagement events (send/open/click) for engagements delivered by email (medium)
 - [ ] `feature/adoption/{featureId}` — vendor-precomputed adoption statistics per feature — a breakdown dimension that is expensive to recompute (medium)
@@ -3619,15 +3619,15 @@ Note: Fetched the live 5 MB OpenAPI document from the vendor's own /v1/openapi.j
 
 ## GitLab — **thin**
 
-Today (10): `branches`, `commits`, `issues`, `labels`, `members`, `merge_requests`, `milestones`, `pipelines`, `releases`, `tags`
+Today (15): `branches`, `commits`, `deployments`, `issue_notes`, `issue_state_events`, `issues`, `labels`, `members`, `merge_request_notes`, `merge_request_state_events`, `merge_requests`, `milestones`, `pipelines`, `releases`, `tags`
 
 Diffed against: <https://docs.gitlab.com/api/api_resources/>
 
 - [ ] `/projects/{id}/jobs` — CI job-level rows — pipelines alone cannot answer stage duration, runner cost, or failure attribution (high)
-- [ ] `/projects/{id}/issues/{iid}/notes and /projects/{id}/merge_requests/{iid}/notes` — issue and merge-request comments, the main collaboration signal (high)
-- [ ] `/projects/{id}/issues/{iid}/resource_state_events and /merge_requests/{iid}/resource_state_events` — open/close/reopen transition history — cycle time cannot be computed from current state alone (high)
-- [ ] `/projects/{id}/dora/metrics` — GitLab's headline DevOps metric (deployment frequency, lead time, change failure rate, MTTR) (high)
-- [ ] `/projects/{id}/deployments` — deployment records joining pipelines to environments, the basis of release analytics (high)
+- [x] `/projects/{id}/issues/{iid}/notes and /projects/{id}/merge_requests/{iid}/notes` — issue and merge-request comments, the main collaboration signal (high). Added as `issue_notes` and `merge_request_notes` (fan-out over `issues` / `merge_requests`).
+- [x] `/projects/{id}/issues/{iid}/resource_state_events and /merge_requests/{iid}/resource_state_events` — open/close/reopen transition history — cycle time cannot be computed from current state alone (high). Added as `issue_state_events` and `merge_request_state_events` (fan-out over `issues` / `merge_requests`).
+- [ ] `/projects/{id}/dora/metrics` — GitLab's headline DevOps metric (deployment frequency, lead time, change failure rate, MTTR) (high). Skipped: Ultimate-tier only, and it returns pre-aggregated daily values over a default 3-month window that GitLab recomputes, so it has no stable history to sync. Deployment frequency comes from `deployments`.
+- [x] `/projects/{id}/deployments` — deployment records joining pipelines to environments, the basis of release analytics (high)
 - [ ] `/projects/{id}/issues/{iid}/resource_label_events` — label add/remove history, the standard way teams track workflow stage over time (medium)
 - [ ] `/projects/{id}/environments` — lookup resolving the environment IDs carried on deployments (medium)
 - [ ] `/projects/{id}/merge_requests/{iid}/approvals` — who approved each MR and when — core review-governance reporting (medium)
@@ -3640,14 +3640,14 @@ Note: Source is single-project scoped (every path templates {project} into /proj
 
 ## Gladly — gaps
 
-Today (4): `agents`, `conversation_items`, `customers`, `topics`
+Today (10): `agents`, `contact_timestamps`, `conversation_items`, `conversation_timestamps`, `conversations`, `customers`, `inboxes`, `teams`, `topics`, `work_session_events`
 
 Diffed against: <https://developer.gladly.com/rest/>
 
-- [ ] `/api/v1/customers/{customerId}/conversations` — conversation-header rows (status, channel, timestamps); only item-level rows exist today, so per-conversation handle time and volume are unanswerable (high)
-- [ ] `/api/v1/teams` — lookup resolving the team IDs carried on agents and conversations (high)
-- [ ] `/api/v1/inboxes` — lookup resolving the inbox IDs carried on conversation items (high)
-- [ ] `/api/v1/reports/work-session-events` — agent work-session and status history — the vendor's own agent-productivity metric (high)
+- [x] `/api/v1/customers/{customerId}/conversations` — conversation-header rows (status, channel, timestamps); only item-level rows exist today, so per-conversation handle time and volume are unanswerable (high). Covered by `conversations` (Conversation Export report, with status, channels, handle time, and lifecycle timestamps). The per-customer endpoint itself is skipped: it is unpaginated, returns at most 100 conversations, and would need one request per customer.
+- [x] `/api/v1/teams` — lookup resolving the team IDs carried on agents and conversations (high). Added as `teams` (full refresh).
+- [x] `/api/v1/inboxes` — lookup resolving the inbox IDs carried on conversation items (high). Added as `inboxes` (full refresh).
+- [x] `/api/v1/reports/work-session-events` — agent work-session and status history — the vendor's own agent-productivity metric (high). Added as `work_session_events` via the equivalent `WorkSessionEventsReportV4` metric set of `POST /api/v1/reports`.
 - [ ] `/api/v1/events` — org-wide event stream, the closest thing Gladly has to an activity log (medium)
 - [ ] `/api/v1/customers/{customerId}/tasks` — customer tasks with assignment and completion state, a distinct work object from conversations (medium)
 - [ ] `/api/v1/answers` — knowledge-base answer catalog, needed to analyze self-service deflection (medium)
@@ -3659,14 +3659,14 @@ Note: Important: PostHog does not use Gladly's REST list endpoints — it ingest
 
 ## Glassfrog — gaps
 
-Today (8): `assignments`, `checklist_items`, `circles`, `custom_fields`, `metrics`, `people`, `projects`, `roles`
+Today (12): `actions`, `assignments`, `checklist_items`, `circles`, `custom_fields`, `governance_meetings`, `metrics`, `people`, `projects`, `proposals`, `roles`, `tensions`
 
 Diffed against: <https://app.glassfrog.com/api/v3/docs/spec.yaml>
 
-- [ ] `/tensions` — tensions are the core Holacracy input object and the driver of every governance and tactical outcome (high)
-- [ ] `/actions` — next-actions are the operational work items sitting alongside the projects already synced (high)
-- [ ] `/proposals` — governance proposals with their responses — the transition record for how roles and circles changed (high)
-- [ ] `/governance_meetings` — governance meeting records that timestamp and group structural changes (medium)
+- [x] `/tensions` — tensions are the core Holacracy input object and the driver of every governance and tactical outcome (high)
+- [x] `/actions` — next-actions are the operational work items sitting alongside the projects already synced (high)
+- [x] `/proposals` — governance proposals with their responses — the transition record for how roles and circles changed (high)
+- [x] `/governance_meetings` — governance meeting records that timestamp and group structural changes (medium)
 - [ ] `/tactical_meetings` — tactical meeting cadence and attendance, the operational counterpart to governance meetings (medium)
 - [ ] `/agenda_items` — agenda items per meeting — the line items making meeting throughput measurable (medium)
 - [ ] `/domains` — lookup resolving the domains held by the roles and circles already synced (medium)
@@ -3674,7 +3674,7 @@ Diffed against: <https://app.glassfrog.com/api/v3/docs/spec.yaml>
 - [ ] `/organizations` — top-level org lookup that scopes every other table (medium)
 - [ ] `/triggers` — role triggers (when-then rules) attached to roles and people (low)
 
-Note: The docs page at /api/v3/docs is a Swagger UI shell; the real spec is at /api/v3/docs/spec.yaml, which is what was diffed. GlassFrog exposes 12 listable top-level collections and PostHog covers 8 nouns but none of the governance-process objects.
+Note: The docs page at /api/v3/docs is a Swagger UI shell; the real spec is at /api/v3/docs/spec.yaml, which is what was diffed. GlassFrog exposes 18 listable top-level collections and PostHog covers 12.
 
 ## GNews — adequate
 
@@ -3711,12 +3711,12 @@ Today (7): `agenda_items`, `discussion_groups`, `event_members`, `events`, `orga
 
 Diffed against: <https://apidocs.goldcast.io/>
 
-- [ ] `event/broadcasts` — the live session objects under an event - sync-time joins for attendance and agenda analysis (high)
-- [ ] `event/broadcasts/{id}/polls` — in-session poll results, the main engagement measurement in a webinar tool (high)
-- [ ] `event/ticket-type` — lookup resolving the ticket type carried on event_members registrations (high)
+- [x] `event/broadcasts` — the live session objects under an event - sync-time joins for attendance and agenda analysis (high)
+- [x] `event/broadcasts/{id}/polls` — in-session poll results, the main engagement measurement in a webinar tool (high)
+- [x] `event/ticket-type` — lookup resolving the ticket type carried on event_members registrations (high)
 - [ ] `core/tag-library` — lookup resolving tag IDs referenced across events and members (medium)
 - [ ] `event/booths` — sponsor/expo booths, the unit sponsorship ROI is measured on (medium)
-- [ ] `event/{event_id}/public/v1/speakers` — speaker roster per event, a dimension for session performance breakdowns (medium)
+- [x] `event/{event_id}/public/v1/speakers` — speaker roster per event, a dimension for session performance breakdowns (medium)
 - [ ] `event/{id}/get_recordings` — recording assets per event, needed to join on-demand viewing (medium)
 - [ ] `event/resources` — downloadable content attached to an event (low)
 - [ ] `event/sponsor-resources/{id}` — sponsor-supplied content assets (low)
@@ -3726,21 +3726,21 @@ Note: The swagger-ui URL recorded in the source (https://customapi.goldcast.io/s
 
 ## Gong — gaps
 
-Today (5): `calls`, `calls_extensive`, `scorecards`, `users`, `workspaces`
+Today (15): `answered_scorecards`, `call_outcomes`, `calls`, `calls_content`, `calls_extensive`, `daily_activity`, `flows`, `interaction_stats`, `library_folder_calls`, `library_folders`, `scorecards`, `trackers`, `transcripts`, `users`, `workspaces`
 
 Diffed against: <https://help.gong.io/llms.txt>
 
-- [ ] `calls/transcript (POST /v2/calls/transcript)` — the actual conversation text - Gong's headline data and the thing most warehouse users want (high)
-- [ ] `stats/activity/scorecards` — answered scorecard responses; we currently only sync scorecard definitions, not the reviews (high)
-- [ ] `settings/trackers` — lookup resolving the tracker IDs that appear on calls_extensive (high)
-- [ ] `stats/interaction` — talk ratio, patience, longest monologue - Gong's signature conversation metrics per user (high)
-- [ ] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
-- [ ] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
+- [x] `calls/transcript (POST /v2/calls/transcript)` — the actual conversation text - Gong's headline data and the thing most warehouse users want (high)
+- [x] `stats/activity/scorecards` — answered scorecard responses; we currently only sync scorecard definitions, not the reviews (high)
+- [x] `settings/trackers` — lookup resolving the tracker IDs that appear on calls_extensive (high)
+- [x] `stats/interaction` — talk ratio, patience, longest monologue - Gong's signature conversation metrics per user (high)
+- [x] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
+- [x] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
 - [ ] `stats/activity/aggregate-by-period` — pre-aggregated activity by period, cheaper than deriving from raw calls (medium)
 - [ ] `coaching` — coaching metrics per manager/rep (medium)
 - [ ] `logs` — audit log of access and data events, used for security and usage reporting (medium)
-- [ ] `library/folders + library/folder-content` — curated call collections and their membership (medium)
-- [ ] `flows + flows/prospects` — Gong Engage sequences and prospect assignments for outbound analysis (medium)
+- [x] `library/folders + library/folder-content` — curated call collections and their membership (medium)
+- [x] `flows + flows/prospects` — Gong Engage sequences and prospect assignments for outbound analysis (medium). `flows` only: `POST /v2/flows/prospects` looks up the flows of CRM prospect ids the caller already has, with no way to list them
 - [ ] `users/{id}/settings-history` — state-transition history of user recording settings, explains gaps in call coverage (low)
 
 Note: Gong's OpenAPI at https://api.gong.io/v2/api-docs is auth-gated (401), and the settings/api/documentation UI requires login. The resource list above was read from Gong's own docs index at help.gong.io/llms.txt, which enumerates every API-reference page with its /v2 path.
@@ -3771,27 +3771,27 @@ Today (9): `customers`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `t
 
 Diffed against: <https://developers.gorgias.com/llms.txt>
 
-- [ ] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
-- [ ] `ticket_tags (/api/tickets/{id}/tags)` — the ticket-to-tag join; we sync tags and tickets but not the mapping between them (high)
-- [ ] `voice_calls` — phone channel fact table, entirely absent today (high)
-- [ ] `custom_fields` — lookup resolving the custom field IDs used on tickets and customers (high)
-- [ ] `ticket_field_values (/api/tickets/{id}/custom-fields)` — per-ticket custom field values, including system fields like AI Intent and AI Agent Outcome (high)
-- [ ] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
-- [ ] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
-- [ ] `voice_call_recordings` — recording metadata joined to voice calls (medium)
+- [x] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
+- [x] `ticket_tags (/api/tickets/{id}/tags)` — the ticket-to-tag join; we sync tags and tickets but not the mapping between them (high)
+- [x] `voice_calls` — phone channel fact table, entirely absent today (high)
+- [x] `custom_fields` — lookup resolving the custom field IDs used on tickets and customers (high)
+- [x] `ticket_field_values (/api/tickets/{id}/custom-fields)` — per-ticket custom field values, including system fields like AI Intent and AI Agent Outcome (high)
+- [x] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
+- [x] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
+- [x] `voice_call_recordings` — recording metadata joined to voice calls (medium)
 - [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium)
 - [ ] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
 
 ## Grafana — gaps
 
-Today (8): `alert_rules`, `annotations`, `dashboards`, `datasources`, `folders`, `service_accounts`, `teams`, `users`
+Today (11): `alert_rules`, `annotations`, `dashboard_versions`, `dashboards`, `datasources`, `folders`, `orgs`, `service_accounts`, `team_members`, `teams`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/grafana/grafana/main/public/openapi3.json>
 
-- [ ] `teams/{team_id}/members` — team membership join - we sync teams and users but nothing connecting them (high)
-- [ ] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high)
-- [ ] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
-- [ ] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
+- [x] `teams/{team_id}/members` — team membership join - we sync teams and users but nothing connecting them (high)
+- [x] `org/users (and orgs/{org_id}/users)` — org membership plus role, the other half of the identity model we already sync (high) — already synced as `users` (`/api/org/users`); `orgs/{org_id}/users` only repeats it per org for server admins
+- [x] `orgs` — lookup resolving the org_id carried on dashboards, users, teams and datasources (high)
+- [x] `dashboards/uid/{uid}/versions` — dashboard change history - who changed what and when, the main governance question (medium)
 - [ ] `library-elements` — reusable panels referenced by dashboards; needed to resolve panel definitions that are not inline (medium)
 - [ ] `query-history` — records of explored queries, the usage-analytics table for Explore adoption (medium)
 - [ ] `access-control/roles and access-control/{resource}/{resourceID}` — RBAC role definitions and resource permissions, resolving who can see which dashboards/folders (medium)
@@ -3815,14 +3815,14 @@ Note: The public OpenAPI declares only 5 paths: /v1/folders, /v1/notes, /v1/note
 
 ## Greenhouse — gaps
 
-Today (13): `applications`, `candidates`, `close_reasons`, `departments`, `job_posts`, `jobs`, `offers`, `offices`, `rejection_reasons`, `scheduled_interviews`, `scorecards`, `sources`, `users`
+Today (18): `applications`, `candidates`, `close_reasons`, `custom_field_options`, `custom_fields`, `departments`, `job_interview_stages`, `job_posts`, `jobs`, `offers`, `offices`, `openings`, `rejection_reasons`, `scheduled_interviews`, `scorecards`, `sources`, `user_roles`, `users`
 
 Diffed against: <https://developers.greenhouse.io/harvest.html>
 
-- [ ] `job_stages (GET /v1/job_stages, /v1/jobs/{id}/stages)` — lookup that resolves the current_stage / stage IDs already carried on synced applications and scorecards (high)
-- [ ] `user_roles (GET /v1/user_roles)` — lookup resolving the role on the users table we already sync (high)
-- [ ] `job_openings (GET /v1/jobs/{id}/openings)` — per-opening headcount, open/closed dates and close reason - required for time-to-fill and openings-filled reporting (high)
-- [ ] `custom_fields + custom_field_options (GET /v1/custom_fields, /v1/custom_fields/{id}/custom_field_options)` — lookup that decodes the custom-field IDs embedded in synced jobs, candidates and applications (high)
+- [x] `job_stages (GET /v1/job_stages, /v1/jobs/{id}/stages)` — lookup that resolves the current_stage / stage IDs already carried on synced applications and scorecards (high). Shipped as `job_interview_stages` from `GET /v3/job_interview_stages` (Harvest v3 only).
+- [x] `user_roles (GET /v1/user_roles)` — lookup resolving the role on the users table we already sync (high). Shipped as `user_roles` from `GET /v3/user_roles` (Harvest v3 only).
+- [x] `job_openings (GET /v1/jobs/{id}/openings)` — per-opening headcount, open/closed dates and close reason - required for time-to-fill and openings-filled reporting (high). Shipped as `openings` from the top-level `GET /v3/openings` (Harvest v3 only).
+- [x] `custom_fields + custom_field_options (GET /v1/custom_fields, /v1/custom_fields/{id}/custom_field_options)` — lookup that decodes the custom-field IDs embedded in synced jobs, candidates and applications (high). Shipped as `custom_fields` and `custom_field_options` from `GET /v3/custom_fields` and `GET /v3/custom_field_options` (Harvest v3 only).
 - [ ] `activity_feed (GET /v1/candidates/{id}/activity_feed)` — candidate-level event/state history - the only source of note and email activity timestamps (medium)
 - [ ] `demographic_answers (GET /v1/demographic/answers, /v1/applications/{id}/demographic/answers)` — DEI breakdown dimension joined to applications (medium)
 - [ ] `demographic_questions + question_sets + answer_options (GET /v1/demographic/questions, /question_sets, /answer_options)` — lookup tables that label the demographic answer IDs (medium)
@@ -3840,10 +3840,10 @@ Today (2): `columns`, `records`
 
 Diffed against: <https://www.gridly.com/docs/api/>
 
-- [ ] `views (GET /v1/views?gridId=)` — lookup for the view the synced records and columns belong to; also the only way to discover other views (high)
-- [ ] `grids (GET /v1/grids?dbId=)` — lookup resolving the grid that owns each view/record set (high)
-- [ ] `databases (GET /v1/databases?projectId=)` — lookup completing the project > database > grid > view hierarchy around synced records (high)
-- [ ] `projects (GET /v1/projects)` — top-level lookup for project names/IDs referenced by databases (high)
+- [x] `views (GET /v1/views?gridId=)` — lookup for the view the synced records and columns belong to; also the only way to discover other views (high)
+- [x] `grids (GET /v1/grids?dbId=)` — lookup resolving the grid that owns each view/record set (high)
+- [x] `databases (GET /v1/databases?projectId=)` — lookup completing the project > database > grid > view hierarchy around synced records (high)
+- [x] `projects (GET /v1/projects)` — top-level lookup for project names/IDs referenced by databases (high)
 - [ ] `record histories (GET /v1/views/{viewId}/records/{recordId}/histories)` — per-cell change history - who changed which localization value and when (medium)
 - [ ] `dependencies (GET /v1/views/{viewId}/dependencies)` — source-to-target column mapping that explains translation status columns (medium)
 - [ ] `branches (GET /v1/branches?gridId=)` — branch metadata needed to interpret records synced from a branched grid (medium)
@@ -3951,18 +3951,18 @@ Note: Could not reach any vendor-hosted doc this run: the Notion doc URL in the 
 
 ## Helicone — gaps
 
-Today (4): `prompts`, `requests`, `sessions`, `users`
+Today (6): `eval_scores`, `prompts`, `properties`, `requests`, `sessions`, `users`
 
 Diffed against: <https://docs.helicone.ai/llms.txt>
 
-- [ ] `POST /v1/evals/query` — evaluation results per request — the core quality metric Helicone users chart (high)
-- [ ] `GET /v1/evals/scores` — lookup of the eval score definitions that eval results reference (high)
-- [ ] `POST /v1/property/query` — custom properties attached to requests; the dimension almost every Helicone breakdown is sliced by (high)
+- ~~`POST /v1/evals/query`~~ — not table material: it returns one aggregate row per score name (avg/min/max/count plus hourly series over the requested window) and ignores `limit`/`offset`; the per-request scores it rolls up are already on `requests.scores`
+- [x] `GET /v1/evals/scores` — lookup of the eval score names that eval results reference (high). Added as `eval_scores`. It returns score names only, not definitions.
+- [x] `POST /v1/property/query` — catalog of the custom property keys attached to requests (high). Added as `properties`. It returns the org's non-hidden keys; per-request values are already on `requests.request_properties`.
 - [ ] `POST /v1/user/metrics/query` — per-user aggregated cost/token/request metrics, complements the raw users table we sync (medium)
 - [ ] `POST /v1/session/metrics/query` — per-session cost and latency rollups for the sessions we already sync (medium)
 - [ ] `GET /v1/public/model-registry/models` — lookup table resolving model ids on requests to provider, context window and pricing (medium)
 - [ ] `POST /v1/dashboard/scores/query` — dashboard scoring metrics over time (medium)
-- [ ] `GET /v1/request/inputs` — prompt-template variable values per request — joins requests to the prompts we already sync (medium)
+- ~~`GET /v1/request/inputs`~~ — not table material: the API only serves `GET /v1/request/{requestId}/inputs`, a point lookup that would mean one call per logged request; requests already carry `prompt_id` and `prompt_version` for the join to prompts
 - [ ] `POST /v1/evals/score-distributions/query` — score distribution breakdowns for eval reporting (low)
 - [ ] `GET /v1/prompt-2025/tags` — prompt tag lookup for grouping the prompts table (low)
 - [ ] `GET /v1/prompt-2025/environments` — environment lookup so prompt versions can be attributed to prod/staging (low)
@@ -3971,14 +3971,14 @@ Note: Helicone's API is POST-query shaped rather than REST-collection shaped, so
 
 ## Hellobaton — gaps
 
-Today (11): `activity`, `companies`, `milestones`, `phases`, `project_attachments`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
+Today (15): `activity`, `companies`, `custom_field_values`, `custom_fields`, `milestones`, `phases`, `project_attachments`, `project_phases`, `project_users`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
 
 Diffed against: <https://app.hellobaton.com/api/swagger.json>
 
-- [ ] `project_users` — project membership join table — who is on which project, missing entirely today (high)
-- [ ] `custom_field_values` — the actual custom field data on projects and tasks; without it custom fields are invisible (high)
-- [ ] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
-- [ ] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
+- [x] `project_users` — project membership join table — who is on which project, missing entirely today (high)
+- [x] `custom_field_values` — the actual custom field data on projects (the endpoint returns project values only); without it custom fields are invisible (high)
+- [x] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
+- [x] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
 - [ ] `comments` — collaboration events on projects and tasks, the main activity signal alongside activity (high)
 - [ ] `custom_field_options` — lookup resolving picklist option ids stored in custom_field_values (medium)
 - [ ] `departments` — lookup table resolving the department ids on users and projects (medium)

@@ -1209,6 +1209,36 @@
         },
         "feature_flag": "autoresearch"
     },
+    "autoresearch-runs-list": {
+        "description": "List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status to understand scoring history. run_type is 'inference' for daily scoring runs.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List inference runs",
+        "title": "List inference runs",
+        "required_scopes": ["autoresearch:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
+    "autoresearch-score-create": {
+        "description": "Score today's prediction date with the champion model instead of waiting for the daily scoring run. Use autoresearch-train-create first if the pipeline has no champion. Scoring runs in the background and returns an inference run with status 'running'. If one is already running, returns that run without starting another. Poll autoresearch-runs-list for this run's ID until its status is 'completed' (rows_scored is then set) or 'failed' (error is then set). A manual score counts as today's scoring; the daily run skips the pipeline until its next cadence date. Do not start another run for the same prediction date: it can duplicate predictions. The pipeline must not be paused; an action target also needs the action:read scope. Each scored user gets an 'autoresearch_prediction' event with '$autoresearch_p_y' and a person property update. After the run completes, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Run inference (score users)",
+        "title": "Run inference (score users)",
+        "required_scopes": ["autoresearch:write", "query:read", "person:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "autoresearch"
+    },
     "autoresearch-suggestions-create": {
         "description": "Inject a free-text hypothesis or direction into a running pipeline for the sandbox agent to consider. The agent reads queued suggestions at the start of each training batch and decides whether to translate the suggestion into a concrete iteration ('acted_on'), apply it as a search constraint ('picked_up'), or reject it with rationale ('dismissed'). Use priority='try_next' to instruct the agent to act on this before autonomous iterations; 'consider' (default) is advisory. Check 'agent_response' after the next training run to see how the suggestion was interpreted. Examples: 'try a gradient boosting model', 'remove recency features — I suspect leakage', 'the target event has a 7-day spike on Mondays, account for day-of-week'. Suggestions survive pipeline pauses and are included in the next training batch when the pipeline resumes.",
         "category": "Autoresearch",
@@ -1255,7 +1285,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-train-create": {
-        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid (recreate the pipeline). Returns 403 from inside a sandbox, where pipeline writes are refused. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run promotes a champion, the daily scoring job scores the inference population and emits autoresearch_prediction events. You can optionally override the iteration_budget for this run. A pipeline with an action target also needs the action:read scope.",
+        "description": "Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid (recreate the pipeline). Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry, and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access, because the run is a cloud sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. You can optionally override the iteration_budget for this run. A pipeline with an action target also needs the action:read scope.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Start training",
@@ -1770,6 +1800,36 @@
         },
         "feature_flag": "product-business-knowledge"
     },
+    "business-knowledge-repositories-file-retrieve": {
+        "description": "Read one file from a GitHub repository selected for business knowledge. The path must come from business-knowledge-repositories-search. Returns the file text and a permalink. Does not search file contents.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Read a file from a selected repository",
+        "title": "Read a file from a selected repository",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "business-knowledge-github-repos"
+    },
+    "business-knowledge-repositories-search": {
+        "description": "Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search inside file contents and does not call GitHub code search.",
+        "category": "Business knowledge",
+        "feature": "business_knowledge",
+        "summary": "Search selected repositories",
+        "title": "Search selected repositories",
+        "required_scopes": ["business_knowledge:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "business-knowledge-github-repos"
+    },
     "business-knowledge-sources-list": {
         "description": "List all business knowledge sources in the project, with document/chunk counts, processing status, and refresh metadata.",
         "category": "Business knowledge",
@@ -1871,8 +1931,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "canvas-comments-mcp"
+        }
     },
     "canvas-comments-retrieve": {
         "description": "Read one comment thread on a canvas: the root comment and its replies, oldest first, with the text or region anchor and the canvas version each comment was written on. Read the full thread before you act on a root comment, because a later reply can change the request. If `next` is not null, call again with `cursor`. If an entry has `content_truncated: true`, call again with `comment_id` set to that entry's id and `content_offset` set to its `content_next_offset`.",
@@ -1886,8 +1945,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "canvas-comments-mcp"
+        }
     },
     "canvas-connectors-retrieve": {
         "description": "List the connector catalog a canvas can read live third-party data through with `ph.connectors.call`: every native provider (GitHub) and every MCP store server the authenticated user has connected, each with its tools, their argument schemas, and authoring docs. Use this before writing a canvas that shows pull requests, calendar events, issues, or any other data that must stay fresh per viewer, then declare each provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own connection at view time, never the author's, so results are never baked into the source. Only read-only tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.",
@@ -2789,7 +2847,7 @@
         }
     },
     "conversations-tickets-messages-retrieve": {
-        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page) — use the limit and offset query params to page through long threads, and read count/next from the response envelope. Includes all messages from the customer, team members, and AI, as well as private internal notes. Each message contains author_type, author_name, content, and an is_private flag indicating internal notes.",
+        "description": "Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50, max 200 per page): use the limit and offset query params to page through long threads, and read count/next from the response envelope. The thread includes messages that were never sent to the customer, so read each message's message_type before you say what the team has sent to the customer. customer_message is written by the customer. sent_reply is a reply sent to the customer by a teammate, a workflow, or the AI. A sent_reply does not confirm delivery, because delivery can fail, so say the reply was sent, not that the customer received it. internal_note is a note for the team only. ai_draft is a reply or question the AI wrote for a teammate to review: it can read like a finished reply, but it was never sent, and a teammate may have sent their own version later as a separate sent_reply. internal_note and ai_draft messages both have is_private set to true. Never describe an internal_note or an ai_draft as sent to the customer.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Read support ticket messages",
@@ -4236,7 +4294,7 @@
         }
     },
     "engineering-analytics-broken-tests": {
-        "description": "Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized error signature) and classified by how each is behaving right now, most urgent first. Reach for this to answer \"what CI failures should I care about right now\": it is the triage counterpart to the test-health queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on the default branch and that job's latest run is still red, so trunk is broken now), blocking_merge_queue (failing only on merge-queue gate branches, so it stopped a merge on a commit that had already passed the PR's own CI: the conflict-with-trunk class the queue exists to catch), novel_burst (first seen within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced: without it those failures fall through to flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this data).",
+        "description": "Live CI failures over the last 2 days, grouped into distinct failures (by failing test id + a normalized error signature) and classified by how each is behaving right now, most urgent first. Reach for this to answer \"what CI failures should I care about right now\": it is the triage counterpart to the test-health queue (which ranks week-long unreliability). Each row's state is the verdict: breaking_master (failing on the default branch and that job's latest run is still red, so trunk is broken now), blocking_merge_queue (failing only on merge-queue gate branches, so it stopped a merge on a commit that had already passed the PR's own CI: the conflict-with-trunk class the queue exists to catch), novel_burst (first seen within a day and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Pass a row's latest_run_id and latest_ci_engine to run-failure-logs to read the failing lines. Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced: without it those failures fall through to flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this data).",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Broken tests triage",
@@ -4251,7 +4309,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-ci-failure-logs": {
-        "description": "The thinned CI failure logs for a pull request, grouped by failed job: reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs.",
+        "description": "The thinned CI failure logs for a pull request, grouped by failed job: reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs. Jobs carry ci_engine; null means unknown historical provenance.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "CI failure logs for a PR",
@@ -4281,7 +4339,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-pr-cost": {
-        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
+        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate. Key by_run by (ci_engine, run_id, run_attempt). This covers curated work and excludes suppressed relay/wait overhead; it is not an invoice total.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Estimated CI cost of a PR",
@@ -4296,7 +4354,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-run-failure-logs": {
-        "description": "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures.",
+        "description": "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous integer IDs return 400. Null engine means unknown historical provenance.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "CI failure logs for a run",
@@ -4341,7 +4399,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-workflow-jobs": {
-        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet.",
+        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Jobs of a workflow run",
@@ -4356,7 +4414,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-workflow-runner-costs": {
-        "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet.",
+        "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet. Suppressed relay and wait overhead is excluded; these curated estimates are not invoice totals.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Workflow cost by runner tier",
@@ -4916,7 +4974,7 @@
         "feature": "sql",
         "summary": "Execute an SQL query.",
         "title": "Execute SQL query",
-        "required_scopes": ["query:read", "insight:read"],
+        "required_scopes": ["query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5630,7 +5688,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval (full_refresh_interval_days), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -5686,7 +5744,7 @@
         }
     },
     "external-data-sources-bulk-update-schemas": {
-        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval (full_refresh_interval_days), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
+        "description": "Apply sync configuration to several of a source's table schemas at once: enable or disable syncing (should_sync), sync_type, sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field, and primary key columns. Each entry needs the schema id plus the fields to change. Prefer this over looping 'external-data-schemas-partial-update' when reconfiguring more than a couple of tables of the same source, such as moving every table that cannot sync incrementally onto full_refresh. Every entry is validated before anything is written, and a schema that fails is reported by name while the rest of the batch is saved. Changes take effect on the next sync, not retroactively.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update many table schemas in one request",
@@ -6853,7 +6911,7 @@
         }
     },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report, open checks first and newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -6865,6 +6923,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "inbox-report-checks-replace": {
+        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace a metric follow-up check",
+        "title": "Replace a metric follow-up check",
+        "required_scopes": ["task:write", "query:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-report-checks-replace",
+        "feature_flag_behavior": "enable"
     },
     "inbox-report-checks-retrieve": {
         "description": "Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts themselves are `check_result` artefacts on the report, so read those through the artefact list.",
@@ -7049,7 +7123,7 @@
         }
     },
     "insight-create": {
-        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /\nquery-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.\nReturns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if\nyou want to see the computed results.\n\nPut the insight definition in `query.source`, under the wrapper node that matches it. Use\n`InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:\n\n```json\n{ \"name\": \"Example\", \"query\": { \"kind\": \"DataVisualizationNode\", \"source\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } } }\n```\n\nA bare query is accepted too. `{ \"kind\": \"TrendsQuery\", ... }` and `{ \"kind\": \"HogQLQuery\", ... }` are each\nwrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.",
+        "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /\nquery-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.\nReturns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if\nyou want to see the computed results.\n\nPut the insight definition in `query.source`, under the wrapper node that matches it. Use\n`InsightVizNode` for a product analytics query and `DataVisualizationNode` for a SQL one:\n\n```json\n{ \"name\": \"Example\", \"query\": { \"kind\": \"DataVisualizationNode\", \"source\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } } }\n```\n\nA bare query is accepted too. `{ \"kind\": \"TrendsQuery\", ... }` and `{ \"kind\": \"HogQLQuery\", ... }` are each\nwrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.\n\nChoose the TrendsQuery `trendsFilter.display` from the question the insight answers:\n- Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.\n- Compare breakdown values or series as totals (\"top pages\", \"failures by reason\"): `ActionsBarValue`, or `ActionsPie` for the share of a whole with a few values.\n- One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare: true` for a comparison, or `BoldNumber` when a trend has no meaning.\n- Many breakdown rows that a person reads rather than compares: `ActionsTable`.\n- Totals per country from a `$geoip_country_name` breakdown: `WorldMap`.\n\nIn a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per X-axis value.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Create insight",
@@ -7217,7 +7291,7 @@
         }
     },
     "integrations-github-repos-retrieve": {
-        "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a has_more flag. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
+        "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to next_offset to get the next page. Set `compact` to false only when you need the extra repository details. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "List GitHub integration repositories",
@@ -7593,6 +7667,76 @@
             "readOnlyHint": false
         },
         "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-evaluation-backfill-cancel": {
+        "description": "Stop a running backfill of an evaluation. Evaluations the backfill already started still finish, and their results are kept. A cancelled backfill cannot be resumed; start a new one over the remaining range instead.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Cancel evaluation backfill",
+        "title": "Cancel evaluation backfill",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-backfill-create": {
+        "description": "Run an evaluation over past data: every generation, trace, or session in a time window that matches its conditions. Every unit evaluated is one evaluation run and counts as an AI observability event, plus a model call for an llm_judge, so never call this first. Call llma-evaluation-backfill-estimate with the same window_start, window_end, conditions, and rerun_existing, show the user the unit count and the clamped window, and start only after they confirm. Pass the window_start and window_end the estimate returned, not the ones you requested, with the same conditions and rerun_existing, so the run matches what they approved. One backfill runs per evaluation at a time. The evaluation must be enabled. Returns the backfill; track it with llma-evaluation-backfill-get. Results are '$ai_evaluation' events.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Start evaluation backfill",
+        "title": "Start evaluation backfill",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-evaluation-backfill-estimate": {
+        "description": "Count how many units a backfill of an evaluation would evaluate over a time window, without starting anything. Always call this before llma-evaluation-backfill-create and confirm the count with the user. total_units is what the backfill would evaluate. already_evaluated_units already have a result and are left out unless rerun_existing is true. The window is clamped to the last 30 days and held back by the evaluation's settle time, so report the returned window_start and window_end, not the requested ones. Conditions default to the evaluation's own.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Estimate evaluation backfill",
+        "title": "Estimate evaluation backfill",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-backfill-get": {
+        "description": "Get one backfill of an evaluation with its status and progress. While status is running, dispatched_count plus skipped_count is how many units it has handled. Skipped units were already being evaluated by the evaluation itself, so they are covered, not missed. Once completed, remaining_count is how many units in the window still have no result; null means it was not measured. total_count is the count taken at the start.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get evaluation backfill",
+        "title": "Get evaluation backfill",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-evaluation-backfill-list": {
+        "description": "List the backfills of one evaluation, newest first, with status, window, and counts. At most one is running at a time. See llma-evaluation-backfill-get for what each count means.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List evaluation backfills",
+        "title": "List evaluation backfills",
+        "required_scopes": ["evaluation:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
     },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
@@ -10327,7 +10471,7 @@
         }
     },
     "pull-requests": {
-        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse: it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null means \"not observed\" (the issue-events window is bounded), never zero. CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
+        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse: it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". ready_to_merge_seconds is the true cycle time: merged_at minus the last observed ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null means \"not observed\" (the issue-events window is bounded), never zero. CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Cost and billable minutes can lag new CI by up to 5 minutes. Bots and drafts are present; exclude them (author.is_bot, is_draft) for throughput questions. To list every PR merged in a window, pass state=merged: open PRs then do not count against the page, and rows come newest merged_at first with number as the tie-breaker. Pages hold up to 1000 rows; while truncated is true, call again with offset increased by limit, and keep date_to fixed across pages so new merges do not move rows between pages.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List pull requests with CI status",
@@ -10357,7 +10501,7 @@
         "feature_flag": "tracing"
     },
     "query-error-tracking-issue": {
-        "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: number of volume buckets when sparkline data is needed.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",
+        "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issue",
@@ -10387,7 +10531,7 @@
         "system_prompt_hint": "Error event samples, stack traces, code variables, and session IDs (error-tracking category)"
     },
     "query-error-tracking-issues-list": {
-        "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.\n\nKeep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time.\n\nFor all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit. For severity, use type `error_tracking_issue`, key `severity`, and `exact`, `is_set`, or `is_not_set`.\n\nUse `dateRange` for time, not property filters. Omit `date_to` for now.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
+        "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.\n\nKeep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time. It is an integer count of equal-width buckets across `dateRange`, from 0 to 200, not a unit such as `hour` or `day`. For daily volume over the default 7-day range, send `7`. For hourly volume over the last 24 hours, send `24` with `dateRange.date_from` set to `-24h`.\n\nFor all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit. For severity, use type `error_tracking_issue`, key `severity`, and `exact`, `is_set`, or `is_not_set`.\n\nUse `dateRange` for time, not property filters. Omit `date_to` for now.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issues list",
@@ -11264,7 +11408,7 @@
         }
     },
     "scout-emit-report": {
-        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content — so a call that timed out is worth sending again. That is not cross-run dedup: use `inbox-reports-list` to find a report from an earlier run and `scout-edit-report` to update it instead of authoring a near-duplicate. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Optional `charts` attach queries the inbox renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below. Optional `metrics` adds at most six typed impact measurements: one primary metric for the key observation and supporting facts around it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources, with no more than 1,000 estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum affected-user buckets. Optional `links` records how the new report relates to existing reports (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`, `recurrence_of`). Send them here rather than in a later `scout-edit-report`, because autostart reads them when the report is created. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. Safe to retry: resending an emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, keyed on `idempotency_key` or, without one, on the report's content — so a call that timed out is worth sending again. That is not cross-run dedup: use `inbox-reports-list` to find a report from an earlier run and `scout-edit-report` to update it instead of authoring a near-duplicate. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. A `priority` requires a `priority_explanation`. Optional `charts` attach queries the inbox renders inline — reference one from `summary` as `[label](chart:<chart_id>)` to place it in the body, or leave it unreferenced and it renders below. Optional `metrics` adds at most six typed impact measurements: one primary metric for the key observation and supporting facts around it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources, with no more than 1,000 estimated longitudinal points; its snapshot is only an optional cached fallback. An affected-users metric counts distinct people through one series with `math: dau`. Consumers derive a `BoldNumber` query for each metric's whole-window `aggregated_value` and an `ActionsBar` query for its longitudinal buckets; never sum affected-user buckets. Optional `links` records how the new report relates to existing reports (`duplicate_of`, `depends_on`, `part_of`, `follow_up_of`, `recurrence_of`). Send them here rather than in a later `scout-edit-report`, because autostart reads them when the report is created. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Author a full report for a run",
@@ -12843,6 +12987,21 @@
             "readOnlyHint": true
         }
     },
+    "tasks-config-agent-instructions-create": {
+        "description": "Set the project's agent instructions: markdown that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run on the project, including autonomous runs such as loops and scouts. Requires project admin. Replaces the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set project agent instructions",
+        "title": "Set project agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-config-create": {
         "description": "Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model` must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12859,7 +13018,7 @@
         "feature_flag": "tasks"
     },
     "tasks-config-list": {
-        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored.",
+        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored. Also returns the project's agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get project task run defaults",
@@ -12918,6 +13077,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-me-config-agent-instructions-create": {
+        "description": "Set the caller's personal agent instructions: markdown that PostHog cloud agents load after the project instructions in Tasks runs the caller starts. Autonomous runs never load them. Anyone who continues a task the caller started can see them, so they must not hold anything private. Replaces the stored text; send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set my agent instructions",
+        "title": "Set my agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-me-config-create": {
         "description": "Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12934,7 +13108,7 @@
         "feature_flag": "tasks"
     },
     "tasks-me-config-list": {
-        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it).",
+        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get my task run defaults",
@@ -13037,6 +13211,38 @@
             "readOnlyHint": true
         },
         "feature_flag": "tasks"
+    },
+    "today-briefing-get": {
+        "description": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the self-driving reports that need them most (reports that wait for them, that they claimed or review, and urgent reports nobody owns), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
+        "category": "Today",
+        "feature": "today",
+        "summary": "Get my Today briefing",
+        "title": "Get my Today briefing",
+        "required_scopes": ["today:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "today-rail-nav",
+        "feature_flag_behavior": "enable"
+    },
+    "today-candidates-list": {
+        "description": "The items behind the current user's briefing, each with its source, the reason it was picked, a link, and the facts the text rests on (the report's status, its priority, and whether an implementation PR exists). Use this when you need the numbers and details, not the written text. Items are in briefing order, most urgent first.",
+        "category": "Today",
+        "feature": "today",
+        "summary": "List my Today candidates",
+        "title": "List my Today candidates",
+        "required_scopes": ["today:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "today-rail-nav",
+        "feature_flag_behavior": "enable"
     },
     "update-feature-flag": {
         "description": "Update a feature flag by numeric ID (partial update: only the fields you include are changed). Use this for edits that have no dedicated tool, such as property filters, adding and removing release conditions, variant definitions, payloads, tags and the description.\n\nPrefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`, `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A targeting change someone else made between your read and your write is therefore not overwritten. Send `active` or `archived` here only when the same request also changes targeting or another field, so the whole edit lands in one write.\n\n`feature-flag-set-release-condition-rollout` changes one release condition's percentage and `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. This tool sends no `version`, so it writes even when the flag changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout change only when those two tools cannot express it, such as changing the split between variants while leaving the audience alone.\n\nRollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object, so read the flag first and merge your change. When the flag targets groups, keep `type: \"group\"`, `group_type_index`, and `filters.aggregation_group_type_index` in what you send; if you omit them this tool restores them from the existing flag so group targeting is not silently converted to person targeting. Use `feature-flag-get-definition-by-key` when you have the string key: it returns the numeric ID and the full definition in one call. Use `feature-flag-get-definition` when you already have the ID. To apply a change at a future time instead, use `scheduled-changes-create`.",
@@ -14417,7 +14623,7 @@
         }
     },
     "visual-review-repos-flakiness-retrieve": {
-        "description": "Snapshots in a repo whose rendering cannot be trusted: those carrying a live tolerated variant against their current baseline, those that failed the gate on a recent default-branch run, and those under an active quarantine. Recency changes an entry's state rather than excluding it, so a snapshot that has gone quiet is still listed. This is the triage view, and it is far smaller than the baselines universe, so start here when asked why a suite is unreliable, which snapshots to quarantine, or which quarantines to lift. Each entry carries `hard_rate`, the share of recent default-branch runs that failed the gate, and `soft_rate`, the share a toleration absorbed, plus `headroom`, the fraction of the diff threshold its worst absorbed run leaves free. Every `totals` field except `listed` covers the whole population even when the entry list is capped; `listed` counts the entries actually returned, so it stops at the cap. Takes no filter parameters: filter the returned entries yourself, and pass `fields` to keep the response small when you only need a few of them.",
+        "description": "Snapshots in a repo whose rendering is untrusted: a live tolerated variant, a gate failure on a recent default-branch run, or an active quarantine. Start here to decide what to quarantine or lift. Each entry has `flakiness_state`, `hard_rate` (share of recent default-branch runs that failed the gate), `soft_rate` (share a toleration absorbed), `window_runs`, `headroom` and `needs_decision`. `totals` covers every snapshot; `listed` stops at the cap. Takes no filters: filter the entries yourself, and pass `fields` to trim the response.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review flakiness overview",
@@ -14432,7 +14638,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-list": {
-        "description": "List visual review repos (test suites) for the current project. A repo typically maps to a GitHub repository and owns the baselines, runs, and tolerated hashes for that codebase. Returns repo id, external id, full name, baseline file paths, and pr-comment configuration.",
+        "description": "List the visual review repos in the project. A repo maps to one GitHub repository and owns its baselines, runs and tolerated hashes.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List visual review repos",
@@ -14447,7 +14653,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-partial-update": {
-        "description": "Change one repo's settings. `enable_pr_comments` controls whether a run that finds visual changes posts a pull request comment asking for a review. `debt_digest_enabled` controls whether the debt digest runs for the repo, which posts expiring quarantines and piled-up variants to the Slack channels of the teams that own the snapshots; it is off until somebody turns it on, and it posts every Monday morning. `baseline_file_paths` maps each run type to the file holding its committed baseline hashes, for example `{\"storybook\": \".storybook/snapshots.yml\"}`, and finalize reads and commits the path named there; a `default` key covers every run type that has no entry of its own. Every field is optional, and a field you leave out keeps its current value.",
+        "description": "Change a repo's settings; a field you leave out keeps its value. `enable_pr_comments` posts a review request on pull requests with visual changes. `debt_digest_enabled` posts a Monday Slack digest of expiring quarantines and piled-up variants to the owning teams. `baseline_file_paths` maps a run type to its committed baseline file, for example `{\"storybook\": \".storybook/snapshots.yml\"}`, with `default` as the fallback; finalize commits to that path.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Update visual review repo settings",
@@ -14461,8 +14667,38 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-repos-quarantine-create": {
+        "description": "Stop one identifier of one run type from failing any run in the repo until the quarantine expires. It is still captured and diffed. Use it only for a story that flakes on the default branch (`unstable` in `visual-review-repos-flakiness-retrieve`, `hard_count` of 5 or more, and a failure in the last 7 days), never for a `broken` entry (its baseline needs a fix) or a diff your own change caused. Pass the failing run as `source_run_id` and a `reason` with the evidence. An omitted or later `expires_at` becomes 30 days. A repeat call replaces the quarantine. Then call `visual-review-runs-recompute-create` to update the open pull request's gate.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Quarantine a visual review snapshot",
+        "title": "Quarantine a visual review snapshot",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-repos-quarantine-expire-create": {
+        "description": "Lift every active quarantine on one identifier and run type, so the snapshot gates runs again. Lift one after the fix that stabilizes the story merges, or when its flakiness entry has `needs_decision`. If the story still flakes, the next pull request that renders it fails.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Lift a visual review quarantine",
+        "title": "Lift a visual review quarantine",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-repos-quarantine-list": {
-        "description": "Quarantined snapshot identifiers in a repo, with the reason, who opened it, when, when it expires, and the run whose failure prompted it. A quarantined snapshot is still captured, classified and diffed; it is only excluded when a run decides pass or fail. Returns active entries by default. Pass `identifier` for that one identifier's full history including expired entries, which is how you tell a long-standing mute from one somebody opened this morning. Pass `run_type` to narrow to one kind of run.",
+        "description": "Quarantines in a repo, with reason, author, expiry and the run that prompted each. Returns active entries by default. Pass `identifier` for that identifier's full history, or `run_type` to narrow.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List quarantined snapshots",
@@ -14477,7 +14713,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-retrieve": {
-        "description": "Get a visual review repo by id. Returns baseline file paths keyed by run_type (e.g. storybook → baseline YAML path in the repo), pr-comment setting, and repo metadata.",
+        "description": "Get one repo: baseline file paths per run type, the PR-comment setting and repo metadata.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Get visual review repo",
@@ -14492,7 +14728,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-runs-counts-retrieve": {
-        "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) for one repo's runs. The repo-scoped counterpart to `visual-review-runs-counts-retrieve`, which spans every repo in the project.",
+        "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) for one repo's runs.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review run counts for a repo",
@@ -14507,7 +14743,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-runs-list": {
-        "description": "Runs belonging to one repo. Prefer this over `visual-review-runs-list` whenever you know the repo: that tool spans every repo in the project and cannot be narrowed to one, so its results mix repos together. Filter by `review_state` to triage, or `search` for a free-text match over branch, commit SHA, run type and PR number. For a specific PR, commit or branch, use `visual-review-runs-list`, which takes those filters.",
+        "description": "Runs in one repo. Prefer it over `visual-review-runs-list`, which mixes every repo. Filter by `review_state`, or `search` over branch, commit SHA, run type and PR number. For an exact PR, commit or branch filter, use `visual-review-runs-list`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List runs in a visual review repo",
@@ -14522,7 +14758,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-repos-toleration-pileups-retrieve": {
-        "description": "Snapshots in a repo that keep getting tolerated, counted across baselines, most manual tolerations first. A toleration accepts one exact rendering, so a snapshot that keeps needing them renders differently from run to run, and the fix belongs in the story (a pinned date, a disabled animation, a wait for a loader). Called with only the repo `id` it applies the weekly debt digest's rule and keeps quarantined snapshots, marked with `is_quarantined`. Tune it with `min_tolerations`, `min_automatic_tolerations`, `window_days`, `include_quarantined`, `run_type` and `limit`; the response echoes the rule it applied. The list is short and returns quickly, so use it instead of the flakiness overview to find flaky stories worth fixing, then read one snapshot's history with `visual-review-runs-snapshot-history-list` or its tolerations with `visual-review-runs-tolerated-hashes-list`.",
+        "description": "Snapshots that keep getting tolerated, most manual tolerations first. Such a story renders differently from run to run, and the fix belongs in the story (a pinned date, a disabled animation, a wait for a loader). With only `id`, it applies the weekly debt digest rule. Tune it with `min_tolerations`, `min_automatic_tolerations`, `window_days`, `include_quarantined`, `run_type` and `limit`. Faster than the flakiness overview for finding stories to fix.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review toleration pile-ups",
@@ -14537,7 +14773,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-approve-create": {
-        "description": "Mark specific snapshots as reviewed (approved) in a run. Pass a `snapshots` list, each entry being `{identifier, new_hash}` — `new_hash` is the `content_hash` of the snapshot's `current_artifact`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does NOT update the baseline, push a commit, or change the GitHub gate, and it can be re-run safely. To actually ship the visual change (commit the baseline + green the gate), use `visual-review-runs-finalize-create`. Approving a quarantined `new` snapshot here makes finalize commit its baseline entry while the quarantine stays in place — the way to give a quarantined story an entry without failing other runs.",
+        "description": "Record snapshots as approved in a run, in the database only. Pass `snapshots: [{identifier, new_hash}]`, where `new_hash` is the snapshot's `current_artifact.content_hash`. It does not commit the baseline or change the gate; `visual-review-runs-finalize-create` ships it. An approved quarantined `new` snapshot gets its baseline entry at finalize while the quarantine stays.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Mark visual review snapshots reviewed",
@@ -14552,7 +14788,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-counts-retrieve": {
-        "description": "Return review state counts across all runs for the current project: `needs_review`, `clean`, `processing`, `stale`. Useful as a single call to show reviewer workload before drilling into the list.",
+        "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) across every run in the project.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Visual review run counts",
@@ -14567,7 +14803,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-finalize-create": {
-        "description": "Finalize a fully-reviewed run: commit the approved baseline to the PR branch and green the GitHub visual-review check. Commits exactly the snapshots approved in the DB (tolerated snapshots keep their baseline and are never overwritten) and is all-or-nothing — it only succeeds once every changed/new snapshot is resolved (approved, tolerated, or quarantined), otherwise it returns the unresolved list. With `approve_all: true` every still-pending changed/new snapshot is approved first; quarantined snapshots are skipped by that, but a quarantined `new` snapshot approved by identifier through `visual-review-runs-approve-create` is committed, so a quarantined story can get its baseline entry while the quarantine stays in place. When a baseline commit is pushed its SHA comes back on the run's `metadata.baseline_commit_sha`; it's absent when nothing needed committing (all changes resolved by toleration/quarantine — the gate still greens) or when the commit was skipped (no PR, or a `409 sha_mismatch` from newer PR commits, which leaves the gate red — re-run CI and finalize again). STOP: never finalize on your own initiative. Require explicit, per-run human confirmation first — finalizing ships the visual change and rewrites the committed baseline.",
+        "description": "Ship a fully reviewed run: commit the approved snapshots to the pull request's baseline file and pass the gate. All or nothing: it returns the unresolved list until every changed or new snapshot is approved, tolerated or quarantined. `approve_all: true` approves the pending ones first, but not quarantined ones. With nothing to commit, it posts a green status, and the required check follows when its job re-runs. On `409 stale_run`, finalize the newest run; on `409 sha_mismatch`, re-run CI and finalize the new run. STOP: never finalize without an explicit human yes for this run.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Finalize a visual review run",
@@ -14581,8 +14817,23 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-lift-on-merge-create": {
+        "description": "Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier` (the story ID). The identifier works for an `unchanged` snapshot, which a listing with `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after the pull request merges and a default-branch run that contains the merge renders the expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. A repeat call from the same pull request replaces the pending request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Lift a visual review quarantine when the pull request merges",
+        "title": "Lift a visual review quarantine when the pull request merges",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-list": {
-        "description": "List visual review runs for the current project. Each run represents a single CI execution that captured screenshots for a commit. Filter by `review_state` (e.g. `needs_review`, `clean`, `processing`, `stale`) to triage workload, or by `pr_number` / `commit_sha` / `branch` to find the specific run(s) blocking a PR. Returns status, review decision, commit sha, branch, pr number, and a summary of changed / new / removed / unchanged snapshots.",
+        "description": "Runs in the project; each is one CI capture for one commit. Filter by `review_state`, or by `pr_number`, `commit_sha` or `branch` to find the run that blocks a pull request. Returns status, review decision, commit, branch, PR and a change summary.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List visual review runs",
@@ -14596,8 +14847,53 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-quarantine-lifts-cancel-create": {
+        "description": "Withdraw a pending request to lift a quarantine when this run's pull request merges. The quarantine stays. Pass the run's UUID as `id` and the request's `id` from `visual-review-runs-quarantine-lifts-list` as `request_id`.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Cancel a visual review lift on merge",
+        "title": "Cancel a visual review lift on merge",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-list": {
+        "description": "Requests to lift a quarantine when this run's pull request merges, newest first. `state` is `pending` (waits for the merge and a default-branch run that renders `expected_hash` against a matching baseline), `applied`, `cancelled` or `superseded`. `detail` says what the latest check found. A lift never approves a picture. Empty for a run without a pull request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List visual review lifts on merge",
+        "title": "List visual review lifts on merge",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-recompute-create": {
+        "description": "Re-check the gate of a completed, unfinalized run after a quarantine or toleration: recount unresolved snapshots, post the commit status, and re-run the CI job recorded on the run, so the required check reads the new verdict. Call it on the pull request's latest non-stale run. Approved changes keep the gate red until finalize commits them. `ci_rerun_triggered` and `ci_rerun_error` report the re-run.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Re-check a visual review run's gate",
+        "title": "Re-check a visual review run's gate",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-retrieve": {
-        "description": "Get a visual review run by id. Returns run status, review decision, commit/branch/pr context, a summary (total, changed, new, removed, unchanged, tolerated-matched snapshot counts), and staleness info if a newer run supersedes this one. Use `visual-review-runs-snapshots-list` for per-snapshot diff details.",
+        "description": "Get one run: status, review decision, commit, branch, PR, change summary, and the newer run that supersedes it, if any. Per-snapshot results come from `visual-review-runs-snapshots-list`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Get visual review run",
@@ -14612,7 +14908,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshot-history-list": {
-        "description": "List recent change history for one snapshot across previous runs in the same repo. Useful for diagnosing flaky snapshots — if the same identifier flips between changed and clean across runs, it is a candidate for tolerated hashes or quarantine. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`. Passing the snapshot's own `id` as `id` does not work, and neither parameter can be left out.",
+        "description": "One snapshot's baseline changes on the default branch, newest first. Pass a snapshot's `run_id` as `id` and its `identifier`; the snapshot's own `id` does not work.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Snapshot change history",
@@ -14627,7 +14923,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-snapshots-list": {
-        "description": "List the snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g. Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and `review_state` (`pending`, `approved`). Currently-quarantined snapshots are EXCLUDED by default — they are known-flaky noise, not changes to review — and reported only as a `quarantined_count` on the response; pass `include_quarantined=true` to fetch them too. Renders an interactive diff viewer with baseline / current / diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and prioritises actionable results regardless.",
+        "description": "Snapshots in a run with their diff results: `identifier`, `result` (`unchanged`, `changed`, `new`, `removed`), `classification_reason`, diff percentage and pixels, `review_state`, and signed baseline and current image URLs. Quarantined snapshots are left out and counted in `quarantined_count`; pass `include_quarantined=true` to get them. Pass `exclude_unchanged=true` to list only the changed, new and removed snapshots; a large run holds thousands of unchanged ones. Pass `snapshot_id` to fetch one snapshot by its `id`. Pass a `limit`, such as 50. Renders a diff viewer.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List run snapshots",
@@ -14642,7 +14938,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerate-create": {
-        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. To accept the change instead, use `visual-review-runs-approve-create` to record the review, then `visual-review-runs-finalize-create` to actually commit the new baseline.",
+        "description": "Accept one changed snapshot's current rendering as an alternative to its baseline, in every future run. Only for named render noise over the threshold (anti-aliasing, font hinting, a cursor) at the same size, with `change_kind: pixel`, so check the images first. It cannot be undone through the API. Never use it to pass a gate: a story that renders differently from run to run gets `visual-review-repos-quarantine-create`, and an intended change gets approved and finalized. Pass the snapshot's UUID as `snapshot_id`, then call `visual-review-runs-recompute-create`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Tolerate visual review snapshot",
@@ -14657,7 +14953,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerated-hashes-list": {
-        "description": "List known tolerated alternate hashes for one snapshot in the run's repo. Tolerated hashes catalog acceptable rendering variants (e.g. anti-aliasing noise) so future runs don't flag them as changes. This covers a single snapshot, not the whole run or repo. Both parameters are required, and one snapshot from `visual-review-runs-snapshots-list` gives you both: pass its `run_id` as `id`, and its `identifier` as `identifier`.",
+        "description": "Tolerated alternate hashes for one snapshot in the run's repo. Pass a snapshot's `run_id` as `id` and its `identifier`.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List tolerated hashes",
@@ -15074,6 +15370,20 @@
         "feature": "workflows",
         "summary": "List workflow revisions",
         "title": "List workflow revisions",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-list-versions": {
+        "description": "List the published versions of one workflow, newest first, each with the time it went live. Read it to tell how long the live version has been sending before you trust its metrics: a version whose sends began in the last two days has not had time to collect opens. A workflow never published since version history began has no rows here, so its live version is missing: judge that one's age from when its sends began in workflows-stats instead. Takes the workflow id as 'id'.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List a workflow's published versions",
+        "title": "List a workflow's published versions",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,

@@ -32,6 +32,7 @@ Integer handling notes:
   uniformity, and the position arithmetic stays inside Int64.
 """
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -99,6 +100,63 @@ def _own_events_excluded_clause(alias: str = "") -> str:
 # default of 100 rows; the materializers fail a result that fills this bound, and validation
 # refuses a larger population before a run is spent on it.
 MATERIALIZE_ROW_LIMIT = 50_000
+
+# The share of MATERIALIZE_ROW_LIMIT a sampled training population aims at. The rate is chosen
+# from one count and applied in a later query, so the population can grow in between.
+TRAINING_SAMPLE_HEADROOM = 0.8
+TRAINING_SAMPLE_BUDGET = int(MATERIALIZE_ROW_LIMIT * TRAINING_SAMPLE_HEADROOM)
+
+# Negative anchors are kept when the low 31 bits of this salted hash fall under the rate's
+# threshold. The salt keeps the draw independent of the T0 and fold hashes of the same person.
+_SAMPLE_HASH = "bitAnd(cityHash64(concat('sample:', toString(person_id))), 2147483647)"
+_HASH_RANGE = 2147483648
+
+
+class TrainingSampleTooLarge(ValueError):
+    """The positives alone do not fit the training budget, so no negative sample rate can help."""
+
+
+@frozen
+class TrainingSample:
+    """
+    The case-control sample of training anchors: every positive, and each negative with
+    probability ``negative_sample_rate``. A rate of 1.0 keeps the whole population.
+    """
+
+    population: int
+    positives: int
+    negative_sample_rate: float
+
+    @property
+    def negatives(self) -> int:
+        return self.population - self.positives
+
+    @property
+    def expected_size(self) -> int:
+        return self.positives + round(self.negatives * self.negative_sample_rate)
+
+    @classmethod
+    def plan(cls, *, population: int, positives: int, budget: int = TRAINING_SAMPLE_BUDGET) -> "TrainingSample":
+        """
+        Keep every anchor when the population fits ``budget``. Otherwise keep every positive and
+        the fraction of negatives that fills the rest of it.
+        """
+        negatives = population - positives
+        if population <= budget or negatives <= 0:
+            return cls(population=population, positives=positives, negative_sample_rate=1.0)
+        if positives >= budget:
+            raise TrainingSampleTooLarge(
+                f"The training population has {positives} positive examples, more than the {budget} that one "
+                "run trains on. Narrow the population or shorten the horizon."
+            )
+        return cls(population=population, positives=positives, negative_sample_rate=(budget - positives) / negatives)
+
+
+def negative_sample_threshold(negative_sample_rate: float) -> int:
+    """The bound on the salted 31-bit hash under which a negative anchor is kept."""
+    if not 0.0 < negative_sample_rate <= 1.0:
+        raise ValueError(f"negative_sample_rate must be in (0, 1], got {negative_sample_rate!r}")
+    return math.floor(negative_sample_rate * _HASH_RANGE)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -593,11 +651,17 @@ def _build_labeled_users_cte(
     lookback_days: int,
     training_population: dict[str, Any] | None,
     sample_limit: int | None,
+    anchor_ts: int | None = None,
+    negative_sample_rate: float = 1.0,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the WITH clause that materialises the labeled_users table:
         labeled_users(person_id, t0_ts, positive)
     Caller appends `SELECT ... FROM labeled_users` to use it.
+
+    A ``negative_sample_rate`` below 1 keeps every positive and each negative whose salted
+    person hash falls under the rate, so the same people are drawn on every run. At 1.0 the
+    query is the unsampled one.
 
     Population membership is decided per user at T0. Person-property filters and
     identity come from ``raw_persons``, and the kinds' cheap superset fragments
@@ -610,18 +674,26 @@ def _build_labeled_users_cte(
 
     sample_limit caps user_window for fast wizard previews; None = full
     materialization (trainer).
+
+    anchor_ts (unix seconds) is the instant every window ends at; None = now().
+    Queries that must agree on the anchor set, such as the training features and
+    the anchor count, bind the same anchor_ts, because each query reads its own
+    now() and a person at a window edge can fall in one and not the other.
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
     compiled_filters = _compile_population_filters(training_properties)
     target_cond, target_values = build_target_condition(
         target_event=target_event, target_definition=target_definition, team=team
     )
-    compiled_kind = _build_population_kind_conditions(training_population, anchor_mode=True, target_cond=target_cond)
+    now_expr = "fromUnixTimestamp({anchor_ts})" if anchor_ts is not None else "now()"
+    compiled_kind = _build_population_kind_conditions(
+        training_population, now_expr=now_expr, anchor_mode=True, target_cond=target_cond
+    )
     member_clause = _member_clause(compiled_filters, compiled_kind)
     superset_clause = f" AND ({' AND '.join(compiled_kind.where_parts)})" if compiled_kind.where_parts else ""
     member_scan = (
-        "timestamp >= now() - toIntervalDay({lookback})"
-        f" AND timestamp < now(){_own_events_excluded_clause()}{member_clause}{superset_clause}"
+        f"timestamp >= {now_expr} - toIntervalDay({{lookback}})"
+        f" AND timestamp < {now_expr}{_own_events_excluded_clause()}{member_clause}{superset_clause}"
     )
     persons_sql = _person_rows_sql(
         f"SELECT person_id FROM events WHERE {member_scan}",
@@ -656,6 +728,9 @@ def _build_labeled_users_cte(
     having_parts.extend(compiled_kind.anchor_having_parts)
     anchor_having = f"\n              HAVING {' AND '.join(having_parts)}" if having_parts else ""
 
+    # A sampled population labels into labeled_population, and labeled_users keeps the sample of it.
+    labeled_cte = "labeled_population" if negative_sample_rate < 1.0 else "labeled_users"
+
     # ifNull on the label: a property-filtered action predicate is NULL on rows that lack
     # the property, and a user whose every in-horizon row is NULL must label 0, not NULL.
     # T0 sits at a fixed fraction (hash / 2^31) of the user's [first_ts, cutoff_ts) span. A
@@ -673,7 +748,7 @@ def _build_labeled_users_cte(
                 SELECT
                     person_id,
                     toInt(toUnixTimestamp(min(timestamp))) AS first_ts,
-                    toInt(toUnixTimestamp(now() - toIntervalDay({{horizon}}))) AS cutoff_ts
+                    toInt(toUnixTimestamp({now_expr} - toIntervalDay({{horizon}}))) AS cutoff_ts
                 FROM events
                 WHERE {member_scan}
                 GROUP BY person_id
@@ -690,7 +765,7 @@ def _build_labeled_users_cte(
                   AS t0_ts
             FROM user_window
         ),
-        labeled_users AS (
+        {labeled_cte} AS (
             SELECT
                 u.person_id AS person_id,
                 u.t0_ts AS t0_ts,
@@ -701,8 +776,8 @@ def _build_labeled_users_cte(
                 ), 0) AS positive
             FROM events e
             INNER JOIN user_t0 u ON e.person_id = u.person_id
-            WHERE e.timestamp >= now() - toIntervalDay({{lookback}})
-              AND e.timestamp < now(){_own_events_excluded_clause("e.")}{label_scan_clause}
+            WHERE e.timestamp >= {now_expr} - toIntervalDay({{lookback}})
+              AND e.timestamp < {now_expr}{_own_events_excluded_clause("e.")}{label_scan_clause}
             GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """
@@ -713,6 +788,17 @@ def _build_labeled_users_cte(
         **compiled_filters.values,
         **compiled_kind.values,
     }
+    if anchor_ts is not None:
+        values["anchor_ts"] = anchor_ts
+    if negative_sample_rate < 1.0:
+        values["negative_sample_threshold"] = negative_sample_threshold(negative_sample_rate)
+        cte += f"""    ,
+        labeled_users AS (
+            SELECT person_id, t0_ts, positive
+            FROM labeled_population
+            WHERE positive = 1 OR {_SAMPLE_HASH} < {{negative_sample_threshold}}
+        )
+    """
     return cte, values
 
 
@@ -725,6 +811,8 @@ def build_random_t0_labeler_sql(
     sample_limit: int | None = None,
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
+    anchor_ts: int | None = None,
+    negative_sample_rate: float = 1.0,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query that returns one row of (eligible, positives) for a
@@ -736,6 +824,8 @@ def build_random_t0_labeler_sql(
 
     With sample_limit=None this gives the trainer's actual eligible count;
     with sample_limit=N it gives an unbiased estimator computed over N users.
+    With a ``negative_sample_rate`` it counts the case-control sample the trainer
+    materializes at that rate.
     """
     cte, values = _build_labeled_users_cte(
         target_event=target_event,
@@ -745,6 +835,8 @@ def build_random_t0_labeler_sql(
         lookback_days=lookback_days,
         training_population=training_population,
         sample_limit=sample_limit,
+        anchor_ts=anchor_ts,
+        negative_sample_rate=negative_sample_rate,
     )
     sql = f"""
         {cte}
@@ -989,6 +1081,8 @@ def build_training_features_sql(
     training_population: dict[str, Any] | None,
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
+    anchor_ts: int | None = None,
+    negative_sample_rate: float = 1.0,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the composite training-time query:
@@ -998,7 +1092,8 @@ def build_training_features_sql(
 
     Caller substitutes {lookback_days} in feature_sql before calling. Returns
     one row per eligible user with the agent's feature columns plus __label
-    and __fold for the train/holdout split.
+    and __fold for the train/holdout split. A ``negative_sample_rate`` below 1
+    restricts the rows to the case-control sample (see ``TrainingSample``).
     """
     cte, values = _build_labeled_users_cte(
         target_event=target_event,
@@ -1008,6 +1103,8 @@ def build_training_features_sql(
         lookback_days=lookback_days,
         training_population=training_population,
         sample_limit=None,
+        anchor_ts=anchor_ts,
+        negative_sample_rate=negative_sample_rate,
     )
     anchors_subquery = "(SELECT person_id, t0_ts AS cutoff_ts FROM labeled_anchors)"
     substituted_feature_sql = _substitute_anchors(feature_sql, anchors_subquery)

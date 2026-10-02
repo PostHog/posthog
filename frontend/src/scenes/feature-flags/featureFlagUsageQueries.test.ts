@@ -1,4 +1,5 @@
 import { dateMapping } from 'lib/utils/dateFilters'
+import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
 import { DataVisualizationNode, DateRange, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
@@ -178,6 +179,19 @@ describe('featureFlagUsageQueries', () => {
 
         expect(query.source.query).toContain("flag_key = 'o\\'brien-flag'")
     })
+
+    it.each(flagEvaluationsBuilders)(
+        '%s puts JSON-null and missing responses in one bucket with the events-mode label',
+        (_name, build) => {
+            // The raw column holds 'null' for one case and '' for the other, so grouping on it shows two
+            // series with their own labels where the events mode shows one.
+            const { query } = build(personFlagOptions)
+
+            expect(query.source.query).toContain(
+                `if(response IN ('', 'null'), '${BREAKDOWN_NULL_DISPLAY}', response) AS`
+            )
+        }
+    )
 
     it('buildFlagEvaluationsTotalVolumeChart breaks the line graph down by response over the date range interval', () => {
         const { query } = buildFlagEvaluationsTotalVolumeChart({

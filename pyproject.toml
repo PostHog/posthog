@@ -104,7 +104,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.60.1",
+    "posthoganalytics==7.62.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -213,6 +213,7 @@ dependencies = [
     "limits==5.8.0",
     "deltalite==0.1.9",
     "posthog-hogland==0.4.1",
+    "requests-oauthlib~=2.0.0",
 ]
 
 [dependency-groups]
@@ -311,6 +312,10 @@ required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
 exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+# posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
+# dependency spec on every release, so this constraint is what stops a new major from
+# landing by accident. Lift it in the migration PR that moves the call sites.
+constraint-dependencies = ["posthoganalytics<8"]
 
 [tool.uv.workspace]
 members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto"]
@@ -718,7 +723,6 @@ ignore_imports = [
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_context",
     "products.experiments.backend.presentation.views -> products.experiments.backend.session_event_deltas",
     "products.experiments.backend.presentation.views -> products.experiments.backend.setup_context",
-    "products.experiments.backend.presentation.views -> products.experiments.backend.temporal.models",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.evaluation_context",
     "products.experiments.backend.presentation.views -> products.feature_flags.backend.models.feature_flag",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
@@ -731,9 +735,6 @@ ignore_imports = [
     # parse -> facade -> serialize and delete each entry. backend:contract-check stays off until
     # this list is empty. Only delete entries here: a new import from these views goes through
     # the facade.
-    "products.workflows.backend.presentation.views.hog_flow -> products.cdp.backend.models.hog_function_template",
-    "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.cohort",
-    "products.workflows.backend.presentation.views.hog_flow -> products.cohorts.backend.models.util",
     "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.person_sampling",
     "products.workflows.backend.presentation.views.hog_flow -> products.feature_flags.backend.user_blast_radius",
     "products.workflows.backend.presentation.views.hog_flow -> products.messaging.backend.api.design_operations",
@@ -755,21 +756,17 @@ ignore_imports = [
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.batch_audience",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.email_sending_attribution",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.timing_reschedule",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.wait_clock_conditions",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.services.workflow_email_health",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.tasks.hog_flows",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.batch_trigger_limit",
-    "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.durations",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.email_sending_tiers",
     "products.workflows.backend.presentation.views.hog_flow -> products.workflows.backend.utils.rrule_utils",
-    "products.workflows.backend.presentation.views.hog_flow_template -> products.cdp.backend.models.hog_function_template",
-    "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.models.hog_flow.hog_flow_template",
-    "products.workflows.backend.presentation.views.hog_flow_template -> products.workflows.backend.templates",
     # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
     # access with them. Thin them to parse -> facade -> serialize and delete each entry.
     "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
+    "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

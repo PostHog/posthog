@@ -142,10 +142,15 @@ Four writers keep buckets warm; user reads only ever consume.
 
 | System                                                               | Trigger tag                        | When                  | What it does                                                                                                                                                                              |
 | -------------------------------------------------------------------- | ---------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Eager baseline warmer (Dagster, `eager_web_analytics_precompute.py`) | `webAnalyticsEagerBaselineWarming` | Hourly at :05         | Pre-warms the fixed dashboard matrix (overview, goals, vitals, one stats query per breakdown) over a trailing 28d window for flag-enrolled teams (cap 200, 45-min cycle budget)           |
-| Hourly demand warmer (Dagster, `cache_warming.py`)                   | `webAnalyticsQueryWarming`         | Hourly                | Selects hot shapes from query_log (kind `Web%`, ≥2 hits in 2 days; raw-path shapes keep a ≥10 bar), expands sub-30d ranges to −30d, replays via an 8-worker pool with the opt-in injected |
+| Eager baseline warmer (Dagster, `eager_web_analytics_precompute.py`) | `webAnalyticsEagerBaselineWarming` | Hourly at :53         | Pre-warms the fixed dashboard matrix (overview, goals, vitals, one stats query per breakdown) over a trailing 28d window for flag-enrolled teams (cap 200, 45-min cycle budget)           |
+| Hourly demand warmer (Dagster, `cache_warming.py`)                   | `webAnalyticsQueryWarming`         | Hourly at :03         | Selects hot shapes from query_log (kind `Web%`, ≥2 hits in 2 days; raw-path shapes keep a ≥10 bar), expands sub-30d ranges to −30d, replays via an 8-worker pool with the opt-in injected |
 | Warm-behind on miss                                                  | (background warming request)       | On any user-read miss | Debounced rebuild of exactly the shape that missed; self-heals first-hit misses in ~30–60s                                                                                                |
 | Stale revalidation                                                   | `webAnalyticsStaleRevalidation`    | On stale-grace serves | Refreshes expired buckets after serving the stale copy                                                                                                                                    |
+
+The demand warmer delays each team's first eligible work by a stable offset within ten minutes of its shard starting.
+Manual runs have no release delay.
+Worker capacity can delay a team beyond its release time; the offset is not a completion deadline.
+The eager and demand jobs can still overlap if either pass runs long.
 
 ## Flags and team allowlists
 
@@ -205,3 +210,37 @@ Percentage series contain fractions: a value of `0.42` displays as `42.0%` in th
 The chart keeps existing data visible while refreshing and replaces it with the supplied error if the refresh fails.
 Storybook covers loading, refreshing, empty results, errors, and a 520 px scene.
 The component does not activate the five-section dashboard or change its queries.
+
+## Marketing analytics suggestion
+
+The Sources table can show a dismissible Marketing analytics suggestion behind `web-analytics-marketing-cross-sell`.
+The gate precedes the query and connection loaders, so disabled users incur no additional requests.
+The Channel and all existing UTM table views (source, medium, campaign, content, term, and combined source/medium/campaign) share the dashboard's Channels data node, including its date range, filters, test-account exclusion, comparison and query cache.
+Channel therefore adds no analytics request; a direct visit to a UTM table may load Channels once through the normal optimized query runner.
+The suggestion requires a recognized paid channel with visitors in the current period.
+Organic source names and comparison-only traffic do not qualify.
+This is positive evidence from the returned top channels, not an exhaustive census: paid traffic below the table limit or under an arbitrary custom channel name may not trigger the suggestion.
+
+Connection metadata loads only after that evidence exists, without mounting the Marketing analytics dashboard or running its report queries.
+An enabled native ad integration or an existing external source mapping leads to Marketing analytics; otherwise the link opens source setup when that interface is enabled, or the existing dashboard onboarding flow.
+Sync health remains the destination's responsibility, so a failed integration does not prompt a duplicate connection.
+These table views share the same copy: Connect ad sources for projects without a connection, or Analyze in Marketing analytics for connected projects.
+Loading and failed metadata requests leave the suggestion hidden.
+The destination keeps the date range; Web analytics property filters are not forwarded because Marketing analytics uses a different filter schema.
+An explicit open end date clears any end date saved during a previous Marketing analytics visit.
+Dismissal persists per project in the browser.
+
+### Cross-sell attribution
+
+`web analytics marketing cross sell clicked` records `cross_sell_id`, `cross_sell_clicked_at` (Unix milliseconds), `team_id`, the table breakdown, and whether ad sources were already connected.
+`web analytics marketing cross sell source created` records the same attribution plus `source_id` and `source_type`, only after the source creation API succeeds.
+The model is the first Advertising source created after the latest click within 24 hours, in the same browser tab, project and identified user.
+Session storage preserves the click across a same-tab OAuth redirect and reload; a successful connection consumes it.
+A failed connection retains it for retry. Non-ad connections and flag-off users do not read or consume it.
+Storage restrictions, switching devices or tabs, and later connections can leave conversions unattributed.
+These events use the existing analytics SDK and add no eligibility queries.
+
+Join the attributed `source_id` to source sync usage and the project's billing customer to estimate its share of billed Data warehouse revenue.
+Use billable usage and actual invoice amounts, including free allowances and adjustments; a created source or a click is not revenue.
+Deduplicate source IDs before allocating revenue and keep acquisition (`has_connected_sources = false`) separate from expansion.
+This is click attribution, not proof of incremental revenue. Measure incrementality with a randomized holdout at the billing-customer level so projects from one customer do not appear in both groups.
