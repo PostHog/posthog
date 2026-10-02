@@ -112,6 +112,19 @@ export function BroadcastContentStep(): JSX.Element {
                     Links stay as written and no tracking pixel is added, so this broadcast shows no opens or clicks.
                 </span>
             )}
+            <LemonSwitch
+                label="Add UTM tags to links"
+                checked={emailSettings.utmTagsEnabled}
+                onChange={(utmTagsEnabled) => setEmailSettings({ utmTagsEnabled })}
+                bordered
+                data-attr="broadcast-utm-tags-toggle"
+            />
+            {emailSettings.utmTagsEnabled && (
+                <span className="text-xs text-secondary">
+                    Links get utm_source=posthog, utm_medium=email and utm_campaign with this broadcast's name. Tags
+                    already on a link are kept.
+                </span>
+            )}
         </div>
     )
 }

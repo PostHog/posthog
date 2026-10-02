@@ -1485,6 +1485,20 @@ describe('EmailService', () => {
                 expect(headerNames).toContain('X-PostHog-Tracking-Code')
             })
 
+            it('adds UTM tags named after the workflow to the links when the step turns them on', async () => {
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: false,
+                    utm_tags_enabled: true,
+                    hog_flow_name: 'Spring sale',
+                }
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
+                    '<body>Hi! <a href="https://example.com?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale">Click me</a></body>'
+                )
+            })
+
             it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()

@@ -125,7 +125,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     it.each([
         ['a new broadcast', null],
         ['a workflow shaped like a broadcast', { origin_product: null, actions: [trigger(), email(), exit], edges }],
-    ])('saves the message category and tracking onto the email step of %s', (_, existing) => {
+    ])('saves the message category, tracking and UTM tags onto the email step of %s', (_, existing) => {
         const payload = buildBroadcastPayload({
             name: 'Newsletter',
             audienceProperties: [],
@@ -133,7 +133,12 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             conversion: DEFAULT_BROADCAST_CONVERSION,
             email: DEFAULT_BROADCAST_EMAIL,
             emailRateLimit: null,
-            emailSettings: { messageCategoryId: 'cat-1', messageCategoryType: 'marketing', trackingEnabled: false },
+            emailSettings: {
+                messageCategoryId: 'cat-1',
+                messageCategoryType: 'marketing',
+                trackingEnabled: false,
+                utmTagsEnabled: true,
+            },
             broadcast: existing as unknown as HogFlowApi | null,
         })
 
@@ -142,6 +147,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             message_category_id: 'cat-1',
             message_category_type: 'marketing',
             tracking_enabled: false,
+            utm_tags_enabled: true,
         })
     })
 })

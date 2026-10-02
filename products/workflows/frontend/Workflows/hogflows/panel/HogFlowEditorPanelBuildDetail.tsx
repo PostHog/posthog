@@ -156,6 +156,21 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                             }}
                         />
                     </div>
+                    <div className="flex gap-2 justify-between items-center px-2 py-1">
+                        <LemonLabel info="Adds utm_source=posthog, utm_medium=email and utm_campaign with the workflow name to each link, so visits from this email show up as their own campaign in web analytics. Tags already on a link are kept. Links to PostHog, such as the unsubscribe link, are not changed.">
+                            Add UTM tags to links
+                        </LemonLabel>
+                        <LemonSwitch
+                            checked={action.config.utm_tags_enabled === true}
+                            onChange={(checked) => {
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    config: { ...action.config, utm_tags_enabled: checked },
+                                })
+                            }}
+                            data-attr="workflow-email-utm-tags-toggle"
+                        />
+                    </div>
                 </>
             )}
 

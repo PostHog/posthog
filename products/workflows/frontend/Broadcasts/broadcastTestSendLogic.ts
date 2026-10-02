@@ -14,7 +14,12 @@ import { createExampleEvent } from '../Workflows/hogflows/testEventFactory'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../Workflows/hogflows/types'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID } from '../Workflows/workflowLogic'
 import { BroadcastPreviewPerson, broadcastPreviewLogic } from './broadcastPreviewLogic'
-import { BroadcastEmailValue, BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
+import {
+    BroadcastEmailSettings,
+    BroadcastEmailValue,
+    BroadcastWizardLogicProps,
+    broadcastWizardLogic,
+} from './broadcastWizardLogic'
 
 // Fixed id for the single email action in the synthetic test flow. The edges below reference it,
 // and it goes over as `current_action_id` so the worker runs just this node.
@@ -39,6 +44,7 @@ export function findTestSendSkipReason(result: HogflowTestResult | null): string
 export interface broadcastTestSendLogicValues {
     previewPerson: BroadcastPreviewPerson | null // broadcastPreviewLogic
     email: BroadcastEmailValue // broadcastWizardLogic
+    emailSettings: BroadcastEmailSettings // broadcastWizardLogic
     name: string // broadcastWizardLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
@@ -125,7 +131,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
     connect((props: BroadcastWizardLogicProps) => ({
         values: [
             broadcastWizardLogic(props),
-            ['email', 'name'],
+            ['email', 'emailSettings', 'name'],
             broadcastPreviewLogic(props),
             ['previewPerson'],
             teamLogic,
@@ -152,7 +158,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
             {
                 clearTestSendResult: () => null,
                 sendTestEmail: async (): Promise<HogflowTestResult> => {
-                    const { email, name, previewPerson, recipientEmail, currentTeamId } = values
+                    const { email, emailSettings, name, previewPerson, recipientEmail, currentTeamId } = values
 
                     const emailAction: HogFlowAction = {
                         id: TEST_EMAIL_ACTION_ID,
@@ -163,6 +169,8 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                         updated_at: 0,
                         config: {
                             template_id: 'template-email',
+                            // The test shows the links as the audience gets them.
+                            utm_tags_enabled: emailSettings.utmTagsEnabled,
                             inputs: {
                                 email: {
                                     value: {

@@ -49,6 +49,7 @@ export class HogFlowFunctionsService {
             // send choke point, where only the synthetic hog function is in scope.
             metadata: {
                 ...config,
+                hog_flow_name: hogFlow.name,
                 email_sending_rate_limit: hogFlow.email_sending_rate_limit ?? null,
                 email_sending_paused_at: hogFlow.email_sending_paused_at ?? null,
                 email_sending_paused_reason: hogFlow.email_sending_paused_reason ?? null,
