@@ -1,7 +1,8 @@
 // These tests check the workflows under .github/workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
 import { spawnSync } from 'node:child_process'
-import { readdirSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -672,6 +673,28 @@ describe('.github/workflows run plans', () => {
             expect(step?.run).toBeDefined()
             const run = spawnSync('bash', ['-c', step!.run!], { env: { ...process.env, MASTER_RESULT: result } })
             expect(run.status).toBe(result === 'success' ? 0 : 1)
+        }
+    )
+
+    it.each(['', 'posthog-schema-mig-v2-' + 'a'.repeat(40), 'invalid'])(
+        'schema cache key bridge validates %j',
+        (key) => {
+            const directory = mkdtempSync(path.join(tmpdir(), 'backend-schema-key-'))
+            try {
+                const keyFile = path.join(directory, 'key.txt')
+                const outputFile = path.join(directory, 'output.txt')
+                writeFileSync(keyFile, key + '\n')
+                const step = workflow('ci-backend.yml').jobs['master-depot']!.steps?.find(
+                    (step) => step.id === 'schema-key'
+                )
+                const result = spawnSync('bash', ['-c', step!.run!], {
+                    env: { ...process.env, KEY_FILE: keyFile, GITHUB_OUTPUT: outputFile },
+                })
+                expect(result.status).toBe(key === 'invalid' ? 1 : 0)
+                if (key !== 'invalid') expect(readFileSync(outputFile, 'utf8')).toBe(`key=${key}\n`)
+            } finally {
+                rmSync(directory, { recursive: true, force: true })
+            }
         }
     )
 

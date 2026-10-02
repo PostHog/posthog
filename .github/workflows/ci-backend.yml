@@ -647,7 +647,7 @@ jobs:
                   import re
                   from pathlib import Path
                   key = Path(os.environ['KEY_FILE']).read_text().strip()
-                  if not re.fullmatch(r'posthog-schema-mig-[a-zA-Z0-9_-]+-[0-9a-f]{40}', key):
+                  if key and not re.fullmatch(r'posthog-schema-mig-[a-zA-Z0-9_-]+-[0-9a-f]{40}', key):
                       raise ValueError('Invalid migration-set schema cache key')
                   with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
                       output.write(f'key={key}\n')
