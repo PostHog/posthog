@@ -11758,6 +11758,14 @@ snapshots:
         hash: v1.k794b7964.170cc8f24367e614fa935570b13f4ce7d5f83f617b567e045032502491a4530b.Z7u0Hvsxpxt0kN-NVXCmvNAunsxT4eu_x18JZOMjbf0
     scenes-app-notebooks-generated-widgets--before-generation--light:
         hash: v1.k794b7964.f8eabbbe270e16f6db6253fac4ccc1298d6486f4fcc54d086f39b494e32276bb.byEVF2WvcVULWZ_b-qJMNkCK-hCMqS-EcQNFNyVUVd4
+    scenes-app-notebooks-jupyter-mode--jupyter-mode--dark:
+        hash: v1.k794b7964.500d117a0845274239aaa147328be81e3b0969bd705e01a3bedf50a4b8449c0c.D1_RR7QodTEFdIymNWjodMuaFsIt_ANlAxbuslyrg7I
+    scenes-app-notebooks-jupyter-mode--jupyter-mode--light:
+        hash: v1.k794b7964.698e10eb9014ff662d9bff482eaa1e1f44db22b52430fb09058c8bd9d0fe431f.x1lo_sE5tB-eB6Tt1kv_LSPvUZ_rCXBeRfabQddJcQo
+    scenes-app-notebooks-jupyter-mode--jupyter-mode-off--dark:
+        hash: v1.k794b7964.6cfc999e14196674801a7a60a292d1afd9a122f9313e63a17c0e6246e00e8c60.nVIT1vEFe7RZqLqVQTxDTK_27vDj0PbwcoeRtMsbDhY
+    scenes-app-notebooks-jupyter-mode--jupyter-mode-off--light:
+        hash: v1.k794b7964.7b1a7d1b2149310b80166e459b1969806c27877659a4561a956dd7bcb0578cf8.RRG-nEHGqDJRNh3ocUan1QYnVeHSgv2Jh8d_UBm3_Ok
     scenes-app-notebooks-kernel-info--free-compute--dark:
         hash: v1.k794b7964.e8e81cc18d66dcca3d1cd23cc5017833b040abcaa4a3be85c6161787fed0efcd.OiaNuBz69zbpOxiLQsFYOQuJn_226577RmjJ_GbOdyQ
     scenes-app-notebooks-kernel-info--free-compute--light:
