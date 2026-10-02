@@ -80,7 +80,7 @@ CACHED_PROGRESS = TypeAdapter(CheckProgress)
 
 def _aggregation_degree(series: dict[str, Any]) -> int | None:
     aggregation = series.get("math") or "total"
-    if aggregation in ("total", "dau", "weekly_active", "monthly_active", "unique_session", "unique_group", "sum"):
+    if aggregation in ("total", "dau", "unique_session", "unique_group", "sum"):
         return 1
     if aggregation in ("avg", "median", "min", "max", "p90", "p95", "p99", "p75", "p50"):
         return 0
@@ -262,6 +262,13 @@ def measure_progress(
             check_id=check_id,
             status=CheckProgressStatus.UNAVAILABLE,
             explanation="The activity query is not available to you.",
+        )
+    # Trends counts these over the 7 or 30 days before date_to, so the monitoring start cannot bound them.
+    if any(series.get("math") in ("weekly_active", "monthly_active") for series in config.query["source"]["series"]):
+        return CheckProgress(
+            check_id=check_id,
+            status=CheckProgressStatus.UNAVAILABLE,
+            explanation="Weekly and monthly active users include activity from before monitoring started. The final check still runs at the end of its window.",
         )
     start = report.monitoring_started_at
     end = report.monitoring_ended_at if report.status == "resolved" else timezone.now()

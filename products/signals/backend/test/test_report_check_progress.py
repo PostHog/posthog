@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -18,9 +18,11 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact, 
 from products.signals.backend.report_check_authoring import CheckCreationError, _stored_config
 from products.signals.backend.report_check_progress import (
     CheckProgressStatus,
+    ProgressQueryBudget,
     bounded_progress_query,
     evaluate_progress,
     interim_comparison,
+    measure_progress,
     observation_count_query,
     progress_target_type,
 )
@@ -120,6 +122,36 @@ class TestProgressEvaluation(SimpleTestCase):
         )
         assert comparison.bounds is not None
         self.assertEqual(comparison.bounds.model_dump(), {"lower": 7, "upper": 14})
+
+    @parameterized.expand([("weekly_active",), ("monthly_active",)])
+    def test_rolling_active_users_have_no_interim_reading(self, aggregation: str) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_event", "math": aggregation}])
+        start = datetime(2026, 10, 1, tzinfo=UTC)
+        check = SignalReportCheck(
+            kind="metric_threshold",
+            config={
+                "query": query,
+                "comparison": {"operator": "gte", "value": 50},
+                "progress_target_type": "proportional",
+            },
+            updated_at=start,
+        )
+        report = SignalReport(status=SignalReport.Status.MONITORING, monitoring_started_at=start)
+        measured = SimpleNamespace(
+            results=[{"aggregated_value": 40, "days": [start.isoformat()], "data": [40]}], last_refresh=start
+        )
+        with patch(
+            "products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=measured
+        ) as runner:
+            progress = measure_progress(
+                check=check,
+                report=report,
+                team=MagicMock(id=42, timezone_info=UTC),
+                policy=MagicMock(),
+                budget=ProgressQueryBudget(),
+            )
+        self.assertEqual(progress.status, CheckProgressStatus.UNAVAILABLE)
+        runner.assert_not_called()
 
     @parameterized.expand([("100 * A / B",), (" 100 * A / B ",)])
     def test_rate_evidence_counts_the_denominator_without_mutating_the_metric(self, formula: str) -> None:
