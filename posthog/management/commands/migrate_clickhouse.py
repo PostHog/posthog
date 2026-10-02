@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 
 from cachetools import cached
 from infi.clickhouse_orm import Database
-from infi.clickhouse_orm.migrations import MigrationHistory
+from infi.clickhouse_orm.migrations import MigrationHistory, MigrationHistoryReplicated
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import ClickHouseCredentials, default_client
@@ -16,6 +16,10 @@ from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUS
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER, CLICKHOUSE_PASSWORD_FILE
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
+
+
+def migration_tracking_columns_sql() -> str:
+    return ", ".join(f"{name} {field.get_sql(db=None)}" for name, field in MigrationHistoryReplicated.fields().items())
 
 
 class Command(BaseCommand):
@@ -157,21 +161,19 @@ class Command(BaseCommand):
         # the cluster so the very first SELECT in infi's migrate() succeeds
         # and the auto-create branch never runs.
         #
-        # Schema (`package_name String, module_name String, applied Date`) and
-        # the ZK path mirror `infi.clickhouse_orm.migrations.MigrationHistory`
-        # / `MigrationHistoryReplicated`. If `infi` ever changes those, this
-        # pre-create will silently diverge — keep the two in sync.
+        # The columns come from `MigrationHistoryReplicated`, so they match the
+        # schema that infi writes to ZooKeeper. Any difference (for example a
+        # missing `DEFAULT`) makes a new replica fail with Code 122. The ZK path
+        # mirrors `MigrationHistoryReplicated` too. If `infi` ever changes it,
+        # this pre-create will silently diverge — keep the two in sync.
         if not settings.MULTINODE_CLICKHOUSE:
             return
+        columns = migration_tracking_columns_sql()
         with default_client(password=password) as client:
             client.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {database}.infi_clickhouse_orm_migrations
-                ON CLUSTER {cluster} (
-                    package_name String,
-                    module_name String,
-                    applied Date
-                )
+                ON CLUSTER {cluster} ({columns})
                 ENGINE = ReplicatedMergeTree(
                     '/clickhouse/prod/tables/noshard/{{database}}/{{table}}',
                     '{{replica}}-{{shard}}'
@@ -184,11 +186,7 @@ class Command(BaseCommand):
             client.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {database}.infi_clickhouse_orm_migrations_distributed
-                ON CLUSTER {cluster} (
-                    package_name String,
-                    module_name String,
-                    applied Date
-                )
+                ON CLUSTER {cluster} ({columns})
                 ENGINE = Distributed({cluster}, {database}, infi_clickhouse_orm_migrations, rand())
                 """
             )
