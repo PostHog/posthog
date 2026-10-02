@@ -267,6 +267,7 @@ const TRIPWIRE_RULES = [
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
     ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -2023,7 +2024,7 @@ function computeTargets(changedFiles, context) {
             targets.add(lane)
         }
 
-        if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
+        if (top === 'posthog' || top === 'clickhouse-udfs' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
             continue
         }
