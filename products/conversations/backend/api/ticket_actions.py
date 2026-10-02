@@ -63,9 +63,7 @@ class TicketActionUpdateSerializer(serializers.Serializer):
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
-    cc_participants = serializers.ListField(
-        child=serializers.CharField(max_length=254, trim_whitespace=True), required=False, max_length=50
-    )
+    cc_participants = serializers.ListField(child=serializers.CharField(max_length=254), required=False, max_length=50)
     cc_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
 
     def validate_cc_participants(self, value: list[str]) -> list[str]:
