@@ -13,9 +13,9 @@ from ci_backend_master_receipts import DepotBinding, Engine, MasterEvent, OwnerR
 from ci_backend_master_store import BINDING_ARTIFACT, DISPATCH_ARTIFACT, OWNER_ARTIFACT, Commands, GitHubReceipts
 
 MASTER = MasterEvent(repository="example/repo", github_run_id=101, sha="a" * 40, event="push")
-ORG = "exampleorg"
+ORG = "example_org-1"
 RUN = "dispatch_run"
-WORKFLOW = "exampleworkflow"
+WORKFLOW = "example_workflow-1"
 
 
 def zipped(filename: str, payload: str) -> bytes:
@@ -28,6 +28,7 @@ def zipped(filename: str, payload: str) -> bytes:
 class FakeCommands(Commands):
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
+        self.dispatch_failure = False
         self.receipts: list[dict[str, object]] = []
         self.downloads: dict[int, bytes] = {}
         self.run_payload: dict[str, object] = {
@@ -104,6 +105,8 @@ class FakeCommands(Commands):
             else:
                 response = self.run_payload
         elif args[:3] == ["depot", "ci", "dispatch"]:
+            if self.dispatch_failure:
+                raise RuntimeError("Dispatch transport failed")
             response = {"org_id": ORG, "run_id": RUN}
         elif args[:3] == ["depot", "ci", "status"]:
             response = self.status_payload
@@ -192,15 +195,23 @@ def test_publish_acknowledgment_before_binding_and_reuse_it_after_a_flip(tmp_pat
     assert f"master_sha={MASTER.sha}" in dispatches[0]
 
 
-@pytest.mark.parametrize("engine", [None, "github", "depot"])
-def test_missing_dispatch_acknowledgment_never_causes_a_second_dispatch(tmp_path: Path, engine: Engine | None) -> None:
+@pytest.mark.parametrize(
+    "engine,transport_failure", [(None, False), ("github", False), ("depot", False), ("depot", True)]
+)
+def test_missing_dispatch_acknowledgment_never_causes_a_second_dispatch(
+    tmp_path: Path, engine: Engine | None, transport_failure: bool
+) -> None:
     commands = FakeCommands()
     if engine is not None:
         persist_owner(commands, engine=engine)
+    if transport_failure:
+        commands.dispatch_failure = True
+        with pytest.raises(RuntimeError, match="transport failed"):
+            controller(tmp_path, commands).dispatch(run_attempt=1)
     commands.run_payload["run_attempt"] = 2
     with pytest.raises(ValueError):
         controller(tmp_path, commands).dispatch(run_attempt=2)
-    assert not any(call[:3] == ["depot", "ci", "dispatch"] for call in commands.calls)
+    assert sum(call[:3] == ["depot", "ci", "dispatch"] for call in commands.calls) == int(transport_failure)
 
 
 @pytest.mark.parametrize(
@@ -250,6 +261,31 @@ def test_receipt_lookup_paginates_past_unrelated_artifacts(tmp_path: Path) -> No
         commands.upload(f"unrelated-{index}", "ignored", "invented")
     persist_owner(commands)
     assert controller(tmp_path, commands).select(mode="github", run_attempt=1)["engine"] == "depot"
+
+
+def test_cli_authorizes_pinned_inputs_with_the_shared_depot_identifier_grammar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commands = FakeCommands()
+    persist_handoff(commands)
+    monkeypatch.setattr(Commands, "run", commands.run)
+    for name, value in {
+        "GITHUB_REPOSITORY": MASTER.repository,
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_SHA": "b" * 40,
+        "GITHUB_OUTPUT": str(tmp_path / "outputs"),
+        "MASTER_RUN_ID": str(MASTER.github_run_id),
+        "MASTER_SHA": MASTER.sha,
+        "MASTER_EVENT": MASTER.event,
+        "MASTER_SCHEDULE": "",
+        "DEPOT_ORG_ID": ORG,
+        "DEPOT_JOB_URL": f"https://depot.dev/orgs/{ORG}/workflows/{WORKFLOW}?job=authorize",
+    }.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr("sys.argv", ["controller", "authorize", "--directory", str(tmp_path / "receipts")])
+    assert main() == 0
+    assert f"sha={MASTER.sha}\n" in (tmp_path / "outputs").read_text()
+    assert "handed_off=true\n" in (tmp_path / "outputs").read_text()
 
 
 def test_worker_waits_for_binding_and_rejects_another_workflow(tmp_path: Path) -> None:

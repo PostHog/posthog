@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from ci_backend_master_depot import DepotMaster, DispatchReceipt
-from ci_backend_master_receipts import DepotBinding, MasterEvent, MasterLane, OwnerReceipt
+from ci_backend_master_receipts import DEPOT_IDENTIFIER_PATTERN, DepotBinding, MasterEvent, MasterLane, OwnerReceipt
 from ci_backend_master_store import BINDING_ARTIFACT, DISPATCH_ARTIFACT, OWNER_ARTIFACT, Commands, GitHubReceipts
 
 
@@ -175,7 +175,8 @@ def main() -> int:
     if options.command == "relay" and options.artifact_directory is None:
         raise ValueError("Relay requires an artifact directory")
     job = re.fullmatch(
-        r"https://depot\.dev/orgs/([a-z0-9]+)/workflows/([a-z0-9]+)(?:[/?].*)?", os.environ.get("DEPOT_JOB_URL", "")
+        rf"https://depot\.dev/orgs/({DEPOT_IDENTIFIER_PATTERN})/workflows/({DEPOT_IDENTIFIER_PATTERN})(?:[/?].*)?",
+        os.environ.get("DEPOT_JOB_URL", ""),
     )
     if options.command == "authorize" and job is None:
         raise ValueError("Depot job URL must identify the worker being authorized")

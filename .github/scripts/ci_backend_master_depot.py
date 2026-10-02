@@ -5,7 +5,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from ci_backend_master_artifacts import extract_artifact, validate_artifact_name
-from ci_backend_master_receipts import DepotBinding, OwnerReceipt
+from ci_backend_master_receipts import DepotBinding, OwnerReceipt, depot_identifier
 from ci_backend_master_store import Commands, integer, record, records, text
 
 WORKFLOW = "ci-backend.yml"
@@ -14,10 +14,7 @@ TERMINAL_STATES = {"finished", "failed", "cancelled"}
 
 
 def identifier(value: object) -> str:
-    parsed = text(value)
-    if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,99}", parsed) is None:
-        raise ValueError("Depot response contains an invalid identifier")
-    return parsed
+    return depot_identifier(text(value))
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
