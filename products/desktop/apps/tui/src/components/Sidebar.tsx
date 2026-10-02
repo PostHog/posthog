@@ -27,7 +27,7 @@ function IndicatorGlyph({
 }): ReactElement {
   if (indicator === "working") return <Spinner />;
   return indicator ? (
-    <Text color={INDICATOR_COLORS[indicator]}>{local ? "▪" : "●"}</Text>
+    <Text color={INDICATOR_COLORS[indicator]}>{local ? "■" : "●"}</Text>
   ) : (
     <Text> </Text>
   );
