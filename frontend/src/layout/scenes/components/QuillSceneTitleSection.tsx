@@ -51,7 +51,10 @@ export function QuillSceneTitleSection({
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const releaseStageSceneId = sceneId ?? activeSceneId
-    const releaseStageProduct = useMemo(() => releaseStageProductForScene(releaseStageSceneId), [releaseStageSceneId])
+    const releaseStageProduct = useMemo(
+        () => releaseStageProductForScene(releaseStageSceneId, name),
+        [releaseStageSceneId, name]
+    )
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown = hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit)
 
