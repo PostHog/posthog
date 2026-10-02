@@ -323,6 +323,31 @@ describe('ci-report section helper', () => {
             expect(github.comments.some((comment) => parseSections(comment.body).has('bundle-size'))).toBe(true)
         })
 
+        it('posts to PR_NUMBER on a workflow_dispatch run, whose event has no pull_request', async () => {
+            const pullRequestEventPath = process.env.GITHUB_EVENT_PATH
+            const dispatchEventPath = path.join(tmpDir, 'dispatch-event.json')
+            fs.writeFileSync(dispatchEventPath, JSON.stringify({ inputs: { pr_number: '7' } }))
+            process.env.GITHUB_EVENT_PATH = dispatchEventPath
+            process.env.PR_NUMBER = '7'
+            try {
+                const github = fakeGitHub()
+                const fakeFetch = globalThis.fetch
+                const postUrls: string[] = []
+                globalThis.fetch = async (url: RequestInfo | URL, options: RequestInit = {}): Promise<Response> => {
+                    if (options.method === 'POST') {
+                        postUrls.push(String(url))
+                    }
+                    return fakeFetch(url, options)
+                }
+                await postSection({ id: 'hogbox-preview', status: 'info', summary: 'building', body: 'BOX' }, opts)
+                expect(postUrls).toEqual(['https://api.github.com/repos/PostHog/posthog/issues/7/comments'])
+                expect(parseSections(github.comments[0].body).has('hogbox-preview')).toBe(true)
+            } finally {
+                process.env.GITHUB_EVENT_PATH = pullRequestEventPath
+                delete process.env.PR_NUMBER
+            }
+        })
+
         it('removes a resolved legacy comment even when no report section exists yet', async () => {
             const github = fakeGitHub([{ body: '## Old result\nNo longer relevant' }])
             await clearSectionIfPresent(
