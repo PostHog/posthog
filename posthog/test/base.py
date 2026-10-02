@@ -48,7 +48,6 @@ from posthog.hogql.visitor import clone_expr
 from posthog import rate_limit, redis
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.managed_schema import ClickHouseDatabase
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.cloud_utils import TEST_clear_instance_license_cache
@@ -56,20 +55,6 @@ from posthog.helpers.two_factor_session import code_based_verification_token_gen
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Organization, Team, User
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    DISTRIBUTED_EVENTS_JSON_TABLE_SQL,
-    DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_EVENTS_TABLE_SQL,
-    EVENTS_JSON_DATA_TABLE,
-    EVENTS_JSON_TABLE_SQL,
-    EVENTS_TABLE_SQL,
-    WRITABLE_EVENTS_DATA_TABLE,
-    WRITABLE_EVENTS_JSON_TABLE,
-    WRITABLE_EVENTS_JSON_TABLE_SQL,
-    WRITABLE_EVENTS_TABLE_SQL,
-)
 from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
@@ -1825,41 +1810,6 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
 
         if exceptions:
             raise exceptions[0]
-
-
-def clickhouse_events_table_drop_statements() -> list[str]:
-    statements = [
-        DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
-        DROP_EVENTS_TABLE_SQL(),
-    ]
-
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        statements = [
-            f"DROP TABLE IF EXISTS {DISTRIBUTED_EVENTS_JSON_TABLE}",
-            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_JSON_TABLE}",
-            f"DROP TABLE IF EXISTS {EVENTS_JSON_DATA_TABLE}",
-            f"DROP TABLE IF EXISTS {WRITABLE_EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}",
-            *statements,
-        ]
-
-    return statements
-
-
-def clickhouse_events_data_table_sqls() -> list[str]:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return [EVENTS_TABLE_SQL(), EVENTS_JSON_TABLE_SQL()]
-    return [EVENTS_TABLE_SQL()]
-
-
-def clickhouse_events_distributed_table_sqls() -> list[str]:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return [
-            DISTRIBUTED_EVENTS_TABLE_SQL(),
-            WRITABLE_EVENTS_TABLE_SQL(),
-            WRITABLE_EVENTS_JSON_TABLE_SQL(),
-            DISTRIBUTED_EVENTS_JSON_TABLE_SQL(),
-        ]
-    return [DISTRIBUTED_EVENTS_TABLE_SQL()]
 
 
 # A client checkout is the "ClickHouse may have changed" signal. Counted at two

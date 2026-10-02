@@ -75,9 +75,7 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_GROUPS: KafkaClusterProfile.INGESTION,
     KAFKA_LOG_ENTRIES: KafkaClusterProfile.INGESTION,
     KAFKA_APP_METRICS2: KafkaClusterProfile.INGESTION,
-    # tophog topic + ingestion-pointed CH _ws table were both pre-provisioned (topic in
-    # warpstream-ingestion topics.tf, kafka_tophog_ws via CH migration 0227); only the
-    # producer-side override was missing.
+    # The tophog topic and the ClickHouse Kafka table that reads it are both on the ingestion cluster.
     KAFKA_CLICKHOUSE_TOPHOG: KafkaClusterProfile.INGESTION,
     # --- SHARED (Warpstream shared — low-volume / early-stage topics) ---
     KAFKA_METRICS_TIME_TO_SEE_DATA: KafkaClusterProfile.SHARED,
