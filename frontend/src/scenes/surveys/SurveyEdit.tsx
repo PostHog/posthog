@@ -20,9 +20,11 @@ import {
     LemonTag,
     Link,
     Popover,
+    lemonToast,
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -372,6 +374,26 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         setSurveyValue('targeting_flag', null)
         setSurveyValue('remove_targeting_flag', true)
         setFlagPropertyErrors(null)
+    }
+
+    function loadPickedLinkedFlag(flagId: number): void {
+        api.featureFlags
+            .get(flagId)
+            .then((linkedFlag) => {
+                setSurveyValue('linked_flag', linkedFlag)
+            })
+            .catch((error) => {
+                // Only a missing flag ends the link. A failed request keeps the pick, because a save with no
+                // linked_flag_id removes the survey's flag targeting.
+                if (error instanceof ApiError && error.status === 404) {
+                    setSurveyValue('linked_flag_id', null)
+                    setSurveyValue('linked_flag', null)
+                    return
+                }
+                lemonToast.error("Couldn't load the selected feature flag.", {
+                    button: { label: 'Try again', action: () => loadPickedLinkedFlag(flagId) },
+                })
+            })
     }
 
     const getFieldError = (
@@ -1465,20 +1487,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           // flag id, and the variant
                                                                                           // selector below reads the
                                                                                           // flag itself.
-                                                                                          api.featureFlags
-                                                                                              .get(id)
-                                                                                              .then((linkedFlag) => {
-                                                                                                  setSurveyValue(
-                                                                                                      'linked_flag',
-                                                                                                      linkedFlag
-                                                                                                  )
-                                                                                              })
-                                                                                              .catch(() => {
-                                                                                                  setSurveyValue(
-                                                                                                      'linked_flag_id',
-                                                                                                      null
-                                                                                                  )
-                                                                                              })
+                                                                                          loadPickedLinkedFlag(id)
                                                                                       }
                                                                                       // Reset variant selection when flag changes
                                                                                       const {
