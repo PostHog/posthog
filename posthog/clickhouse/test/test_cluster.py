@@ -427,9 +427,10 @@ def test_find_existing_mutations_handles_delimiter_shaped_parameter_value(cluste
 
 
 def test_find_existing_mutations_renders_tz_aware_datetimes_before_connecting() -> None:
-    """Regression test: commands were rendered with `client.connection.context`, whose `server_info` is
-    None until the client has run a query. A tz-aware datetime parameter (e.g. an event removal time
-    range) then raised `'NoneType' object has no attribute 'get_timezone'` on a fresh pooled client.
+    """Regression test: commands were rendered with `client.connection.context` before the client had
+    connected, so `server_info` was None and a tz-aware datetime parameter (e.g. an event removal time
+    range) raised `'NoneType' object has no attribute 'get_timezone'`. The lookup must also render in the
+    server timezone, as submission does, or a non-UTC server would never match its stored mutation.
     """
     runner = LightweightDeleteMutationRunner(
         table=EVENTS_DATA_TABLE(),
@@ -439,11 +440,18 @@ def test_find_existing_mutations_renders_tz_aware_datetimes_before_connecting() 
     client = Client("unconnected-host")
     assert client.connection.context.server_info is None
 
-    with patch.object(client, "execute", return_value=[(None,)]) as execute:
+    def fake_execute(query: str, params: dict | None = None, **kwargs) -> list[tuple]:
+        if query == "SELECT 1":  # connecting populates server_info, here a non-UTC server
+            client.connection.context.server_info = Mock(get_timezone=Mock(return_value="America/New_York"))
+            return [(1,)]
+        return [(None,)]
+
+    with patch.object(client, "execute", side_effect=fake_execute) as execute:
         assert runner.find_existing_mutations(client) == {}
 
-    (params,) = [call.args[1] for call in execute.call_args_list]
-    assert "'2026-01-01 00:00:00'" in params["__command_0"]
+    connect_call, lookup_call = execute.call_args_list
+    assert connect_call.args == ("SELECT 1",)
+    assert "'2025-12-31 19:00:00'" in lookup_call.args[1]["__command_0"]
 
 
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
