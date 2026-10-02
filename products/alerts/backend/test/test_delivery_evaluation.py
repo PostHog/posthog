@@ -1,11 +1,10 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
-from products.alerts.backend.delivery.evaluation import DESTINATIONS_ARE_LIVE, deliver_evaluation
+from products.alerts.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -24,10 +23,10 @@ SLACK = cast(AlertDestinationData, {"type": DestinationType.SLACK, "slack_worksp
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
 
 
-def _request() -> AlertDeliveryRequest:
+def _request(team_id: int) -> AlertDeliveryRequest:
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
-        team_id=2,
+        team_id=team_id,
         configuration_id="cfg-1",
         evaluation_key="eval-1",
         destination_alert_id="legacy-1",
@@ -59,15 +58,16 @@ def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDesti
     return AlertDestinationGroup(hog_function_ids=(), data=data, fully_enabled=fully_enabled)
 
 
-class TestDeliverEvaluation(SimpleTestCase):
-    def _run(self, announced: Any, groups: list[AlertDestinationGroup]) -> Any:
+class TestDeliverEvaluation(APIBaseTest):
+    def _run(self, announced: Any, groups: list[AlertDestinationGroup], live: bool = True) -> Any:
         with (
+            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=live),
             patch(f"{_MODULE}.announcement", return_value=announced),
             patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups) as resolved,
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch(f"{_MODULE}.deliver") as delivered,
         ):
-            outcome = deliver_evaluation(_request())
+            outcome = deliver_evaluation(_request(self.team.id))
         return outcome, resolved, delivered
 
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
@@ -96,7 +96,30 @@ class TestDeliverEvaluation(SimpleTestCase):
         assert delivered.call_args_list == []
         assert outcome.sent == 0
 
-    def test_destinations_are_not_live(self) -> None:
-        # The parallel run notifies through the logs product's own stack. Flipping this before
-        # a team is cut over means every logs alert notifies twice.
-        assert DESTINATIONS_ARE_LIVE is False
+    def test_a_team_without_the_flag_is_not_contacted(self) -> None:
+        outcome, resolved, delivered = self._run(_announcement(AlertEventKind.FIRING), [_group(SLACK)], live=False)
+
+        assert (resolved.call_args_list, delivered.call_args_list) == ([], [])
+        assert outcome.live is False
+
+    def test_the_flag_is_read_against_the_project(self) -> None:
+        # Without the project group the condition never matches, and the platform stays silent
+        # with nothing to say why.
+        with (
+            patch(f"{_MODULE}.posthoganalytics.feature_enabled", return_value=False) as flag,
+            patch(f"{_MODULE}.announcement", return_value=None),
+        ):
+            deliver_evaluation(_request(self.team.id))
+
+        assert flag.call_args.args[0] == LIVE_DELIVERY_FLAG
+        assert flag.call_args.kwargs["groups"]["project"] == str(self.team.id)
+
+    def test_a_flag_that_cannot_be_read_leaves_the_legacy_path_as_the_only_deliverer(self) -> None:
+        with (
+            patch(f"{_MODULE}.posthoganalytics.feature_enabled", side_effect=RuntimeError("flags unreachable")),
+            patch(f"{_MODULE}.deliver") as delivered,
+        ):
+            outcome = deliver_evaluation(_request(self.team.id))
+
+        assert delivered.call_args_list == []
+        assert outcome.live is False

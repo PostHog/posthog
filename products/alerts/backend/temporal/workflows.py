@@ -32,7 +32,7 @@ with workflow.unsafe.imports_passed_through():
 
     from posthog.sync import database_sync_to_async_pool
 
-    from products.alerts.backend.delivery.evaluation import DESTINATIONS_ARE_LIVE, deliver_evaluation
+    from products.alerts.backend.delivery.evaluation import deliver_evaluation
     from products.alerts.backend.facade.contracts import (
         AlertDeliveryRequest,
         AlertDemand,
@@ -104,7 +104,8 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
     the ORM and posts over a blocking client. Django refuses an ORM call from a thread with a
     running event loop, so the whole call crosses on the pool rather than one part of it.
     """
-    if not DESTINATIONS_ARE_LIVE:
+    outcome = await database_sync_to_async_pool(deliver_evaluation)(request)
+    if not outcome.live:
         await LOGGER.ainfo(
             "alerts_platform_delivery_preview",
             source=request.source.value,
@@ -114,7 +115,6 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         safe_record(increment_deliveries_previewed, request.source.value)
         return
 
-    outcome = await database_sync_to_async_pool(deliver_evaluation)(request)
     await LOGGER.ainfo(
         "alerts_platform_delivered",
         source=request.source.value,
