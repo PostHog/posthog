@@ -142,7 +142,7 @@ export function Pane({
     index: number;
     submitText?: (text: string) => void;
   } | null;
-  // The model this chat runs on, when known.
+  // The model this chat runs on and its effort, when known.
   model: string | undefined;
   // Where the chat runs, its repository and pull request.
   chips: StatusChip[];

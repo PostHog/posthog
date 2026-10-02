@@ -22,9 +22,21 @@ export type PiCommand = (input: {
   params: { command: unknown };
 }) => Promise<{ success: boolean; result?: unknown; error?: string }>;
 
+// pi's thinking level: how much the model reasons before it answers.
+export type Effort = Parameters<PiRemoteRpcClient["setThinkingLevel"]>[0];
+
 export interface PiControl {
-  models(): Promise<{ available: ModelChoice[]; current: ModelChoice | null }>;
+  // The models on offer, and the model and effort the run is on now.
+  models(): Promise<{
+    available: ModelChoice[];
+    current: ModelChoice | null;
+    effort: Effort | null;
+  }>;
   setModel(model: ModelChoice): Promise<void>;
+  // The efforts the run's current model supports, and the one it is on.
+  efforts(): Promise<{ available: Effort[]; current: Effort | null }>;
+  // pi moves an effort the model does not support to the nearest one it does.
+  setEffort(effort: Effort): Promise<void>;
   // The run's own slash commands: extension commands, prompt templates and skills.
   commands(): Promise<RunCommand[]>;
   // Stops the agent's current turn.
@@ -133,7 +145,13 @@ export function piControl(
 export function controlOf(
   client: Pick<
     PiRemoteRpcClient,
-    "getAvailableModels" | "getState" | "setModel" | "getCommands" | "abort"
+    | "getAvailableModels"
+    | "getState"
+    | "setModel"
+    | "getAvailableThinkingLevels"
+    | "setThinkingLevel"
+    | "getCommands"
+    | "abort"
   >,
   // The local client sends bash through the runtime, which the remote client's interface does not cover.
   bash: PiControl["bash"],
@@ -152,11 +170,20 @@ export function controlOf(
           )
           .map(choice),
         current: state.model ? choice(state.model) : null,
+        effort: state.thinkingLevel ?? null,
       };
     },
     setModel: async (model) => {
       await client.setModel(model.provider, model.id);
     },
+    efforts: async () => {
+      const [available, state] = await Promise.all([
+        client.getAvailableThinkingLevels(),
+        client.getState(),
+      ]);
+      return { available, current: state.thinkingLevel ?? null };
+    },
+    setEffort: (effort) => client.setThinkingLevel(effort),
     abort: () => client.abort(),
     bash,
     commands: async () =>
@@ -172,6 +199,44 @@ export function parseSlash(
 ): { command: string; args: string } | null {
   const match = /^\/(\S+)\s*(.*)$/.exec(text.trim());
   return match ? { command: match[1], args: match[2] } : null;
+}
+
+// The same words the desktop app uses for pi's levels.
+export const EFFORT_LABELS: Record<Effort, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+// "Opus 5.5 (high)": the effort qualifies the model, as pi's own footer shows it.
+export function modelWithEffort(
+  model: string | undefined,
+  effort: Effort | undefined,
+): string | undefined {
+  if (!effort) return model;
+  const level =
+    effort === "off" ? "thinking off" : EFFORT_LABELS[effort].toLowerCase();
+  return model ? `${model} (${level})` : level;
+}
+
+export function effortSheet(
+  available: Effort[],
+  current: Effort | null,
+  description: string,
+): Sheet {
+  return {
+    title: "Select effort",
+    description,
+    items: available.map((effort) => ({
+      label: EFFORT_LABELS[effort],
+      current: effort === current,
+    })),
+    footer: "Enter to select · Esc to cancel",
+  };
 }
 
 export function modelSheet(

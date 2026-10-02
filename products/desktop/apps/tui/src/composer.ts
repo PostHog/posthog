@@ -53,6 +53,7 @@ export function isTyping(sequence: string): boolean {
 // Commands the TUI handles itself; anything else starting with / goes to the agent.
 export const SLASH_COMMANDS = [
   { name: "model", description: "Switch this chat's model" },
+  { name: "effort", description: "Set how much this chat's model thinks" },
   { name: "new", description: "Start a new chat" },
   { name: "clear", description: "Clear this local chat's conversation" },
   { name: "local", description: "Run new chats in this pane on this machine" },

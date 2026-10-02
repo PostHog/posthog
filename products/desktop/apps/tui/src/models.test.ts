@@ -49,7 +49,7 @@ describe("modelSheet", () => {
 });
 
 describe("piControl", () => {
-  it("reads the run's harness models and current model, and switches it, over pi/rpc", async () => {
+  it("reads the run's harness models, current model and effort, and switches them, over pi/rpc", async () => {
     const personalLogin = {
       provider: "anthropic",
       id: "claude-opus-5-5",
@@ -71,8 +71,10 @@ describe("piControl", () => {
           type === "get_available_models"
             ? { models: [terra, personalLogin, notInCatalog, opus] }
             : type === "get_state"
-              ? { model: terra }
-              : undefined;
+              ? { model: terra, thinkingLevel: "medium" }
+              : type === "get_available_thinking_levels"
+                ? { levels: ["low", "medium", "high"] }
+                : undefined;
         return {
           success: true,
           result: { id, type: "response", command: type, success: true, data },
@@ -87,6 +89,16 @@ describe("piControl", () => {
         { ...opus, name: "Opus 5.5" },
       ],
       current: { ...terra, name: "Terra 5.6" },
+      effort: "medium",
+    });
+    expect(await control.efforts()).toEqual({
+      available: ["low", "medium", "high"],
+      current: "medium",
+    });
+    await control.setEffort("high");
+    expect(sendCommand.mock.calls.at(-1)?.[0].params.command).toMatchObject({
+      type: "set_thinking_level",
+      level: "high",
     });
     await control.setModel(opus);
 
