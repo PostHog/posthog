@@ -14,7 +14,7 @@ import type {
 } from '../utils/recordingTimeline'
 import { MIN_INACTIVE_ROW_MS, currentRowIndex, rowStartMs, timelineGapPx } from '../utils/recordingTimeline'
 import { ObservationThumbnail } from './ObservationThumbnail'
-import { TimelineMarkerChip } from './TimelineMarkerChip'
+import { TimelineKeyMoment } from './TimelineKeyMoment'
 import { TimelineRail } from './TimelineRail'
 
 export interface RecordingTimelineProps {
@@ -104,7 +104,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                     <span
                         className={cn(
                             'text-xs font-mono text-right',
-                            row.kind === 'chapter' ? 'pt-0.5' : 'self-center',
+                            row.kind === 'chapter' ? 'pt-2' : 'self-center py-1',
                             isCurrent ? 'text-accent font-semibold' : inactive ? 'text-tertiary' : 'text-secondary'
                         )}
                     >
@@ -132,7 +132,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                         {row.kind === 'chapter' ? (
                             <div
                                 data-current-moment={isCurrent ? true : undefined}
-                                className={cn(rowGrid, 'py-1 transition-colors', isCurrent && 'bg-fill-highlight-50')}
+                                className={cn(rowGrid, 'transition-colors', isCurrent && 'bg-fill-highlight-50')}
                             >
                                 {timeCell}
                                 <TimelineRail
@@ -145,7 +145,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                 <button
                                     type="button"
                                     onClick={() => onSeek(row.chapter.startMs)}
-                                    className="flex gap-2 min-w-0 text-left cursor-pointer rounded hover:bg-surface-secondary p-1 -m-1"
+                                    className="flex gap-2 min-w-0 text-left cursor-pointer rounded hover:bg-surface-secondary p-1 -mx-1 my-0.5"
                                     data-attr="vision-timeline-chapter"
                                 >
                                     <ObservationThumbnail
@@ -172,7 +172,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                         ) : row.kind === 'inactive' ? (
                             <div
                                 data-current-moment={isCurrent ? true : undefined}
-                                className={cn(rowGrid, 'py-1')}
+                                className={rowGrid}
                                 data-attr="vision-timeline-inactive"
                             >
                                 {timeCell}
@@ -183,7 +183,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                     isCurrent={false}
                                     dashed
                                 />
-                                <span className="text-xs text-tertiary italic">
+                                <span className="text-xs text-tertiary italic py-1">
                                     Inactive for {formatSpan(row.endMs - row.startMs)}
                                 </span>
                             </div>
@@ -192,7 +192,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                 data-current-moment={isCurrent ? true : undefined}
                                 className={cn(
                                     rowGrid,
-                                    'py-0.5 transition-colors',
+                                    'transition-colors',
                                     isCurrent && 'bg-fill-highlight-50',
                                     hoveredMarkMs === row.marker.timestampMs && 'bg-surface-secondary'
                                 )}
@@ -206,8 +206,8 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                     passedBelow={passedBelow}
                                     isCurrent={isCurrent}
                                 />
-                                <span className={cn('min-w-0', row.inChapter && 'pl-4')}>
-                                    <TimelineMarkerChip
+                                <span className={cn('min-w-0 py-0.5', row.inChapter && 'pl-4')}>
+                                    <TimelineKeyMoment
                                         marker={row.marker}
                                         onClick={() => {
                                             onSeek(row.marker.timestampMs)

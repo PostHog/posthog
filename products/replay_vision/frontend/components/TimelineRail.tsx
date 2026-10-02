@@ -22,13 +22,13 @@ export function TimelineRail({
 }): JSX.Element {
     const segment = (passed: boolean, grow: boolean): string =>
         cn(
-            grow ? 'flex-1' : 'h-2.5 shrink-0',
+            grow ? 'flex-1' : 'h-3.5 shrink-0',
             dashed
                 ? cn('w-0 border-l-2 border-dotted', passed ? 'border-accent' : 'border-secondary')
                 : cn('w-0.5', passed ? 'bg-accent' : 'bg-border')
         )
     return (
-        <div className="flex flex-col items-center self-stretch -my-0.5">
+        <div className="flex flex-col items-center self-stretch">
             <span className={segment(passedAbove, !alignTop)} />
             {dot !== 'none' && (
                 <span
