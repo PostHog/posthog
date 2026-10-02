@@ -21,7 +21,7 @@ import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-wri
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
-import { PersonMergeUnsettledError } from './person-merge-types'
+import { PersonMergeCallFailedError, PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
 import { CREATE_EVENT_NAME, PersonhogPersonsStore } from './personhog-persons-store'
 import {
@@ -578,19 +578,19 @@ export class RoutingPersonsStore implements PersonsStore {
         )
     }
 
-    /** Shadow merges whose retries ended unsettled, re-driven at a flush once their delay has passed. */
+    /** Shadow merges whose retries ended unsettled or without a verdict, re-driven at a flush once their delay has passed. */
     private deferredShadowMerges: DeferredShadowMerge[] = []
 
     /**
      * The merge service's retries wrap the routed call, which never throws
-     * for the shadow side. A verdict still unsettled after them is deferred
-     * to the flush, unless this is already that re-drive.
+     * for the shadow side. A merge still unsettled or without a verdict
+     * after them is deferred to the flush, unless this is that re-drive.
      */
     private async retriedShadowMerge(
         request: MergePersonsRequest,
         batchId: number,
         abandoned: AbortSignal,
-        deferOnUnsettled: boolean = true
+        defer: boolean = true
     ): Promise<MergePersonsResult> {
         let unsettled: MergePersonsResult | undefined
         try {
@@ -616,10 +616,13 @@ export class RoutingPersonsStore implements PersonsStore {
             )
         } catch (error) {
             if (error instanceof PersonMergeUnsettledError && unsettled !== undefined) {
-                if (deferOnUnsettled) {
+                if (defer) {
                     this.deferShadowMerge(request, batchId)
                 }
                 return unsettled
+            }
+            if (error instanceof PersonMergeCallFailedError && defer) {
+                this.deferShadowMerge(request, batchId)
             }
             throw error
         }

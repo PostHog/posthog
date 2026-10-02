@@ -863,34 +863,58 @@ describe('RoutingPersonsStore', () => {
         const noVerdict = (): Error => new PersonMergeCallFailedError('no verdict', new Error('shed'))
 
         it.each([
-            ['a no-verdict failure that clears is retried under the same request', [noVerdict()], 2, null],
+            ['a no-verdict failure that clears is retried under the same request', [noVerdict()], 2, null, false],
             [
-                'a failure through every attempt is swallowed and counted',
+                'a failure through every attempt is counted and re-driven at a flush',
                 [noVerdict(), noVerdict(), noVerdict()],
                 3,
                 'PersonMergeCallFailedError',
+                true,
             ],
             [
-                'a deterministic refusal is counted without a retry',
+                'a deterministic refusal is counted without a retry or a re-drive',
                 [new ConnectError('refused', Code.InvalidArgument)],
                 1,
                 'InvalidArgument',
+                false,
             ],
-        ])('shadow merge: %s', async (_name, failures, expectedCalls, countedAs) => {
-            const stores = makeStores()
-            stores.pg.mergePersons.mockResolvedValue(emptyMergeResult())
-            for (const failure of failures) {
-                stores.personhogMock.mergePersons.mockRejectedValueOnce(failure)
+        ])('shadow merge: %s', async (_name, failures, expectedCalls, countedAs, redriven) => {
+            jest.useFakeTimers()
+            try {
+                const stores = makeStores()
+                stores.pg.mergePersons.mockResolvedValue(emptyMergeResult())
+                stores.personhogMock.mergePersons.mockResolvedValue(emptyMergeResult())
+                for (const failure of failures) {
+                    stores.personhogMock.mergePersons.mockRejectedValueOnce(failure)
+                }
+                const store = makeStore(stores, 'shadow')
+                const request = mergeRequest() as never
+
+                const merging = store.mergePersons(request, 0)
+                await jest.advanceTimersByTimeAsync(1_000)
+                await expect(merging).resolves.toEqual(emptyMergeResult())
+
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
+                expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
+                const counted = (personhogStoreShadowErrorsCounter.labels as jest.Mock).mock.calls.map(
+                    ([labels]) => labels
+                )
+                expect(counted).toEqual(countedAs === null ? [] : [{ verb: 'mergePersons', error: countedAs }])
+
+                // Past the re-drive delay, a flush re-drives only a merge that never got a verdict.
+                await jest.advanceTimersByTimeAsync(5_000)
+                const flushing = store.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await flushing
+                expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls + (redriven ? 1 : 0))
+                if (redriven) {
+                    expect(personhogStoreShadowMergeRedriveCounter.labels).toHaveBeenCalledWith({ outcome: 'settled' })
+                } else {
+                    expect(personhogStoreShadowMergeRedriveCounter.labels).not.toHaveBeenCalled()
+                }
+            } finally {
+                jest.useRealTimers()
             }
-            const store = makeStore(stores, 'shadow')
-            const request = mergeRequest() as never
-
-            await expect(store.mergePersons(request, 0)).resolves.toEqual(emptyMergeResult())
-
-            expect(stores.personhogMock.mergePersons).toHaveBeenCalledTimes(expectedCalls)
-            expect(stores.personhogMock.mergePersons).toHaveBeenLastCalledWith(request, 0)
-            const counted = (personhogStoreShadowErrorsCounter.labels as jest.Mock).mock.calls.map(([labels]) => labels)
-            expect(counted).toEqual(countedAs === null ? [] : [{ verb: 'mergePersons', error: countedAs }])
         })
 
         it.each([
