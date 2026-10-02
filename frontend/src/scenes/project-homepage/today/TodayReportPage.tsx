@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExternal } from '@posthog/icons'
+import { IconCheckCircle, IconExternal, IconHide } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -126,6 +126,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                icon={<IconCheckCircle />}
                                 onClick={() => giveVerdict('resolve')}
                                 disabledReason={
                                     sampleDisabledReason ??
@@ -140,6 +141,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                             <LemonButton
                                 type="secondary"
                                 size="small"
+                                icon={<IconHide />}
                                 onClick={() => giveVerdict('dismiss')}
                                 disabledReason={sampleDisabledReason}
                                 data-attr="today-report-dismiss"

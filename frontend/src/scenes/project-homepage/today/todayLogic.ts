@@ -199,8 +199,8 @@ export interface todayLogicValues {
     refreshedBriefingLoading: boolean
     reloadingAfterRefresh: boolean
     reportId: string | null
-    reportStateOverrides: Record<string, BriefingItemStateEnumApi>
     reportPreviews: Record<TodayReportPreview['surface'], Record<string, TodayReportPreview>>
+    reportStateOverrides: Record<string, BriefingItemStateEnumApi>
     reportSummary: string
     reports: SignalReport[]
     reportsFailed: boolean
@@ -336,9 +336,9 @@ export interface todayLogicActions {
         verdict: TodayReportVerdict,
         surface: TodayReportVerdictSurface
     ) => {
+        surface: TodayReportVerdictSurface
         target: TodayReportVerdictTarget
         verdict: TodayReportVerdict
-        surface: TodayReportVerdictSurface
     }
     setHoveredItemKey: (itemKey: string | null) => {
         itemKey: string | null
@@ -351,9 +351,9 @@ export interface todayLogicActions {
         verdict: TodayReportVerdict,
         surface: TodayReportVerdictSurface
     ) => {
+        surface: TodayReportVerdictSurface
         target: TodayReportVerdictTarget
         verdict: TodayReportVerdict
-        surface: TodayReportVerdictSurface
     }
     setReportVerdictFailure: (reportId: string) => {
         reportId: string

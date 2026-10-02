@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
-import { IconPullRequest } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -233,7 +233,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
             {reportId && !stateLabel && (
                 <>
                     <ItemSeparator className="my-0" />
-                    <div className="flex flex-wrap gap-1.5 px-3 py-2">
+                    <div className="flex flex-wrap justify-between gap-1.5 px-3 py-2">
                         <Button
                             variant="outline"
                             size="xs"
@@ -241,6 +241,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             onClick={() => giveVerdict('resolve')}
                             data-attr="today-report-hover-card-resolve"
                         >
+                            <IconCheckCircle />
                             Resolve
                         </Button>
                         <Button
@@ -250,6 +251,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                             onClick={() => giveVerdict('dismiss')}
                             data-attr="today-report-hover-card-dismiss"
                         >
+                            <IconHide />
                             Dismiss
                         </Button>
                     </div>
