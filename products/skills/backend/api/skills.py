@@ -185,6 +185,25 @@ MAX_SKILL_NAME_SUGGESTIONS = 3
 SKILL_NAME_SUGGESTION_CUTOFF = 0.6
 # Ceiling on the names one miss compares against, so a large store cannot make a 404 expensive.
 MAX_SKILL_NAME_MATCH_CANDIDATES = 500
+# A skill name always starts and ends with [a-z0-9], so these edges come from a pasted link, not the name.
+SKILL_NAME_EDGE_NOISE = re.compile(r"^[^a-z0-9]+|[^a-z0-9]+$")
+MIN_SKILL_NAME_RANKING_TOKEN_LENGTH = 3
+
+
+def _skill_name_match_candidates(latest_names: QuerySet[LLMSkill, str], requested_name: str) -> list[str]:
+    """Names to compare a miss against, with names that share the miss's longest word first.
+
+    The cap cuts an unordered list, so without this a renamed skill (`digest` -> `team-digest`) can fall
+    outside the window in a large store and never get suggested.
+    """
+    longest_token = max(requested_name.split("-"), key=len)
+    ranked: list[str] = []
+    if len(longest_token) >= MIN_SKILL_NAME_RANKING_TOKEN_LENGTH:
+        ranked = list(
+            latest_names.filter(name__contains=longest_token).order_by("name")[:MAX_SKILL_NAME_MATCH_CANDIDATES]
+        )
+    rest = list(latest_names[:MAX_SKILL_NAME_MATCH_CANDIDATES])
+    return list(dict.fromkeys([*ranked, *rest]))[:MAX_SKILL_NAME_MATCH_CANDIDATES]
 
 
 def _content_search_match(content: str, query: str, *, matched_field: str, path: str) -> dict[str, Any] | None:
@@ -653,9 +672,12 @@ class LLMSkillViewSet(
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+        normalized_name = SKILL_NAME_EDGE_NOISE.sub("", skill_name.lower())
         suggestions = get_close_matches(
-            skill_name,
-            visible.filter(is_latest=True).values_list("name", flat=True)[:MAX_SKILL_NAME_MATCH_CANDIDATES],
+            normalized_name,
+            _skill_name_match_candidates(
+                visible.filter(is_latest=True).values_list("name", flat=True), normalized_name
+            ),
             n=MAX_SKILL_NAME_SUGGESTIONS,
             cutoff=SKILL_NAME_SUGGESTION_CUTOFF,
         )

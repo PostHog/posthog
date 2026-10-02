@@ -1018,6 +1018,24 @@ class TestLLMSkillAPI(APIBaseTest):
         assert body["suggestions"] == ["signals-scout-drive-session-completion"]
         assert "signals-scout-drive-session-completion" in body["detail"]
 
+    @parameterized.expand(
+        [
+            ("trailing_period", "invoice-parser.", "invoice-parser"),
+            ("trailing_paren_and_comma", "invoice-parser),", "invoice-parser"),
+            ("renamed_with_prefix", "weekly-digest", "team-weekly-digest"),
+        ]
+    )
+    def test_near_miss_name_is_suggested_past_the_candidate_cap(self, _label, requested, expected):
+        for i in range(3):
+            self.create_skill(name=f"aaa-filler-{i}")
+        self.create_skill(name=expected)
+
+        with patch("products.skills.backend.api.skills.MAX_SKILL_NAME_MATCH_CANDIDATES", 2):
+            response = self.client.get(self._url(f"name/{requested}"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["suggestions"][0] == expected
+
     def test_get_skill_at_absent_version_names_the_versions_the_store_holds(self):
         self.create_skill(name="versioned-skill", version=1, is_latest=False)
         self.create_skill(name="versioned-skill", version=2)
