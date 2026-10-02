@@ -127,9 +127,19 @@ def mark_cdc_broken(
 
 
 def broken_for_another_reason(source: ExternalDataSource, reason: str) -> bool:
-    """Whether a table of this source already holds a broken marker with a different reason."""
+    """Whether a table that `mark_cdc_broken` would mark already holds a marker with a different reason.
+
+    A table whose sync is off keeps the marker it had, so it must not count.
+    """
     return (
-        ExternalDataSchema.objects.filter(team_id=source.team_id, source=source, sync_type_config__has_key="cdc_broken")
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config__has_key="cdc_broken",
+        )
+        .exclude(deleted=True)
         .exclude(sync_type_config__cdc_broken__reason=reason)
         .exists()
     )
