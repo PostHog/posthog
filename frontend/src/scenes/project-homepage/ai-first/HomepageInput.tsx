@@ -24,6 +24,7 @@ import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
 import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
+import { openAIConsentLegalDialog } from 'scenes/settings/organization/aiConsentCopy'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -223,12 +224,16 @@ export function HomepageAiInput(): JSX.Element {
                         type="primary"
                         size="small"
                         loading={approving}
-                        onClick={() => {
-                            setApproving(true)
-                            void acceptDataProcessing()
-                                .catch(console.error)
-                                .finally(() => setApproving(false))
-                        }}
+                        onClick={() =>
+                            openAIConsentLegalDialog({
+                                onConfirm: () => {
+                                    setApproving(true)
+                                    void acceptDataProcessing()
+                                        .catch(console.error)
+                                        .finally(() => setApproving(false))
+                                },
+                            })
+                        }
                         sideIcon={<IconArrowRight />}
                     >
                         I allow AI analysis in this organization

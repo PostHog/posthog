@@ -54,10 +54,12 @@ describe('HomepageAiInput', () => {
 
     afterEach(cleanup)
 
-    it('approves AI data processing and swaps in the composer when the button is clicked', async () => {
+    it('approves AI data processing after the admin confirms the BAA disclaimer, then swaps in the composer', async () => {
         const container = renderInput(OrganizationMembershipLevel.Admin)
 
         fireEvent.click(screen.getByText(APPROVE_LABEL))
+        expect(await screen.findByText(/Business Associate Agreement/)).toBeTruthy()
+        fireEvent.click(screen.getByText('Enable AI analysis'))
 
         await waitFor(() =>
             expect(organizationLogic.values.currentOrganization?.is_ai_data_processing_approved).toBe(true)
