@@ -23,7 +23,8 @@ import {
 } from './funnelStepsBarTransforms'
 import { StepLegend } from './StepLegend'
 
-const BASE_STEP_WIDTH_PX = 240
+const MIN_STEP_WIDTH_PX = 144
+const MAX_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20
 
 const CHART_CONFIG: FunnelChartConfig = {
@@ -73,8 +74,10 @@ export function FunnelStepsBarChart({
     const showTime = steps.some((step) => step.average_conversion_time != null)
 
     const breakdownCount = series.length
-    const stepWidthPx = Math.max(BASE_STEP_WIDTH_PX, breakdownCount * PER_BAR_WIDTH_PX)
-    const chartWidth = DEFAULT_MARGINS.left + steps.length * stepWidthPx + DEFAULT_MARGINS.right
+    const chartWidth = (stepWidthPx: number): number =>
+        DEFAULT_MARGINS.left +
+        steps.length * Math.max(stepWidthPx, breakdownCount * PER_BAR_WIDTH_PX) +
+        DEFAULT_MARGINS.right
 
     const onStepClick = useCallback(
         (clickData: FunnelStepClickData<FunnelStepsBarSeriesMeta>): void => {
@@ -128,7 +131,11 @@ export function FunnelStepsBarChart({
     return (
         <ScrollableShadows direction="horizontal" className="flex-1" contentClassName="flex h-full flex-col">
             {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="flex flex-1 flex-col" style={{ width: chartWidth }} data-attr="funnel-steps-bar-chart">
+            <div
+                className="flex w-full flex-1 flex-col"
+                style={{ minWidth: chartWidth(MIN_STEP_WIDTH_PX), maxWidth: chartWidth(MAX_STEP_WIDTH_PX) }}
+                data-attr="funnel-steps-bar-chart"
+            >
                 <FunnelChart<FunnelStepsBarSeriesMeta>
                     steps={stepLabels}
                     series={series}

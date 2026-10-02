@@ -40,14 +40,14 @@ export default meta
 
 let uniqueNode = 0
 
-function Stage({ children }: { children: React.ReactNode }): JSX.Element {
+function Stage({ children, width = 720 }: { children: React.ReactNode; width?: number }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ height: 420, width: 720, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ height: 420, width, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 
-function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
+function StoryRender({ insightFixture, width }: { insightFixture: any; width?: number }): JSX.Element {
     const [dashboardItemId] = useState(() => `FunnelStepsBarChartStory.${uniqueNode++}` as InsightShortId)
     const source = insightFixture.query.source
     const cachedInsight = { ...insightFixture, short_id: dashboardItemId }
@@ -63,7 +63,7 @@ function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <Stage>
+                <Stage width={width}>
                     <FunnelStepsBarChart />
                 </Stage>
             </BindLogic>
@@ -73,6 +73,33 @@ function StoryRender({ insightFixture }: { insightFixture: any }): JSX.Element {
 
 export const Default: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomFixture} />,
+}
+
+const manyStepsFixture = {
+    ...funnelTopToBottomFixture,
+    result: Array.from({ length: 10 }, (_, i) => ({
+        ...funnelTopToBottomFixture.result[0],
+        action_id: `step_${i + 1}`,
+        name: `step_${i + 1}`,
+        order: i,
+        count: Math.round(12000 * 0.9 ** i),
+    })),
+    query: {
+        ...funnelTopToBottomFixture.query,
+        source: {
+            ...funnelTopToBottomFixture.query.source,
+            series: Array.from({ length: 10 }, (_, i) => ({
+                event: `step_${i + 1}`,
+                kind: 'EventsNode',
+                name: `step_${i + 1}`,
+            })),
+        },
+    },
+}
+
+// Steps shrink to fit the width and switch to the compact legend instead of scrolling.
+export const ManySteps: Story = {
+    render: () => <StoryRender insightFixture={manyStepsFixture} width={1520} />,
 }
 
 export const Breakdown: Story = {
