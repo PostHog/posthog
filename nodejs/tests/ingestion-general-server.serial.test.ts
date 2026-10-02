@@ -1,14 +1,7 @@
 // Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
-import {
-    KAFKA_APP_METRICS_2,
-    KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-    KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-    KAFKA_INGESTION_WARNINGS,
-} from '~/common/config/kafka-topics'
-
 import { PluginServerMode } from '../src/common/config'
 import { IngestionGeneralServer } from '../src/servers/ingestion-general-server'
-import { ensureKafkaTopics } from './helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from './helpers/kafka'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
@@ -18,16 +11,11 @@ describe('ingestion general server', () => {
     let server: IngestionGeneralServer | null = null
 
     beforeAll(async () => {
-        // Combined mode starts the clientwarnings and heatmaps consumers, which verify their output
-        // topics exist and fail startup if they don't (unlike the analytics consumer, which only
-        // logs). Create those topics so the check is deterministic rather than relying on ambient
-        // topics left by other tests.
-        await ensureKafkaTopics([
-            KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-            KAFKA_INGESTION_WARNINGS,
-            KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-            KAFKA_APP_METRICS_2,
-        ])
+        // Every consumer verifies its output topics at startup and fails if one is missing.
+        // Redpanda auto-creates a topic on the first producer metadata request, but that same
+        // request reports the topic as missing, so on a fresh broker the first start fails.
+        // Create the whole set up front rather than relying on topics earlier test files left.
+        await ensureKafkaTopics(TEST_KAFKA_TOPICS)
     })
 
     beforeEach(async () => {
