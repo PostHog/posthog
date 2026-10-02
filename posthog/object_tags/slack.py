@@ -11,6 +11,7 @@ desktop and web renderers are generated from.
 """
 
 import re
+from urllib.parse import urlsplit, urlunsplit
 
 from posthog.dataclasses import frozen
 from posthog.object_tags.kinds import (
@@ -18,6 +19,7 @@ from posthog.object_tags.kinds import (
     OBJECT_KINDS,
     ObjectKindSpec,
     object_web_path,
+    parse_object_url,
     resolve_object_kind,
 )
 
@@ -41,6 +43,11 @@ _RE_BARE_ID = re.compile(r"^[\w$.:-]{1,64}$")
 _RE_TRAILING_LIST_MARKER = re.compile(r"(^|\n)[ \t]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]*$")
 _RE_ID_ATTR = re.compile(r"(?:^|\s)id\s*=")
 _RE_PARTIAL_OPEN_TAG = re.compile(r"<(?:[a-z][\w-]*(?:\s[^>]*)?)?")
+_RE_LINK_START = re.compile(r"(?<![!\\])\[")
+_RE_LINK_TITLE = re.compile(r'[ \t]+"([^"\n]*)"[ \t]*')
+_RE_PREVIOUS_LINE_BLANK = re.compile(r"\n[ \t]*\n\Z")
+_RE_NEXT_LINE_BLANK = re.compile(r"\n[ \t]*(?:\n|\Z)")
+_RE_PARTIAL_LINK = re.compile(r"\[[^\]\n]*(?:\](?:\([^\n]*)?)?")
 
 _HOGQL_SPEC = OBJECT_KINDS["hogql"]
 
@@ -62,6 +69,22 @@ class _Span:
 
     def contains(self, position: int) -> bool:
         return self.start <= position < self.end
+
+
+@frozen
+class _MarkdownLink:
+    label: str
+    url: str
+    title: str
+    start: int
+    end: int
+
+
+@frozen
+class _Rewrite:
+    start: int
+    end: int
+    rendered: str | None
 
 
 @frozen
@@ -177,6 +200,93 @@ def _scan_tags(text: str, skip_spans: list[_Span]) -> list[_Tag]:
     return tags
 
 
+def _in_span(position: int, spans: list[_Span]) -> bool:
+    return any(span.contains(position) for span in spans)
+
+
+def _skip_blanks(text: str, index: int) -> int:
+    while index < len(text) and text[index] in " \t":
+        index += 1
+    return index
+
+
+def _link_destination(text: str, start: int) -> tuple[str, int] | None:
+    index = _skip_blanks(text, start)
+    if index < len(text) and text[index] == "<":
+        close = text.find(">", index + 1)
+        if close == -1 or "\n" in text[index + 1 : close]:
+            return None
+        return text[index + 1 : close], close + 1
+    depth = 0
+    cursor = index
+    while cursor < len(text):
+        char = text[cursor]
+        if char == "\\" and cursor + 1 < len(text):
+            cursor += 2
+            continue
+        if char in " \t\n":
+            break
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        cursor += 1
+    if cursor == index or depth:
+        return None
+    return text[index:cursor], cursor
+
+
+def _link_at(text: str, start: int) -> _MarkdownLink | None:
+    label_end = text.find("](", start + 1)
+    line_end = text.find("\n", start)
+    if label_end == -1 or (line_end != -1 and line_end < label_end) or "[" in text[start + 1 : label_end]:
+        return None
+    destination = _link_destination(text, label_end + 2)
+    if destination is None:
+        return None
+    url, cursor = destination
+    title = ""
+    title_match = _RE_LINK_TITLE.match(text, cursor)
+    if title_match:
+        title = title_match.group(1)
+        cursor = title_match.end()
+    else:
+        cursor = _skip_blanks(text, cursor)
+    if cursor >= len(text) or text[cursor] != ")":
+        return None
+    return _MarkdownLink(label=text[start + 1 : label_end], url=url, title=title, start=start, end=cursor + 1)
+
+
+def _scan_links(text: str, skip_spans: list[_Span]) -> list[_MarkdownLink]:
+    links: list[_MarkdownLink] = []
+    next_allowed = 0
+    for match in _RE_LINK_START.finditer(text):
+        start = match.start()
+        if start < next_allowed or _in_span(start, skip_spans):
+            continue
+        link = _link_at(text, start)
+        if link is None:
+            continue
+        links.append(link)
+        next_allowed = link.end
+    return links
+
+
+def _stands_alone(text: str, start: int, end: int) -> bool:
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    if line_end == -1:
+        line_end = len(text)
+    if text[line_start:start].strip() or text[end:line_end].strip():
+        return False
+    before = text[:line_start]
+    previous_blank = not before.strip() or _RE_PREVIOUS_LINE_BLANK.search(before) is not None
+    next_blank = line_end == len(text) or _RE_NEXT_LINE_BLANK.match(text, line_end) is not None
+    return previous_blank and next_blank
+
+
 def _escape_angles(text: str) -> str:
     """Entity-encode angle brackets so agent-written text cannot post a Slack broadcast.
 
@@ -202,6 +312,14 @@ def _link(label: str, url: str | None) -> str:
     return f"[{label}]({url})"
 
 
+def _with_unfurl_opt_out(url: str) -> str:
+    parts = urlsplit(url)
+    if _UNFURL_OPT_OUT_QUERY in parts.query.split("&"):
+        return url
+    query = f"{parts.query}&{_UNFURL_OPT_OUT_QUERY}" if parts.query else _UNFURL_OPT_OUT_QUERY
+    return urlunsplit(parts._replace(query=query))
+
+
 def _object_url(project_url: str, kind: ObjectKindSpec, object_id: str, *, unfurl: bool) -> str | None:
     path = object_web_path(kind, object_id)
     if path is None:
@@ -217,12 +335,21 @@ def _render_hogql(tag: _Tag, project_url: str) -> str | None:
     sql = _unescape_xml(tag.body).strip()
     if not sql:
         return None
-    url = _object_url(project_url, _HOGQL_SPEC, sql, unfurl=False)
     if tag.attrs.get("display") != "block":
-        label = _safe_label(tag.attrs.get("label") or tag.attrs.get("title") or "") or _HOGQL_SPEC.kind_label
-        return _link(label, url)
+        return _render_sql(
+            sql, project_url, label=tag.attrs.get("label") or tag.attrs.get("title") or "", caption="", block=False
+        )
+    return _render_sql(
+        sql, project_url, label=tag.attrs.get("title") or "", caption=tag.attrs.get("caption") or "", block=True
+    )
 
-    title = _safe_label(tag.attrs.get("title") or "") or _HOGQL_SPEC.kind_label
+
+def _render_sql(sql: str, project_url: str, *, label: str, caption: str, block: bool) -> str:
+    url = _object_url(project_url, _HOGQL_SPEC, sql, unfurl=False)
+    if not block:
+        return _link(_safe_label(label) or _HOGQL_SPEC.kind_label, url)
+
+    title = _safe_label(label) or _HOGQL_SPEC.kind_label
     # No language hint on the fence: Slack shows one as literal text inside the block.
     # A backtick run in the SQL at least as long as the fence would close it early and
     # spill the rest — including a live ``<!channel>`` an agent could be induced to
@@ -230,7 +357,7 @@ def _render_hogql(tag: _Tag, project_url: str) -> str | None:
     longest_run = max((len(run.group(0)) for run in _RE_BACKTICK_RUN.finditer(sql)), default=0)
     fence = "`" * max(3, longest_run + 1)
     lines = [f"**{_link(title, url)}**", fence, sql, fence]
-    caption = _escape_angles(" ".join((tag.attrs.get("caption") or "").split()))
+    caption = _escape_angles(" ".join(caption.split()))
     if caption:
         lines.append(f"_{caption}_")
     return "\n".join(lines)
@@ -262,27 +389,47 @@ def _render_tag(tag: _Tag, project_url: str) -> str | None:
     return _render_reference(tag, kind, project_url)
 
 
+def _render_object_link(link: _MarkdownLink, text: str, project_url: str) -> str | None:
+    match = parse_object_url(link.url, project_url=project_url)
+    if match is None:
+        return None
+    kind = OBJECT_KINDS[match.kind]
+    block = kind.block and _stands_alone(text, link.start, link.end)
+    label = "" if link.label.strip() == link.url.strip() else link.label
+    if kind.id_is_body:
+        return _render_sql(match.object_id, project_url, label=label, caption=link.title, block=block)
+    label = _safe_label(label) or f"{kind.kind_label} {_safe_label(match.object_id)}"
+    return _link(label, link.url if block else _with_unfurl_opt_out(link.url))
+
+
 def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
     """Replace agent object tags in ``text`` with markdown Slack can render.
 
     ``project_url`` is the absolute ``/project/<id>`` base every object link hangs off. Tags inside
     fenced code blocks and inline code spans stay literal, as they do in the desktop renderer.
     """
-    if "<" not in text:
+    if "<" not in text and "](" not in text:
         return text
     base = project_url.rstrip("/")
     spans, _ = _scan_code(text)
     tags = _scan_tags(text, spans)
-    if not tags:
+    rewrites = [_Rewrite(start=tag.start, end=tag.end, rendered=_render_tag(tag, base)) for tag in tags]
+    tag_spans = [_Span(start=tag.start, end=tag.end) for tag in tags]
+    for link in _scan_links(text, [*spans, *tag_spans]):
+        rendered = _render_object_link(link, text, base)
+        if rendered is not None:
+            rewrites.append(_Rewrite(start=link.start, end=link.end, rendered=rendered))
+    if not rewrites:
         return text
+    rewrites.sort(key=lambda rewrite: rewrite.start)
     output = ""
     position = 0
     needs_paragraph_break = False
-    for tag in tags:
-        rendered = _render_tag(tag, base)
+    for rewrite in rewrites:
+        rendered = rewrite.rendered
         if rendered is None:
             continue
-        before = text[position : tag.start]
+        before = text[position : rewrite.start]
         if needs_paragraph_break:
             # The fence must end its line, so anything after it starts a new paragraph.
             before = "\n\n" + before.lstrip("\n")
@@ -297,7 +444,7 @@ def rewrite_object_tags_for_slack(text: str, *, project_url: str) -> str:
                 output = output.rstrip("\n") + "\n\n"
             needs_paragraph_break = True
         output += rendered
-        position = tag.end
+        position = rewrite.end
     rest = text[position:]
     if needs_paragraph_break and rest.strip():
         rest = "\n\n" + rest.lstrip("\n")
@@ -320,10 +467,6 @@ class StreamSplit:
 _KNOWN_TAG_NAMES = [*OBJECT_KINDS, *OBJECT_KIND_ALIASES]
 
 
-def _in_span(position: int, spans: list[_Span]) -> bool:
-    return any(span.contains(position) for span in spans)
-
-
 def _partial_could_become_tag(fragment: str) -> bool:
     """Could this partial tag fragment still become a tag the renderer would touch?
 
@@ -337,6 +480,13 @@ def _partial_could_become_tag(fragment: str) -> bool:
         # The name is complete; only the attributes are still streaming.
         return resolve_object_kind(name) is not None or _RE_ID_ATTR.search(fragment[1 + len(name) :]) is not None
     return any(known.startswith(name) for known in _KNOWN_TAG_NAMES)
+
+
+def _incomplete_link_start(text: str, spans: list[_Span], search_from: int) -> int | None:
+    start = text.rfind("[", max(search_from, text.rfind("\n") + 1))
+    if start == -1 or _in_span(start, spans) or _link_at(text, start) is not None:
+        return None
+    return start if _RE_PARTIAL_LINK.fullmatch(text, start) else None
 
 
 def split_incomplete_tag_suffix(text: str) -> StreamSplit:
@@ -381,6 +531,8 @@ def split_incomplete_tag_suffix(text: str) -> StreamSplit:
             and re.search(rf"</{re.escape(last_open.group(1))}\s*>", text[last_open.end() :]) is None
         ):
             held_from = last_open.start()
+    if held_from is None:
+        held_from = _incomplete_link_start(text, spans, search_from)
     if held_from is None or len(text) - held_from > _MAX_HELD_SUFFIX:
         return StreamSplit(sendable=text, held="")
     return StreamSplit(sendable=text[:held_from], held=text[held_from:])

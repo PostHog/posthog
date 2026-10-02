@@ -79,6 +79,10 @@ vi.mock("@posthog/ui/features/code-editor/hooks/useFileContent", () => ({
   useWorkspaceFileAsBase64,
 }));
 
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import {
   ChatMarkdown,
@@ -219,6 +223,37 @@ describe("ChatMarkdown object tags", () => {
     expect(html).toContain("report-chart");
     expect(html).toContain("DAU, last 7 days");
     expect(html).not.toContain("SELECT 1");
+  });
+
+  it.each([
+    [
+      "an inline link as a chip that opens the cited page",
+      "The [checkout funnel](https://us.posthog.com/project/2/replay/s1?t=30) dropped.",
+      'href="https://us.posthog.com/project/2/replay/s1?t=30"',
+    ],
+    [
+      "a SQL link alone in its paragraph as a chart card",
+      "[DAU, last 7 days](https://us.posthog.com/project/2/sql?open_query=SELECT%201)",
+      "report-chart",
+    ],
+  ])("renders %s", (_what, content, expected) => {
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        cloudRegion: "us",
+        currentProjectId: 2,
+      },
+    });
+    const { container, unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <ChatMarkdown content={content} renderObjectTags />
+      </QueryClientProvider>,
+    );
+    const html = container.innerHTML;
+    unmount();
+    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+    expect(html).toContain(expected);
+    expect(html).not.toContain('target="_blank"');
   });
 
   it("does not run object tags in untrusted content by default", () => {

@@ -3,6 +3,7 @@ import { ArtifactRefChip } from "@posthog/ui/features/editor/components/Artifact
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
+import { usePostHogLinkContext } from "@posthog/ui/features/editor/usePostHogLinkContext";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
@@ -162,8 +163,8 @@ export const baseComponents: Components = {
   del: ({ children }) => (
     <del className="text-(--gray-9) line-through">{children}</del>
   ),
-  a: ({ href, children }) => {
-    const evidenceTarget = parseEvidenceLink(href);
+  a: ({ href, children, node }) => {
+    const evidenceTarget = parseEvidenceLink(href, node?.properties);
     if (evidenceTarget) {
       return (
         <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
@@ -263,7 +264,6 @@ const objectTagComponents: Components = {
 };
 
 export const defaultRemarkPlugins = [remarkGfm];
-const objectTagRemarkPlugins = [...defaultRemarkPlugins, remarkObjectTags];
 
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
@@ -275,6 +275,11 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
   const processedContent = useMemo(
     () => preprocessMarkdown(content),
     [content],
+  );
+  const links = usePostHogLinkContext();
+  const objectTagRemarkPlugins = useMemo<PluggableList>(
+    () => [...defaultRemarkPlugins, [remarkObjectTags, { links }]],
+    [links],
   );
   const plugins =
     remarkPluginsOverride ??

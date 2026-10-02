@@ -1,7 +1,13 @@
+import {
+  type PostHogLinkContext,
+  type PostHogObjectUrlRef,
+  parsePostHogObjectUrl,
+} from "@posthog/core/posthog-objects/objectUrls";
 import { unescapeXmlAttr } from "@posthog/shared";
-import type { Parent, PhrasingContent, Root, RootContent } from "mdast";
+import type { Link, Parent, PhrasingContent, Root, RootContent } from "mdast";
 import { CHART_BLOCK_MARKER } from "./chartBlocks";
-import { resolveObjectKindName } from "./objectKinds";
+import { OBJECT_LINK_HREF } from "./evidenceLinks";
+import { getObjectKind, resolveObjectKindName } from "./objectKinds";
 
 /**
  * Remark plugin for the object tags agents embed in replies, the message-side
@@ -35,6 +41,11 @@ const MAX_BLOCK_TAGS = 10;
 /** Mutable per-document budget threaded through the transform. */
 interface TransformState {
   blockBudget: number;
+  links: PostHogLinkContext | null;
+}
+
+export interface RemarkObjectTagsOptions {
+  links?: PostHogLinkContext | null;
 }
 
 const OPEN_TAG_RE = /^<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*>$/;
@@ -259,6 +270,74 @@ function liftParagraphBlockTag(
   return block;
 }
 
+function isAutoLink(node: Link): boolean {
+  return (
+    nodesToText(node.children as PhrasingContent[]).trim() === node.url.trim()
+  );
+}
+
+function objectLinkRef(
+  node: Link,
+  previous: RootContent | undefined,
+  state: TransformState,
+): PostHogObjectUrlRef | null {
+  if (!state.links) return null;
+  if (previous?.type === "text" && /\]\(<?$/.test(previous.value)) return null;
+  return parsePostHogObjectUrl(node.url, state.links);
+}
+
+function objectLinkLabel(
+  node: Link,
+  ref: PostHogObjectUrlRef,
+): PhrasingContent[] {
+  if (!isAutoLink(node)) return node.children as PhrasingContent[];
+  const { kindLabel } = getObjectKind(ref.kind);
+  return [text(ref.kind === "hogql" ? kindLabel : `${kindLabel} ${ref.id}`)];
+}
+
+function inlineLinkNode(node: Link, ref: PostHogObjectUrlRef): PhrasingContent {
+  return {
+    type: "link",
+    url: `evidence:${ref.kind}/${encodeURIComponent(ref.id)}`,
+    children: objectLinkLabel(node, ref),
+    data: { hProperties: { [OBJECT_LINK_HREF]: ref.href } },
+  };
+}
+
+function blockLinkNode(
+  node: Link,
+  ref: PostHogObjectUrlRef,
+): RootContent | null {
+  if (!getObjectKind(ref.kind).block) return null;
+  const attrs: Record<string, string> = { id: ref.id };
+  const title = isAutoLink(node)
+    ? ""
+    : nodesToText(node.children as PhrasingContent[]).trim();
+  if (title) attrs.title = title;
+  if (node.title?.trim()) attrs.caption = node.title;
+  return blockNode({
+    kind: ref.kind,
+    attrs,
+    body: ref.kind === "hogql" ? ref.id : undefined,
+  });
+}
+
+function liftParagraphObjectLink(
+  paragraph: Parent,
+  state: TransformState,
+): RootContent | null {
+  if (state.blockBudget <= 0 || !state.links) return null;
+  const kids = (paragraph.children as RootContent[]).filter(
+    (kid) => !(kid.type === "text" && !kid.value.trim()),
+  );
+  if (kids.length !== 1 || kids[0].type !== "link") return null;
+  const ref = parsePostHogObjectUrl(kids[0].url, state.links);
+  if (!ref) return null;
+  const block = blockLinkNode(kids[0], ref);
+  if (block) state.blockBudget--;
+  return block;
+}
+
 /**
  * MDAST containers whose children are block content, so a lifted chart code
  * node is valid inside them. Phrasing containers (paragraph, heading,
@@ -288,8 +367,19 @@ function transformChildren(
         continue;
       }
     }
+    if (child.type === "link") {
+      const ref = objectLinkRef(child, children[i - 1], state);
+      if (ref) {
+        out.push(inlineLinkNode(child, ref) as RootContent);
+        continue;
+      }
+    }
     if (inFlow && child.type === "paragraph") {
-      const lifted = liftParagraphBlockTag(child as Parent, state);
+      const lifted =
+        liftParagraphBlockTag(child as Parent, state) ??
+        (parent.type === "root"
+          ? liftParagraphObjectLink(child as Parent, state)
+          : null);
       if (lifted) {
         out.push(lifted);
         continue;
@@ -307,8 +397,11 @@ function transformChildren(
   parent.children = out as Parent["children"];
 }
 
-export function remarkObjectTags() {
+export function remarkObjectTags(options: RemarkObjectTagsOptions = {}) {
   return (tree: Root): void => {
-    transformChildren(tree, true, { blockBudget: MAX_BLOCK_TAGS });
+    transformChildren(tree, true, {
+      blockBudget: MAX_BLOCK_TAGS,
+      links: options.links ?? null,
+    });
   };
 }

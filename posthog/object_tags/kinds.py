@@ -19,8 +19,9 @@ Python consumers import this module directly.
 """
 
 import re
+import json
 from functools import cache
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from posthog.dataclasses import frozen
 
@@ -43,6 +44,7 @@ class ObjectKindSpec:
     block: bool = False
     # The tag body is the object id itself rather than a label (hogql: the SQL).
     id_is_body: bool = False
+    url_aliases: tuple[str, ...] = ()
 
 
 OBJECT_KINDS: dict[str, ObjectKindSpec] = {
@@ -51,6 +53,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         source="Product analytics",
         path_template="/insights/{id}",
         block=True,
+        url_aliases=("/i/{id}",),
     ),
     "hogql": ObjectKindSpec(
         kind_label="SQL query",
@@ -58,6 +61,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         path_template="/sql?open_query={id}",
         block=True,
         id_is_body=True,
+        url_aliases=("/insights/new#q={query}",),
     ),
     "dashboard": ObjectKindSpec(
         kind_label="Dashboard",
@@ -74,6 +78,7 @@ OBJECT_KINDS: dict[str, ObjectKindSpec] = {
         source="Session replay",
         path_template="/replay/{id}",
         block=True,
+        url_aliases=("/replay/home?sessionRecordingId={id}",),
     ),
     "flag": ObjectKindSpec(
         kind_label="Feature flag",
@@ -145,6 +150,10 @@ OBJECT_KIND_ALIASES: dict[str, str] = {
     "sql": "hogql",
 }
 
+RESERVED_URL_IDS: tuple[str, ...] = ("new", "home", "playlists", "settings", "configuration", "options")
+
+APP_HOST_ALIASES: dict[str, str] = {"app.posthog.com": "us.posthog.com"}
+
 # Rendering fallback for a tag whose kind nobody registered.
 FALLBACK_OBJECT_KIND = ObjectKindSpec(kind_label="Evidence", source="PostHog")
 
@@ -166,3 +175,84 @@ def object_web_path(spec: ObjectKindSpec, object_id: str) -> str | None:
     if spec.id_pattern is not None and not _compiled_pattern(spec.id_pattern).match(object_id):
         return None
     return spec.path_template.replace("{id}", quote(object_id, safe=""))
+
+
+@frozen
+class ObjectUrlMatch:
+    kind: str
+    object_id: str
+
+
+def _app_host(netloc: str) -> str:
+    host = netloc.lower()
+    return APP_HOST_ALIASES.get(host, host)
+
+
+def _path_segments(path: str) -> list[str]:
+    return [segment for segment in path.split("/") if segment]
+
+
+def _hogql_from_query_node(raw: str) -> str | None:
+    try:
+        node = json.loads(raw)
+    except ValueError:
+        return None
+    for _ in range(3):
+        if not isinstance(node, dict):
+            return None
+        if node.get("kind") == "HogQLQuery" and isinstance(node.get("query"), str):
+            return node["query"]
+        node = node.get("source")
+    return None
+
+
+def _match_url_template(template: str, segments: list[str], query: str, fragment: str) -> str | None:
+    parts = urlsplit(template)
+    template_segments = _path_segments(parts.path)
+    if "{id}" in template_segments:
+        index = template_segments.index("{id}")
+        if len(segments) <= index or segments[:index] != template_segments[:index]:
+            return None
+        value = unquote(segments[index])
+        return None if value in RESERVED_URL_IDS else value
+    if segments != template_segments:
+        return None
+    for template_params, url_params in ((parts.query, query), (parts.fragment, fragment)):
+        if not template_params:
+            continue
+        key, _, placeholder = template_params.partition("=")
+        values = parse_qs(url_params).get(key)
+        if not values:
+            return None
+        return _hogql_from_query_node(values[0]) if placeholder == "{query}" else values[0]
+    return None
+
+
+def parse_object_url(url: str, *, project_url: str) -> ObjectUrlMatch | None:
+    try:
+        target = urlsplit(url.strip())
+        base = urlsplit(project_url)
+    except ValueError:
+        return None
+    if target.scheme not in ("http", "https") or _app_host(target.netloc) != _app_host(base.netloc):
+        return None
+    segments = _path_segments(target.path)
+    base_segments = _path_segments(base.path)
+    if segments[:1] == ["project"]:
+        if segments[:2] != base_segments[:2]:
+            return None
+        segments = segments[2:]
+    for name, spec in OBJECT_KINDS.items():
+        for template in (spec.path_template, *spec.url_aliases):
+            if template is None:
+                continue
+            value = _match_url_template(template, segments, target.query, target.fragment)
+            if value and spec.id_is_body and value.lstrip().startswith("{"):
+                value = _hogql_from_query_node(value)
+            object_id = (value or "").strip()
+            if not object_id:
+                continue
+            if spec.id_pattern is not None and not _compiled_pattern(spec.id_pattern).match(object_id):
+                continue
+            return ObjectUrlMatch(kind=name, object_id=object_id)
+    return None

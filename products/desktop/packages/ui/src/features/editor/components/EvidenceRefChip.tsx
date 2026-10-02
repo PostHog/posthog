@@ -363,14 +363,15 @@ function EvidenceHoverCardLoader({
   const shownTrackedRef = useRef(false);
   const kind = target.kind;
   const id = target.id;
+  const referenceSource = target.href ? "link" : "tag";
   useEffect(() => {
     if (shownTrackedRef.current) return;
     shownTrackedRef.current = true;
     const cached =
       queryClient.getQueryState(evidencePreviewQueryKey({ kind, id }))
         ?.status === "success";
-    trackEvidencePreviewShown(kind, cached);
-  }, [queryClient, kind, id]);
+    trackEvidencePreviewShown(kind, cached, referenceSource);
+  }, [queryClient, kind, id, referenceSource]);
   const query = useAuthenticatedQuery(
     evidencePreviewQueryKey(target),
     (apiClient) => fetchEvidencePreviewTimed(apiClient, target, "hover"),
@@ -450,7 +451,8 @@ function EvidenceRefChipContent({
 }) {
   const meta = getObjectKind(target.kind);
   const KindIcon = meta.icon;
-  const url = useEvidenceUrl(target.kind, target.id);
+  const canonicalUrl = useEvidenceUrl(target.kind, target.id);
+  const url = target.href ?? canonicalUrl;
   const taskId = useSessionTaskId();
   const objectKind = isPostHogObjectKind(target.kind) ? target.kind : null;
   const [open, setOpen] = useState(false);

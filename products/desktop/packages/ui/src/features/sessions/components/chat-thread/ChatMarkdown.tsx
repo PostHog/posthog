@@ -21,6 +21,7 @@ import {
   parseOpenFence,
   splitMarkdownBlocks,
 } from "@posthog/ui/features/editor/components/splitMarkdownBlocks";
+import { usePostHogLinkContext } from "@posthog/ui/features/editor/usePostHogLinkContext";
 import {
   BareFileLink,
   hasDirectoryPath,
@@ -41,7 +42,10 @@ import {
   isGeneratedChartBlock,
   parseChartBlock,
 } from "@posthog/ui/utils/chartBlocks";
-import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
+import {
+  OBJECT_LINK_HREF,
+  parseEvidenceLink,
+} from "@posthog/ui/utils/evidenceLinks";
 import { MERMAID_LANGUAGE } from "@posthog/ui/utils/mermaidBlocks";
 import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
 import { IconButton } from "@radix-ui/themes";
@@ -193,7 +197,7 @@ const components: Components = {
   p: ({ children }) => (
     <Text className="text-sm leading-[1.5]">{children}</Text>
   ),
-  a: ({ children, href }) => {
+  a: ({ children, href, node }) => {
     if (href === PENDING_LINK_DESTINATION) {
       return (
         <output
@@ -205,7 +209,7 @@ const components: Components = {
         </output>
       );
     }
-    const evidenceTarget = parseEvidenceLink(href);
+    const evidenceTarget = parseEvidenceLink(href, node?.properties);
     if (evidenceTarget) {
       return (
         <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
@@ -331,7 +335,6 @@ function chatUrlTransform(value: string, key: string): string {
 }
 
 const remarkPlugins: PluggableList = [remarkGfm];
-const objectTagRemarkPlugins: PluggableList = [remarkGfm, remarkObjectTags];
 // The default sanitize schema, plus what remarkObjectTags emits: the internal
 // `evidence:` reference links (they never reach the DOM as hrefs; the `a`
 // component renders them as chips) and the private marker on generated chart
@@ -344,6 +347,7 @@ const rehypePlugins: PluggableList = [
       attributes: {
         ...defaultSchema.attributes,
         code: [...(defaultSchema.attributes?.code ?? []), CHART_BLOCK_MARKER],
+        a: [...(defaultSchema.attributes?.a ?? []), OBJECT_LINK_HREF],
       },
       protocols: {
         ...defaultSchema.protocols,
@@ -364,6 +368,11 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   content,
   renderObjectTags = false,
 }: ChatMarkdownProps) {
+  const links = usePostHogLinkContext();
+  const objectTagRemarkPlugins = useMemo<PluggableList>(
+    () => [remarkGfm, [remarkObjectTags, { links }]],
+    [links],
+  );
   return (
     <div className="flex flex-col gap-3 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <Markdown

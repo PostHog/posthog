@@ -140,6 +140,61 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
                 f"**[T]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)**\n```\nSELECT 1\n```\n_&lt;!channel&gt;_",
             ),
             (
+                "inline_object_link_opts_out_of_unfurl",
+                f"The [checkout funnel]({PROJECT}/insights/9pQx3) dropped.",
+                f"The [checkout funnel]({PROJECT}/insights/9pQx3?unfurl=false) dropped.",
+            ),
+            (
+                "standalone_insight_link_keeps_unfurl_on",
+                f"Here:\n\n[Checkout funnel]({PROJECT}/insights/abc)\n\nDone.",
+                f"Here:\n\n[Checkout funnel]({PROJECT}/insights/abc)\n\nDone.",
+            ),
+            (
+                "standalone_sql_link_becomes_titled_fenced_sql",
+                f'[DAU, last 7 days]({PROJECT}/sql?open_query=SELECT%201 "Excludes bots")',
+                f"**[DAU, last 7 days]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)**\n```\nSELECT 1\n```\n_Excludes bots_",
+            ),
+            (
+                "sql_link_in_a_list_stays_inline",
+                f"- [q]({PROJECT}/sql?open_query=SELECT%201)",
+                f"- [q]({PROJECT}/sql?open_query=SELECT%201&unfurl=false)",
+            ),
+            (
+                "sql_link_with_raw_spaces_in_angle_brackets_is_encoded",
+                f"See [q](<{PROJECT}/sql?open_query=SELECT count() FROM events>).",
+                f"See [q]({PROJECT}/sql?open_query=SELECT%20count%28%29%20FROM%20events&unfurl=false).",
+            ),
+            (
+                "tool_result_query_link_becomes_a_sql_editor_link",
+                f"See [q]({PROJECT}/insights/new#q=%7B%22kind%22%3A%22DataTableNode%22%2C%22source%22%3A%7B%22kind%22%3A%22HogQLQuery%22%2C%22query%22%3A%22SELECT%201%22%7D%7D).",
+                f"See [q]({PROJECT}/sql?open_query=SELECT%201&unfurl=false).",
+            ),
+            (
+                "opt_out_goes_in_the_query_not_after_the_fragment",
+                f"Watch [it]({PROJECT}/replay/s1?t=30#x) now.",
+                f"Watch [it]({PROJECT}/replay/s1?t=30&unfurl=false#x) now.",
+            ),
+            (
+                "legacy_app_host_link_is_an_object_link",
+                "See [x](https://app.posthog.com/project/2/insights/a).",
+                "See [x](https://app.posthog.com/project/2/insights/a?unfurl=false).",
+            ),
+            (
+                "bare_url_label_becomes_kind_and_id",
+                f"See [{PROJECT}/feature_flags/42]({PROJECT}/feature_flags/42).",
+                f"See [Feature flag 42]({PROJECT}/feature_flags/42?unfurl=false).",
+            ),
+            (
+                "link_label_characters_that_break_slack_links_are_dropped",
+                f"See [a | b]({PROJECT}/insights/1).",
+                f"See [a b]({PROJECT}/insights/1?unfurl=false).",
+            ),
+            (
+                "tags_and_links_rewrite_together",
+                f'<flag id="1">f</flag> and [i]({PROJECT}/insights/2)',
+                f"[f]({PROJECT}/feature_flags/1?unfurl=false) and [i]({PROJECT}/insights/2?unfurl=false)",
+            ),
+            (
                 "sql_quoting_tag_markup_stays_one_tag",
                 'See <hogql label="q">SELECT \'<insight id="x">\'</hogql>.',
                 f"See [q]({PROJECT}/sql?open_query=SELECT%20%27%3Cinsight%20id%3D%22x%22%3E%27&unfurl=false).",
@@ -173,6 +228,13 @@ class TestRewriteObjectTagsForSlack(unittest.TestCase):
             ("tag_inside_unclosed_fence", 'Example:\n```xml\n<insight id="1">x</insight>'),
             ("tag_inside_tilde_fence", '~~~\n<insight id="1">x</insight>\n~~~'),
             ("text_without_tags", "plain **bold** text"),
+            ("link_to_another_project", "[x](https://us.posthog.com/project/3/insights/a)"),
+            ("link_to_another_host", "[x](https://eu.posthog.com/project/2/insights/a)"),
+            ("link_to_a_page_that_is_not_an_object", f"[settings]({PROJECT}/settings/project)"),
+            ("flag_link_by_key", f"[f]({PROJECT}/feature_flags/my-key)"),
+            ("link_inside_inline_code", f"Write `[x]({PROJECT}/insights/a)` to cite."),
+            ("image_of_an_object_url", f"![x]({PROJECT}/insights/a)"),
+            ("external_link", "[docs](https://posthog.com/docs)"),
         ]
     )
     def test_leaves_text_alone(self, _name: str, text: str) -> None:
@@ -257,6 +319,15 @@ class TestSplitIncompleteTagSuffix(unittest.TestCase):
                 '```xml\n<insight id="1">x</insight>',
             ),
             ("closed_fence_is_sent", "```\nx\n```\ndone", "```\nx\n```\ndone", ""),
+            (
+                "link_cut_mid_destination_is_held",
+                "See [funnel](https://us.posthog.com/pro",
+                "See ",
+                "[funnel](https://us.posthog.com/pro",
+            ),
+            ("link_cut_mid_label_is_held", "See [chec", "See ", "[chec"),
+            ("complete_link_is_sent", "See [a](https://x.com) now", "See [a](https://x.com) now", ""),
+            ("bracketed_text_is_sent", "See [1] below", "See [1] below", ""),
         ]
     )
     def test_split(self, _name: str, text: str, sendable: str, held: str) -> None:
