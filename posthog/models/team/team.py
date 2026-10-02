@@ -995,7 +995,7 @@ class Team(UUIDTClassicModel):
                 if expired_token:
                     # The migrated PSAK row holding this exact token (#63111 backfill) must
                     # retire with it, or the dropped token keeps authenticating via PSAK.
-                    _delete_project_secret_api_keys_for_token(expired_token)
+                    _delete_project_secret_api_keys_for_token(self.id, expired_token)
                 secret_api_token_rotated.send(sender=self.__class__, team=self)
         except Exception:
             # save() already cached this team (post_save) with the new tokens, which the
@@ -1137,7 +1137,7 @@ class Team(UUIDTClassicModel):
             with transaction.atomic():
                 self.secret_api_token_backup = None
                 self.save()
-                _delete_project_secret_api_keys_for_token(old_backup_token)
+                _delete_project_secret_api_keys_for_token(self.id, old_backup_token)
         except Exception:
             # save() already cached this team (post_save) with the cleared backup, which
             # the rollback discarded. Rewrite that entry from the committed row.
@@ -1270,10 +1270,10 @@ class Team(UUIDTClassicModel):
     __repr__ = sane_repr("id", "uuid", "project_id", "name", "api_token")
 
 
-def _delete_project_secret_api_keys_for_token(token: str) -> None:
+def _delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
     """A PSAK row whose hash equals a retired legacy token IS that credential: it must
     stop authenticating when the token does (#63111 backfill)."""
-    ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(token)).delete()
+    ProjectSecretAPIKey.objects.filter(team_id=team_id, secure_value=hash_key_value(token)).delete()
 
 
 @mutable_receiver(post_save, sender=Team)

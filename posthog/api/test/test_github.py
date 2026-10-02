@@ -630,7 +630,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.secret_revocation.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_leaked_team_token_with_backfilled_psak_rolls_the_row_and_still_notifies(
+    def test_leaked_team_token_with_backfilled_psak_deletes_the_row_and_notifies(
         self, mock_psak_exposed, mock_ff_exposed, mock_verify
     ):
         # The backfilled row IS the leaked legacy credential: revocation deletes it and

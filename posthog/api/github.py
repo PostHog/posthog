@@ -260,7 +260,7 @@ class SecretAlert(APIView):
                 more_info = f"This key was detected by GitHub at {item['url']}."
                 revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info)
                 local_found = revocation.found
-                key_kind = "project_secret_api_key" if revocation.found else None
+                key_kind = revocation.key_type
 
                 # A leaked team token with a backfilled PSAK row (#63111) matches above, where
                 # _revoke_project_secret_api_key also sends the rotate-your-key notice.

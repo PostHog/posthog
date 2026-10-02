@@ -22,6 +22,9 @@ from posthog.tasks.email import (
 
 CANONICAL_PERSONAL_API_KEY = "personal_api_key"
 CANONICAL_PROJECT_SECRET_API_KEY = "project_secret_api_key"
+# Never a lookup key for revoke_leaked_secret (team tokens can't be auto-rotated); only
+# reported back when the matched PSAK row turns out to mirror a team token.
+CANONICAL_TEAM_SECRET_TOKEN = "team_secret_token"
 CANONICAL_OAUTH_ACCESS_TOKEN = "oauth_access_token"
 CANONICAL_OAUTH_REFRESH_TOKEN = "oauth_refresh_token"
 
@@ -35,35 +38,36 @@ class RevocationResult:
         return self.key_type is not None
 
 
-def _revoke_personal_api_key(token: str, more_info: str) -> bool:
+def _revoke_personal_api_key(token: str, more_info: str) -> str | None:
     key_lookup = find_personal_api_key(token)
     if key_lookup is None:
-        return False
+        return None
     key, _ = key_lookup
     old_mask_value = key.mask_value
     serializer = PersonalAPIKeySerializer(instance=key)
     serializer.roll(key)
     send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
-    return True
+    return CANONICAL_PERSONAL_API_KEY
 
 
-def _revoke_project_secret_api_key(token: str, more_info: str) -> bool:
+def _revoke_project_secret_api_key(token: str, more_info: str) -> str | None:
     project_secret_api_key = find_project_secret_api_key(token)
     if project_secret_api_key is None:
-        return False
+        return None
     team = project_secret_api_key.team
     # A backfilled PSAK (#63111) mirrors the team's legacy secret token: deleting the row
     # is the revocation (rolling would mint an unrelated key that later rotation cannot
-    # clean up), and the admins must still rotate the legacy token itself.
+    # clean up), the admins must still rotate the legacy token itself, and the leak gets
+    # reported as what it is — a team token, not a PSAK.
     if token in (team.secret_api_token, team.secret_api_token_backup):
         project_secret_api_key.delete()
         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
-        return True
+        return CANONICAL_TEAM_SECRET_TOKEN
     roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
-    return True
+    return CANONICAL_PROJECT_SECRET_API_KEY
 
 
-def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"]) -> bool:
+def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "refresh"]) -> str | None:
     # Deliberately no expiry check on the access-token match: an already-expired token
     # can't authenticate on its own, but revoking still matters if the same exposure
     # also affects the paired refresh token (up to 30 days live). Gating this on
@@ -76,7 +80,7 @@ def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "
     if kind == "access":
         access_token = find_oauth_access_token(token)
         if access_token is None:
-            return False
+            return None
         # Scoped to this one access/refresh token pair, not every session the user has
         # with the application - a leaked-token report is evidence about that one
         # token, not the user's other sessions. See revoke_oauth_token_session.
@@ -85,19 +89,19 @@ def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "
     else:
         refresh_token = find_oauth_refresh_token(token)
         if refresh_token is None:
-            return False
+            return None
         revoke_oauth_token_session(refresh_token=refresh_token)
         user = refresh_token.user
     if user:
         send_oauth_token_exposed(user.id, kind, mask_key_value(token), more_info)
-    return True
+    return CANONICAL_OAUTH_ACCESS_TOKEN if kind == "access" else CANONICAL_OAUTH_REFRESH_TOKEN
 
 
-def _revoke_oauth_access_token(token: str, more_info: str) -> bool:
+def _revoke_oauth_access_token(token: str, more_info: str) -> str | None:
     return _revoke_oauth_token(token, more_info, kind="access")
 
 
-def _revoke_oauth_refresh_token(token: str, more_info: str) -> bool:
+def _revoke_oauth_refresh_token(token: str, more_info: str) -> str | None:
     return _revoke_oauth_token(token, more_info, kind="refresh")
 
 
@@ -180,6 +184,8 @@ def revoke_leaked_secret(token: str, key_type: str | None, more_info: str) -> Re
     If `key_type` is None, the token's prefix determines which single lookup runs.
     """
     resolved_type = key_type if key_type is not None else _detect_canonical_type(token)
-    if resolved_type is not None and _REVOKERS[resolved_type](token, more_info):
-        return RevocationResult(key_type=resolved_type)
-    return RevocationResult(key_type=None)
+    if resolved_type is None:
+        return RevocationResult(key_type=None)
+    # Revokers report what they actually revoked, which can be narrower than the lookup:
+    # a "phs_" match that mirrors a team token comes back as CANONICAL_TEAM_SECRET_TOKEN.
+    return RevocationResult(key_type=_REVOKERS[resolved_type](token, more_info))

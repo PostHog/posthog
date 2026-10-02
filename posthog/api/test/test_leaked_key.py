@@ -206,7 +206,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
     @patch("posthog.api.secret_revocation.send_feature_flags_secure_api_key_exposed")
     @patch("posthog.api.project_secret_api_key.send_project_secret_api_key_exposed")
-    def test_team_token_with_backfilled_psak_rolls_the_row_and_notifies_admins(
+    def test_team_token_with_backfilled_psak_deletes_the_row_and_notifies_admins(
         self, mock_psak_exposed, mock_ff_exposed
     ) -> None:
         # The backfilled row IS the leaked legacy credential: revocation deletes it and
@@ -219,7 +219,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         response = self._post(token)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"found": True, "type": "project_secret_api_key"})
+        self.assertEqual(response.json(), {"found": True, "type": "team_secret_token"})
         self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
