@@ -7,10 +7,8 @@ use common_kafka::kafka_producer::{
     send_keyed_payloads_to_kafka_with_encoding, EnvelopeEncoding, KafkaContext,
 };
 use rdkafka::producer::FutureProducer;
-use tonic::{Request, Response, Status};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    usage_ingestion_server::UsageIngestion, BillingUsageRecord, IngestBillingUsageRequest,
-    IngestBillingUsageResponse,
+    BillingUsageRecord, IngestBillingUsageRequest, IngestBillingUsageResponse,
 };
 use uuid::Uuid;
 
@@ -82,7 +80,7 @@ impl UsageIngestionService {
     async fn prepare_batch(
         &self,
         records: Vec<BillingUsageRecord>,
-    ) -> Result<(Vec<KafkaBillingUsageRecord>, Vec<Rejection>), Status> {
+    ) -> Result<(Vec<KafkaBillingUsageRecord>, Vec<Rejection>), ProcessingError> {
         // One resolver call per distinct team, not per record: a full batch from one
         // team would otherwise be 500 Redis reads and 500 queries on a cold cache.
         let mut resolved = HashMap::new();
@@ -104,37 +102,19 @@ impl UsageIngestionService {
         rejected.dedup();
         Ok((prepared, rejected))
     }
-}
 
-/// Splits a failed record by what the producer should do about it. Anything a retry cannot
-/// change is skipped; anything the service could not determine fails the whole batch, so the
-/// producer sends it again.
-#[derive(Debug)]
-enum PrepareError {
-    Rejected(&'static str),
-    Unavailable(Status),
-}
-
-/// A team the service dropped records for, and why. Deduplicated per batch, so a team that
-/// fails the same way twice reads as one lead.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Rejection {
-    team_id: i64,
-    reason: &'static str,
-}
-
-#[tonic::async_trait]
-impl UsageIngestion for UsageIngestionService {
-    async fn ingest_billing_usage(
+    pub async fn process(
         &self,
-        request: Request<IngestBillingUsageRequest>,
-    ) -> Result<Response<IngestBillingUsageResponse>, Status> {
-        let records = request.into_inner().records;
+        request: IngestBillingUsageRequest,
+    ) -> Result<IngestBillingUsageResponse, ProcessingError> {
+        let records = request.records;
         if records.is_empty() {
-            return Err(Status::invalid_argument("records must not be empty"));
+            return Err(ProcessingError::InvalidArgument(
+                "records must not be empty",
+            ));
         }
         if records.len() > self.max_batch_size {
-            return Err(Status::invalid_argument(
+            return Err(ProcessingError::InvalidArgument(
                 "records exceeds the configured batch limit",
             ));
         }
@@ -147,7 +127,7 @@ impl UsageIngestion for UsageIngestionService {
             );
         }
         if prepared.is_empty() {
-            return Ok(Response::new(IngestBillingUsageResponse::default()));
+            return Ok(IngestBillingUsageResponse::default());
         }
 
         let accepted_record_ids = prepared
@@ -159,7 +139,7 @@ impl UsageIngestion for UsageIngestionService {
             serde_json::to_vec(record)
                 .map(|payload| (None, payload))
                 .map_err(|error| {
-                    Status::internal(format!("failed to encode usage record: {error}"))
+                    ProcessingError::Internal(format!("failed to encode usage record: {error}"))
                 })
         });
         let payloads = payloads.collect::<Result<Vec<_>, _>>()?;
@@ -174,8 +154,9 @@ impl UsageIngestion for UsageIngestionService {
         metrics::histogram!("usage_ingestion_kafka_delivery_seconds")
             .record(producer_started_at.elapsed().as_secs_f64());
         if results.iter().any(Result::is_err) {
-            return Err(Status::unavailable(
-                "Kafka did not confirm every usage record; retry with the same record IDs",
+            return Err(ProcessingError::Unavailable(
+                "Kafka did not confirm every usage record; retry with the same record IDs"
+                    .to_string(),
             ));
         }
 
@@ -194,19 +175,52 @@ impl UsageIngestion for UsageIngestionService {
             }
         }
 
-        Ok(Response::new(IngestBillingUsageResponse {
+        Ok(IngestBillingUsageResponse {
             accepted_record_ids,
-        }))
+        })
     }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProcessingError {
+    #[error("{0}")]
+    InvalidArgument(&'static str),
+    #[error("{0}")]
+    Unavailable(String),
+    #[error("{0}")]
+    Internal(String),
+}
+
+impl ProcessingError {
+    pub fn is_retryable(&self) -> bool {
+        !matches!(self, Self::InvalidArgument(_))
+    }
+}
+
+/// Splits a failed record by what the producer should do about it. Anything a retry cannot
+/// change is skipped; anything the service could not determine fails the whole batch, so the
+/// producer sends it again.
+#[derive(Debug)]
+enum PrepareError {
+    Rejected(&'static str),
+    Unavailable(ProcessingError),
+}
+
+/// A team the service dropped records for, and why. Deduplicated per batch, so a team that
+/// fails the same way twice reads as one lead.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Rejection {
+    team_id: i64,
+    reason: &'static str,
 }
 
 fn prepare_error(error: ResolveError) -> PrepareError {
     match error {
         ResolveError::InvalidTeamId => PrepareError::Rejected("invalid_team_id"),
         ResolveError::Missing => PrepareError::Rejected("organization_missing"),
-        ResolveError::Database(error) => PrepareError::Unavailable(Status::unavailable(format!(
-            "team organization lookup failed: {error}"
-        ))),
+        ResolveError::Database(error) => PrepareError::Unavailable(ProcessingError::Unavailable(
+            format!("team organization lookup failed: {error}"),
+        )),
     }
 }
 
@@ -388,6 +402,6 @@ mod tests {
             .await
             .expect_err("an unavailable lookup must fail the batch");
 
-        assert_eq!(status.code(), tonic::Code::Unavailable);
+        assert!(matches!(status, ProcessingError::Unavailable(_)));
     }
 }

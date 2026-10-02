@@ -12,12 +12,14 @@ futures = { workspace = true }
 common-database = { path = "../common/database" }
 common-grpc = { path = "../common/grpc" }
 common-kafka = { path = "../common/kafka" }
+common-kafka-consumer = { path = "../common/kafka-consumer" }
 common-liveness = { path = "../common/liveness" }
 envconfig = { workspace = true }
 health = { path = "../common/health" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 moka = { workspace = true }
+prost = { workspace = true }
 rdkafka = { workspace = true }
 redis = { workspace = true }
 # redis leaves the rustls provider to the binary, so `rediss://` needs one installed here.
