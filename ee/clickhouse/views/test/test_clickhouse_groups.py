@@ -20,7 +20,6 @@ from django.db import IntegrityError
 from django.utils.timezone import now
 
 import orjson
-from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
@@ -1179,25 +1178,29 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @parameterized.expand([("detached", False), ("squashed", True)])
     @time_machine.travel("2021-05-10", tick=False)
-    def test_related_groups_person_includes_detached_history(self, _name: str, squashed: bool) -> None:
-        person_uuid = self._create_related_groups_data()
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="detached-id",
-            person_id=str(person_uuid) if squashed else str(uuid4()),
-            timestamp="2021-05-05 00:00:00",
-            properties={"$group_1": "1::5"},
-        )
-        if not squashed:
-            create_person_id_override_by_distinct_id("detached-id", "1", self.team.pk, version=100)
+    def test_related_groups_person_returns_current_and_detached_historical_groups(self) -> None:
+        create_group_type_mapping(team=self.team, project=self.project, group_type_index=0, group_type="company")
+        person = create_person(team=self.team, distinct_ids=["current-id"])
+        for distinct_id, stored_person_id, group_key in [
+            ("current-id", person.uuid, "current-company"),
+            ("detached-id", uuid4(), "historical-company"),
+        ]:
+            create_group(team_id=self.team.pk, group_type_index=0, group_key=group_key)
+            _create_event(
+                event="$pageview",
+                team=self.team,
+                distinct_id=distinct_id,
+                person_id=str(stored_person_id),
+                timestamp="2021-05-05 00:00:00",
+                properties={"$group_0": group_key},
+            )
+        create_person_id_override_by_distinct_id("detached-id", "current-id", self.team.pk, version=1)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id={person_uuid}")
+        response = self.client.get(f"/api/projects/{self.team.id}/groups/related?id={person.uuid}")
 
         assert response.status_code == 200
-        assert {group["group_key"] for group in response.json()} == {"0::0", "0::1", "1::2", "1::3", "1::5"}
+        assert {group["group_key"] for group in response.json()} == {"current-company", "historical-company"}
 
     def test_related_missing_id(self):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")
