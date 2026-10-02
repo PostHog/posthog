@@ -1,6 +1,7 @@
 import zlib
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -151,6 +152,7 @@ def _repository(name: str, *, pushed_days_ago: int, language: str = "Go", archiv
     }
 
 
+@time_machine.travel("2026-09-15T12:00:00Z", tick=False)
 @patch("posthoganalytics.feature_enabled", side_effect=_only_brand_detection_enabled)
 class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
     def setUp(self):
