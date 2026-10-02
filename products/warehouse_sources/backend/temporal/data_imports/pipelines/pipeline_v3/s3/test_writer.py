@@ -75,7 +75,7 @@ class TestWriteParquetToS3:
         f = MagicMock()
         s3 = _fake_s3([f])
         mock_write_table.side_effect = botocore.exceptions.SSLError(
-            endpoint_url="https://example.com/part-0000.parquet", error="certificate verify failed"
+            endpoint_url="https://example.com/part-0000.parquet", error=Exception("certificate verify failed")
         )
 
         with pytest.raises(botocore.exceptions.SSLError):
