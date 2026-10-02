@@ -356,6 +356,25 @@ class WorkflowDraftChanged(Exception):
     """The staged draft changed since the caller confirmed the overwrite."""
 
 
+class WorkflowStale(Exception):
+    """The workflow was written elsewhere after the caller loaded the version it edits."""
+
+
+class WorkflowHasNoDraft(Exception):
+    """Publish found no staged draft."""
+
+
+@frozen
+class WorkflowWriteResult:
+    # Concrete field values by attname under the write's row lock: the row before the write and the row the write
+    # saved. Callers build the activity diff, events and response from these. A re-read after the lock releases can
+    # include a write that another request committed later.
+    previous: Mapping[str, object]
+    current: Mapping[str, object]
+    routed_to_draft: bool = False
+    schedules_paused: int = 0
+
+
 class ProposalMetric(TypedDict):
     metric: str
     value: float | None
