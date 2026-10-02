@@ -37373,6 +37373,15 @@ export namespace Schemas {
       design?: EmailTemplateDesign;
     }
 
+    export interface EmailTemplateList {
+      /** Email subject line. Supports Liquid templating. Required for email-type templates. */
+      subject?: string;
+      /** Plain-text fallback body for clients that can't render the email. */
+      text?: string;
+      /** Rendered email body — derived from the design at save time. The visual editor's save path supplies it directly; omit it otherwise. */
+      html?: string;
+    }
+
     /**
      * * `off` - Off
      * * `opt_out` - Opt Out
@@ -63204,10 +63213,10 @@ export namespace Schemas {
     /**
      * * `liquid` - liquid
      */
-    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
+    export type MessageTemplateTemplatingEnum = typeof MessageTemplateTemplatingEnum[keyof typeof MessageTemplateTemplatingEnum];
 
 
-    export const MessageTemplateContentTemplatingEnum = {
+    export const MessageTemplateTemplatingEnum = {
       Liquid: 'liquid',
     } as const;
 
@@ -63215,7 +63224,7 @@ export namespace Schemas {
       /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
        *
        * * `liquid` - liquid */
-      templating?: MessageTemplateContentTemplatingEnum;
+      templating?: MessageTemplateTemplatingEnum;
       /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }
@@ -63233,6 +63242,43 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Template content keyed by channel. Replaced as a whole on update, not merged. */
       content?: MessageTemplateContent;
+      readonly created_by: UserBasic;
+      /**
+         * Message channel of the template. Currently 'email'.
+         * @maxLength 24
+         */
+      type?: string;
+      /**
+         * Message category ID to file the template under. Must belong to the same project.
+         * @nullable
+         */
+      message_category?: string | null;
+      /** Soft-delete flag. Set true to remove the template from the library. */
+      deleted?: boolean;
+    }
+
+    export interface MessageTemplateListContent {
+      /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
+       *
+       * * `liquid` - liquid */
+      templating?: MessageTemplateTemplatingEnum;
+      /** Email message content for template previews. The editable design is available on the detail endpoint. */
+      email?: EmailTemplateList | null;
+    }
+
+    export interface MessageTemplateList {
+      readonly id: string;
+      /**
+         * Human-readable template name shown in the library.
+         * @maxLength 400
+         */
+      name: string;
+      /** What the template is for and when to use it. */
+      description?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Template content for previews. The editable design is available on the detail endpoint. */
+      content?: MessageTemplateListContent;
       readonly created_by: UserBasic;
       /**
          * Message channel of the template. Currently 'email'.
@@ -67823,13 +67869,13 @@ export namespace Schemas {
       results: MessageSuppression[];
     }
 
-    export interface PaginatedMessageTemplateList {
+    export interface PaginatedMessageTemplateListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: MessageTemplate[];
+      results: MessageTemplateList[];
     }
 
     export interface PaginatedNodeList {

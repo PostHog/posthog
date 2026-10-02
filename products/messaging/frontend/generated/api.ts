@@ -25,7 +25,7 @@ import type {
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageSuppressionApi,
-    PaginatedMessageTemplateListApi,
+    PaginatedMessageTemplateListListApi,
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
@@ -611,8 +611,8 @@ export const messagingTemplatesList = async (
     projectId: string,
     params?: MessagingTemplatesListParams,
     options?: RequestInit
-): Promise<PaginatedMessageTemplateListApi> => {
-    return apiMutator<PaginatedMessageTemplateListApi>(getMessagingTemplatesListUrl(projectId, params), {
+): Promise<PaginatedMessageTemplateListListApi> => {
+    return apiMutator<PaginatedMessageTemplateListListApi>(getMessagingTemplatesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -40,6 +40,15 @@ class TestMessageTemplatesAPI(APIBaseTest):
         )
 
     def test_list_message_templates(self):
+        self.message_template.content = {
+            "email": {
+                "subject": "Test Subject",
+                "text": "Test Body",
+                "html": "<p>Preview</p>",
+                "design": MINIMAL_DESIGN,
+            }
+        }
+        self.message_template.save(update_fields=["content"])
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
         assert response.status_code == status.HTTP_200_OK
 
@@ -53,11 +62,15 @@ class TestMessageTemplatesAPI(APIBaseTest):
         # templating is injected by the serializer default for legacy rows that never stored it
         assert template["content"] == {
             "templating": "liquid",
-            "email": {"subject": "Test Subject", "text": "Test Body"},
+            "email": {"subject": "Test Subject", "text": "Test Body", "html": "<p>Preview</p>"},
         }
         assert template["type"] == "email"
 
     def test_retrieve_message_template(self):
+        self.message_template.content = {
+            "email": {"subject": "Test Subject", "text": "Test Body", "design": MINIMAL_DESIGN}
+        }
+        self.message_template.save(update_fields=["content"])
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/")
         assert response.status_code == status.HTTP_200_OK
 
@@ -67,7 +80,7 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert template["description"] == "Test description"
         assert template["content"] == {
             "templating": "liquid",
-            "email": {"subject": "Test Subject", "text": "Test Body"},
+            "email": {"subject": "Test Subject", "text": "Test Body", "design": MINIMAL_DESIGN},
         }
         assert template["type"] == "email"
 

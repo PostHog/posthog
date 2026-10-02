@@ -90,9 +90,13 @@ class EmailTemplateSerializer(serializers.Serializer):
     )
 
 
+class MessageTemplateTemplating(models.TextChoices):
+    LIQUID = "liquid", "liquid"
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=["liquid"],
+        choices=MessageTemplateTemplating.choices,
         default="liquid",
         help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )
@@ -178,6 +182,25 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
 
         instance = MessageTemplate.objects.create(**validated_data, team_id=team_id, created_by=request.user)
         return instance
+
+
+class EmailTemplateListSerializer(EmailTemplateSerializer):
+    design = None
+
+
+class MessageTemplateListContentSerializer(MessageTemplateContentSerializer):
+    email = EmailTemplateListSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Email message content for template previews. The editable design is available on the detail endpoint.",
+    )
+
+
+class MessageTemplateListSerializer(MessageTemplateSerializer):
+    content = MessageTemplateListContentSerializer(
+        required=False,
+        help_text="Template content for previews. The editable design is available on the detail endpoint.",
+    )
 
 
 class EmailTemplateDesignOperation(models.TextChoices):
@@ -295,6 +318,11 @@ class MessageTemplatesViewSet(
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return MessageTemplateListSerializer
+        return MessageTemplateSerializer
 
     def safely_get_queryset(self, queryset):
         return (
