@@ -243,7 +243,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                         ),
                         schemaIds.length > 0
                             ? loadAppMetricsTimeSeries(
-                                  { ...common, instanceId: schemaIds, breakdownBy: 'metric_name' },
+                                  { ...common, instanceIds: schemaIds, breakdownBy: 'metric_name' },
                                   timezone
                               )
                             : Promise.resolve({ labels: [], interval, timezone, series: [] }),

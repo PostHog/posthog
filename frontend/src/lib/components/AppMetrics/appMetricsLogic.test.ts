@@ -15,7 +15,7 @@ describe('app metrics logic', () => {
         await loadAppMetricsTimeSeries(
             {
                 appSource: 'warehouse_source_sync',
-                instanceId: ['schema-1', 'schema-2'],
+                instanceIds: ['schema-1', 'schema-2'],
                 breakdownBy: 'metric_name',
                 dateFrom: '2026-10-01T00:00:00Z',
                 dateTo: '2026-10-02T00:00:00Z',

@@ -244,9 +244,10 @@ describe('pipelineOverviewSceneLogic', () => {
 
         const asked = metrics.loadAppMetricsTimeSeries.mock.calls.map(([request]: any[]) => request)
         // One request per destination, plus one request restricted to schema attribution keys.
-        expect(asked.map((r: any) => r.instanceId)).toEqual(
-            expect.arrayContaining(['dest-1', 'dest-2', ['schema-1', 'schema-2']])
+        expect(asked.map((r: any) => r.instanceId).filter(Boolean)).toEqual(
+            expect.arrayContaining(['dest-1', 'dest-2'])
         )
+        expect(asked.find((r: any) => r.instanceIds)?.instanceIds).toEqual(['schema-1', 'schema-2'])
         // The query interpolates `breakdownBy` with no fallback, so omitting it emits
         // `undefined AS breakdown` and the whole chart fails to load. This asserted the
         // omission before, which is how that shipped.
