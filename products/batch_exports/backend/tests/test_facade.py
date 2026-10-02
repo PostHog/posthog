@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 import pytest
@@ -9,10 +10,16 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import api, contracts, testing
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
 
 pytestmark = [pytest.mark.django_db]
@@ -23,7 +30,7 @@ WINDOW_BEGIN = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
 WINDOW_END = WINDOW_BEGIN + dt.timedelta(days=1)
 IN_WINDOW = WINDOW_BEGIN + dt.timedelta(hours=1)
 
-S3 = BatchExportDestination.Destination.S3
+AWS_S3 = BatchExportDestination.Destination.AWS_S3
 HTTP = BatchExportDestination.Destination.HTTP
 NOOP = BatchExportDestination.Destination.NOOP
 WORKFLOWS = BatchExportDestination.Destination.WORKFLOWS
@@ -40,7 +47,7 @@ def team(organization):
     return create_team(organization=organization)
 
 
-def _create_export(team, *, name="export", destination_type=S3, config=None, **fields):
+def _create_export(team, *, name="export", destination_type=AWS_S3, config=None, **fields):
     return testing.create_batch_export(
         team.pk,
         name=name,
@@ -65,7 +72,7 @@ def _create_run(*, finished_at, records=0, status=BatchExportRun.Status.COMPLETE
     return run_id
 
 
-def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team):
+def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team, organization):
     scheduled = _create_export(team, name="scheduled")
     on_demand = testing.create_batch_export_on_demand(team.pk, destination_type=FILE_DOWNLOAD, destination_config={})
 
@@ -75,9 +82,14 @@ def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team)
     _create_run(batch_export_id=scheduled, finished_at=WINDOW_END + dt.timedelta(hours=1), records=100)
     _create_run(batch_export_id=scheduled, finished_at=IN_WINDOW, records=100, status=BatchExportRun.Status.FAILED)
 
-    assert api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END) == [
-        contracts.TeamTotal(team_id=team.pk, total=22)
-    ]
+    uncounted_team = create_team(organization=organization)
+    uncounted = _create_export(uncounted_team, name="uncounted")
+    _create_run(batch_export_id=uncounted, finished_at=IN_WINDOW, records=None)
+
+    assert set(api.get_teams_with_billable_rows_exported(WINDOW_BEGIN, WINDOW_END)) == {
+        contracts.TeamTotal(team_id=team.pk, total=22),
+        contracts.TeamTotal(team_id=uncounted_team.pk, total=0),
+    }
 
 
 @pytest.mark.parametrize(
@@ -85,8 +97,8 @@ def test_billable_rows_exported_sums_scheduled_and_on_demand_runs_per_team(team)
     [
         (HTTP, {}, False),
         (WORKFLOWS, {}, False),
-        (S3, {"model": BatchExport.Model.HOGQL}, False),
-        (S3, {}, True),
+        (AWS_S3, {"model": BatchExport.Model.HOGQL}, False),
+        (AWS_S3, {}, True),
     ],
     ids=["http destination", "workflows destination", "hogql model", "deleted export"],
 )
@@ -198,7 +210,7 @@ def test_batch_export_by_name_carries_the_event_filters_and_no_destination_secre
 def test_batch_export_by_name_is_none_when_nothing_matches(team):
     _create_export(team, name="migration", destination_type=HTTP)
 
-    assert api.get_batch_export_by_name(team.pk, "migration", S3) is None
+    assert api.get_batch_export_by_name(team.pk, "migration", AWS_S3) is None
 
 
 def test_batch_export_by_name_rejects_an_ambiguous_match(team):
@@ -235,6 +247,28 @@ def test_latest_run_is_by_creation_and_latest_completed_run_is_by_finish(team):
     assert latest_completed is not None and latest_completed.id == finished_last
 
 
+def test_backfills_for_export_lists_every_backfill_newest_first_within_the_team(team, organization):
+    export_id = _create_export(team)
+    backfill_ids = []
+    for offset in (2, 0, 1):
+        backfill_id = testing.create_backfill(
+            export_id,
+            team_id=team.pk,
+            status=BatchExportBackfill.Status.COMPLETED,
+            start_at=IN_WINDOW - dt.timedelta(days=offset),
+        )
+        BatchExportBackfill.objects.filter(id=backfill_id).update(created_at=IN_WINDOW + dt.timedelta(hours=offset))
+        backfill_ids.append(backfill_id)
+    other_team = create_team(organization=organization)
+
+    assert [backfill.id for backfill in api.list_backfills_for_export(export_id, team.pk)] == [
+        backfill_ids[0],
+        backfill_ids[2],
+        backfill_ids[1],
+    ]
+    assert api.list_backfills_for_export(export_id, other_team.pk) == []
+
+
 def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
     first = _create_export(team, name="first")
     second = _create_export(team, name="second")
@@ -252,6 +286,53 @@ def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
 
     assert not BatchExport.objects.filter(id__in=[first, second]).exists()
     assert not BatchExportDestination.objects.filter(id__in=destination_ids).exists()
+
+
+def test_workflows_backfill_export_is_a_paused_hourly_events_export_for_the_hog_function(team, organization):
+    user = User.objects.create_and_join(organization=organization, email="backfiller@example.com", password=None)
+    hog_function_id = uuid.uuid4()
+    event_filters: list[dict[str, object]] = [
+        {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}
+    ]
+
+    with mock.patch("products.batch_exports.backend.service.sync_batch_export") as sync_batch_export:
+        ref = api.create_workflows_backfill_export(
+            team.pk,
+            hog_function_id=hog_function_id,
+            name="My destination",
+            event_filters=event_filters,
+            last_modified_by_id=user.pk,
+        )
+
+    sync_batch_export.assert_called_once()
+    batch_export = BatchExport.objects.select_related("destination").get(id=ref.id, team_id=team.pk)
+    assert ref.name == "My destination"
+    assert (
+        batch_export.paused,
+        batch_export.interval,
+        batch_export.model,
+        batch_export.filters,
+        batch_export.last_modified_by_id,
+    ) == (True, "hour", BatchExport.Model.EVENTS, event_filters, user.pk)
+    assert batch_export.destination.type == WORKFLOWS
+    assert batch_export.destination.config == {"hog_function_id": str(hog_function_id)}
+
+
+def test_workflows_backfill_export_rejects_bad_filters_before_it_schedules_anything(team):
+    with (
+        mock.patch("products.batch_exports.backend.service.sync_batch_export") as sync_batch_export,
+        pytest.raises(contracts.InvalidBatchExportFilters),
+    ):
+        api.create_workflows_backfill_export(
+            team.pk,
+            hog_function_id=uuid.uuid4(),
+            name="My destination",
+            event_filters=[{"id": "$pageview", "type": "events"}],
+            last_modified_by_id=1,
+        )
+
+    sync_batch_export.assert_not_called()
+    assert not BatchExport.objects.filter(team_id=team.pk).exists()
 
 
 @pytest.fixture

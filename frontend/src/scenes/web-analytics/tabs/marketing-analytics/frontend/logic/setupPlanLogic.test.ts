@@ -81,11 +81,27 @@ describe('setupPlanLogic', () => {
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
             source: 'setup_tab',
+            entry_point: 'direct',
             operation_types: ['add_custom_source_mapping'],
             requested_count: 1,
             applied_count: 0,
             is_undo: false,
         })
+    })
+
+    it('attributes a change to the dashboard surface that opened Setup', async () => {
+        marketingAnalyticsSettingsLogic.actions.setSetupEntryPoint('dashboard_source_suggestions')
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(suggestion())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.applySuggestion(suggestion())).toFinishAllListeners()
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'marketing analytics setup suggestion reviewed',
+            expect.objectContaining({ entry_point: 'dashboard_source_suggestions' })
+        )
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'marketing analytics setup change completed',
+            expect.objectContaining({ entry_point: 'dashboard_source_suggestions' })
+        )
     })
 
     it('collapses the row optimistically once the op succeeds', async () => {
@@ -135,6 +151,7 @@ describe('setupPlanLogic', () => {
         expect(applyRequests[0].ops).toEqual(UNDO_OPS)
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
             source: 'setup_tab',
+            entry_point: 'direct',
             operation_types: ['remove_custom_source_mapping'],
             requested_count: 1,
             applied_count: 0,
@@ -153,10 +170,17 @@ describe('setupPlanLogic', () => {
         await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
         expect(logic.values.safeBatch.map((s) => s.id)).toEqual([suggestion().id])
 
+        marketingAnalyticsSettingsLogic.actions.setSetupEntryPoint('dashboard_source_suggestions')
+        logic.actions.reviewSafeBatch()
+        expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup batch reviewed', {
+            count: 1,
+            entry_point: 'dashboard_source_suggestions',
+        })
         await expectLogic(logic, () => logic.actions.applyAllSafe()).toFinishAllListeners()
         expect(applyRequests[0].ops).toEqual([suggestion().apply])
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change completed', {
             source: 'apply_all_safe',
+            entry_point: 'dashboard_source_suggestions',
             operation_types: ['add_custom_source_mapping'],
             requested_count: 1,
             applied_count: 0,
@@ -244,6 +268,7 @@ describe('setupPlanLogic', () => {
         expect(logic.values.reviewingSuggestion).not.toBeNull()
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup change failed', {
             source: 'setup_tab',
+            entry_point: 'direct',
             operation_types: ['add_custom_source_mapping'],
             requested_count: 1,
             is_undo: false,
@@ -280,6 +305,7 @@ describe('setupPlanLogic', () => {
         expect(applyRequests).toHaveLength(0)
         expect(posthog.capture).toHaveBeenCalledWith('marketing analytics setup suggestion dismissed', {
             kind: 'add_source_mapping',
+            entry_point: 'direct',
         })
     })
 
@@ -297,6 +323,7 @@ describe('setupPlanLogic', () => {
                     kind: 'add_source_mapping',
                     source: 'deterministic',
                     integration: 'MetaAds',
+                    entry_point: 'direct',
                 },
             ],
         ])

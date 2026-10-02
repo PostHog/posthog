@@ -11,10 +11,10 @@ source configures on the shared platform, rather than one product's own table.
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
-class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     """What to evaluate, how often, and against what bound.
 
     Evaluation-level state lives here rather than on `PlatformAlert`, because a failed check
@@ -74,7 +74,7 @@ class PlatformAlertConfiguration(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
-class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
+class PlatformAlert(TeamScopedRootMixin, UUIDModel):
     """Runtime state for one instance of a configuration.
 
     `grouping_key` is empty until a source groups its results. The unique constraint is what
@@ -95,8 +95,59 @@ class PlatformAlert(TeamScopedRootMixin, UUIDTModel):
     state = models.CharField(max_length=32, choices=State.choices, default=State.NOT_FIRING, db_default="not_firing")
     last_notified_at = models.DateTimeField(null=True, blank=True)
     snooze_until = models.DateTimeField(null=True, blank=True)
+    # Identifies one firing, from the transition into FIRING to the transition out. A timestamp
+    # rather than an opaque id, because `last_notified_at >= firing_started_at` is then how a
+    # reader knows whether this firing was ever announced.
+    firing_started_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["configuration", "grouping_key"], name="platform_alert_one_per_group")
+        ]
+
+
+class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
+    """One provider conversation, and what has already been said in it.
+
+    A resolve replies under the message that fired, which needs the handle from that first send.
+    One row is one conversation: the configuration, the group, the provider and the channel it
+    posts to, plus the firing it belongs to. Without the firing a thread would span every
+    incident an alert ever had; without the group two groups would share one.
+
+    It also carries what makes a redelivery safe. A send that a crash left unrecorded repeats
+    on retry, because no provider offers an idempotency key, so the row holds who has already
+    been delivered and who is mid-send right now.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="threads")
+
+    grouping_key = models.CharField(max_length=255, default="", db_default="")
+    provider = models.CharField(max_length=32)
+    # A repointed destination gives a different answer, which stops a reply going to the old place.
+    channel_target = models.CharField(max_length=255)
+    episode_started_at = models.DateTimeField()
+
+    # The provider's own handle, `{"channel": ..., "ts": ...}` for Slack. Opaque to everything
+    # but the transport that issued it.
+    external_ref = models.JSONField(default=dict)
+
+    # Evaluations already delivered into this conversation, newest last. Capped, because a
+    # thread lives as long as its firing and the list only has to outlive a retry.
+    delivered_evaluation_keys = models.JSONField(default=list)
+
+    # A send in flight. Held for `PENDING_CLAIM_TTL` so a retry that starts while the first
+    # attempt is still mid-post waits rather than posting a second copy.
+    pending_evaluation_key = models.CharField(max_length=255, null=True, blank=True)
+    pending_claimed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuration", "grouping_key", "provider", "channel_target", "episode_started_at"],
+                name="platform_alert_thread_one_per_conversation",
+            )
         ]

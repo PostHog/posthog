@@ -14,6 +14,7 @@ from typing import Any, Final, NotRequired, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 class SourceKind(StrEnum):
@@ -84,7 +85,7 @@ class SourceEvaluationInputs:
 
 
 @frozen
-class PlatformAlertCheck:
+class PlatformAlertCheckInput:
     """One configuration and its runtime state, as a source adapter reads it.
 
     Flat rather than nested, because a source never holds the rows and has nothing to do with
@@ -109,6 +110,7 @@ class PlatformAlertCheck:
     state: str
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    firing_started_at: datetime | None = None
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -135,16 +137,85 @@ class PlatformAlertUpsert:
     cooldown_minutes: int
     schedule_restriction: dict[str, Any] | None
     next_check_at: datetime | None
+    snooze_until: datetime | None
+
+
+class SkipReason(StrEnum):
+    """Why a check reached an outcome without a query answering it.
+
+    A label on the platform's own counters. It never reaches an alert's state or schedule. A check
+    that was evaluated has no skip reason, which is `None` rather than a member here.
+    """
+
+    BROKEN_CONFIG = "broken_config"
+    QUERY_FAILED = "query_failed"
+
+
+class MuteReason(StrEnum):
+    """Why an announcement was held. A muted check is evaluated like any other, so this labels the
+    held announcement rather than a skip."""
+
+    SNOOZE = "snooze"
+    QUIET_HOURS = "quiet_hours"
+
+
+class AlertEventKind(StrEnum):
+    """What one evaluation announced about an alert.
+
+    `CHECK` is an evaluation that announced nothing, which includes one that moved the alert while
+    a cooldown or a mute held the notification back. Read the history row's `previous_state` and
+    `state` to find the moves, because counting `RESOLVED` rows misses every recovery that was
+    suppressed.
+
+    A source reports the kind rather than the platform deriving it: the machine already decided
+    what to announce, and deriving it again from the states would be a second implementation of
+    that decision.
+    """
+
+    CHECK = "check"
+    FIRING = "firing"
+    RESOLVED = "resolved"
+    ERRORED = "errored"
+    BROKEN = "broken"
+
+
+@frozen
+class FiringEpisode:
+    """The firing a check concerns, and whether that check is the one that ended it.
+
+    Two readers want different things from it. An alert's current state wants the firing it is in
+    now, which is nothing once a check ends one. A history row and a delivery want the firing the
+    check was about, which on a resolve is the firing that just ended. Both come from here, so
+    neither has to work the difference out from the states.
+
+    `started_at` is None for a firing that began before the platform recorded starts.
+    """
+
+    started_at: datetime | None
+    ended: bool
 
 
 @frozen
 class PlatformAlertOutcome:
-    """What one check decided. The platform turns this into rows."""
+    """What one check decided. The platform turns this into rows.
+
+    Every check produces one, including a check a source skipped. A skip that records nothing
+    leaves its due time where it was, so discovery finds the same work every tick.
+    """
 
     configuration_id: UUID
+    evaluation_key: str
+    kind: AlertEventKind
     new_state: str
     notified: bool
     consecutive_failures: int
+    firing_episode: FiringEpisode | None = None
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    error_message: str | None = None
+    query_duration_ms: int | None = None
+    # What a mute held back, so history separates a muted fire from a check that said nothing.
+    muted_notification: str = ""
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
@@ -152,23 +223,84 @@ class PlatformAlertOutcome:
 
 @frozen
 class GroupTransition:
-    """One transition a delivery would carry. `grouping_key` is empty until a source groups,
-    so delivery reads a list of one today and a list of N when fan-out ships."""
+    """One transition a delivery carries: `kind` picks the headline, `value` is the number it
+    quotes.
+
+    `grouping_key` is empty until a source groups, so delivery reads a list of one today and a
+    list of N when fan-out ships.
+
+    The condition and the source config a message also needs stay on the history row the
+    delivery addresses, because `source_config` is an unbounded filter tree and one per
+    transition would blow the payload bound `MAX_PREVIEWS_PER_CYCLE` was sized against.
+    """
 
     grouping_key: str
-    notification: str
+    kind: AlertEventKind
+    value: float | None = None
 
 
 @frozen
-class AlertDeliveryPreview:
-    """What delivery would send. The PoC records it instead of contacting a destination."""
+class AnnouncedTransition:
+    """One group's transition as delivery reads it back, projected from a history row.
+
+    The sibling of `GroupTransition`, and deliberately not the same type. A `GroupTransition`
+    crosses Temporal on the delivery payload, so it stays small. This never does: delivery holds
+    an address, reads the row, and builds one of these in the process that sends the message. So
+    it carries what a message states, including the two snapshots the row already keeps.
+
+    Every field here is a column on `platform_alert_events`, which is what makes a message state
+    what its own check decided however long after the check it is rendered.
+    """
+
+    grouping_key: str
+    kind: AlertEventKind
+    # The firing this transition concerns, which on a resolve is the firing that just ended.
+    # None when no firing is involved, which is a failed or a turned-off check.
+    episode_started_at: datetime | None
+    value: float | None
+    labels: dict[str, str]
+    condition: dict[str, Any]
+    source_config: dict[str, Any]
+    error_message: str | None
+
+
+@frozen
+class EvaluationAnnouncement:
+    """What one evaluation left for a destination to say.
+
+    One transition is one message. A level between this and the transitions would be the place a
+    fan-in policy lived, and fan-in was deprioritized on 2026-09-28, so there is nothing for it
+    to hold. It arrives with fan-in rather than waiting here empty.
+    """
+
+    alert_name: str
+    # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
+    # whole evaluation, and every group in one announcement saw the same count.
+    consecutive_failures: int
+    transitions: tuple[AnnouncedTransition, ...]
+
+
+@frozen
+class AlertDeliveryRequest:
+    """Where to find what one evaluation decided, rather than a copy of it.
+
+    A delivery addresses its history rows by `configuration_id` and `evaluation_key`, and reads
+    the facts back from there. So a retry announces what was recorded rather than what one
+    attempt happened to carry, and a batch's payload does not grow with what its alerts say.
+
+    The two destination fields are supplied by the source because only the source knows them.
+    `destination_alert_id` is the id its destinations are matched on, which is the legacy
+    configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
+    each kind the source can announce onto the event id its destinations filter on. The platform
+    imports no source, so it cannot derive either.
+    """
 
     source: SourceKind
-    alert_id: str
-    alert_name: str
+    team_id: int
+    configuration_id: str
     evaluation_key: str
-    destination_names: tuple[str, ...]
-    transitions: tuple[GroupTransition, ...]
+    destination_alert_id: str
+    event_ids_by_kind: dict[str, str]
 
 
 @frozen
@@ -180,7 +312,7 @@ class SourceBatchEvaluation:
     """
 
     outcomes: tuple[PlatformAlertOutcome, ...]
-    previews: tuple[AlertDeliveryPreview, ...]
+    deliveries: tuple[AlertDeliveryRequest, ...]
     # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
     # them, the way a truncated cohort already behaves.
     omitted: int = 0
@@ -188,7 +320,7 @@ class SourceBatchEvaluation:
 
 # The platform's write, which a source's evaluation workflow starts by name. One definition,
 # because a rename that misses a source breaks it at runtime and nothing else would catch it.
-RECORD_OUTCOMES_ACTIVITY: Final[str] = "alerts_product_record_outcomes"
+RECORD_OUTCOMES_ACTIVITY: Final[str] = "alerts_platform_record_outcomes"
 
 
 @frozen
@@ -231,29 +363,12 @@ class OrchestrateResult:
     deadline_reached: bool
 
 
-class DestinationType(StrEnum):
-    SLACK = "slack"
-    DISCORD = "discord"
-    WEBHOOK = "webhook"
-    TEAMS = "teams"
-
-    @property
-    def label(self) -> str:
-        """Name for this type in a message a person reads."""
-        return _DESTINATION_TYPE_LABELS[self]
-
-
-_DESTINATION_TYPE_LABELS: Final[dict[DestinationType, str]] = {
-    DestinationType.SLACK: "Slack",
-    DestinationType.DISCORD: "Discord",
-    DestinationType.WEBHOOK: "Webhook",
-    DestinationType.TEAMS: "Microsoft Teams",
-}
-
-# A type without a label would only surface as a KeyError inside a validation message a
-# person reads, so a new member without one fails the import instead.
-if _DESTINATION_TYPE_LABELS.keys() != set(DestinationType):
-    raise RuntimeError("Every DestinationType needs an entry in _DESTINATION_TYPE_LABELS.")
+class DestinationType(LabeledStrEnum):
+    # The label names the type in a message a person reads.
+    SLACK = "slack", "Slack"
+    DISCORD = "discord", "Discord"
+    WEBHOOK = "webhook", "Webhook"
+    TEAMS = "teams", "Microsoft Teams"
 
 
 class AlertDestinationData(TypedDict):

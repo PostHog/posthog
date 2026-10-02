@@ -80,7 +80,7 @@ A team with no rows on the day produces no result row at all. Compare the return
 
 **`only_in_events` is a deficit.** The events table has a uuid the fork never wrote. This is the failure the check exists for, and it blocks widening. Deficit has measured zero on every day checked that was not a team's activation day, so treat any non-zero value as real rather than as noise. Walk the four items in the next section before chasing it, because three of them produce a false deficit.
 
-**`only_in_flag_evaluations` is an excess.** The fork wrote a uuid the events table has no row for, which is loss on the events side. It has been small and non-zero on some days and zero on others. It is not explained yet, and on its own it does not block widening. Raise it if it grows.
+**`only_in_flag_evaluations` is an excess.** The fork wrote a uuid the events table has no row for, which is loss on the events side. It has been small and non-zero on some days and zero on others. It is not explained yet, and on its own it does not block widening. Raise it if it grows. For a team whose organization is on `FLAG_EVALUATIONS_ONLY`, ingestion writes no `$feature_flag_called` rows to events, so every uuid lands here and the check does not apply to that team.
 
 **`in_both` is the covered population.** Use it as the denominator when judging whether either of the other two columns is large enough to matter.
 

@@ -226,6 +226,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                 name="dwsavedquery_team_live_matvw",
                 condition=~models.Q(deleted=True),
             ),
+            models.Index(
+                fields=["team_id", "-created_at"],
+                name="dwsavedquery_team_live_created",
+                condition=~models.Q(deleted=True),
+            ),
         ]
 
     @property
@@ -281,6 +286,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             node = (
                 Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
                 .select_related("dag", "dag__team")
+                .order_by("created_at")
                 .first()
             )
             dag_to_bootstrap = None

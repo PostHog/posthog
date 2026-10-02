@@ -1,0 +1,76 @@
+{
+  "_generated": "Generated file. Do not edit by hand and do not add units by hand. Every unit is built by the AI observability sample pipeline from the structure of real production events, with all content replaced. See AGENTS.md in this directory.",
+  "title": "Virtual staging render for a listing photo",
+  "scenario": "A listing-photo virtual-staging tool calls a fal.ai image model to re-render an empty room with furniture, then returns the generated image's storage key and dimensions.",
+  "summary": {
+    "events": {
+      "$ai_generation": 1
+    },
+    "traces": 1,
+    "sessions": 1,
+    "errors": 0,
+    "libs": [
+      "posthog-node"
+    ],
+    "providers": [
+      "fal"
+    ],
+    "frameworks": [],
+    "models": [
+      "openai/gpt-image-2.5/flare/text-to-image"
+    ],
+    "content_types": [
+      "image"
+    ]
+  },
+  "events": [
+    {
+      "event": "$ai_generation",
+      "offset_ms": 0,
+      "distinct_id": "user-1",
+      "properties": {
+        "generation_request_id": "req_8f3e6b1c4d9a02f7",
+        "model_ref": "v1.0-turbo",
+        "async_queue_used": true,
+        "$ai_total_cost_usd": 0.006,
+        "model_version_ref": "v1.0-turbo",
+        "$ai_model": "openai/gpt-image-2.5/flare/text-to-image",
+        "job_type": "virtual_staging_render",
+        "$lib_version": "5.49.1",
+        "$ai_session_id": "session_8f3e6b1c4d9a02f7e5c3b8d1e6a9f204",
+        "$ai_latency": 10.103597013998776,
+        "output_asset_checksum": "f4a96710-30f1-7f56-c9a4-e644181b825a",
+        "$ai_trace_id": "req_8f3e6b1c4d9a02f7",
+        "feature": "picture_OA2VVNemc5",
+        "task_id": "req_8f3e6b1c4d9a02f7",
+        "$is_server": true,
+        "$lib": "posthog-node",
+        "$geoip_disable": true,
+        "$ai_is_error": false,
+        "render_engine": "fal_sdk",
+        "$ai_provider": "fal",
+        "$ai_input": {
+          "preserve_layout": false,
+          "enable_hdr": true,
+          "num_reference_images": 0,
+          "mask_region_count": 0
+        },
+        "$ai_output_choices": [
+          {
+            "content": [
+              {
+                "storage_key": "stg_4f81a2",
+                "height": 1024,
+                "type": "image",
+                "width": 1024
+              }
+            ],
+            "role": "assistant"
+          }
+        ]
+      }
+    }
+  ],
+  "sets": [],
+  "why": null
+}

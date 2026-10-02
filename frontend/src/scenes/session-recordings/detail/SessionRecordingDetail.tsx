@@ -31,7 +31,11 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps)
                 <div className="mb-4">
                     <LemonBanner type="info">
                         Session recordings are currently disabled for this project. To use this feature, please go to
-                        your <Link to={`${urls.settings('project')}#recordings`}>project settings</Link> and enable it.
+                        your{' '}
+                        <Link data-attr="replay-detail-open-settings" to={`${urls.settings('project')}#recordings`}>
+                            project settings
+                        </Link>{' '}
+                        and enable it.
                     </LemonBanner>
                 </div>
             ) : null}

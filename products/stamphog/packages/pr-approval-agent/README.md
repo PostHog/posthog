@@ -282,7 +282,7 @@ Those files are still readable as untrusted _content_ under the anti-injection n
 The diff scratch file is created with `mkstemp` under an unpredictable name, so a tracked symlink in the tree cannot redirect the write.
 
 The base commit of a stacked PR is its parent branch tip, which the checkout does not necessarily carry.
-`github.ensure_commits` fetches it for `review_pr.py`, and `review_local.py` expects the caller to have fetched it during the clone.
+`github.ensure_commits` fetches it for `review_pr.py`. The hosted server instead passes the merge base in the context, and `review_local.py` diffs `merge_base..head` against the shallow checkout.
 
 ## Tiers
 

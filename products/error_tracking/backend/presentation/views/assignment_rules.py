@@ -2,7 +2,7 @@ from uuid import UUID
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -127,6 +127,13 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.Serializer):
         return {"type": obj.assignee.type, "id": obj.assignee.id}
 
 
+class ErrorTrackingAssignmentRuleReorderRequestSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Mapping from assignment rule UUID to its new evaluation order.",
+    )
+
+
 class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
@@ -209,6 +216,7 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=ErrorTrackingAssignmentRuleReorderRequestSerializer, responses={204: None})
     @action(methods=["PATCH"], detail=False)
     def reorder(self, request, **kwargs) -> Response:
         orders: dict[str, int] = request.data.get("orders", {})

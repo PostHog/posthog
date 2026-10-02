@@ -115,6 +115,7 @@ required-features = ["flags-cache-builder"]
 workspace = true
 
 [dev-dependencies]
+jsonschema = { version = "0.58", default-features = false }
 rstest = "0.26"
 assert-json-diff = { workspace = true }
 common-s3 = { path = "../common/s3", features = ["mock-client"] }

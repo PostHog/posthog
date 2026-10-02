@@ -14,6 +14,7 @@ from products.dashboards.backend.widget_specs.configs import (
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
+    NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
@@ -22,11 +23,13 @@ from products.dashboards.backend.widget_specs.configs import (
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
+    NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
 )
 
 DashboardWidgetType = Literal[
+    "notebook_widget",
     "activity_events_list",
     "error_tracking_list",
     "session_replay_list",
@@ -119,10 +122,27 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
 
     return {
+        NOTEBOOK_WIDGET_TYPE: WidgetSpec(
+            widget_type=NOTEBOOK_WIDGET_TYPE,
+            config_model=NotebookWidgetConfig,
+            query_fn=run_notebook_widget,
+            required_scopes=("notebook:read", "query:read"),
+            group_id="notebooks",
+            group_label="Notebooks",
+            label="Notebook widget",
+            description="A generated notebook widget with saved dataframe results. Add it from a notebook widget's menu. Dashboard filters do not change notebook variables.",
+            required_product_access=None,
+            product_access_denied_message=None,
+            availability_requirements=(),
+            form_fields=(),
+            filter_fields=(),
+            creation_flag="notebook-generated-widgets",
+        ),
         ACTIVITY_EVENTS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
             config_model=ActivityEventsListWidgetConfig,

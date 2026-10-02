@@ -1,3 +1,7 @@
+import asyncio
+from contextlib import suppress
+from dataclasses import replace
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,9 +35,11 @@ from products.review_hog.backend.temporal.activities import (
     select_perspectives_activity,
     split_chunks_activity,
 )
+from products.review_hog.backend.temporal.heartbeat import REPORT_HEARTBEAT_INTERVAL, ReviewActivityHeartbeater
 from products.tasks.backend.facade.run_config import ReasoningEffort, RuntimeAdapter
 
 _MODULE = "products.review_hog.backend.temporal.activities"
+_HEARTBEAT_MODULE = "products.review_hog.backend.temporal.heartbeat"
 
 
 def _review_input(**overrides: object) -> ReviewChunkInput:
@@ -90,6 +96,71 @@ def _snapshot(pr_files: list[PRFile] | None = None) -> PRSnapshotArtefact:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["completed", "failed", "cancelled"])
+async def test_activity_report_heartbeat_repeats_and_stops_with_the_activity(outcome: str) -> None:
+    pulses: asyncio.Queue[None] = asyncio.Queue()
+    timers: asyncio.Queue[asyncio.Future[None]] = asyncio.Queue()
+    finish = asyncio.Event()
+    attempts = 0
+
+    async def refresh_report() -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise RuntimeError("database unavailable")
+        await pulses.put(None)
+
+    async def advanceable_sleep(delay: float) -> None:
+        assert delay == REPORT_HEARTBEAT_INTERVAL.total_seconds()
+        timer = asyncio.get_running_loop().create_future()
+        await timers.put(timer)
+        await timer
+
+    async def run_activity() -> None:
+        async with ReviewActivityHeartbeater(team_id=1, report_id="report", head_sha="head"):
+            await finish.wait()
+            if outcome == "failed":
+                raise RuntimeError("review failed")
+
+    with (
+        patch(f"{_HEARTBEAT_MODULE}.Heartbeater.__aenter__", new=AsyncMock()),
+        patch(f"{_HEARTBEAT_MODULE}.Heartbeater.__aexit__", new=AsyncMock()),
+        patch(f"{_HEARTBEAT_MODULE}.database_sync_to_async", return_value=refresh_report),
+        patch(f"{_HEARTBEAT_MODULE}.asyncio.sleep", side_effect=advanceable_sleep),
+    ):
+        task = asyncio.create_task(run_activity())
+        try:
+            async with asyncio.timeout(10):
+                first_timer = await timers.get()
+                first_timer.set_result(None)
+                await pulses.get()
+                second_timer = await timers.get()
+                second_timer.set_result(None)
+                await pulses.get()
+                last_timer = await timers.get()
+
+                if outcome == "cancelled":
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                elif outcome == "failed":
+                    finish.set()
+                    with pytest.raises(RuntimeError, match="review failed"):
+                        await task
+                else:
+                    finish.set()
+                    await task
+
+                assert attempts == 3
+                assert last_timer.cancelled()
+                assert pulses.empty()
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError, RuntimeError):
+                await task
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "additions,expects_oneshot",
     [
@@ -105,7 +176,7 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
     mock_oneshot = AsyncMock(return_value=plan)
     mock_sandbox = AsyncMock(return_value=plan)
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_chunk_set", return_value=None),
         patch(
             f"{_MODULE}.load_pr_snapshot",
@@ -145,19 +216,34 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
 
 
 @pytest.mark.asyncio
-async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps_the_cache() -> None:
+@pytest.mark.parametrize("effort", [ReasoningEffort.MEDIUM, ReasoningEffort.XHIGH])
+@pytest.mark.parametrize("blind_spot_check", [False, True])
+async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps_the_cache(
+    effort: ReasoningEffort, blind_spot_check: bool
+) -> None:
+    expected = replace(FLASH_ARM, reasoning_effort=effort)
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     mock_persist = MagicMock()
     mock_prepare = MagicMock(return_value="review-prompt")
     env = ActivityEnvironment()
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
     ):
-        assert await env.run(review_chunk_activity, _review_input(review_mode=REVIEW_MODE_FLASH)) is True
+        assert (
+            await env.run(
+                review_chunk_activity,
+                _review_input(
+                    review_mode=REVIEW_MODE_FLASH,
+                    flash_reasoning_effort=effort.value,
+                    blind_spot_check=blind_spot_check,
+                ),
+            )
+            is True
+        )
 
     kwargs = mock_review.call_args.kwargs
     assert (
@@ -166,13 +252,13 @@ async def test_review_chunk_activity_flash_turn_runs_on_the_flash_arm_and_stamps
         kwargs["reasoning_effort"],
         kwargs["initial_permission_mode"],
     ) == (
-        FLASH_ARM.runtime_adapter,
-        FLASH_ARM.model,
-        FLASH_ARM.reasoning_effort,
-        FLASH_ARM.initial_permission_mode,
+        expected.runtime_adapter,
+        expected.model,
+        expected.reasoning_effort,
+        expected.initial_permission_mode,
     )
-    assert mock_prepare.call_args.args[-1] == FLASH_ARM.model
-    assert mock_persist.call_args.kwargs["review_model"] == FLASH_ARM.model
+    assert mock_prepare.call_args.args[-1] == expected
+    assert mock_persist.call_args.kwargs["review_arm"] == expected
 
 
 @pytest.mark.asyncio
@@ -193,7 +279,7 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     mock_prepare = MagicMock(return_value="review-prompt")
     env = ActivityEnvironment()
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}._prepare_review_prompt", mock_prepare),
         patch(f"{_MODULE}.load_review_arm", return_value=arm),
         patch(f"{_MODULE}.persist_perspective_results"),
@@ -201,7 +287,7 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     ):
         assert await env.run(review_chunk_activity, _review_input()) is True
 
-    assert mock_prepare.call_args.args[-1] == arm.model
+    assert mock_prepare.call_args.args[-1] == arm
 
     kwargs = mock_review.call_args.kwargs
     assert (
@@ -225,7 +311,7 @@ async def test_blind_spot_unit_scopes_wave_findings_to_its_chunk_and_steps_as_bl
     }
     mock_review = AsyncMock(return_value=IssuesReview(issues=[]))
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.load_perspective_results", return_value=done),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
@@ -294,7 +380,7 @@ async def test_select_perspectives_activity_persists_the_normalized_plan() -> No
     mock_oneshot = AsyncMock(return_value=raw)
     mock_persist = MagicMock()
     with (
-        patch(f"{_MODULE}.Heartbeater"),
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
         patch(f"{_MODULE}.load_perspective_selection", return_value=None),
         patch(f"{_MODULE}.load_pr_snapshot", return_value=_snapshot()),
         patch(
