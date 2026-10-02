@@ -725,6 +725,39 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
             MessageRecipientPreference.objects.filter(team=other_team, identifier="isolated@example.com").exists()
         )
 
+    def _post_preference(self, endpoint: str, identifier: str):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/{endpoint}/",
+            {"identifier": identifier},
+            content_type="application/json",
+        )
+
+    @parameterized.expand(
+        [
+            ("first_row_from_add_opt_out", "add_opt_out", False, 1),
+            ("first_row_from_remove_opt_out", "remove_opt_out", False, 1),
+            ("team_already_had_a_preference", "add_opt_out", True, 0),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_first_preference_received_is_reported_once_per_team(
+        self, _name, first_endpoint, has_earlier_preference, expected_reports, mock_capture
+    ):
+        if has_earlier_preference:
+            MessageRecipientPreference.objects.create(team=self.team, identifier="imported@example.com")
+
+        self._post_preference(first_endpoint, "first@example.com")
+        self._post_preference("add_opt_out", "first@example.com")
+        self._post_preference("add_opt_out", "second@example.com")
+
+        reports = [
+            call for call in mock_capture.call_args_list if call.kwargs["event"] == "audience first preference received"
+        ]
+        self.assertEqual(len(reports), expected_reports)
+        for report in reports:
+            self.assertEqual(report.kwargs["distinct_id"], self.user.distinct_id)
+            self.assertEqual(report.kwargs["groups"]["project"], str(self.team.uuid))
+
     def _remove_opt_out(self, payload: dict):
         return self.client.post(
             f"/api/environments/{self.team.id}/messaging_preferences/remove_opt_out/",
