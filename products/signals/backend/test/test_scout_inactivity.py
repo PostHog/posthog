@@ -214,6 +214,8 @@ class TestScoutInactivitySweep(BaseTest):
             # `resolved` includes the GitHub webhook's resolve-on-merge, which is how a merged PR
             # counts as consumption even when the merge never touched the app.
             ("resolved_status", None, SignalReport.Status.RESOLVED, None),
+            # With report monitoring on, the same merge moves the report to `monitoring` instead.
+            ("monitoring_status", None, SignalReport.Status.MONITORING, None),
             # Reading is consumption: a report someone opens (or rates) is not a report nobody
             # wanted, even when they never resolve or dismiss it.
             ("view_action", None, None, SignalReportAction.ActionType.VIEW),
