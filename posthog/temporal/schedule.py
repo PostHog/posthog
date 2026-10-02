@@ -112,6 +112,7 @@ from products.error_tracking.backend.facade.temporal import (
 from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -951,6 +952,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
     cleanup_cohort_calculation_schedules,
     cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
