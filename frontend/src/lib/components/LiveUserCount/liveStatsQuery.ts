@@ -15,14 +15,19 @@ export interface CachedLiveStats {
 
 // Several counters can mount at once, so they share one in-flight query per team.
 const inflightByTeam = new Map<number, Promise<CachedLiveStats>>()
+// Fallback for when localStorage is disabled or full.
+const memoryCacheByTeam = new Map<number, CachedLiveStats>()
 
 export function readCachedLiveStats(teamId: number): CachedLiveStats | null {
     try {
         const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${teamId}`)
-        return raw ? (JSON.parse(raw) as CachedLiveStats) : null
+        if (raw) {
+            return JSON.parse(raw) as CachedLiveStats
+        }
     } catch {
-        return null
+        // Fall through to the in-memory copy.
     }
+    return memoryCacheByTeam.get(teamId) ?? null
 }
 
 export async function loadLiveStats(teamId: number): Promise<CachedLiveStats> {
@@ -61,10 +66,11 @@ async function queryLiveStats(teamId: number): Promise<CachedLiveStats> {
         stats: { users_on_product: usersOnProduct, active_recordings: activeRecordings },
         fetchedAt: Date.now(),
     }
+    memoryCacheByTeam.set(teamId, result)
     try {
         localStorage.setItem(`${STORAGE_KEY_PREFIX}${teamId}`, JSON.stringify(result))
     } catch {
-        // Storage can be full or disabled. The in-memory value still works.
+        // Storage can be full or disabled. The in-memory copy still serves reads.
     }
     return result
 }

@@ -143,10 +143,12 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
                         actions.setStats(stats, new Date(fetchedAt))
                         nextPollMs = Math.max(0, fetchedAt + LIVE_STATS_REFRESH_MS - Date.now())
                     } finally {
-                        cache.disposables.add(() => {
-                            const timeoutId = setTimeout(() => actions.pollStats(), nextPollMs)
-                            return () => clearTimeout(timeoutId)
-                        }, 'statsInterval')
+                        if (!cache.statsPaused) {
+                            cache.disposables.add(() => {
+                                const timeoutId = setTimeout(() => actions.pollStats(), nextPollMs)
+                                return () => clearTimeout(timeoutId)
+                            }, 'statsInterval')
+                        }
                     }
                     return
                 }
@@ -176,9 +178,11 @@ export const liveUserCountLogic = kea<liveUserCountLogicType>([
             }
         },
         pauseStream: () => {
+            cache.statsPaused = true
             cache.disposables.dispose('statsInterval')
         },
         resumeStream: () => {
+            cache.statsPaused = false
             actions.pollStats()
             if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
                 // pollStats schedules its own next run from the cached fetch time.

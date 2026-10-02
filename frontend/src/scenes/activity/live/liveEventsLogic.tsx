@@ -206,6 +206,8 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                 const { eventType } = values.filters
                 cache.disposables.add(() => {
                     let cancelled = false
+                    let timeoutId: ReturnType<typeof setTimeout> | undefined
+                    // Each poll waits for the previous one to settle, so slow queries never overlap.
                     const poll = async (): Promise<void> => {
                         try {
                             const events = await loadRecentLiveEvents(teamId, eventType)
@@ -215,12 +217,14 @@ export const liveEventsLogic = kea<liveEventsLogicType>([
                         } catch (error) {
                             console.error('Failed to load recent events', error)
                         }
+                        if (!cancelled) {
+                            timeoutId = setTimeout(() => void poll(), LIVE_EVENTS_QUERY_POLL_MS)
+                        }
                     }
                     void poll()
-                    const intervalId = setInterval(() => void poll(), LIVE_EVENTS_QUERY_POLL_MS)
                     return () => {
                         cancelled = true
-                        clearInterval(intervalId)
+                        clearTimeout(timeoutId)
                     }
                 }, 'eventsConnection')
                 return
