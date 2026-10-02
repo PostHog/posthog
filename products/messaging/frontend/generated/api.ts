@@ -21,7 +21,7 @@ import type {
     MessagingCategoriesListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
-    MessagingRecipientsListParams,
+    MessagingRecipientsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
@@ -515,7 +515,7 @@ export const messagingPreferencesWebhookUrlRetrieve = async (
     })
 }
 
-export const getMessagingRecipientsListUrl = (projectId: string, params?: MessagingRecipientsListParams) => {
+export const getMessagingRecipientsRetrieveUrl = (projectId: string, params?: MessagingRecipientsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -534,12 +534,12 @@ export const getMessagingRecipientsListUrl = (projectId: string, params?: Messag
 /**
  * @summary List every email address the team can send to
  */
-export const messagingRecipientsList = async (
+export const messagingRecipientsRetrieve = async (
     projectId: string,
-    params?: MessagingRecipientsListParams,
+    params?: MessagingRecipientsRetrieveParams,
     options?: RequestInit
-): Promise<RecipientPageApi[]> => {
-    return apiMutator<RecipientPageApi[]>(getMessagingRecipientsListUrl(projectId, params), {
+): Promise<RecipientPageApi> => {
+    return apiMutator<RecipientPageApi>(getMessagingRecipientsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

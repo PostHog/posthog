@@ -66,8 +66,8 @@ tools:
     messaging-recipients-coverage-retrieve:
         operation: messaging_recipients_coverage_retrieve
         enabled: false
-    messaging-recipients-list:
-        operation: messaging_recipients_list
+    messaging-recipients-retrieve:
+        operation: messaging_recipients_retrieve
         enabled: false
     messaging-suppressions-add-suppression-create:
         operation: messaging_suppressions_add_suppression_create

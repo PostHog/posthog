@@ -120384,7 +120384,7 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type MessagingRecipientsListParams = {
+    export type MessagingRecipientsRetrieveParams = {
     /**
      * `next_cursor` from the previous page. Omit for the first page.
      * @minLength 1
