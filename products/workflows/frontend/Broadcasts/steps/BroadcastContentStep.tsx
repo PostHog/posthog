@@ -3,7 +3,9 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
@@ -29,6 +31,7 @@ export function BroadcastContentStep(): JSX.Element {
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
     // null: closed. 'new': set up a sender. An integration: finish verifying that one.
     const [senderSetup, setSenderSetup] = useState<'new' | IntegrationType | null>(null)
@@ -49,9 +52,7 @@ export function BroadcastContentStep(): JSX.Element {
           }
         : email
 
-    // Closing the modal after Continue also keeps the sender it created or verified.
-    const closeSenderSetup = (integrationId?: number): void => {
-        setSenderSetup(null)
+    const selectSender = (integrationId?: number): void => {
         if (integrationId) {
             loadIntegrations()
             setEmail({
@@ -65,6 +66,15 @@ export function BroadcastContentStep(): JSX.Element {
             })
         }
     }
+    // Closing the modal after Continue also keeps the sender it created or verified.
+    const closeSenderSetup = (integrationId?: number): void => {
+        setSenderSetup(null)
+        selectSender(integrationId)
+    }
+    // The domain wizard reports the sender right after creating it and stays open for the DNS settings.
+    const completeSenderSetup = featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]
+        ? selectSender
+        : closeSenderSetup
 
     const errors = stepValidationErrors.content
     const fieldErrors: EmailFieldErrors = {
@@ -118,8 +128,9 @@ export function BroadcastContentStep(): JSX.Element {
             {senderSetup ? (
                 <EmailSetupModal
                     integration={senderSetup === 'new' ? undefined : senderSetup}
+                    entry="broadcast"
                     onClose={closeSenderSetup}
-                    onComplete={closeSenderSetup}
+                    onComplete={completeSenderSetup}
                 />
             ) : null}
             {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
