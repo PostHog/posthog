@@ -365,7 +365,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                         { key: 'definition', label: 'Definition' },
                         { key: 'lineage', label: 'Lineage' },
                         metricChecksEnabled && {
-                            key: 'tests',
+                            key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
                     ]}
@@ -403,8 +403,8 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </div>
                 )}
 
-                {metricChecksEnabled && mountedTabs.includes('tests') && (
-                    <div className={tabPanelClassName('tests', activeTab)}>
+                {metricChecksEnabled && mountedTabs.includes('data-quality') && (
+                    <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
                     </div>
                 )}
