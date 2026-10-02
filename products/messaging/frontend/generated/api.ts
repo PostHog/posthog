@@ -532,7 +532,7 @@ export const getMessagingRecipientsRetrieveUrl = (projectId: string, params?: Me
 }
 
 /**
- * @summary List every email address the team can send to
+ * @summary List every email address the team knows about
  */
 export const messagingRecipientsRetrieve = async (
     projectId: string,

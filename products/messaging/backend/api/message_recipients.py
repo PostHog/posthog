@@ -58,7 +58,7 @@ class RecipientListQuerySerializer(serializers.Serializer):
 class RecipientSuppressionSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=SuppressionSource.choices,
-        help_text="Why the address is suppressed: `BOUNCE` (repeated soft bounces), `COMPLAINT` (marked as spam) or `MANUAL` (added by a user).",
+        help_text="Why the address is suppressed: `BOUNCE` (a hard bounce or repeated soft bounces), `COMPLAINT` (marked as spam) or `MANUAL` (added by a user).",
     )
     reason = serializers.CharField(allow_null=True, help_text="Free-text reason recorded with the suppression.")
     suppressed_at = serializers.DateTimeField(allow_null=True, help_text="When the address became suppressed.")
@@ -127,7 +127,7 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         query_serializer=RecipientListQuerySerializer,
         responses={200: OpenApiResponse(response=RecipientPageSerializer)},
-        summary="List every email address the team can send to",
+        summary="List every email address the team knows about",
     )
     def list(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         self._require_hog_flow_viewer()

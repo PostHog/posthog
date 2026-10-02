@@ -89480,7 +89480,7 @@ export namespace Schemas {
     export type RecipientTopics = {[key: string]: 'OPTED_IN' | 'OPTED_OUT'};
 
     export interface RecipientSuppression {
-      /** Why the address is suppressed: `BOUNCE` (repeated soft bounces), `COMPLAINT` (marked as spam) or `MANUAL` (added by a user).
+      /** Why the address is suppressed: `BOUNCE` (a hard bounce or repeated soft bounces), `COMPLAINT` (marked as spam) or `MANUAL` (added by a user).
        *
        * * `BOUNCE` - Bounce
        * * `MANUAL` - Manual
