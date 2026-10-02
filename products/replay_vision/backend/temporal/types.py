@@ -269,6 +269,9 @@ class UploadedVideo(BaseModel, frozen=True):
     file_uri: str
     mime_type: str
     gemini_file_name: str  # opaque ID for `files.delete`
+    # True when the scan sends the video bytes inline and nothing was uploaded. Workflow history records it, so a
+    # forward deploy between upload and scan cannot mix the two modes.
+    inline_video: bool = False
 
 
 class CallScannerProviderInputs(BaseModel, frozen=True):
@@ -278,6 +281,7 @@ class CallScannerProviderInputs(BaseModel, frozen=True):
     exported_asset_id: int
     file_uri: str
     mime_type: str
+    inline_video: bool = False
     # When set, replaces the observation row's snapshot (evaluations re-run rated sessions with the suggested prompt).
     snapshot_override: ScannerSnapshot | None = None
 

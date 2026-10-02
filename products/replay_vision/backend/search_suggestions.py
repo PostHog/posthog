@@ -30,6 +30,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.utils import safe_cache_add
 
+from products.replay_vision.backend.gemini_client import replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
@@ -409,12 +410,16 @@ def _build_user_content(scanners: list[ReplayScanner], samples: list[str]) -> st
 def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmQueries:
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     try:
-        client = genai.Client(
-            api_key=api_key,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        client = replay_gemini_client(
+            lambda: genai.Client(
+                api_key=api_key,
+                # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+                posthog_privacy_mode=True,
+                posthog_client=posthoganalytics.default_client,
+                http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+            ),
+            timeout_ms=_MODEL_CALL_TIMEOUT_MS,
+            team_id=team_id,
         )
     except Exception as e:
         raise SuggestionError("model client unavailable") from e

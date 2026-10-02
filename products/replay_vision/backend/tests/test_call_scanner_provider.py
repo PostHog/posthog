@@ -7,6 +7,7 @@ import pytest
 import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import httpx
@@ -17,6 +18,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.gemini_client import _AsyncGatewayModels
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _key_moment_session_ms,
@@ -28,6 +30,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
     _run_pass,
     _run_steps,
     _step_config,
+    run_scan,
 )
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import events_tool
@@ -112,6 +115,7 @@ async def _run(
     cache_name=None,
     model: str = "models/gemini-3-flash-preview",
     on_round: Callable[[int], None] | None = None,
+    inline_video: bool = False,
 ):
     return await _run_steps(
         client=client,
@@ -126,6 +130,7 @@ async def _run(
         metric_labels=_LABELS,
         trace_id="trace-1",
         on_round=on_round,
+        inline_video=inline_video,
     )
 
 
@@ -174,6 +179,78 @@ async def test_scanner_generations_include_team_attribution() -> None:
         "scanner_type": "monitor",
         "team_id": 42,
     }
+
+
+def _attribution_snapshot() -> MagicMock:
+    snapshot = MagicMock()
+    snapshot.scanner_type.value = "monitor"
+    snapshot.model = "gemini-3-flash-preview"
+    snapshot.provider = "gemini"
+    return snapshot
+
+
+async def _mission_client(
+    *, inline_video: bool, flag_on: bool = True
+) -> tuple[Any, MagicMock, MagicMock, AsyncMock, MagicMock]:
+    scanner = MagicMock()
+    scanner.mission_steps.return_value = []
+    scanner.assemble.return_value = (MagicMock(), [])
+    attempts = AsyncMock(return_value={})
+    gateway_aio = MagicMock(aclose=AsyncMock())
+    create_cache = AsyncMock(return_value=None)
+    with (
+        override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+        patch("posthog.llm.gateway_client.genai.Client") as gateway_cls,
+        patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=flag_on),
+        patch(f"{_MODULE}.genai.AsyncClient") as direct_cls,
+        patch(f"{_MODULE}.GoogleGenAIClient") as cache_cls,
+        patch(f"{_MODULE}._maybe_create_video_cache", new=create_cache),
+        patch(f"{_MODULE}._run_mission_attempts", new=attempts),
+        patch(f"{_MODULE}.build_events_index", return_value={}),
+    ):
+        gateway_cls.return_value.aio = gateway_aio
+        await _run_mission(
+            scanner=scanner,
+            snapshot=_attribution_snapshot(),
+            video_part=_VIDEO,
+            video_clock=_IDENTITY_CLOCK,
+            preamble_text="PRE",
+            team_id=42,
+            llm_inputs=MagicMock(),
+            trace_id="trace-1",
+            inline_video=inline_video,
+        )
+    client = attempts.call_args.kwargs["run"].keywords["client"]
+    return client, direct_cls, cache_cls, create_cache, gateway_aio.aclose
+
+
+@pytest.mark.asyncio
+async def test_inline_video_scans_through_the_gateway_without_a_cache() -> None:
+    client, direct_cls, cache_cls, create_cache, gateway_close = await _mission_client(inline_video=True)
+
+    assert isinstance(client.models, _AsyncGatewayModels)
+    direct_cls.assert_not_called()
+    cache_cls.assert_not_called()
+    create_cache.assert_not_called()
+    gateway_close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_inline_video_scans_directly_when_the_team_flag_is_off() -> None:
+    client, direct_cls, cache_cls, create_cache, _ = await _mission_client(inline_video=True, flag_on=False)
+
+    assert client is direct_cls.return_value
+    cache_cls.assert_not_called()
+    create_cache.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_uploaded_file_scans_directly_even_when_the_gateway_is_configured() -> None:
+    client, direct_cls, cache_cls, create_cache, _ = await _mission_client(inline_video=False)
+
+    assert client is direct_cls.return_value
+    cache_cls.assert_called_once()
+    create_cache.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -495,6 +572,95 @@ async def test_a_provider_error_on_a_non_required_step_leaves_the_scan_standing(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("inline_video", [True, False])
+async def test_an_inline_413_on_a_non_required_step_reaches_the_upload_fallback(inline_video: bool) -> None:
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
+    ]
+
+    class _TooLargeModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise APIError(413, {"error": {"code": 413}})
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([])
+    client.models = _TooLargeModels([_Resp(text='{"verdict":"yes"}')])
+
+    if inline_video:
+        with pytest.raises(APIError):
+            await _run(client, steps, inline_video=True)
+    else:
+        assert "signals" not in await _run(client, steps)
+
+
+@pytest.mark.asyncio
+async def test_other_inline_errors_on_a_non_required_step_leave_the_scan_standing() -> None:
+    steps = [
+        MissionStep(name="summary", instruction="sum", response_model=_Core),
+        MissionStep(name="signals", instruction="sig", response_model=_Side, required=False),
+    ]
+
+    class _UnavailableModels(_FakeModels):
+        async def generate_content(self, **kwargs: Any) -> _Resp:
+            if len(self.calls) >= 1:
+                raise APIError(503, {"error": {"code": 503}})
+            return await super().generate_content(**kwargs)
+
+    client = _FakeClient([])
+    client.models = _UnavailableModels([_Resp(text='{"verdict":"yes"}')])
+
+    out = await _run(client, steps, inline_video=True)
+
+    assert "summary" in out
+    assert "signals" not in out
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("video_bytes", [b"mp4-bytes", None])
+async def test_run_scan_sends_bytes_inline_and_a_file_by_reference(video_bytes: bytes | None) -> None:
+    mission = AsyncMock(side_effect=RuntimeError("stop after routing"))
+    scanner = MagicMock()
+    scanner.preamble.return_value = "PRE"
+    with (
+        patch(f"{_MODULE}.build_network_index", return_value=MagicMock()),
+        patch(f"{_MODULE}._run_mission", new=mission),
+        pytest.raises(RuntimeError, match="stop after routing"),
+    ):
+        await run_scan(
+            snapshot=MagicMock(model="gemini-3-flash-preview"),
+            scanner=scanner,
+            llm_inputs=MagicMock(navigation=[]),
+            team_name="team",
+            file_uri="gemini://files/x",
+            mime_type="video/mp4",
+            team_id=1,
+            video_clock=_IDENTITY_CLOCK,
+            video_bytes=video_bytes,
+        )
+
+    kwargs = mission.call_args.kwargs
+    assert kwargs["inline_video"] is (video_bytes is not None)
+    part = kwargs["video_part"]
+    if video_bytes is not None:
+        assert part.inline_data.data == video_bytes
+        assert part.file_data is None
+    else:
+        assert part.file_data.file_uri == "gemini://files/x"
+        assert part.inline_data is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("inline_video", "path"), [(True, "inline_video"), (False, "inline")])
+async def test_an_uncached_pass_is_labelled_by_why_it_has_no_cache(inline_video: bool, path: str) -> None:
+    with patch(f"{_MODULE}.record_mission_pass") as record:
+        await _run_pass(run=AsyncMock(return_value={}), cache=None, model="m", inline_video=inline_video)
+
+    record.assert_called_once_with(model="m", path=path)
+
+
+@pytest.mark.asyncio
 async def test_a_provider_error_on_a_required_step_still_fails_the_scan() -> None:
     steps = [MissionStep(name="summary", instruction="sum", response_model=_Core)]
 
@@ -697,6 +863,7 @@ class TestVerifyPositives:
         cached: bool = True,
         emits_signals: bool = False,
         budget_seconds: float | None = None,
+        inline_video: bool = False,
     ) -> _ScanRun:
         # `answers[0]` is the first pass; the rest are the verify draws in order.
         scanner = MonitorScanner(
@@ -750,6 +917,7 @@ class TestVerifyPositives:
                 team_id=1,
                 llm_inputs=MagicMock(),
                 trace_id="trace-1",
+                inline_video=inline_video,
             )
         # A verify draw must keep the core step's semantic check, or an `inconclusive` the scanner forbids
         # would count as a vote.
@@ -831,6 +999,24 @@ class TestVerifyPositives:
         assert run.counted == {("enforce", "draw_failed"): 1.0}
 
     @pytest.mark.asyncio
+    async def test_other_inline_draw_errors_keep_the_first_verdict(self) -> None:
+        run = await self._scan(
+            mode="enforce", answers=["yes", APIError(503, {"error": {"code": 503}})], cached=False, inline_video=True
+        )
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "yes"
+        assert run.counted == {("enforce", "draw_failed"): 1.0}
+
+    @pytest.mark.asyncio
+    async def test_an_inline_413_on_the_draw_reaches_the_upload_fallback(self) -> None:
+        with pytest.raises(APIError):
+            await self._scan(
+                mode="enforce",
+                answers=["yes", APIError(413, {"error": {"code": 413}})],
+                cached=False,
+                inline_video=True,
+            )
+
+    @pytest.mark.asyncio
     async def test_without_a_cache_the_first_pass_stands(self) -> None:
         # A re-draw without the cache would re-send the whole video; that spend is not worth one extra vote.
         run = await self._scan(mode="enforce", answers=["yes"], cached=False)
@@ -839,6 +1025,16 @@ class TestVerifyPositives:
             mode="enforce", draws=["yes"], resolved_verdict="yes", served_verdict="yes", skipped_reason="no_cache"
         )
         assert run.counted == {("enforce", "no_cache"): 1.0}
+
+    @pytest.mark.asyncio
+    async def test_an_inline_scan_verifies_inline(self) -> None:
+        run = await self._scan(mode="enforce", answers=["yes", "no"], cached=False, inline_video=True)
+        assert run.calls == [
+            {"steps": ["core"], "cache_name": None},
+            {"steps": ["core_verify_2"], "cache_name": None},
+        ]
+        assert cast(MonitorOutput, run.outcome.finalized).verdict == "no"
+        assert run.counted == {("enforce", "flipped"): 1.0}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("budget_seconds,draws_taken", [(0.0, 0), (-5.0, 0), (30.0, 1)])

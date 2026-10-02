@@ -163,6 +163,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                     exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
+                    inline_video=uploaded.inline_video,
                     snapshot_override=selection.snapshot,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
@@ -175,7 +176,8 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
         except Exception as e:
             await self._record(inputs, session, selection, error=_cause_message(e))
         finally:
-            if uploaded is not None:
+            # An inline scan uploads no file. The patch marks the skipped cleanup command for replay.
+            if uploaded is not None and not (uploaded.inline_video and wf.patched("replay-vision-inline-video")):
                 try:
                     await wf.execute_activity(
                         cleanup_gemini_file_activity,

@@ -60,6 +60,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
+    _call_scanner_provider,
     _extract_segments,
     _inject_known_freeform_tags,
     _load_known_freeform_tags,
@@ -105,6 +106,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.evaluation_workflow import EvaluatePromptSuggestionWorkflow
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error, classify_gemini_file_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
@@ -2701,6 +2703,70 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("patched", "expect_cleanup"), [(True, False), (False, True)])
+async def test_apply_scanner_workflow_inline_video_skips_cleanup_only_when_patched(
+    patched: bool, expect_cleanup: bool
+) -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="", mime_type="video/mp4", gemini_file_name="", inline_video=True
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=MonitorOutput(verdict="no", reasoning="nothing", confidence=0.9)
+            ),
+        },
+    )
+
+    await _run_workflow(_build_inputs(), mocks, workflow_id="wf-inline", patched=patched)
+
+    scan_input = next(arg for fn, arg in mocks.activity_calls if fn is call_scanner_provider_activity)
+    assert scan_input.inline_video is True
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert (cleanup_gemini_file_activity in called) is expect_cleanup
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("patched", "expect_cleanup"), [(True, False), (False, True)])
+async def test_evaluation_workflow_inline_video_skips_cleanup_only_when_patched(
+    patched: bool, expect_cleanup: bool
+) -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="", mime_type="video/mp4", gemini_file_name="", inline_video=True
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=MonitorOutput(verdict="no", reasoning="nothing", confidence=0.9)
+            ),
+        },
+    )
+    workflow = EvaluatePromptSuggestionWorkflow()
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
+        patch("temporalio.workflow.execute_child_workflow", side_effect=mocks.execute_child_workflow),
+        patch("temporalio.workflow.patched", return_value=patched),
+        patch.object(workflow, "_record", new=AsyncMock()) as record,
+    ):
+        await workflow._evaluate_session(
+            MagicMock(team_id=99, suggestion_id=uuid.uuid4()),
+            MagicMock(snapshot=None),
+            MagicMock(observation_id=uuid.uuid4(), session_id="sess-1"),
+        )
+
+    assert record.call_args.kwargs.get("error") is None
+    scan_input = next(arg for fn, arg in mocks.activity_calls if fn is call_scanner_provider_activity)
+    assert scan_input.inline_video is True
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert (cleanup_gemini_file_activity in called) is expect_cleanup
+
+
+@pytest.mark.asyncio
 async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     new_observation_id = uuid.uuid4()
     fetch_error = ApplicationError("no events", non_retryable=True)
@@ -3479,6 +3545,240 @@ class TestUploadedFileNotActive:
         assert exc_info.value.non_retryable is expected_non_retryable
         # The provider's message can quote request content, so only the shape of the failure reaches the user.
         assert exc_info.value.message == f"The AI provider could not process the video (error code {code})"
+
+    @pytest.mark.asyncio
+    async def test_gateway_mode_skips_the_upload_and_marks_the_video_inline(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=True),
+            patch(
+                "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient"
+            ) as mock_client,
+        ):
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        mock_client.assert_not_called()
+        assert uploaded.inline_video is True
+        assert uploaded.gemini_file_name == ""
+        assert uploaded.mime_type == "video/mp4"
+
+    @pytest.mark.asyncio
+    async def test_flag_off_uploads_even_with_the_gateway_configured(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        active = types.File(
+            name="files/abc", uri="https://files/abc", mime_type="video/mp4", state=types.FileState.ACTIVE
+        )
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=False),
+            patch(f"{module}.RawGenAIClient") as mock_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+        ):
+            mock_client.return_value.files.upload.return_value = active
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        mock_client.return_value.files.upload.assert_called_once()
+        assert uploaded.inline_video is False
+
+    @pytest.mark.asyncio
+    async def test_gateway_mode_uploads_a_video_too_large_to_send_inline(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.upload_video_to_gemini"
+        active = types.File(
+            name="files/abc", uri="https://files/abc", mime_type="video/mp4", state=types.FileState.ACTIVE
+        )
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch("products.replay_vision.backend.gemini_client.feature_enabled_or_false", return_value=True),
+            patch(f"{module}.MAX_INLINE_VIDEO_BYTES", len(b"mp4-bytes") - 1),
+            patch(f"{module}.RawGenAIClient") as mock_client,
+            patch(f"{module}.track_uploaded_file", AsyncMock()),
+        ):
+            mock_client.return_value.files.upload.return_value = active
+            uploaded = await ActivityEnvironment().run(
+                upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+            )
+
+        mock_client.return_value.files.upload.assert_called_once()
+        assert uploaded.inline_video is False
+        assert uploaded.file_uri == "https://files/abc"
+
+    @pytest.mark.asyncio
+    async def test_inline_scan_refuses_a_video_over_the_inline_bound(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+        run_scan = AsyncMock()
+        with (
+            patch(f"{module}.MAX_INLINE_VIDEO_BYTES", len(b"mp4-bytes") - 1),
+            patch(f"{module}._load_snapshot"),
+            patch(f"{module}._load_team_name", return_value="team"),
+            patch(f"{module}._load_llm_inputs", new=AsyncMock()),
+            patch(f"{module}._load_network_payload", new=AsyncMock(return_value=None)),
+            patch(f"{module}.scanner_from_snapshot"),
+            patch(f"{module}._inject_known_freeform_tags", new=AsyncMock()),
+            patch(f"{module}._load_video_clock"),
+            patch(f"{module}.run_scan", new=run_scan),
+            pytest.raises(ScannerFailureError),
+        ):
+            await _call_scanner_provider(
+                CallScannerProviderInputs(
+                    team_id=team.id,
+                    observation_id=uuid.uuid4(),
+                    exported_asset_id=asset.id,
+                    file_uri="",
+                    mime_type="video/mp4",
+                    inline_video=True,
+                )
+            )
+        run_scan.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_inline_scan_sends_the_asset_bytes(self) -> None:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+        run_scan = AsyncMock()
+        with (
+            patch(f"{module}._load_snapshot"),
+            patch(f"{module}._load_team_name", return_value="team"),
+            patch(f"{module}._load_llm_inputs", new=AsyncMock()),
+            patch(f"{module}._load_network_payload", new=AsyncMock(return_value=None)),
+            patch(f"{module}.scanner_from_snapshot"),
+            patch(f"{module}._inject_known_freeform_tags", new=AsyncMock()),
+            patch(f"{module}._load_video_clock"),
+            patch(f"{module}.run_scan", new=run_scan),
+            patch(f"{module}.replay_gateway_enabled", return_value=True),
+        ):
+            await _call_scanner_provider(
+                CallScannerProviderInputs(
+                    team_id=team.id,
+                    observation_id=uuid.uuid4(),
+                    exported_asset_id=asset.id,
+                    file_uri="",
+                    mime_type="video/mp4",
+                    inline_video=True,
+                )
+            )
+
+        assert run_scan.call_args.kwargs["video_bytes"] == b"mp4-bytes"
+
+    async def _inline_scan_failing_with(
+        self,
+        error: APIError | None,
+        heartbeat_details: tuple[str, ...] = (),
+        gateway_on: bool = True,
+        consent_at_upload: bool = True,
+    ) -> tuple[AsyncMock, AsyncMock, AsyncMock, MagicMock]:
+        team = await sync_to_async(self._team)()
+        asset = await ExportedAsset.objects.acreate(team=team, export_format="video/mp4", content=b"mp4-bytes")
+        module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
+        run_scan = AsyncMock(side_effect=[error, MagicMock()] if error else [MagicMock()])
+        upload = AsyncMock(
+            return_value=UploadedVideo(file_uri="gemini://files/fb", mime_type="video/mp4", gemini_file_name="files/fb")
+        )
+        delete = AsyncMock()
+        heartbeater = MagicMock(details=())
+        with (
+            patch(f"{module}._load_snapshot"),
+            patch(f"{module}._load_team_name", return_value="team"),
+            patch(f"{module}._load_llm_inputs", new=AsyncMock()),
+            patch(f"{module}._load_network_payload", new=AsyncMock(return_value=None)),
+            patch(f"{module}.scanner_from_snapshot"),
+            patch(f"{module}._inject_known_freeform_tags", new=AsyncMock()),
+            patch(f"{module}._load_video_clock"),
+            patch(f"{module}.run_scan", new=run_scan),
+            patch(f"{module}.activity.in_activity", return_value=True),
+            patch(f"{module}.replay_gateway_enabled", return_value=gateway_on),
+            # The first check is the activity's entry check; the second guards the fallback upload.
+            patch(f"{module}.is_ai_data_processing_approved", side_effect=[True, consent_at_upload]),
+            patch(
+                f"{module}.activity.info",
+                return_value=MagicMock(workflow_id="wf-inline", heartbeat_details=list(heartbeat_details)),
+            ),
+            patch(f"{module}.GoogleGenAIClient"),
+            patch(f"{module}.delete_and_untrack", new=delete),
+            patch(
+                "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.upload_to_files_api",
+                new=upload,
+            ),
+            contextlib.suppress(APIError, ConsentWithdrawnError),
+        ):
+            await _call_scanner_provider(
+                CallScannerProviderInputs(
+                    team_id=team.id,
+                    observation_id=uuid.uuid4(),
+                    exported_asset_id=asset.id,
+                    file_uri="",
+                    mime_type="video/mp4",
+                    inline_video=True,
+                ),
+                heartbeater,
+            )
+        return run_scan, upload, delete, heartbeater
+
+    @pytest.mark.asyncio
+    async def test_an_inline_scan_over_the_gateway_body_limit_reruns_over_an_uploaded_file(self) -> None:
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(
+            APIError(413, {"error": {"code": 413}})
+        )
+
+        upload.assert_awaited_once_with(b"mp4-bytes", "video/mp4", "wf-inline")
+        retry = run_scan.call_args_list[1].kwargs
+        assert (retry["file_uri"], retry["video_bytes"]) == ("gemini://files/fb", None)
+        assert delete.call_args.args[1] == "files/fb"
+        assert heartbeater.details == ("inline_too_large",)
+
+    @pytest.mark.asyncio
+    async def test_a_retry_after_an_inline_413_uploads_without_another_inline_pass(self) -> None:
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(
+            None, heartbeat_details=("inline_too_large",)
+        )
+
+        upload.assert_awaited_once()
+        assert [call.kwargs["video_bytes"] for call in run_scan.call_args_list] == [None]
+        assert run_scan.call_args.kwargs["file_uri"] == "gemini://files/fb"
+        assert delete.call_args.args[1] == "files/fb"
+        assert heartbeater.details == ("inline_too_large",)
+
+    @pytest.mark.asyncio
+    async def test_a_team_turned_off_after_the_upload_scans_an_uploaded_file(self) -> None:
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(None, gateway_on=False)
+
+        upload.assert_awaited_once()
+        assert [call.kwargs["video_bytes"] for call in run_scan.call_args_list] == [None]
+        assert delete.call_args.args[1] == "files/fb"
+        assert heartbeater.details == ()
+
+    @pytest.mark.asyncio
+    async def test_the_fallback_upload_stops_when_consent_was_withdrawn(self) -> None:
+        run_scan, upload, delete, _ = await self._inline_scan_failing_with(
+            APIError(413, {"error": {"code": 413}}), consent_at_upload=False
+        )
+
+        assert run_scan.await_count == 1
+        upload.assert_not_called()
+        delete.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_other_inline_client_errors_do_not_upload(self) -> None:
+        run_scan, upload, delete, heartbeater = await self._inline_scan_failing_with(
+            APIError(400, {"error": {"code": 400}})
+        )
+
+        assert run_scan.await_count == 1
+        assert heartbeater.details == ()
+        upload.assert_not_called()
+        delete.assert_not_called()
 
 
 class TestGeminiErrorRedaction:

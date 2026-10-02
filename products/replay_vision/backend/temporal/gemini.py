@@ -8,6 +8,7 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from products.replay_vision.backend.error_kinds import FailureKind
+from products.replay_vision.backend.gemini_client import GatewaySpendLimitError
 
 
 def gemini_api_key() -> str:
@@ -34,6 +35,8 @@ def describe_gemini_error(error: BaseException) -> str:
     The raw error can quote parts of the request (prompt text, file references), so it must never reach
     `error_reason`; callers log the full error and show the user only the shape of the failure.
     """
+    if isinstance(error, GatewaySpendLimitError):
+        return "PostHog's AI spend limit for Replay Vision was reached"
     if isinstance(error, APIError):
         status = f" {error.status}" if error.status else ""
         return f"The AI provider returned HTTP {error.code}{status}"
@@ -50,6 +53,9 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
     """
     if isinstance(error, _PROVIDER_TRANSPORT_ERRORS):
         return FailureKind.PROVIDER_TRANSIENT
+    # Our own spend cap: retrying within the scan's window would only delay the same refusal.
+    if isinstance(error, GatewaySpendLimitError):
+        return FailureKind.INTERNAL_ERROR
     if not isinstance(error, APIError):
         return None
     if error.code in _TRANSIENT_STATUS_CODES:

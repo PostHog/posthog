@@ -10,6 +10,8 @@ from django.conf import settings
 import httpx
 import structlog
 from anthropic import Anthropic, AsyncAnthropic
+from google import genai
+from google.genai import types as genai_types
 from openai import AsyncOpenAI, OpenAI
 
 from posthog.dataclasses import frozen
@@ -344,7 +346,8 @@ def team_trace_id(team_id: int | None) -> str | None:
 def anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
-    guarantees the ``/v1`` suffix, so this is the inverse of that validation.
+    guarantees the ``/v1`` suffix, so this is the inverse of that validation. The Gemini SDK
+    appends ``/v1beta/models/...`` and needs the same root.
     """
     trimmed = openai_base_url.rstrip("/")
     if trimmed.endswith("/v1"):
@@ -540,4 +543,48 @@ def build_anthropic_client(
         team_id=team_id,
         use_bedrock_fallback=use_bedrock_fallback,
         default_headers=fallback_headers,
+    )
+
+
+def build_gemini_client(
+    ai_product: str | None = None,
+    trace_id: str | None = None,
+    session_id: str | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    privacy_mode: bool = False,
+    timeout_ms: int | None = None,
+) -> genai.Client | None:
+    """Return a plain ``google.genai.Client`` routed through the Go ai-gateway.
+
+    Return None when the gateway pair is unset or malformed; the caller then keeps its direct Google client.
+    The client skips the posthoganalytics wrapper because the gateway captures the generation itself.
+    The gateway refuses ``cachedContent`` and ``fileData``, so media goes inline.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway is None:
+        return None
+    headers = (
+        ai_gateway_headers(
+            ai_product=ai_product,
+            trace_id=trace_id,
+            session_id=session_id,
+            properties=properties,
+            distinct_id=distinct_id,
+        )
+        or {}
+    )
+    if privacy_mode:
+        headers["X-PostHog-Privacy-Mode"] = "true"
+    return genai.Client(
+        api_key=gateway.api_key,
+        http_options=genai_types.HttpOptions(
+            base_url=anthropic_gateway_base_url(gateway.url),
+            headers=headers,
+            timeout=timeout_ms,
+            client_args={"trust_env": False},
+            # The SDK uses aiohttp for async whenever it is installed, and that session always trusts
+            # proxy env vars. An explicit httpx transport switches async to httpx, which honours trust_env.
+            async_client_args={"trust_env": False, "transport": httpx.AsyncHTTPTransport()},
+        ),
     )
