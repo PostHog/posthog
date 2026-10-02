@@ -36,10 +36,12 @@ export function ArtefactTaskRun({
     const [expanded, setExpanded] = useState(false)
     const [fetchedTask, setFetchedTask] = useState<Task | null>(null)
     const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<TaskLoadError | null>(null)
+    const [fetchError, setFetchError] = useState<TaskLoadError | null>(null)
     const [attempt, setAttempt] = useState(0)
     // Guards the render between a `task_id` change and the effect that clears the old fetch.
     const task = knownTask ?? (fetchedTask?.id === content.task_id ? fetchedTask : null)
+    // A fallback fetch can fail before `knownTask` arrives, so only report an error while no task resolved.
+    const error = task ? null : fetchError
 
     useEffect(() => {
         // The detail logic already resolved this task — no need to fetch it again.
@@ -47,7 +49,7 @@ export function ArtefactTaskRun({
             return
         }
         setLoading(true)
-        setError(null)
+        setFetchError(null)
         setFetchedTask(null)
         let cancelled = false
         api.tasks
@@ -62,7 +64,7 @@ export function ArtefactTaskRun({
                     // The API answers 404 for a task the reader can't see (e.g. filed into a
                     // channel they aren't in), so retrying won't help there.
                     const status = e instanceof ApiError ? e.status : undefined
-                    setError(status === 404 || status === 403 ? 'unavailable' : 'failed')
+                    setFetchError(status === 404 || status === 403 ? 'unavailable' : 'failed')
                 }
             })
             .finally(() => {
