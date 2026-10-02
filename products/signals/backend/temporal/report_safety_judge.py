@@ -173,6 +173,7 @@ async def judge_report_safety(
                 validate=validate,
                 thinking=True,
                 stage="report_safety_judge",
+                cache_system_prompt=True,
                 ai_product="signals_safety",
                 model=SAFETY_MODEL,
                 trace_id=trace_id,
