@@ -2561,34 +2561,52 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
-        it('reuses results for chart-only changes but runs changed pivot SQL', async () => {
-            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
-            logic.mount()
-            const biLogic = biEditorLogic({ tabId: TAB_ID })
-            biLogic.mount()
-            biLogic.actions.restoreState({
-                editorView: BIEditorView.BI,
-                config: { ...config, columns: [timestampField] },
-            })
-            biLogic.actions.syncGeneratedQuery()
-            logic.actions.setLastRunQuery(logic.values.sourceQuery)
-            const runQuery = jest.spyOn(logic.actions, 'runQuery')
-            jest.useFakeTimers()
-            try {
-                biLogic.actions.setAutoUpdate(true)
-                biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
-                await jest.advanceTimersByTimeAsync(500)
-                expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsTable)
-                expect(runQuery).not.toHaveBeenCalled()
-                biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
-                await jest.advanceTimersByTimeAsync(500)
-                expect(runQuery).toHaveBeenCalledTimes(1)
-            } finally {
-                jest.useRealTimers()
-                runQuery.mockRestore()
-                biLogic.unmount()
+        test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
+            'handles chart-only changes with %s query results and runs changed pivot SQL',
+            async (resultState) => {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                const biLogic = biEditorLogic({ tabId: TAB_ID })
+                biLogic.mount()
+                biLogic.actions.restoreState({
+                    editorView: BIEditorView.BI,
+                    config: { ...config, columns: [timestampField] },
+                })
+                biLogic.actions.syncGeneratedQuery()
+                logic.actions.setLastRunQuery(logic.values.sourceQuery)
+                const dataLogic = dataNodeLogic({
+                    key: `data-warehouse-editor-data-node-${TAB_ID}`,
+                    query: logic.values.sourceQuery.source,
+                    autoLoad: false,
+                })
+                dataLogic.mount()
+                if (resultState !== 'missing') {
+                    dataLogic.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
+                }
+                if (resultState === 'failed') {
+                    dataLogic.actions.loadDataFailure('Query failed', { detail: 'Query failed' })
+                } else if (resultState === 'cancelled') {
+                    dataLogic.actions.cancelQuery()
+                }
+                const runQuery = jest.spyOn(logic.actions, 'runQuery')
+                jest.useFakeTimers()
+                try {
+                    biLogic.actions.setAutoUpdate(true)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
+                    await jest.advanceTimersByTimeAsync(500)
+                    expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsTable)
+                    expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 0 : 1)
+                    biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
+                    await jest.advanceTimersByTimeAsync(500)
+                    expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 1 : 2)
+                } finally {
+                    jest.useRealTimers()
+                    runQuery.mockRestore()
+                    dataLogic.unmount()
+                    biLogic.unmount()
+                }
             }
-        })
+        )
 
         test.each(['disable', 'sql', 'clear', 'unchanged'] as const)(
             'handles a pending automatic query when the worksheet is %s',
@@ -2648,6 +2666,9 @@ describe('sqlEditorLogic', () => {
         })
 
         it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),

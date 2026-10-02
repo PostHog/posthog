@@ -10,9 +10,9 @@ import { mswDecorator } from '~/mocks/browser'
 import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 
+import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 

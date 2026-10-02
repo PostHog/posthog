@@ -777,9 +777,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
             const editorLogic = sqlEditorLogic({ tabId: logicProps.tabId })
             const lastSource = editorLogic.values.lastRunQuery?.source
             const nextSource = values.generatedQuery.node.source
+            const dataLogic = dataNodeLogic.findMounted({ key: `data-warehouse-editor-data-node-${logicProps.tabId}` })
             if (
                 lastSource?.query === nextSource.query &&
-                (lastSource.connectionId ?? null) === (nextSource.connectionId ?? null)
+                (lastSource.connectionId ?? null) === (nextSource.connectionId ?? null) &&
+                dataLogic &&
+                !dataLogic.values.queryCancelled &&
+                !dataLogic.values.responseError &&
+                (dataLogic.values.responseLoading || dataLogic.values.response)
             ) {
                 return
             }
