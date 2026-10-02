@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { KeyboardEvent, Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
 
 import {
     IconCheck,
@@ -87,8 +87,8 @@ import {
     isTextPreview,
     listboxKeyTarget,
     parseCsv,
-    LIVE_OBJECT_KINDS,
     LIVING_ADAPTER_LABEL,
+    objectPageUrl,
     postHogObjectRef,
 } from '../taskRunArtifacts'
 import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
@@ -99,13 +99,10 @@ import { ArtifactEditToolbar } from './ArtifactEditToolbar'
 import { ArtifactIcon } from './ArtifactIcon'
 import { ArtifactImagePins } from './ArtifactImagePins'
 import { ArtifactImageViewer } from './ArtifactImageViewer'
+import { ArtifactObjectEmbed } from './ArtifactObjectEmbed'
 import { ArtifactTextAnnotations } from './ArtifactTextAnnotations'
 
 const MAX_CSV_ROWS = 500
-
-const ArtifactObjectEmbed = lazy(() =>
-    import('./ArtifactObjectEmbed').then((m) => ({ default: m.ArtifactObjectEmbed }))
-)
 
 type PreviewMode = 'rendered' | 'source'
 
@@ -358,27 +355,16 @@ function lowerFirst(label: string): string {
 
 function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunArtifact }): JSX.Element | null {
     const { currentProjectId } = useValues(taskRunArtifactsLogic({ taskId }))
-    const { reportObjectOpened } = useActions(taskRunArtifactsLogic({ taskId }))
     const ref = postHogObjectRef(artifact)
     if (!ref || currentProjectId === null) {
         return null
     }
-    if (LIVE_OBJECT_KINDS.has(ref.objectKind)) {
-        return (
-            <div className="h-full overflow-y-auto">
-                <Suspense
-                    fallback={
-                        <div className="flex h-full items-center justify-center">
-                            <Spinner />
-                        </div>
-                    }
-                >
-                    <ArtifactObjectEmbed key={artifact.id} {...ref} />
-                </Suspense>
-            </div>
-        )
+    const url = objectPageUrl(ref, currentProjectId)
+    if (url) {
+        // Keyed by the page, so the loading state starts over whenever the frame shows a different page.
+        return <ArtifactObjectEmbed key={url} url={url} title={artifact.name} />
     }
-    const { kind, url } = objectKindLink(ref.objectKind, ref.objectId, `/project/${currentProjectId}`)
+    const { kind } = objectKindLink(ref.objectKind, ref.objectId, `/project/${currentProjectId}`)
     return (
         <div className="flex h-full items-center justify-center p-6">
             <Card className="w-full max-w-sm">
@@ -399,22 +385,9 @@ function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunA
                     </div>
                 </CardHeader>
                 <CardContent>
-                    {url ? (
-                        <Button
-                            variant="primary"
-                            className="w-full"
-                            render={<LinkPrimitive to={url} />}
-                            nativeButton={false}
-                            onClick={() => reportObjectOpened(ref.objectKind)}
-                            data-attr="task-artifact-open-object"
-                        >
-                            {`Open ${lowerFirst(kind.kindLabel)}`}
-                        </Button>
-                    ) : (
-                        <Text size="xs" variant="muted">
-                            This object has no page to open.
-                        </Text>
-                    )}
+                    <Text size="xs" variant="muted">
+                        This object has no page to open.
+                    </Text>
                 </CardContent>
             </Card>
         </div>

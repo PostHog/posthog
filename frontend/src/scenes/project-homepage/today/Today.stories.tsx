@@ -778,6 +778,11 @@ export const SpacePage: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
 }
 
+// New session opens this page. It files into the personal space until the user picks another one.
+export const NewSessionPage: Story = {
+    parameters: { pageUrl: urls.taskNewSession() },
+}
+
 // A Cmd-click pick can't be held in a static story, so the play step selects a pinned and a recent row through the logic.
 export const SpacesPaneWithSelectedSessions: Story = {
     parameters: { pageUrl: urls.taskSpace('space-checkout') },
