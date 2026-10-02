@@ -5902,6 +5902,12 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -6133,6 +6139,12 @@ SQL
     column "internal_source" {
       type    = "LowCardinality(String)"
       default = "''"
+    }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
     }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
@@ -18084,6 +18096,12 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -21908,7 +21926,9 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
   toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
-  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source,
+  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
+  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -21987,6 +22007,12 @@ SQL
     column "internal_source" {
       type = "LowCardinality(String)"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
   }
 
   materialized_view "kafka_logs_avro_billing_metrics_mv" {
@@ -22037,16 +22063,27 @@ SQL
     to_table = "posthog.logs_kafka_metrics"
     query    = <<SQL
 SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
+  kafka_partition AS _partition,
+  kafka_topic AS _topic,
+  maxSimpleState(kafka_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(timestamp) AS max_timestamp,
   maxSimpleState(now()) AS max_created_at,
   maxSimpleState(now() - observed_timestamp) AS max_lag
-FROM posthog.logs34
+FROM
+  (
+    SELECT
+      kafka_source.1 AS kafka_topic,
+      kafka_source.2 AS kafka_partition,
+      kafka_source.3 AS kafka_offset,
+      observed_timestamp,
+      timestamp
+    FROM
+      posthog.logs34 ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+  )
 GROUP BY
-  _partition, _topic
+  kafka_partition, kafka_topic
 SQL
 
     column "_partition" {
