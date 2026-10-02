@@ -2560,6 +2560,42 @@ export class PostHogAPIClient {
     ).preferences;
   }
 
+  /** The signed-in user's personal instructions for cloud runs in this project. Empty when unset. */
+  async getMyAgentInstructions(projectId: number): Promise<string> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions request failed: ${response.status}`);
+    }
+    const payload = (await response.json()) as {
+      agent_instructions?: string | null;
+    };
+    return payload.agent_instructions ?? "";
+  }
+
+  /** Replace the signed-in user's personal instructions for cloud runs in this project. */
+  async setMyAgentInstructions(
+    projectId: number,
+    instructions: string,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/agent_instructions/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({ agent_instructions: instructions }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`Agent instructions update failed: ${response.status}`);
+    }
+  }
+
   private async taskRunConfigRequest(
     method: "get" | "post",
     urlPath: string,

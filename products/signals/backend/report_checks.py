@@ -29,7 +29,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from products.signals.backend.report_metrics import validate_live_metric_query, validate_metric_id
+from products.signals.backend.report_charts import _unstorable_text
+from products.signals.backend.report_metrics import (
+    MAX_METRIC_UNIT_LENGTH,
+    ReportMetric,
+    ReportMetricKind,
+    ReportMetricValueFormat,
+    validate_live_metric_query,
+    validate_metric_id,
+    validate_metric_number,
+)
 
 CheckOutcome = Literal["passed", "failed", "errored", "inconclusive"]
 # Why an `inconclusive` verdict could not settle the claim. Only `awaiting_data` keeps the check open.
@@ -70,6 +79,19 @@ MAX_CONSECUTIVE_CHECK_ERRORS = 3
 # on a surface with almost no traffic can wait forever. After the last wait, the next
 # `awaiting_data` verdict ends the check as `inconclusive`.
 AWAITING_DATA_RETRY_WAITS = (timedelta(hours=24), timedelta(hours=72), timedelta(days=7))
+
+
+def check_schedule_expires_at(
+    *,
+    next_run_at: datetime,
+    run_interval_minutes: int | None,
+    runs_remaining: int,
+    start_at: datetime,
+) -> datetime:
+    last_run_at = next_run_at
+    if run_interval_minutes:
+        last_run_at += timedelta(minutes=run_interval_minutes * max(0, runs_remaining - 1))
+    return min(last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, start_at + MAX_CHECK_HORIZON)
 
 
 class CheckThresholdBounds(BaseModel):
@@ -168,6 +190,20 @@ class MetricThresholdConfig(BaseModel):
         default=None,
         description="The value observed when the check was written, recorded on each result for context.",
     )
+    metric_kind: ReportMetricKind | None = Field(
+        default=None, description="How to draw this measurement; copied from a referenced metric."
+    )
+    value_format: ReportMetricValueFormat | None = Field(
+        default=None, description="How to format measured values; copied from a referenced metric."
+    )
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH, description="Optional value suffix.")
+
+    @field_validator("unit")
+    @classmethod
+    def unit_must_be_storable(cls, value: str | None) -> str | None:
+        if value is not None and (reason := _unstorable_text(value)) is not None:
+            raise ValueError(f"unit must not contain {reason}")
+        return value
 
     @field_validator("baseline_value", mode="before")
     @classmethod
@@ -295,6 +331,32 @@ def parse_check_config(kind: str, config: object) -> BaseModel:
     try:
         return schema.model_validate(config)
     except ValidationError as error:
+        raise CheckConfigValidationError(str(error)) from error
+
+
+def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
+    if config.query is None:
+        raise CheckConfigValidationError("The metric query must be resolved before writing a check.")
+    kind = config.metric_kind or "custom"
+    value_format = config.value_format or "number"
+    try:
+        ReportMetric(
+            metric_id=config.metric_id or "check",
+            title="Follow-up measurement",
+            kind=kind,
+            query=config.query,
+            value_format=value_format,
+            unit=config.unit,
+        )
+        if config.baseline_value is not None:
+            validate_metric_number(kind, value_format, config.baseline_value, "baseline")
+        comparison = config.comparison
+        if comparison.bounds is not None:
+            validate_metric_number(kind, value_format, comparison.bounds.lower, "lower bound")
+            validate_metric_number(kind, value_format, comparison.bounds.upper, "upper bound")
+        elif comparison.value is not None:
+            validate_metric_number(kind, value_format, comparison.value, "goal")
+    except ValueError as error:
         raise CheckConfigValidationError(str(error)) from error
 
 

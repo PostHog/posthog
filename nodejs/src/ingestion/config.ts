@@ -253,12 +253,14 @@ export type IngestionConsumerConfig = {
     EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: string
 
     // $feature_flag_called fork into the flag_evaluations ClickHouse table
-    /** 'disabled' | 'dual_write' (produce to flag_evaluations while the event continues to events) */
+    /** 'disabled' | 'dual_write' (produce to flag_evaluations). With dual_write the event also continues to events unless its organization is on FLAG_EVALUATIONS_ONLY. */
     INGESTION_FLAG_EVALUATIONS_MODE: string
     /** '*' for all teams, or comma-separated team IDs */
     INGESTION_FLAG_EVALUATIONS_TEAMS: string
     /** Comma-separated team IDs never forked, even when TEAMS is '*' */
     INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: string
+    /** Rollback for FLAG_EVALUATIONS_ONLY. True keeps writing $feature_flag_called to events for organizations on that mode, as if they were on READ_FLAG_EVALUATIONS. */
+    INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: boolean
 
     // $feature_flag_called keep-first dedup config
     /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
@@ -427,6 +429,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_FLAG_EVALUATIONS_MODE: 'disabled',
         INGESTION_FLAG_EVALUATIONS_TEAMS: '',
         INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS: '',
+        INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED: false,
 
         // $feature_flag_called keep-first dedup config
         INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',

@@ -175,9 +175,15 @@
     color: var(--today-body-text);
 }
 
-.TodayNavItem[data-done='true'] .TodayNavItem__title,
-.TodayReportLink[data-done='true'] {
+.TodayNavItem[data-state='done'] .TodayNavItem__title,
+.TodayReportLink[data-state='done'] {
     text-decoration: line-through;
+}
+
+// Dismissed is not done: it stays readable, only quieter, and the left bar says why.
+.TodayNavItem[data-state='dismissed'] .TodayNavItem__copy,
+.TodayReportLink[data-state='dismissed'] {
+    opacity: 0.55;
 }
 
 .TodayNavItem__meta {
@@ -378,6 +384,12 @@
         color: #ff4800;
         text-decoration: none;
     }
+}
+
+.TodayHome__progress {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--today-faint);
 }
 
 .TodayHome__foot {

@@ -65,6 +65,9 @@ tools:
     ai-observability-offline-scorers-history-list:
         operation: ai_observability_offline_scorers_history_list
         enabled: false
+    ai-observability-traces-retrieve:
+        operation: ai_observability_traces_retrieve
+        enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve
         enabled: false

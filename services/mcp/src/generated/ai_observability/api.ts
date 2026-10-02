@@ -654,8 +654,18 @@ export const EvaluationsCreateBody = () => zod
                     .describe(
                         'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
@@ -1110,8 +1120,18 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .describe(
                         'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
@@ -1357,8 +1377,18 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .describe(
                     'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                 ),
-            min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-            max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+            min: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                ),
+            max: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                ),
             step: zod
                 .number()
                 .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)

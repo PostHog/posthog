@@ -65,6 +65,30 @@ class VideoClock:
     def video_s_to_session_ms(self, video_s: float) -> int:
         return int(self._project(video_s, to_video=False) * 1000)
 
+    def video_end_s_to_session_ms(self, video_s: float) -> int:
+        """Where a range that ends at `video_s` ends on the session clock.
+
+        A second shared across a cut resolves to the earlier stretch here, so a range that stops at a cut ends
+        where the user went idle rather than where they came back.
+        """
+        if self.is_identity:
+            return int(video_s * 1000)
+        for index, span in enumerate(self.spans):
+            if video_s <= span.video_to_s:
+                # A range ending at a cut, or in the frame the cut costs, ends with the stretch before the cut.
+                if video_s <= span.video_from_s and index > 0:
+                    return int(self.spans[index - 1].session_to_s * 1000)
+                return int((span.session_from_s + max(0.0, video_s - span.video_from_s)) * 1000)
+        return int(self.spans[-1].session_to_s * 1000)
+
+    def cuts_video_s(self) -> list[float]:
+        """The video seconds where the render cut inactive time, so the video jumps forward on the session clock."""
+        return [
+            later.video_from_s
+            for earlier, later in zip(self.spans, self.spans[1:])
+            if later.session_from_s > earlier.session_to_s
+        ]
+
     def inactive_session_ms(self, duration_ms: int) -> list[IdleStretch]:
         """The inactive stretches, clipped to the session, in order and merged where they touch."""
         merged: list[IdleStretch] = []

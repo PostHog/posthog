@@ -77,8 +77,12 @@ Three changes in August 2026 restructured the hot queries after a production loa
 - [#83022](https://github.com/PostHog/posthog/pull/83022): the failed-run reconcile ran a per-batch latest-status probe for every failed batch in the lookback window, so a failure storm made each sweep take minutes. It now picks winners from the denormalized columns and probes status only for the LIMIT winners.
 - [#83067](https://github.com/PostHog/posthog/pull/83067): the stranded-run sweep gated raw batch rows, which the planner turned into a hash anti-join over every retained failed batch. It now aggregates into candidate runs first, so each gate is one index probe per run.
 
+A fourth change followed an October 2026 claim stall, after an analyze of the current daily partition:
+
+- The claim query's gates were correlated probes per candidate batch. On a hot partition the partial indexes churn and bloat, so the planner can answer a probe from `sb_run_uuid_idx`, `sb_run_uuid_bi_idx` or `sb_team_schema_idx` instead, and each probe then reads the whole run or group. A backlog of long runs made every poll quadratic. The gates now run once per group (`busy_groups`, `open_groups`) and once per run (`open_runs`), so a bad index choice costs at most one read of each candidate run. The loader also backs off failed polls with full jitter, so the fleet does not retry a struggling claim query in lockstep.
+
 The shared lesson: every query on these tables must scale with the size of its answer (the claimable set, the candidate runs), never with retained failure history, because failure history is largest exactly when the fleet is least healthy.
-The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
+The `core/jobs_db.py` docstrings on `_state_claim_candidates_sql`, `_claim_window_sql`, `get_failed_runs` and `_stranded_candidate_runs_sql` carry the details, and plan-shape tests in `test_jobs_db.py` pin the query shapes.
 
 ### Adding a `sourcebatch` index
 

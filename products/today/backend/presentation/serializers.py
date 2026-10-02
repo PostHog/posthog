@@ -3,7 +3,19 @@
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
-from ..facade.contracts import Briefing, BriefingItem, BriefingSegment, Candidate, CandidateFact, CandidateList
+from products.signals.backend.facade import api as signals
+
+from ..facade.contracts import (
+    Briefing,
+    BriefingItem,
+    BriefingItemChart,
+    BriefingItemMetric,
+    BriefingItemReport,
+    BriefingSegment,
+    Candidate,
+    CandidateFact,
+    CandidateList,
+)
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -26,6 +38,66 @@ class BriefingSegmentSerializer(DataclassSerializer):
         dataclass = BriefingSegment
 
 
+class BriefingItemMetricSerializer(DataclassSerializer):
+    metric_id = serializers.CharField(help_text="Stable slug of the metric within its report.")
+    title = serializers.CharField(help_text="Short label of what the metric measures.")
+    kind = serializers.ChoiceField(
+        choices=signals.REPORT_METRIC_KINDS, help_text="What the value measures, for example affected_users."
+    )
+    role = serializers.ChoiceField(
+        choices=signals.REPORT_METRIC_ROLES,
+        help_text="`primary` for the report's key observation, otherwise `supporting`.",
+    )
+    value = serializers.FloatField(help_text="The latest saved snapshot of the metric.")
+    series = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.",
+    )
+    value_format = serializers.ChoiceField(
+        choices=signals.REPORT_METRIC_VALUE_FORMATS, help_text="How to format the value, for example count."
+    )
+    unit = serializers.CharField(allow_null=True, help_text="Optional short suffix or currency code, such as USD.")
+    query = serializers.JSONField(
+        help_text="The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it."
+    )
+
+    class Meta:
+        dataclass = BriefingItemMetric
+
+
+class BriefingItemChartSerializer(DataclassSerializer):
+    chart_id = serializers.CharField(help_text="Stable slug of the chart within its report.")
+    title = serializers.CharField(help_text="Short heading of the chart.")
+    query = serializers.JSONField(help_text="The query node the report body draws, as the report stores it.")
+
+    class Meta:
+        dataclass = BriefingItemChart
+
+
+class BriefingItemReportSerializer(DataclassSerializer):
+    priority = serializers.CharField(allow_null=True, help_text="The report's priority, P0 to P4, or null if unset.")
+    summary = serializers.CharField(help_text="The report's summary, shortened to a few sentences.")
+    pull_request_state = serializers.ChoiceField(
+        choices=signals.IMPLEMENTATION_PR_STATES,
+        allow_null=True,
+        help_text="State of the report's implementation pull request, or null when it has none.",
+    )
+    pull_request_url = serializers.CharField(
+        allow_null=True, help_text="URL of the report's implementation pull request, or null when it has none."
+    )
+    signal_count = serializers.IntegerField(help_text="How many signals the report groups.")
+    updated_at = serializers.DateTimeField(help_text="When the report last changed.")
+    metrics = BriefingItemMetricSerializer(
+        many=True, help_text="The report's metrics that have a saved snapshot, in the report's order."
+    )
+
+    charts = BriefingItemChartSerializer(many=True, help_text="The charts in the report body, in the report's order.")
+
+    class Meta:
+        dataclass = BriefingItemReport
+
+
 class BriefingItemSerializer(DataclassSerializer):
     key = serializers.CharField(
         help_text="Stable item key, for example report:<uuid>, dashboard:<id> or ticket:<uuid>."
@@ -42,9 +114,18 @@ class BriefingItemSerializer(DataclassSerializer):
         allow_null=True,
         help_text="For a report, the product its signals came from, for example error_tracking or session_replay. Null for every other item.",
     )
+    report = BriefingItemReportSerializer(
+        allow_null=True,
+        help_text="For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report.",
+    )
 
     class Meta:
         dataclass = BriefingItem
+        extra_kwargs = {
+            "state": {
+                "help_text": "`done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, else `open`. Pull requests always stay `open`."
+            },
+        }
 
 
 class BriefingSerializer(DataclassSerializer):
