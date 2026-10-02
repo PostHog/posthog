@@ -27,6 +27,8 @@ from .paths import REPO_ROOT
 # CI sets this to the pull request's base commit. Unset, the check does not run.
 LEDGER_BASE_ENV = "CROSSINGS_LEDGER_BASE"
 
+# A change here may add ledger lines, so .stamphog/policy.yml holds the whole folder under
+# devex_guardrails: such a change always gets a human review.
 SCANNER_DIR = "tools/hogli-commands/hogli_commands/product/"
 
 LEDGER_GROWTH_INSTRUCTION = (

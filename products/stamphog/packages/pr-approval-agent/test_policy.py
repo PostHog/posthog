@@ -136,7 +136,7 @@ OLD_DENY_PATTERN_DEFS = {
             "^docs/published/handbook/engineering/type-system\\.md$",
             "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
             "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
-            "^tools/hogli-commands/hogli_commands/product/(baseline|checks|crossings|isolation|ledger_growth|reverse_accessors|wiring_interfaces)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product/",
         ]
     },
 }
