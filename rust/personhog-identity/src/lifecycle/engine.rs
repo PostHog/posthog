@@ -357,6 +357,8 @@ impl Engine {
         // so a driver whose lease was stolen (the stealer bumped `attempt`)
         // cannot extend or clear the stealer's lease.
         let mut claim_attempt: Option<i32> = None;
+        // When our lease was last set, taken before the statement that set it so it errs early.
+        let mut lease_set_at = tokio::time::Instant::now();
 
         loop {
             let Some(row) = self.load(op_id).await? else {
@@ -402,11 +404,23 @@ impl Engine {
 
             match claim_attempt {
                 Some(attempt) => {
-                    if !self.renew_lease(op_id, attempt).await? {
-                        // Another driver stole the lease; go back to
-                        // claiming instead of running a step we would lose.
+                    // Only a claim bumps `attempt`, so the row just loaded
+                    // shows a stolen lease without a write. Go back to
+                    // claiming instead of running a step we would lose.
+                    if row.attempt != attempt {
                         claim_attempt = None;
                         continue;
+                    }
+                    // Renewing only once a third of the lease has passed
+                    // starts every step with at least two thirds of it; most
+                    // ops finish inside the first third and never renew.
+                    if lease_set_at.elapsed() >= self.config.lease / 3 {
+                        let sent = tokio::time::Instant::now();
+                        if !self.renew_lease(op_id, attempt).await? {
+                            claim_attempt = None;
+                            continue;
+                        }
+                        lease_set_at = sent;
                     }
                 }
                 None => {
@@ -421,9 +435,11 @@ impl Engine {
                         self.poll_pause().await;
                         continue;
                     }
+                    let sent = tokio::time::Instant::now();
                     match self.try_claim(op_id, wait_for_lease).await? {
                         Some(attempt) => {
                             claim_attempt = Some(attempt);
+                            lease_set_at = sent;
                             if attempt >= self.config.attempt_alert_threshold {
                                 tracing::warn!(
                                     op_id = %op_id,

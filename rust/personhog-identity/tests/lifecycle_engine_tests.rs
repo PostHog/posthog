@@ -517,6 +517,107 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
     ctx.cleanup().await.expect("cleanup");
 }
 
+/// The two-step dummy op, recording the op's lease expiry as each step
+/// starts and pausing its first step for `first_step_pause`.
+struct LeaseRecordingDriver {
+    inner: DummyDriver,
+    first_step_pause: std::time::Duration,
+    expiries: std::sync::Mutex<Vec<chrono::DateTime<chrono::Utc>>>,
+}
+
+#[async_trait]
+impl OpDriver for LeaseRecordingDriver {
+    fn op_type(&self) -> &'static str {
+        "merge"
+    }
+
+    fn initial_step(&self) -> &'static str {
+        "started"
+    }
+
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+        let expiry: chrono::DateTime<chrono::Utc> =
+            sqlx::query_scalar("SELECT lease_expires_at FROM lifecycle_op WHERE op_id = $1")
+                .bind(op.op_id)
+                .fetch_one(pools.fast())
+                .await
+                .map_err(SagaError::Db)?;
+        self.expiries.lock().unwrap().push(expiry);
+        if op.step == "started" {
+            tokio::time::sleep(self.first_step_pause).await;
+        }
+        self.inner.run_step(pools, op).await
+    }
+}
+
+/// Lease expiries seen by the dummy op's two steps under a `lease`-long lease.
+async fn step_lease_expiries(
+    ctx: &TestContext,
+    lease: std::time::Duration,
+    first_step_pause: std::time::Duration,
+) -> Vec<chrono::DateTime<chrono::Utc>> {
+    let driver = LeaseRecordingDriver {
+        inner: DummyDriver::new(),
+        first_step_pause,
+        expiries: std::sync::Mutex::new(Vec::new()),
+    };
+    let engine = personhog_identity::lifecycle::engine::Engine::new(
+        ctx.pools.clone(),
+        personhog_identity::lifecycle::engine::EngineConfig {
+            lease,
+            execute_timeout: std::time::Duration::from_secs(10),
+            poll_interval: std::time::Duration::from_millis(25),
+            attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
+        },
+        ctx.tables.clone(),
+    );
+    engine
+        .execute(&driver, Uuid::now_v7(), ctx.team_id, &json!({}))
+        .await
+        .expect("the op completes");
+    assert_eq!(driver.inner.steps_run.load(Ordering::SeqCst), 2);
+    driver.expiries.into_inner().unwrap()
+}
+
+#[tokio::test]
+async fn steps_that_finish_inside_a_third_of_the_lease_run_on_the_claim_without_renewing() {
+    let ctx = TestContext::new().await;
+
+    let expiries = step_lease_expiries(
+        &ctx,
+        std::time::Duration::from_secs(30),
+        std::time::Duration::ZERO,
+    )
+    .await;
+
+    assert_eq!(
+        expiries[0], expiries[1],
+        "the second step ran on the claim's lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_step_that_starts_after_a_third_of_the_lease_renews_it_first() {
+    let ctx = TestContext::new().await;
+
+    let expiries = step_lease_expiries(
+        &ctx,
+        std::time::Duration::from_secs(3),
+        std::time::Duration::from_millis(1_200),
+    )
+    .await;
+
+    assert!(
+        expiries[1] > expiries[0],
+        "the second step ran on a renewed lease"
+    );
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn a_failing_driver_whose_lease_was_stolen_does_not_release_the_stealers_lease() {
     let ctx = TestContext::new().await;
