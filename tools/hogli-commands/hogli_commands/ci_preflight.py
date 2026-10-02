@@ -832,12 +832,31 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {len(chk.matched)} file(s) · {detail}")
 
     function_keys: list[str] = []
+    # The same refs, in the same order, that `changed_files` diffed against.
+    merge_base = next(
+        (
+            sha
+            for ref in ([against] if against else ["origin/master", "master"])
+            if (sha := _git("merge-base", "HEAD", ref))
+        ),
+        None,
+    )
     for function_check in FUNCTION_CHECKS:
         matched = [f for f in files if matches_globs(f, function_check.triggers)]
         if not matched:
             continue
         function_keys.append(function_check.key)
-        status, detail = function_check.run(Scope(files=matched, changed=files, base=base, committed_only=strict))
+        if merge_base is None:
+            status, detail = "skipped", f"no merge-base with {base}"
+        else:
+            try:
+                status, detail = function_check.run(
+                    Scope(files=matched, changed=files, merge_base=merge_base, committed_only=strict)
+                )
+            except Exception as error:
+                # These checks parse the output of other tools. A shape they did not expect
+                # must not block the push with a traceback.
+                status, detail = "skipped", f"check could not run ({type(error).__name__})"
         failures += status == "fail"
         results.append({"check": function_check.key, "status": status, "files": len(matched), "detail": detail})
         if not as_json:

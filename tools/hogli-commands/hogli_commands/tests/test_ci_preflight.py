@@ -11,7 +11,7 @@ from hogli.cli import cli
 from hogli.manifest import REPO_ROOT
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import DIFF_CHECKS, _pnpm_workspace_root, _run_workspace_scoped, _staleness_risks
-from hogli_commands.preflight_checks import FunctionCheck, Status
+from hogli_commands.preflight_checks import FunctionCheck, Scope, Status
 
 runner = CliRunner()
 
@@ -24,7 +24,8 @@ def no_function_checks() -> Iterator[None]:
 
 
 class TestFunctionChecks:
-    @pytest.mark.parametrize("status,expected_exit", [("fail", 1), ("warning", 0), ("skipped", 0)])
+    @pytest.mark.parametrize("status,expected_exit", [("fail", 1), ("warning", 0), (None, 0)])
+    @patch("hogli_commands.ci_preflight._git", return_value="abc123")
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
@@ -35,10 +36,16 @@ class TestFunctionChecks:
         mock_fetch: MagicMock,
         mock_stale: MagicMock,
         mock_emit: MagicMock,
-        status: Status,
+        mock_git: MagicMock,
+        status: Status | None,
         expected_exit: int,
     ) -> None:
-        check = FunctionCheck(key="probe", label="probe", triggers=["frontend/*"], run=lambda scope: (status, "detail"))
+        def run(scope: Scope) -> tuple[Status, str]:
+            if status is None:
+                raise KeyError("unexpected tool output")
+            return status, "detail"
+
+        check = FunctionCheck(key="probe", label="probe", triggers=["frontend/*"], run=run)
         with patch("hogli_commands.ci_preflight.FUNCTION_CHECKS", [check]):
             result = runner.invoke(cli, ["ci:preflight", "--strict"])
 
