@@ -243,7 +243,11 @@ STALE_ACTIVE_PARAM_DESCRIPTION = (
     f"at least {STALE_FLAG_THRESHOLD_DAYS} days old and either stores `filters` as `{{}}` "
     "or serves one result to everyone through a release condition at 100% with no "
     "property filters. A flag with no recorded event and an empty `groups` list does not "
-    "match, even when its `status` reads STALE. An SDK that sends no "
+    "match, even when its `status` reads STALE. The reverse also happens: a multivariate flag "
+    "matches when a variant is at 100% under a release condition at 100% with no property "
+    "filters, or when that condition names a variant. Its `status` can still read ACTIVE, "
+    "because an earlier variant in the list, an earlier targeted condition, or a "
+    "group-aggregated condition declared first can serve a different result. An SDK that sends no "
     "`$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
 )
 
@@ -455,16 +459,6 @@ class FeatureFlagStatusChecker:
 
         return False, ""
 
-    def multivariate_results_agree(self, flag: FeatureFlag) -> bool:
-        """Whether every user a multivariate flag can reach receives the same variant.
-
-        Boolean flags are constant by this test, because every condition that matches returns true.
-        """
-        variants = ((flag.filters or {}).get("multivariate") or {}).get("variants") or []
-        if not variants:
-            return True
-        return self.sole_served_variant(flag) is not None
-
     def sole_served_variant(self, flag: FeatureFlag) -> str | None:
         """The one variant that every reachable path serves, or None when the paths disagree.
 
@@ -476,7 +470,8 @@ class FeatureFlagStatusChecker:
         ends at the first condition that decides for everyone, see `decides_for_everyone`.
 
         A boolean flag carries no variants and returns None, so a caller must not read None as
-        "the flag is not constant". `multivariate_results_agree` holds that distinction.
+        "the flag is not constant". `is_flag_fully_rolled_out` sends boolean flags to
+        `is_boolean_flag_fully_rolled_out` instead.
         """
         filters = flag.filters or {}
         variants = ((filters.get("multivariate") or {}).get("variants")) or []

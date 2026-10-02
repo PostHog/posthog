@@ -167,6 +167,24 @@ class TestFilterFlagsByActiveParam(BaseTest):
                 },
                 False,
             ),
+            # The same split pinned to one variant. No variant is at 100%, so only the SQL's
+            # variant-override arm matches it, and this is the one case that reaches that arm.
+            (
+                "variant_override_without_a_hundred_percent_variant",
+                {
+                    "created_at": timezone.now() - timedelta(days=60),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 100, "variant": "control"}],
+                    },
+                },
+                True,
+            ),
             (
                 "young_flag_at_full_rollout",
                 {
@@ -233,6 +251,71 @@ class TestFilterFlagsByActiveParam(BaseTest):
         filter_stale = self._filter("STALE")
         assert filter_stale == self._checker_stale()
         assert (key in filter_stale) is expected_stale
+
+    # The SQL admits these shapes and the checker does not, as the `filter_stale_flags` docstring
+    # records. A change that closes the gap on either side has to update that docstring too.
+    @parameterized.expand(
+        [
+            (
+                "targeted_override_before_the_blanket_condition",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+            ),
+            (
+                "overallocated_variants",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 40},
+                            {"key": "test", "rollout_percentage": 100},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+            ),
+            (
+                "mixed_aggregation_group_condition_first",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "variant": "test",
+                            "aggregation_group_type_index": 0,
+                        },
+                        {"properties": [], "rollout_percentage": 100, "aggregation_group_type_index": None},
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_stale_filter_is_looser_than_the_checker(self, key: str, filters: dict[str, Any]) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            created_at=timezone.now() - timedelta(days=60),
+            filters=filters,
+        )
+
+        assert key in self._filter("STALE")
+        assert key not in self._checker_stale()
 
     def test_stale_filter_honours_an_explicit_threshold(self) -> None:
         FeatureFlag.objects.create(
@@ -505,6 +588,46 @@ class TestMultivariateFullRollout(BaseTest):
                         ]
                     },
                     "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            # What a finished experiment leaves behind: the override and the distribution agree.
+            (
+                "targeted_override_agrees_with_the_blanket_condition",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 0},
+                            {"key": "test", "rollout_percentage": 100},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "test"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "test",
+            ),
+            # A missing rollout_percentage evaluates to 100% at runtime, so the override is reachable.
+            (
+                "targeted_override_without_rollout_percentage_is_reachable",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
                 },
                 FeatureFlagStatus.ACTIVE,
                 "Flag has no usage data yet",

@@ -237,10 +237,11 @@ def _v1_flags(flags: Iterable[FeatureFlag]) -> list[FeatureFlag]:
 def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     """Whether the matcher can return more than the one result the checker named.
 
-    `FeatureFlagStatusChecker.multivariate_results_agree` holds the shared rule for which variant a
-    multivariate flag serves. The keys below are the rest of the runtime model, which only this
-    class needs, because each one decides the result ahead of the release conditions the checker
-    reads and none of them changes which variant a reached condition serves.
+    `FeatureFlagStatusChecker.is_flag_fully_rolled_out`, which `detect` checks next to this guard,
+    holds the shared rule for which variant a multivariate flag serves. The keys below are the rest
+    of the runtime model, which only this class needs, because each one decides the result ahead of
+    the release conditions the checker reads and none of them changes which variant a reached
+    condition serves.
 
     The other candidate source is left alone. A usage-stale row's evidence is that PostHog stopped
     receiving calls, which none of this contradicts. `detect` confirms a never-called row with the
@@ -262,12 +263,10 @@ def _serves_more_than_one_result(flag: FeatureFlag) -> bool:
     # person aggregation, so only a set index excludes.
     if flag.bucketing_identifier == "device_id" or filters.get("feature_enrollment"):
         return True
-    groups = filters.get("groups") or []
     if filters.get("aggregation_group_type_index") is not None:
         return True
-    if any(group.get("aggregation_group_type_index") is not None for group in groups):
-        return True
-    return not FeatureFlagStatusChecker(feature_flag=flag).multivariate_results_agree(flag)
+    groups = filters.get("groups") or []
+    return any(group.get("aggregation_group_type_index") is not None for group in groups)
 
 
 def _excluded_flag_ids(candidates: list[FeatureFlag]) -> set[int]:
