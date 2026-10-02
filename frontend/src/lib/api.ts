@@ -38,7 +38,6 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     DataWarehouseManagedViewsetKind,
-    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -219,6 +218,7 @@ import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/Err
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    EmailDomainConnectCheckApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
@@ -6080,14 +6080,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
-        async domainConnectCheck(domain: string): Promise<{
-            supported: boolean
-            provider_name: DomainConnectProviderName | null
-            available_providers: {
-                endpoint: string
-                name: DomainConnectProviderName
-            }[]
-        }> {
+        async domainConnectCheck(domain: string): Promise<EmailDomainConnectCheckApi> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
                 .withQueryString(`domain=${encodeURIComponent(domain)}`)
