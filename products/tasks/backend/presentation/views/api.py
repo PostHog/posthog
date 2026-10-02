@@ -548,7 +548,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         basic = getattr(request, "validated_query_data", {}).get("basic", False)
         serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id, user_id=self._user_id()), many=True).data
+            serializer_class(
+                tasks_facade._tasks_to_dtos(
+                    page,
+                    self.team_id,
+                    user_id=self._user_id(),
+                    analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+                ),
+                many=True,
+            ).data
         )
 
     @validated_request(
@@ -580,7 +588,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], required_scopes=["task:read"])
     def review(self, request, pk=None, **kwargs):
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        task = tasks_facade.get_task_detail(
+            pk,
+            self.team_id,
+            self._user_id(),
+            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+        )
         if task is None:
             raise NotFound()
         result = tasks_facade.task_review(
@@ -595,7 +608,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def retrieve(self, request, pk=None, **kwargs):
         bypass_visibility = is_sandbox_agent_request(request, pk) or _can_bypass_visibility(request, self.team_id)
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
+        task = tasks_facade.get_task_detail(
+            pk,
+            self.team_id,
+            self._user_id(),
+            bypass_visibility=bypass_visibility,
+            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+        )
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
@@ -608,7 +627,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], url_path="usage", required_scopes=["task:read"])
     def usage(self, request, pk=None, **kwargs):
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        task = tasks_facade.get_task_detail(
+            pk,
+            self.team_id,
+            self._user_id(),
+            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+        )
         if task is None or task.created_at is None:
             raise NotFound()
         try:
@@ -1103,7 +1127,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = paginator.get_limit(request)
         offset = paginator.get_offset(request)
         summaries, count = tasks_facade.get_task_summaries(
-            self.team_id, self._user_id(), ids=ids, limit=limit, offset=offset
+            self.team_id,
+            self._user_id(),
+            ids=ids,
+            limit=limit,
+            offset=offset,
+            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
         )
         paginator.set_count(count)
         page = self.paginate_queryset(summaries)
@@ -1785,6 +1814,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             include_agent_state=self._is_sandbox_agent_request(task_id),
             user_id=self._user_id(),
+            analytics_context_reader=tasks_access.analytics_context_reader(request=self.request, team=self.team),
         )
         if run is None:
             raise NotFound()
@@ -1805,7 +1835,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
-        runs = tasks_facade.list_task_runs(task_id, self.team_id, user_id=self._user_id())
+        runs = tasks_facade.list_task_runs(
+            task_id,
+            self.team_id,
+            user_id=self._user_id(),
+            analytics_context_reader=tasks_access.analytics_context_reader(request=request, team=self.team),
+        )
         page = self.paginate_queryset(runs)
         if page is not None:
             return self.get_paginated_response(TaskRunDetailSerializer(page, many=True).data)
@@ -2133,6 +2168,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tags=request.validated_data.get("tags"),
             include_agent_state=self._is_sandbox_agent_request(task_id),
             user_id=self._user_id(),
+            analytics_context_reader=tasks_access.analytics_context_reader(request=self.request, team=self.team),
         )
         if run is None:
             raise NotFound()

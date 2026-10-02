@@ -10727,7 +10727,11 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
             "kind": "InsightVizNode",
             "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
         }
-        original = TaskRun.objects.create(task=task, team=self.team, state={"analytics_query_context": [query]})
+        original = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            state={"analytics_query_context": [query], "task_summary": "Protected metric findings"},
+        )
         run = task.create_run(extra_state={"resume_from_run_id": str(original.id)})
         assert run.state["analytics_query_context"] == [query]
         raw_key = generate_random_token_personal()
@@ -10740,16 +10744,38 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         response = self.client.get(url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
         if route == "session_logs":
+            summaries_url = "/api/projects/@current/tasks/summaries/"
+            denied = self.client.post(summaries_url, {"ids": [str(task.id)]}, format="json")
+            assert denied.status_code == status.HTTP_200_OK
+            assert denied.json()["results"][0]["latest_run"]["task_summary"] is None
+            redacted = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+            assert redacted.json()["latest_run"]["task_summary"] is None
             key.scopes = ["task:read", "query:read", "event_definition:read"]
             key.save(update_fields=["scopes"])
             self._seed_log(task, original, [self._make_posthog_entry("_posthog/user_message", "2026-01-01T00:00:00Z")])
             allowed = self.client.get(url)
             assert allowed.status_code == status.HTTP_200_OK
             assert len(allowed.json()) == 1
+            readable = self.client.post(summaries_url, {"ids": [str(task.id)]}, format="json")
+            assert readable.json()["results"][0]["latest_run"]["task_summary"] == "Protected metric findings"
+            readable_run = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
+            assert readable_run.json()["task_summary"] == "Protected metric findings"
         detail = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         assert detail.status_code == status.HTTP_200_OK
         assert detail.json()["latest_run"]["log_url"] is None
         assert "analytics_query_context" not in detail.json()["latest_run"]["state"]
+        if route == "session_logs":
+            assert detail.json()["latest_run"]["task_summary"] == "Protected metric findings"
+
+    def test_ordinary_resumed_task_details_do_not_scan_ancestors(self):
+        task = self.create_task()
+        original = TaskRun.objects.create(task=task, team=self.team)
+        task.create_run(extra_state={"resume_from_run_id": str(original.id)})
+        with patch(
+            "products.tasks.backend.models.TaskRun.get_resume_chain", side_effect=AssertionError("Ancestor scan")
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        assert response.status_code == status.HTTP_200_OK
 
     def test_session_logs_empty_log(self):
         task = self.create_task()

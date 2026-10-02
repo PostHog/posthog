@@ -2,7 +2,7 @@ from rest_framework.request import Request
 
 from posthog.models import Team
 
-from products.signals.backend.facade.metric_access import may_read_metric_context
+from products.signals.backend.facade.metric_access import metric_context_reader as analytics_context_reader
 from products.tasks.backend.access import (
     DesktopAccessDecision,
     DesktopAccessResolutionError,
@@ -24,15 +24,14 @@ def may_read_task_run_context(*, request: Request, team: Team, task_id: str, run
         runs = runs.filter(id=run_id)
     if run_id is None:
         runs = runs.filter(state__has_key="analytics_query_context")
+    reader = analytics_context_reader(request=request, team=team)
     return all(
-        may_read_metric_context(request=request, team=team, queries=ancestor.state["analytics_query_context"])
-        for run in runs
-        for ancestor in (run.get_resume_chain() if (run.state or {}).get("resume_from_run_id") else [run])
-        if "analytics_query_context" in (ancestor.state or {})
+        reader(run.state["analytics_query_context"]) for run in runs if "analytics_query_context" in (run.state or {})
     )
 
 
 __all__ = [
+    "analytics_context_reader",
     "DesktopAccessDecision",
     "DesktopAccessReason",
     "DesktopAccessResolutionError",
