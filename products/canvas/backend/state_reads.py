@@ -5,24 +5,33 @@ from typing import Any
 
 from django.db.models import Q, QuerySet
 
+from posthog.dataclasses import frozen
+
 from products.canvas.backend.models import CanvasState
 
 
-def encode_state_cursor(scope: str, key: str) -> str:
-    # UTF-8 without ASCII escapes, so a cursor for any valid key stays within the query parameter limit.
-    payload = json.dumps([scope, key], separators=(",", ":"), ensure_ascii=False)
-    return base64.urlsafe_b64encode(payload.encode()).decode()
+@frozen
+class StateCursor:
+    """The scope and key of the last entry a page returned."""
 
+    scope: str
+    key: str
 
-def decode_state_cursor(cursor: str) -> tuple[str, str]:
-    """The (scope, key) of the last entry a page returned. Raises ValueError for a malformed cursor."""
-    try:
-        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()))
-    except (ValueError, TypeError) as error:
-        raise ValueError("Invalid state cursor.") from error
-    if not isinstance(decoded, list) or len(decoded) != 2 or not all(isinstance(part, str) for part in decoded):
-        raise ValueError("Invalid state cursor.")
-    return decoded[0], decoded[1]
+    @classmethod
+    def decode(cls, cursor: str) -> "StateCursor":
+        """Raises ValueError for a malformed cursor."""
+        try:
+            decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+        except (ValueError, TypeError) as error:
+            raise ValueError("Invalid state cursor.") from error
+        if not isinstance(decoded, list) or len(decoded) != 2 or not all(isinstance(part, str) for part in decoded):
+            raise ValueError("Invalid state cursor.")
+        return cls(scope=decoded[0], key=decoded[1])
+
+    def encode(self) -> str:
+        # UTF-8 without ASCII escapes, so a cursor for any valid key stays within the query parameter limit.
+        payload = json.dumps([self.scope, self.key], separators=(",", ":"), ensure_ascii=False)
+        return base64.urlsafe_b64encode(payload.encode()).decode()
 
 
 class CanvasStateReader:
@@ -48,8 +57,8 @@ class CanvasStateReader:
         cursor takes precedence over `offset`.
         """
         if cursor is not None:
-            after_scope, after_key = decode_state_cursor(cursor)
-            queryset = queryset.filter(Q(scope__gt=after_scope) | Q(scope=after_scope, key__gt=after_key))
+            after = StateCursor.decode(cursor)
+            queryset = queryset.filter(Q(scope__gt=after.scope) | Q(scope=after.scope, key__gt=after.key))
             offset = 0
         if scope:
             queryset = queryset.filter(scope=scope)
@@ -68,7 +77,7 @@ class CanvasStateReader:
         return {
             "entries": page,
             "next_offset": offset + limit if has_more and limit is not None and cursor is None else None,
-            "next_cursor": encode_state_cursor(page[-1]["scope"], page[-1]["key"]) if has_more else None,
+            "next_cursor": StateCursor(scope=page[-1]["scope"], key=page[-1]["key"]).encode() if has_more else None,
             "complete": not has_more,
         }
 
