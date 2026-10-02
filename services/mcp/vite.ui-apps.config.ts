@@ -4,22 +4,17 @@ import { defineConfig } from 'vite'
 
 import { discoverApps } from './scripts/utils'
 
-// PostHog configuration - injected at build time
 // Set POSTHOG_UI_APPS_TOKEN to enable analytics in UI apps
 const POSTHOG_UI_APPS_TOKEN = process.env.POSTHOG_UI_APPS_TOKEN || ''
 
-// Analytics base URL for MCP Apps - where events are sent
 // For local development, set to http://localhost:8010
 const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL =
     process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || 'https://us.i.posthog.com'
 
-// Apps directory - each .tsx file is an app
 const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 
-// Single app mode: UI_APP env var selects which app to build
 const appName = process.env.UI_APP
 
-// Discover all apps
 const ALL_APPS = discoverApps()
 
 /**
@@ -70,7 +65,6 @@ export default defineConfig({
         ],
     },
     define: {
-        // Inject PostHog configuration at build time
         __POSTHOG_UI_APPS_TOKEN__: JSON.stringify(POSTHOG_UI_APPS_TOKEN),
         __POSTHOG_MCP_APPS_ANALYTICS_BASE_URL__: JSON.stringify(POSTHOG_MCP_APPS_ANALYTICS_BASE_URL),
     },
@@ -78,14 +72,13 @@ export default defineConfig({
         outDir: 'public/ui-apps',
         emptyOutDir: false, // Handled by build script
         cssCodeSplit: false,
-        chunkSizeWarningLimit: 1000, // Suppress chunk size warnings (our bundles include React)
+        chunkSizeWarningLimit: 1000, // Each bundle includes React
         rollupOptions: {
             input: appName
                 ? resolve(APPS_DIR, `${appName}.tsx`)
                 : Object.fromEntries(ALL_APPS.map((name) => [name, resolve(APPS_DIR, `${name}.tsx`)])),
             output: appName
                 ? {
-                      // Single app mode: inline everything into one bundle — no shared chunks
                       inlineDynamicImports: true,
                       // IIFE format avoids CORS issues when loading scripts cross-origin from sandboxed iframes
                       format: 'iife' as const,
@@ -96,5 +89,5 @@ export default defineConfig({
                 : {}, // Multi-app fallback — uses hashed filenames, not compatible with buildAppStubHtml. Always use the build script (which sets UI_APP per app).
         },
     },
-    logLevel: 'warn', // Reduce Vite output noise
+    logLevel: 'warn',
 })
