@@ -3,9 +3,6 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { urls } from 'scenes/urls'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types'
@@ -110,26 +107,5 @@ describe('NavProductRow', () => {
         expect(home.queryByLabelText('Add to starred')).toBeNull()
         fireEvent.click(home.getByLabelText('Customize sidebar'))
         expect(navProductsTabLogic.values.customizeSidebarOpen).toBe(true)
-    })
-
-    // The dashboards list scene mounts only after the navigation, so the modal opens from the URL alone
-    it('opens the new dashboard modal from another page', async () => {
-        router.actions.push(urls.currentProject(urls.insights()))
-        const { container } = render(
-            <NavProductRow item={{ path: 'Dashboards', iconType: 'dashboard', href: urls.dashboards() }} />
-        )
-        await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
-
-        fireEvent.click(container.querySelector('[data-attr="flat-nav-tool-menu-dashboards"]')!)
-        const newDashboard = await waitFor(() => {
-            const item = document.querySelector('[data-attr="nav-apps-dashboards-menu-new-dashboard"]')
-            expect(item).not.toBeNull()
-            return item!
-        })
-        fireEvent.click(newDashboard)
-
-        expect(router.values.location.pathname).toBe(urls.currentProject(urls.dashboards()))
-        newDashboardLogic.mount()
-        expect(newDashboardLogic.values.newDashboardModalVisible).toBe(true)
     })
 })

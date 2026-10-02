@@ -476,13 +476,13 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
                 if (showDropdownMenu) {
-                    if (item.name === 'Product analytics') {
+                    if (item.name === 'Product analytics' || item.name === 'Dashboards') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconPlusSmall className="text-tertiary" />
                             </ButtonPrimitive>
                         )
-                    } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
+                    } else if (item.name === 'Session replay') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconChevronRight className="size-3 text-tertiary rotate-90" />
