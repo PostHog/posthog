@@ -209,7 +209,7 @@ def personal_inbox_filter(*, team_id: int, user: User) -> Q:
         & ~Q(status=SignalReport.Status.FAILED)
         & ~Q(status=SignalReport.Status.READY, latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
     )
-    viewer_tasks = tasks_facade.task_ids_created_by_subquery(team_id, user.id)
+    viewer_tasks = tasks_facade.task_ids_created_by(team_id, user.id)
     claims = active_claims(team_id=team_id).filter(Q(created_by_id=user.id) | Q(task_id__in=viewer_tasks))
     legacy = legacy_claims(team_id=team_id).filter(Q(actor_user_id=user.id) | Q(actor_task_id__in=viewer_tasks))
     return reviewer | Q(id__in=claims.values("report_id")) | Q(id__in=legacy.values("report_id"))

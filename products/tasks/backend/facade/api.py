@@ -348,6 +348,7 @@ __all__ = [
     "task_channel_id",
     "task_exempt_from_code_access",
     "task_exists",
+    "task_ids_created_by",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
     "get_prior_pr_output_by_task",
@@ -1311,9 +1312,8 @@ def get_prior_pr_output_by_task(team_id: int, task_ids: Iterable[str | UUID]) ->
     return {str(task_id): output for task_id, output in rows if isinstance(output, dict)}
 
 
-def task_ids_created_by_subquery(team_id: int, user_id: int) -> QuerySet[Task, Any]:
-    """Same-team task ids a user created, for a caller to embed as a subquery."""
-    return Task.objects.filter(team_id=team_id, created_by_id=user_id).values("id")
+def task_ids_created_by(team_id: int, user_id: int) -> set[UUID]:
+    return set(Task.objects.filter(team_id=team_id, created_by_id=user_id).values_list("id", flat=True))
 
 
 def task_ids_with_pr_url_subquery(team_id: int, *conditions: Q) -> QuerySet[TaskRun, Any]:
