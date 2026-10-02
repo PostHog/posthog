@@ -46,7 +46,7 @@ import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { objectsEqual } from 'lib/utils/objects'
+import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -608,6 +608,7 @@ export interface sqlEditorLogicValues {
     filtersPlaceholderBindings: string[] | null
     finishedLoading: boolean
     fixErrorsError: string | null
+    hasEditorChanges: boolean
     hasFiltersPlaceholder: boolean
     hasQueryInput: boolean
     hoveredNode: string | null
@@ -846,6 +847,9 @@ export interface sqlEditorLogicActions {
     }
     deleteInProgressViewEdit: (viewId: string) => {
         viewId: string
+    }
+    discardChanges: () => {
+        value: true
     }
     editInsight: (
         query: string,
@@ -1173,6 +1177,11 @@ export interface sqlEditorLogicMeta {
         editingView: (activeTab: QueryTab | null) => DataWarehouseSavedQuery | undefined
         editingMetricName: (activeTab: QueryTab | null) => string | null
         changesToSave: (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => boolean
+        hasEditorChanges: (
+            activeTab: QueryTab | null,
+            queryInput: string | null,
+            sourceQuery: DataVisualizationNode
+        ) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
         selectedDirectSource: (
@@ -1298,6 +1307,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             tablesAndColumns,
         }),
         setQueryInput: (queryInput: string | null) => ({ queryInput }),
+        discardChanges: true,
         setActiveQueryText: (activeQueryText: string | null, activeQueryOffset: number) => ({
             activeQueryText,
             activeQueryOffset,
@@ -3048,6 +3058,55 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }
             },
+            discardChanges: async (_, breakpoint) => {
+                const tab = values.activeTab
+                if (!tab || !values.hasEditorChanges) {
+                    return
+                }
+                const restore = (view?: DataWarehouseSavedQuery, insight?: InsightModel): void => {
+                    const savedQuery = view
+                        ? hogQLEditorSourceQuery(view.query)
+                        : toDataVisualizationNode(insight?.query)
+                    if (!savedQuery) {
+                        return
+                    }
+                    actions._setSuggestionPayload(null)
+                    actions.createTab(savedQuery.source.query, view, insight)
+                    actions.setSourceQuery(savedQuery)
+                    applyUndoableModelEdit(props.monaco, values.activeTab?.uri, savedQuery.source.query)
+                    actions.syncUrlWithQuery()
+                }
+                restore(
+                    tab.view
+                        ? {
+                              ...tab.view,
+                              latest_history_id: values.inProgressViewEdits[tab.view.id] ?? tab.view.latest_history_id,
+                          }
+                        : undefined,
+                    tab.insight
+                )
+                const restoredTab = values.activeTab
+                const restoredQuery = values.queryInput
+                const restoredSourceQuery = values.sourceQuery
+                try {
+                    const view = tab.view ? await api.dataWarehouseSavedQueries.get(tab.view.id) : undefined
+                    const insight = tab.insight ? await insightsApi.getByShortId(tab.insight.short_id) : undefined
+                    breakpoint()
+                    if (
+                        values.activeTab !== restoredTab ||
+                        values.queryInput !== restoredQuery ||
+                        values.sourceQuery !== restoredSourceQuery
+                    ) {
+                        return
+                    }
+                    restore(view, insight ?? undefined)
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
+                    lemonToast.error('Changes discarded. Could not refresh the saved query.')
+                }
+            },
             closeEditingObject: () => {
                 actions.setInsightLoading(false)
                 actions.setViewLoading(false)
@@ -3407,6 +3466,39 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (s) => [s.editingView, s.queryInput],
             (editingView: DataWarehouseSavedQuery | undefined, queryInput: string | null) => {
                 return editingView?.query?.query !== queryInput
+            },
+        ],
+        hasEditorChanges: [
+            (s) => [s.activeTab, s.queryInput, s.sourceQuery],
+            (activeTab: QueryTab | null, queryInput: string | null, sourceQuery: DataVisualizationNode): boolean => {
+                if (!activeTab || queryInput === null || activeTab.draft) {
+                    return false
+                }
+                const savedQuery = activeTab.view
+                    ? hogQLEditorSourceQuery(activeTab.view.query)
+                    : toDataVisualizationNode(activeTab.insight?.query)
+                if (!savedQuery) {
+                    return false
+                }
+                const normalize = (query: DataVisualizationNode): Record<string, unknown> =>
+                    removeUndefinedAndNull({
+                        ...sanitizeSourceQuery(query),
+                        display: query.display ?? ChartDisplayType.Auto,
+                        source: {
+                            ...normalizeRawQuerySource(query.source),
+                            filters: normalizeFiltersForUrl(query.source.filters),
+                        },
+                    })
+                const currentQuery = { ...sourceQuery, source: { ...sourceQuery.source, query: queryInput } }
+                return (
+                    !equal(
+                        normalize(activeTab.view ? hogQLEditorSourceQuery(currentQuery.source) : currentQuery),
+                        normalize(savedQuery)
+                    ) ||
+                    (!!activeTab.insight &&
+                        (activeTab.name !== (activeTab.insight.name ?? NEW_QUERY) ||
+                            (activeTab.description ?? '') !== (activeTab.insight.description ?? '')))
+                )
             },
         ],
         exportContext: [

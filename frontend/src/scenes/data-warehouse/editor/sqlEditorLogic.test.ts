@@ -337,6 +337,72 @@ describe('sqlEditorLogic', () => {
         }
 
         it.each([
+            { searchParams: { open_view: MOCK_VIEW.id }, savedQuery: MOCK_VIEW.query.query },
+            {
+                searchParams: { open_insight: MOCK_INSIGHT_SHORT_ID },
+                savedQuery: MOCK_INSIGHT_QUERY.source.query,
+            },
+        ])('discards an unrun edit and does not recover it again (%j)', async ({ searchParams, savedQuery }) => {
+            mountEditor()
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), searchParams))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+            expect(logic.values.hasEditorChanges).toBe(false)
+
+            logic.actions.setQueryInput('SELECT unfinished')
+            expect(logic.values.hasEditorChanges).toBe(true)
+            expect(logic.values.isSourceQueryLastRun).toBe(false)
+            await expectLogic(logic, () => {
+                logic.actions.discardChanges()
+                expect(logic.values.queryInput).toEqual(savedQuery)
+                expect(logic.values.hasEditorChanges).toBe(false)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: savedQuery, hasEditorChanges: false })
+            expect(router.values.hashParams.q).toEqual(savedQuery)
+            expect(logic.values.activeTab?.view?.id ?? logic.values.activeTab?.insight?.short_id).toEqual(
+                searchParams.open_view ?? searchParams.open_insight
+            )
+
+            logic.unmount()
+            initKeaTests()
+            mountEditor()
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), searchParams))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: savedQuery, hasEditorChanges: false })
+        })
+
+        it.each([false, true])('refreshes a discarded draft without overwriting new edits (%s)', async (editAgain) => {
+            mountEditor()
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+            logic.actions.setQueryInput('SELECT unfinished')
+            logic.unmount()
+            initKeaTests()
+            mountEditor()
+            serverViewQuery = 'SELECT latest_saved'
+            await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: 'SELECT unfinished', hasEditorChanges: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.discardChanges()
+                expect(logic.values.queryInput).toEqual(MOCK_VIEW.query.query)
+                if (editAgain) {
+                    logic.actions.setQueryInput('SELECT new_edit')
+                }
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    queryInput: editAgain ? 'SELECT new_edit' : 'SELECT latest_saved',
+                    hasEditorChanges: editAgain,
+                })
+        })
+
+        it.each([
             ['new query', {}, 'SELECT unfinished'],
             ['view', { open_view: MOCK_VIEW.id }, 'SELECT unfinished'],
             ['insight', { open_insight: MOCK_INSIGHT_SHORT_ID }, 'SELECT unfinished'],
