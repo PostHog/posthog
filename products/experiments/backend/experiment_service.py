@@ -1358,8 +1358,6 @@ class ExperimentService:
                 extra_metadata={
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
-                    "flag_age_days": flag_age.days,
-                    # Whole days read 0 both for a flag made by this request and for one made hours earlier.
                     "flag_age_seconds": int(flag_age.total_seconds()),
                 },
             )
