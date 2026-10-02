@@ -142,7 +142,14 @@ def progress_target_type(config: MetricThresholdConfig) -> Literal["proportional
 def bounded_progress_query(query: dict[str, Any], *, start: datetime, end: datetime) -> dict[str, Any]:
     bounded = deepcopy(query)
     source = bounded["source"]
-    source["dateRange"] = {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True}
+    # The elapsed-time target covers the exact monitoring period, so partial buckets at either end must stay in.
+    date_range = {key: value for key, value in source["dateRange"].items() if key != "excludeIncompletePeriods"}
+    source["dateRange"] = {
+        **date_range,
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "explicitDate": True,
+    }
     source["interval"] = "hour" if end - start <= timedelta(days=2) else "day"
     # Display modifiers must not change the interim values. Cumulative mode turns an interim rate into a sum of
     # bucket rates, and smoothing floors a rolling average of each bucket count before formulas apply.

@@ -96,13 +96,19 @@ class TestProgressEvaluation(SimpleTestCase):
     def test_absolute_bounds_do_not_mutate_the_final_check(self) -> None:
         query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_event"}])
         query["source"]["trendsFilter"] = {"formula": "A", "cumulative": True, "smoothingIntervals": 3}
+        query["source"]["dateRange"].update(daysOfWeek=[1, 2, 3, 4, 5], excludeIncompletePeriods=True)
         original = deepcopy(query)
         start = datetime(2026, 10, 1, 12, 23, tzinfo=UTC)
         end = start + timedelta(hours=3)
         derived = bounded_progress_query(query, start=start, end=end)
         self.assertEqual(
             derived["source"]["dateRange"],
-            {"date_from": start.isoformat(), "date_to": end.isoformat(), "explicitDate": True},
+            {
+                "date_from": start.isoformat(),
+                "date_to": end.isoformat(),
+                "explicitDate": True,
+                "daysOfWeek": [1, 2, 3, 4, 5],
+            },
         )
         self.assertEqual(derived["source"]["interval"], "hour")
         self.assertEqual(derived["source"]["trendsFilter"], {"formula": "A"})
