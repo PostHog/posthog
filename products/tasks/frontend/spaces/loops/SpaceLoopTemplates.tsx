@@ -18,7 +18,7 @@ export function SpaceLoopTemplates({ id }: { id: string }): JSX.Element {
     return (
         <SpaceSettingsSection
             label="Start from a template"
-            description="A template fills in the loop builder below. You can change it before you send it."
+            description="A template opens a new loop with its settings filled in. You can change them before you save."
             action={
                 <ToggleGroup
                     value={[templateCategory]}

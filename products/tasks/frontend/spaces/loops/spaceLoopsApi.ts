@@ -7,22 +7,41 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import {
+    hogFlowsCreate,
     hogFlowsDestroy,
     hogFlowsList,
     hogFlowsPartialUpdate,
     hogFlowsRetrieve,
     hogFlowsRunCreate,
+    hogFlowsSchedulesCreate,
+    hogFlowsSchedulesDestroy,
+    hogFlowsSchedulesPartialUpdate,
 } from 'products/workflows/frontend/generated/api'
+import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import {
+    loopsCreate,
     loopsDestroy,
     loopsList,
     loopsPartialUpdate,
     loopsRetrieve,
     loopsRunCreate,
     loopsRunsRetrieve,
+    loopsSkillBundlesUpdate,
+    sandboxList,
     tasksList,
+    tasksRunsCancelCreate,
 } from '../../generated/api'
+import type { SandboxEnvironmentDTOApi } from '../../generated/api.schemas'
+import { type LoopFormValues, formValuesToLoopWrite, loopToFormValues } from './form/loopFormValues'
+import { hogFlowScheduleMatches } from './form/loopSchedule'
+import {
+    type LoopHogFlowDetail,
+    type LoopHogFlowWrite,
+    formValuesToHogFlowWrite,
+    hogFlowToFormValues,
+    isLoopShapedHogFlow,
+} from './form/loopWorkflowMapping'
 import {
     SpaceLoop,
     SpaceLoopRun,
@@ -57,32 +76,50 @@ export function spaceLoopsBackend(
         : null
 }
 
+export interface SpaceLoopList {
+    loops: SpaceLoop[]
+    /** Why the project cannot add a loop, or null when it can. Workflows cap runs instead of loops. */
+    limitReason: string | null
+}
+
 export async function listSpaceLoops(
     { projectId, workflowBacked }: SpaceLoopsBackend,
     spaceId: string
-): Promise<SpaceLoop[]> {
+): Promise<SpaceLoopList> {
     if (workflowBacked) {
-        const flows = await readAllPages((offset) =>
+        const { results } = await readAllPages((offset) =>
             hogFlowsList(projectId, { origin_product: 'loops', limit: LOOPS_PAGE_SIZE, offset })
         )
-        return spaceLoopsFromHogFlows(flows, spaceId)
+        return { loops: spaceLoopsFromHogFlows(results, spaceId), limitReason: null }
     }
-    const loops = await readAllPages((offset) => loopsList(projectId, { limit: LOOPS_PAGE_SIZE, offset }))
-    return spaceLoopsFromLoops(loops, spaceId)
+    const { results, firstPage } = await readAllPages((offset) =>
+        loopsList(projectId, { limit: LOOPS_PAGE_SIZE, offset })
+    )
+    const max = firstPage?.max_loops_per_team
+    const used = firstPage?.total_loop_count
+    return {
+        loops: spaceLoopsFromLoops(results, spaceId),
+        limitReason:
+            max !== undefined && used !== undefined && used >= max
+                ? `This project reached its limit of ${max} loops. Delete one to add another.`
+                : null,
+    }
 }
 
-async function readAllPages<T>(
-    fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
-): Promise<T[]> {
-    const results: T[] = []
+async function readAllPages<Page extends { results: unknown[]; next?: string | null }>(
+    fetchPage: (offset: number) => Promise<Page>
+): Promise<{ results: Page['results'][number][]; firstPage: Page | null }> {
+    const results: Page['results'][number][] = []
+    let firstPage: Page | null = null
     for (let pageIndex = 0; pageIndex < LOOPS_MAX_PAGES; pageIndex++) {
         const page = await fetchPage(results.length)
+        firstPage ??= page
         results.push(...page.results)
         if (!page.next || !page.results.length) {
             break
         }
     }
-    return results
+    return { results, firstPage }
 }
 
 export async function retrieveSpaceLoop(
@@ -170,4 +207,132 @@ export async function deleteSpaceLoop({ projectId, workflowBacked }: SpaceLoopsB
         return
     }
     await loopsDestroy(projectId, loopId)
+}
+
+export async function stopSpaceLoopRun(projectId: string, taskId: string, runId: string): Promise<void> {
+    await tasksRunsCancelCreate(projectId, taskId, runId)
+}
+
+export async function listSandboxEnvironments(projectId: string): Promise<SandboxEnvironmentDTOApi[]> {
+    const page = await sandboxList(projectId, { limit: 100 })
+    return page.results
+}
+
+/** A loop opened in the form. `hogFlow` is the workflow the save is based on, for a loop stored as one. */
+export interface SpaceLoopFormSource {
+    loopId: string
+    values: LoopFormValues
+    hogFlow: LoopHogFlowDetail | null
+    /** Changed in the workflow editor, so a save from the form would drop that work. */
+    foreign: boolean
+    hadSkill: boolean
+}
+
+export async function loadSpaceLoopFormSource(
+    { projectId, workflowBacked }: SpaceLoopsBackend,
+    loopId: string
+): Promise<SpaceLoopFormSource> {
+    if (workflowBacked) {
+        const hogFlow = await hogFlowsRetrieve(projectId, loopId)
+        const foreign = !isLoopShapedHogFlow(hogFlow)
+        return { loopId, values: hogFlowToFormValues(hogFlow), hogFlow, foreign, hadSkill: false }
+    }
+    const loop = await loopsRetrieve(projectId, loopId)
+    return {
+        loopId,
+        values: loopToFormValues(loop),
+        hogFlow: null,
+        foreign: false,
+        hadSkill: !!loop.skill_bundles?.length,
+    }
+}
+
+/** The graph saved, but the schedule row did not follow, so the loop keeps its old cadence until a new save. */
+export class LoopScheduleSaveError extends Error {
+    constructor(
+        override readonly cause: unknown,
+        readonly savedUpdatedAt: string
+    ) {
+        super('The loop saved, but its schedule did not update.')
+        this.name = 'LoopScheduleSaveError'
+    }
+}
+
+type HogFlowCreateBody = Parameters<typeof hogFlowsCreate>[1]
+type HogFlowPatchBody = NonNullable<Parameters<typeof hogFlowsPartialUpdate>[2]>
+
+/**
+ * Creates the workflow, then its schedule. A rejected schedule deletes the workflow again, so a failed save
+ * leaves nothing behind. Until the schedule exists the workflow never fires.
+ */
+async function createLoopHogFlow(projectId: string, write: LoopHogFlowWrite): Promise<HogFlowApi> {
+    const flow = await hogFlowsCreate(projectId, write.flow as unknown as HogFlowCreateBody)
+    if (!write.schedule) {
+        return flow
+    }
+    try {
+        await hogFlowsSchedulesCreate(projectId, flow.id, write.schedule)
+    } catch (error) {
+        // A failed rollback leaves a workflow that never fires, which someone can delete from the list.
+        await hogFlowsDestroy(projectId, flow.id).catch(() => undefined)
+        throw error
+    }
+    return flow
+}
+
+/**
+ * Writes the graph, then makes the schedule row match. A matching row stays as it is, because rewriting it can
+ * skip a run that was about to fire. A switch to a GitHub trigger removes the old schedule.
+ */
+async function updateLoopHogFlow(
+    projectId: string,
+    existing: LoopHogFlowDetail,
+    write: LoopHogFlowWrite
+): Promise<void> {
+    // The workflow status belongs to the pause switch, and the origin and exit condition stay as they are.
+    const { status: _status, origin_product: _origin, exit_condition: _exit, ...content } = write.flow
+    const flow = await hogFlowsPartialUpdate(projectId, existing.id, {
+        ...content,
+        base_updated_at: existing.updated_at,
+    } as unknown as HogFlowPatchBody)
+    try {
+        const current = existing.schedules?.[0]
+        if (!write.schedule) {
+            for (const schedule of existing.schedules ?? []) {
+                await hogFlowsSchedulesDestroy(projectId, existing.id, schedule.id)
+            }
+        } else if (!current) {
+            await hogFlowsSchedulesCreate(projectId, existing.id, write.schedule)
+        } else if (!hogFlowScheduleMatches(current, write.schedule)) {
+            await hogFlowsSchedulesPartialUpdate(projectId, existing.id, current.id, write.schedule)
+        }
+    } catch (error) {
+        throw new LoopScheduleSaveError(error, flow.updated_at)
+    }
+}
+
+/** Creates or updates a loop from the form, and returns the loop's id. */
+export async function saveSpaceLoop(
+    { projectId, workflowBacked }: SpaceLoopsBackend,
+    values: LoopFormValues,
+    source: SpaceLoopFormSource | null
+): Promise<string> {
+    if (workflowBacked) {
+        if (source?.hogFlow) {
+            await updateLoopHogFlow(
+                projectId,
+                source.hogFlow,
+                formValuesToHogFlowWrite(values, { enabled: true, existing: source.hogFlow })
+            )
+            return source.loopId
+        }
+        const flow = await createLoopHogFlow(projectId, formValuesToHogFlowWrite(values, { enabled: true }))
+        return flow.id
+    }
+    const body = formValuesToLoopWrite(values)
+    const saved = source ? await loopsPartialUpdate(projectId, source.loopId, body) : await loopsCreate(projectId, body)
+    if (source?.hadSkill && !values.skill) {
+        await loopsSkillBundlesUpdate(projectId, saved.id, { bundles: [] })
+    }
+    return saved.id
 }

@@ -1689,6 +1689,16 @@
         "params": ["id", "loopId"],
         "scope": "project"
     },
+    "taskSpaceLoopEdit": {
+        "template": "/spaces/{id}/loops/{loopId}/edit",
+        "params": ["id", "loopId"],
+        "scope": "project"
+    },
+    "taskSpaceLoopNew": {
+        "template": "/spaces/{id}/loops/new",
+        "params": ["id"],
+        "scope": "project"
+    },
     "taskSpaceLoops": {
         "template": "/spaces/{id}/loops",
         "params": ["id"],

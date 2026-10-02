@@ -7,6 +7,14 @@ import type { HogFlowMinimalApi, HogFlowScheduleApi } from 'products/workflows/f
 import type { LoopDTOApi, LoopRunDTOApi, LoopTriggerDTOApi, TaskListItemApi } from '../../generated/api.schemas'
 import { RUN_STATUSES, SpaceFeedStatus, spaceFeedStatus } from '../spaceFeedStatus'
 import type { TaskAvatarUser } from '../TaskUserAvatar'
+import type { LoopScheduleTriggerConfig } from './form/loopFormValues'
+import { nextScheduleRun } from './form/loopSchedule'
+import {
+    CREATE_TASK_TEMPLATE_ID,
+    GITHUB_EVENT_RECEIVED_EVENT,
+    SLACK_TEMPLATE_ID,
+    isLoopShapedHogFlow,
+} from './form/loopWorkflowMapping'
 
 /** One loop of a space, the same for a loop from the loops API and a loop stored as a workflow. */
 export interface SpaceLoop {
@@ -27,7 +35,17 @@ export interface SpaceLoop {
     model: string
     reasoningEffort: string | null
     repositories: string[]
+    /** The creator, from the workflow. A loops API loop names only the user id, in `createdById`. */
     createdBy: TaskAvatarUser | null
+    createdById: number | null
+    visibility: 'team' | 'personal'
+    /** Why the backend paused the loop, or null for a loop someone paused or one that runs. */
+    pausedReason: string | null
+    /** When the schedule fires next, or null when the loop has no schedule or the source does not say. */
+    nextRunAt: string | null
+    nextRunTimezone: string
+    /** Changed in the workflow editor, so the loop form would drop that work. It can only be read here. */
+    foreign: boolean
     notifications: string[]
     /** The trigger accepts a run on demand. The workflow run endpoint accepts only schedule triggers. */
     canRunNow: boolean
@@ -40,7 +58,15 @@ export interface SpaceLoopRun {
     /** Null while a local run is still going, the same as the space feed shows it. */
     status: SpaceFeedStatus | null
     startedAt: string
+    completedAt: string | null
     error: string | null
+    branch: string | null
+    /** Started by a trigger or by hand. Null when the source does not say, as for a workflow run. */
+    triggered: boolean | null
+    /** The task run id. Stop uses it. */
+    runId: string | null
+    /** A cloud run that is queued or running, so it can be stopped. */
+    stoppable: boolean
 }
 
 /** The fields of a loop workflow the mapping reads. The list serves no schedules, the detail does. */
@@ -50,18 +76,34 @@ export interface SpaceLoopHogFlow {
     description?: string
     status?: HogFlowMinimalApi['status']
     actions: unknown
+    edges?: unknown
+    draft?: unknown
     created_by?: HogFlowMinimalApi['created_by'] | null
     last_run?: HogFlowMinimalApi['last_run']
     schedules?: readonly HogFlowScheduleApi[]
 }
 
-// pinned: PostHog Desktop writes these ids into a loop's workflow, so they must match `loopHogFlowMapping.ts`.
-const CREATE_TASK_TEMPLATE_ID = 'template-posthog-create-task'
-const SLACK_TEMPLATE_ID = 'template-slack'
-
-// pinned: the event names behind the trigger shapes the building-loops skill creates.
-const GITHUB_EVENT = '$github_event_received'
+// pinned: the event name behind the Slack trigger shape the building-loops skill creates.
 const SLACK_EVENT = '$slack_message_received'
+const GITHUB_EVENT = GITHUB_EVENT_RECEIVED_EVENT
+
+// The same sentences as PostHog Desktop's loop page, keyed by the backend's `disabled_reason`.
+const PAUSED_REASONS: Record<string, string> = {
+    usage_limited:
+        'Paused automatically: your organization reached its usage limit. Upgrade or wait for the limit to reset, then resume the loop.',
+    repeated_failures:
+        'Paused automatically after too many failed runs in a row. Check the last run’s error, then resume the loop.',
+    owner_deactivated: 'Paused because its owner’s account was deactivated.',
+    owner_removed_from_org: 'Paused because its owner left the organization.',
+    github_integration_disconnected: 'Paused because its GitHub connection was removed.',
+}
+
+function pausedReason(enabled: boolean, disabledReason: string | null): string | null {
+    return enabled || !disabledReason ? null : (PAUSED_REASONS[disabledReason] ?? 'Paused automatically.')
+}
+
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
+const STOPPABLE_RUN_STATUSES = new Set(['queued', 'in_progress', 'started'])
 
 const WEEKDAYS: Record<string, string> = {
     SU: 'Sundays',
@@ -263,6 +305,19 @@ function hogFlowNotifications(flow: SpaceLoopHogFlow, slackTriggered: boolean): 
         : notifications
 }
 
+/** The soonest next run among the loop's enabled schedule triggers. */
+function loopNextRun(loop: LoopDTOApi): Pick<SpaceLoop, 'nextRunAt' | 'nextRunTimezone'> {
+    let next: { at: Date; timezone: string } | null = null
+    for (const trigger of loop.enabled ? loop.triggers : []) {
+        const config = trigger.config as LoopScheduleTriggerConfig
+        const at = trigger.type === 'schedule' && trigger.enabled ? nextScheduleRun(config) : null
+        if (at && (!next || at < next.at)) {
+            next = { at, timezone: config.timezone || 'UTC' }
+        }
+    }
+    return { nextRunAt: next?.at.toISOString() ?? null, nextRunTimezone: next?.timezone ?? 'UTC' }
+}
+
 export function spaceLoopFromLoop(loop: LoopDTOApi): SpaceLoop {
     const lastRunFailed = loop.consecutive_failures > 0 || loop.last_run_status === 'failed'
     const triggers = loop.triggers.map(
@@ -292,6 +347,11 @@ export function spaceLoopFromLoop(loop: LoopDTOApi): SpaceLoop {
         reasoningEffort: loop.reasoning_effort,
         repositories: loop.repositories.map((repository) => repository.full_name),
         createdBy: null,
+        createdById: loop.created_by_id,
+        visibility: loop.visibility === 'team' ? 'team' : 'personal',
+        pausedReason: pausedReason(loop.enabled, loop.disabled_reason),
+        ...loopNextRun(loop),
+        foreign: false,
         notifications: (['slack', 'email', 'push'] as const)
             .filter((channel) => loop.notifications[channel]?.enabled)
             .map((channel) => ({ slack: 'Slack', email: 'Email', push: 'Push' })[channel]),
@@ -330,6 +390,12 @@ export function spaceLoopFromHogFlow(flow: SpaceLoopHogFlow): SpaceLoop {
                   uuid: flow.created_by.uuid,
               }
             : null,
+        createdById: null,
+        visibility: 'team',
+        pausedReason: null,
+        nextRunAt: enabled ? (flow.schedules?.[0]?.next_run_at ?? null) : null,
+        nextRunTimezone: flow.schedules?.[0]?.timezone || 'UTC',
+        foreign: !isLoopShapedHogFlow(flow),
         notifications: hogFlowNotifications(flow, !!trigger.slack),
         canRunNow: trigger.canRunNow && !archived,
     }
@@ -350,7 +416,7 @@ export function spaceLoopsFromHogFlows(flows: SpaceLoopHogFlow[], spaceId: strin
 
 /** A loop after someone pauses or resumes it, before the next load. */
 export function spaceLoopWithEnabled(loop: SpaceLoop, enabled: boolean): SpaceLoop {
-    return { ...loop, enabled, status: loopStatus(enabled, null, loop.lastRunFailed) }
+    return { ...loop, enabled, pausedReason: null, status: loopStatus(enabled, null, loop.lastRunFailed) }
 }
 
 export function spaceLoopRunFromLoopRun(run: LoopRunDTOApi): SpaceLoopRun {
@@ -360,7 +426,12 @@ export function spaceLoopRunFromLoopRun(run: LoopRunDTOApi): SpaceLoopRun {
         title: null,
         status: RUN_STATUSES[run.status] ?? RUN_STATUSES.not_started,
         startedAt: run.created_at,
+        completedAt: run.completed_at,
         error: run.error_message,
+        branch: run.branch,
+        triggered: !!run.loop_trigger_id,
+        runId: run.id,
+        stoppable: run.environment === 'cloud' && STOPPABLE_RUN_STATUSES.has(run.status),
     }
 }
 
@@ -373,7 +444,12 @@ export function spaceLoopRunFromTask(task: TaskListItemApi): SpaceLoopRun {
         title: task.title || null,
         status: spaceFeedStatus(run),
         startedAt: run?.created_at ?? task.created_at ?? '',
+        completedAt: run && TERMINAL_RUN_STATUSES.has(run.status) ? (run.completed_at ?? run.updated_at ?? null) : null,
         error: run?.error_message ?? null,
+        branch: run?.branch ?? null,
+        triggered: null,
+        runId: run?.id ?? null,
+        stoppable: !!run && run.environment === 'cloud' && STOPPABLE_RUN_STATUSES.has(run.status),
     }
 }
 
@@ -398,11 +474,19 @@ export function spaceLoopName(loop: Pick<SpaceLoop, 'name'>): string {
     return loop.name || 'Untitled loop'
 }
 
-export function filterSpaceLoops(loops: SpaceLoop[], search: string, hidePaused: boolean): SpaceLoop[] {
+export type SpaceLoopVisibilityFilter = 'all' | 'team' | 'personal'
+
+export function filterSpaceLoops(
+    loops: SpaceLoop[],
+    search: string,
+    hidePaused: boolean,
+    visibility: SpaceLoopVisibilityFilter = 'all'
+): SpaceLoop[] {
     const query = search.trim().toLowerCase()
     return loops.filter(
         (loop) =>
             (!hidePaused || loop.enabled) &&
+            (visibility === 'all' || loop.visibility === visibility) &&
             (!query || [loop.name, loop.description].some((value) => value.toLowerCase().includes(query)))
     )
 }

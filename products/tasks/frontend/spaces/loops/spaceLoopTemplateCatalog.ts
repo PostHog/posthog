@@ -12,6 +12,14 @@ import {
     IconWarning,
 } from '@posthog/icons'
 
+import {
+    type LoopFormValues,
+    type LoopGithubTriggerEvent,
+    defaultLoopTriggerOfType,
+    nextDraftTriggerKey,
+    systemTimezone,
+} from './form/loopFormValues'
+
 export type SpaceLoopTemplateCategory = 'engineering' | 'operations'
 
 export const SPACE_LOOP_TEMPLATE_CATEGORIES: { value: SpaceLoopTemplateCategory; label: string }[] = [
@@ -31,6 +39,8 @@ export interface SpaceLoopTemplate {
     /** How the loop starts, shown on the card. A label that starts with "Triggered" gets the event icon. */
     triggerLabel: string
     worksWith: string[]
+    /** The trigger the new loop form starts with. */
+    trigger: { type: 'schedule'; cron: string } | { type: 'github'; events: LoopGithubTriggerEvent[] }
     /** What the loop does on each run. The builder session starts from it. */
     instructions: string
 }
@@ -39,6 +49,7 @@ export interface SpaceLoopTemplate {
 export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     {
         id: 'pr-review-digest',
+        trigger: { type: 'schedule', cron: '0 11 * * 1-5' },
         category: 'engineering',
         Icon: IconPullRequest,
         tone: 'info',
@@ -51,6 +62,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'ci-failure-summary',
+        trigger: { type: 'schedule', cron: '0 9 * * *' },
         category: 'engineering',
         Icon: IconBug,
         tone: 'destructive',
@@ -63,6 +75,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'flaky-test-tracker',
+        trigger: { type: 'schedule', cron: '0 9 * * 1' },
         category: 'engineering',
         Icon: IconTestTube,
         tone: 'completed',
@@ -75,6 +88,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'dependency-update-check',
+        trigger: { type: 'schedule', cron: '30 11 * * 1' },
         category: 'engineering',
         Icon: IconBox,
         tone: 'success',
@@ -87,6 +101,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'release-notes-drafter',
+        trigger: { type: 'github', events: ['pull_request'] },
         category: 'engineering',
         Icon: IconPencil,
         tone: 'warning',
@@ -99,6 +114,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'issue-triage',
+        trigger: { type: 'github', events: ['issues'] },
         category: 'engineering',
         Icon: IconListCheck,
         tone: 'success',
@@ -111,6 +127,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'standup-summary',
+        trigger: { type: 'schedule', cron: '0 9 * * 1-5' },
         category: 'operations',
         Icon: IconChat,
         tone: 'warning',
@@ -123,6 +140,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'weekly-review',
+        trigger: { type: 'schedule', cron: '0 16 * * 5' },
         category: 'operations',
         Icon: IconLineGraph,
         tone: 'info',
@@ -135,6 +153,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'support-ticket-triage',
+        trigger: { type: 'schedule', cron: '0 * * * *' },
         category: 'operations',
         Icon: IconSupport,
         tone: 'success',
@@ -147,6 +166,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'incident-digest',
+        trigger: { type: 'schedule', cron: '0 8 * * *' },
         category: 'operations',
         Icon: IconWarning,
         tone: 'destructive',
@@ -159,6 +179,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'metrics-digest',
+        trigger: { type: 'schedule', cron: '0 9 * * 1' },
         category: 'operations',
         Icon: IconTrends,
         tone: 'completed',
@@ -171,6 +192,7 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
     {
         id: 'changelog-drafter',
+        trigger: { type: 'schedule', cron: '0 15 * * 5' },
         category: 'operations',
         Icon: IconPencil,
         tone: 'success',
@@ -183,7 +205,19 @@ export const SPACE_LOOP_TEMPLATES: SpaceLoopTemplate[] = [
     },
 ]
 
-/** What a template puts in the loop builder box: the loop's job, then when it runs. */
-export function spaceLoopTemplateDraft(template: SpaceLoopTemplate): string {
-    return `${template.name}: ${template.instructions} ${template.triggerLabel}.`
+/** The parts of a new loop a template fills in, the way PostHog Desktop's templates prefill its form. */
+export function spaceLoopTemplateFormValues(template: SpaceLoopTemplate): Partial<LoopFormValues> {
+    const trigger =
+        template.trigger.type === 'schedule'
+            ? {
+                  key: nextDraftTriggerKey(),
+                  type: 'schedule' as const,
+                  enabled: true,
+                  config: { cron_expression: template.trigger.cron, timezone: systemTimezone() },
+              }
+            : {
+                  ...defaultLoopTriggerOfType('github'),
+                  config: { github_integration_id: 0, repository: '', events: template.trigger.events },
+              }
+    return { name: template.name, instructions: template.instructions, triggers: [trigger] }
 }

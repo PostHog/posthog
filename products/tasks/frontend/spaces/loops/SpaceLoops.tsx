@@ -11,7 +11,13 @@ import {
     EmptyTitle,
     Skeleton,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from '@posthog/quill'
+
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 import { SpaceSettingsSection } from '../SpaceSettingsSection'
 import { SpaceLoopBuilderComposer } from './SpaceLoopBuilderComposer'
@@ -22,8 +28,8 @@ import { SpaceLoopTemplates } from './SpaceLoopTemplates'
 
 /** A space's Loops tab: the loops, templates, then the loop builder, in the same layout as the Settings tab. */
 export function SpaceLoops({ id }: { id: string }): JSX.Element {
-    const { loops, loopsLoading, loopsUnavailable, activeCount } = useValues(spaceLoopsLogic({ id }))
-    const { loadLoops, focusBuilder } = useActions(spaceLoopsLogic({ id }))
+    const { loops, loopsLoading, loopsUnavailable, activeCount, limitReason } = useValues(spaceLoopsLogic({ id }))
+    const { loadLoops } = useActions(spaceLoopsLogic({ id }))
 
     return (
         <div className="-mx-4">
@@ -31,10 +37,23 @@ export function SpaceLoops({ id }: { id: string }): JSX.Element {
                 <Text size="xs" variant="muted" className="min-w-0">
                     Loops run an agent task on a schedule or when an event happens, and post each run to this space.
                 </Text>
-                <Button size="sm" variant="primary" onClick={focusBuilder} data-attr="today-space-loop-new">
-                    <IconPlus />
-                    New loop
-                </Button>
+                <Tooltip disabled={!limitReason}>
+                    <TooltipTrigger
+                        render={
+                            <Button
+                                size="sm"
+                                variant="primary"
+                                disabled={!!limitReason}
+                                render={limitReason ? undefined : <LinkPrimitive to={urls.taskSpaceLoopNew(id)} />}
+                                data-attr="today-space-loop-new"
+                            />
+                        }
+                    >
+                        <IconPlus />
+                        New loop
+                    </TooltipTrigger>
+                    <TooltipContent>{limitReason}</TooltipContent>
+                </Tooltip>
             </div>
             <div className="flex w-full max-w-200 flex-col gap-7 px-6 pt-6 pb-8">
                 <SpaceSettingsSection

@@ -3,7 +3,8 @@ import { ReactNode } from 'react'
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from '@posthog/quill'
 
 import { SpaceSettingsSection } from '../SpaceSettingsSection'
-import { TaskUserAvatar, taskUserName } from '../TaskUserAvatar'
+import { TaskAvatarUser, TaskUserAvatar, taskUserName } from '../TaskUserAvatar'
+import { formatScheduleTime } from './form/loopSchedule'
 import { SpaceLoop } from './spaceLoopMapping'
 
 function ConfigurationRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {
@@ -19,7 +20,13 @@ function ConfigurationRow({ label, children }: { label: string; children: ReactN
     )
 }
 
-export function SpaceLoopConfiguration({ loop }: { loop: SpaceLoop }): JSX.Element {
+export function SpaceLoopConfiguration({
+    loop,
+    creator,
+}: {
+    loop: SpaceLoop
+    creator: TaskAvatarUser | null
+}): JSX.Element {
     return (
         <SpaceSettingsSection label="Configuration">
             <ItemGroup combined>
@@ -31,11 +38,11 @@ export function SpaceLoopConfiguration({ loop }: { loop: SpaceLoop }): JSX.Eleme
                 <ConfigurationRow label="Repository">
                     {loop.repositories.length ? loop.repositories.join(', ') : 'None (connector-only loop)'}
                 </ConfigurationRow>
-                {loop.createdBy && (
+                {creator && (
                     <ConfigurationRow label="Created by">
                         <span className="flex items-center gap-2">
-                            <TaskUserAvatar user={loop.createdBy} className="size-5" />
-                            <span>{taskUserName(loop.createdBy)}</span>
+                            <TaskUserAvatar user={creator} className="size-5" />
+                            <span>{taskUserName(creator)}</span>
                         </span>
                     </ConfigurationRow>
                 )}
@@ -45,6 +52,9 @@ export function SpaceLoopConfiguration({ loop }: { loop: SpaceLoop }): JSX.Eleme
                             {loop.triggers.map((trigger) => (
                                 <span key={trigger}>{trigger}</span>
                             ))}
+                            {loop.nextRunAt && (
+                                <span>{`Next run ${formatScheduleTime(new Date(loop.nextRunAt), loop.nextRunTimezone)}`}</span>
+                            )}
                         </span>
                     ) : (
                         'No triggers configured'

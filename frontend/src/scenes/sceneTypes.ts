@@ -261,6 +261,7 @@ export enum Scene {
     SlackTaskContext = 'SlackTaskContext',
     TaskSpace = 'TaskSpace',
     TaskSpaceLoop = 'TaskSpaceLoop',
+    TaskSpaceLoopForm = 'TaskSpaceLoopForm',
     TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',

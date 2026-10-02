@@ -1,12 +1,25 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { Badge, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle, Switch } from '@posthog/quill'
+import {
+    Badge,
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemDescription,
+    ItemMedia,
+    ItemTitle,
+    Switch,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { formatScheduleTime } from './form/loopSchedule'
 import { SpaceLoop, spaceLoopName } from './spaceLoopMapping'
 import { spaceLoopsLogic } from './spaceLoopsLogic'
 
@@ -38,12 +51,26 @@ export function SpaceLoopRow({ spaceId, loop }: { spaceId: string; loop: SpaceLo
                     >
                         {name}
                     </LinkPrimitive>
-                    <Badge variant={loop.status.variant} className="shrink-0">
-                        {loop.status.label}
-                    </Badge>
+                    {/* Above the row link, so the paused reason shows on hover. */}
+                    <Tooltip disabled={!loop.pausedReason}>
+                        <TooltipTrigger render={<span className="relative flex shrink-0" />}>
+                            <Badge variant={loop.status.variant}>{loop.status.label}</Badge>
+                        </TooltipTrigger>
+                        <TooltipContent>{loop.pausedReason}</TooltipContent>
+                    </Tooltip>
+                    {loop.visibility === 'personal' && <Badge className="shrink-0">Personal</Badge>}
                 </ItemTitle>
                 <ItemDescription className={loop.lastRunFailed ? 'text-destructive-foreground' : undefined}>
-                    {[loop.description, loop.trigger, lastRunText(loop)].filter(Boolean).join(' · ')}
+                    {[
+                        loop.description,
+                        loop.trigger,
+                        loop.nextRunAt
+                            ? `Next run ${formatScheduleTime(new Date(loop.nextRunAt), loop.nextRunTimezone)}`
+                            : null,
+                        lastRunText(loop),
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')}
                 </ItemDescription>
             </ItemContent>
             <ItemActions className="relative">

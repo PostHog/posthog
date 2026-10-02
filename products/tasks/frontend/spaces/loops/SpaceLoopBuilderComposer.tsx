@@ -26,7 +26,7 @@ function quickStarts(spaceName: string): { label: string; prompt: string }[] {
 
 /** The "describe it and an agent builds it" box, like PostHog Desktop's loop builder. */
 export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
-    const { builderDraft, builderFocusRequest, space } = useValues(spaceLoopsLogic({ id }))
+    const { builderDraft, builderFocusRequest, space, limitReason } = useValues(spaceLoopsLogic({ id }))
     const { setBuilderDraft, submitBuilder, focusBuilder } = useActions(spaceLoopsLogic({ id }))
     const groupRef = useRef<HTMLDivElement>(null)
     const spaceName = space ? spaceLabel(space) : 'this space'
@@ -50,6 +50,7 @@ export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
                 <InputGroupTextarea
                     rows={2}
                     value={builderDraft}
+                    disabled={!!limitReason}
                     placeholder={`What should ${spaceName} keep an eye on?`}
                     aria-label="Describe the loop"
                     onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setBuilderDraft(event.target.value)}
@@ -62,13 +63,15 @@ export function SpaceLoopBuilderComposer({ id }: { id: string }): JSX.Element {
                     data-attr="today-space-loop-builder-input"
                 />
                 <InputGroupAddon align="block-end">
-                    <InputGroupText>Enter to send, Shift+Enter for a new line</InputGroupText>
+                    <InputGroupText className={limitReason ? 'text-warning-foreground' : undefined}>
+                        {limitReason ?? 'Enter to send, Shift+Enter for a new line'}
+                    </InputGroupText>
                     <InputGroupButton
                         size="icon-sm"
                         variant="primary"
                         className="ml-auto"
                         aria-label="Build the loop with an agent"
-                        disabled={!builderDraft.trim()}
+                        disabled={!builderDraft.trim() || !!limitReason}
                         onClick={submitBuilder}
                         data-attr="today-space-loop-builder-submit"
                     >

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconExternal, IconPause, IconPlay, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconCopy, IconPause, IconPencil, IconPlay, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     AlertDialog,
     AlertDialogClose,
@@ -21,7 +21,10 @@ import {
     ItemGroup,
     Skeleton,
     Text,
+    Tooltip,
+    TooltipContent,
     TooltipProvider,
+    TooltipTrigger,
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -62,8 +65,13 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
         deleting,
         deleteOpen,
         spaceName,
+        backend,
+        stopRunTarget,
+        stoppingRun,
+        creator,
     } = useValues(logic)
-    const { loadLoop, loadRuns, setEnabled, runNow, copyLink, deleteLoop, setDeleteOpen } = useActions(logic)
+    const { loadLoop, loadRuns, setEnabled, runNow, copyLink, deleteLoop, setDeleteOpen, setStopRunTarget, stopRun } =
+        useActions(logic)
 
     if (!railNavEnabled || !loopsEnabled || loopMissing) {
         return <NotFound object="loop" />
@@ -85,9 +93,12 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                     }}
                     nameSuffix={
                         loop ? (
-                            <Badge variant={loop.status.variant} className="shrink-0">
-                                {loop.status.label}
-                            </Badge>
+                            <span className="flex shrink-0 items-center gap-1">
+                                <Badge variant={loop.status.variant}>{loop.status.label}</Badge>
+                                {!loop.foreign && backend && !backend.workflowBacked && (
+                                    <Badge>{loop.visibility === 'team' ? 'Team' : 'Personal'}</Badge>
+                                )}
+                            </span>
                         ) : null
                     }
                     actions={
@@ -127,16 +138,31 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                                     <IconCopy />
                                     Copy link
                                 </Button>
-                                {/* Web has no loop form yet, so editing opens the loop in PostHog Desktop. */}
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    render={<LinkPrimitive to={urls.codeLoopLink(loop.id)} target="_blank" />}
-                                    data-attr="today-space-loop-edit"
-                                >
-                                    <IconExternal />
-                                    Edit in Desktop
-                                </Button>
+                                {!loop.archived && (
+                                    <Tooltip disabled={!loop.foreign}>
+                                        <TooltipTrigger
+                                            render={
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    disabled={loop.foreign}
+                                                    render={
+                                                        loop.foreign ? undefined : (
+                                                            <LinkPrimitive to={urls.taskSpaceLoopEdit(id, loop.id)} />
+                                                        )
+                                                    }
+                                                    data-attr="today-space-loop-edit"
+                                                />
+                                            }
+                                        >
+                                            <IconPencil />
+                                            Edit
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            Change this loop in Workflows. It was changed there.
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )}
                                 <Button
                                     size="sm"
                                     variant="destructive-outline"
@@ -153,12 +179,24 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                 <div className="flex w-full max-w-200 flex-col gap-7 pb-8" data-quill>
                     {loop ? (
                         <>
+                            {loop.pausedReason && (
+                                <Text size="sm" variant="destructive">
+                                    {loop.pausedReason}
+                                </Text>
+                            )}
+                            {loop.foreign && (
+                                <Text size="sm" variant="muted">
+                                    This loop was changed in the workflow editor, so this page shows only part of it.
+                                    Change it in{' '}
+                                    <LinkPrimitive to={urls.workflow(loop.id, 'workflow')}>Workflows</LinkPrimitive>.
+                                </Text>
+                            )}
                             {loop.archived && (
                                 <Text size="sm" variant="muted">
                                     This loop is archived in Workflows. Restore it there to run it again.
                                 </Text>
                             )}
-                            <SpaceLoopConfiguration loop={loop} />
+                            <SpaceLoopConfiguration loop={loop} creator={creator} />
                             <SpaceSettingsSection label="Instructions" description="What the agent does on each run.">
                                 <ItemGroup combined>
                                     <Item variant="outline" size="sm" className="max-h-96 overflow-y-auto">
@@ -202,7 +240,11 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                                 ) : (
                                     <ItemGroup combined>
                                         {runs.map((run) => (
-                                            <SpaceLoopRunRow key={run.id} run={run} />
+                                            <SpaceLoopRunRow
+                                                key={run.id}
+                                                run={run}
+                                                onStop={() => setStopRunTarget(run)}
+                                            />
                                         ))}
                                     </ItemGroup>
                                 )}
@@ -256,6 +298,27 @@ export function SpaceLoopScene({ id, loopId }: SpaceLoopSceneLogicProps): JSX.El
                         </AlertDialogContent>
                     </AlertDialog>
                 )}
+                <AlertDialog open={!!stopRunTarget} onOpenChange={(open: boolean) => !open && setStopRunTarget(null)}>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Stop this run?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                The agent stops and its sandbox shuts down. The run’s session stays in the space.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogClose render={<Button variant="outline" />}>Keep running</AlertDialogClose>
+                            <Button
+                                variant="destructive-outline"
+                                loading={stoppingRun}
+                                onClick={stopRun}
+                                data-attr="today-space-loop-run-stop-confirm"
+                            >
+                                Stop run
+                            </Button>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </SceneContent>
         </TooltipProvider>
     )
