@@ -22,16 +22,8 @@ import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignal
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const {
-        currentReport,
-        reportFailed,
-        fullReportLoading,
-        chartPlacements,
-        chartsById,
-        trailingCharts,
-        reportUrl,
-        reportState,
-    } = useValues(logic)
+    const { currentReport, reportFailed, fullReportLoading, chartPlacements, chartsById, trailingCharts, reportState } =
+        useValues(logic)
     const { loadFullReport } = useActions(logic)
     const { requestReportVerdict } = useActions(todayLogic)
     const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
@@ -165,7 +157,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                 </ReportChartsContext.Provider>
             </article>
             <TodayReportEvidence reportId={currentReport.id} />
-            <TodayReportPrompts report={currentReport} reportUrl={reportUrl} />
+            <TodayReportPrompts report={currentReport} />
         </div>
     )
 }

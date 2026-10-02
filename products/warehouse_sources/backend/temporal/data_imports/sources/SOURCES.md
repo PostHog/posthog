@@ -103,10 +103,14 @@ the row lists both.
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
+| aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
+| aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
+| aws_security_hub                 | HTTP                        | requests                                                        | ✅                          |
 | aws_ses                          | HTTP                        | requests                                                        | ✅                          |
+| aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
@@ -914,12 +918,10 @@ doesn't conflict with concurrent PRs.
 - aws_athena
 - aws_batch
 - aws_cloudformation
-- aws_cloudtrail
 - aws_compute_optimizer
 - aws_config
 - aws_connect
 - aws_cost_and_usage_report
-- aws_glue_data_catalog
 - aws_guardduty
 - aws_health
 - aws_iam_access_analyzer
@@ -928,12 +930,10 @@ doesn't conflict with concurrent PRs.
 - aws_rds_performance_insights
 - aws_sagemaker
 - aws_savings_plans
-- aws_security_hub
 - aws_step_functions
 - aws_support
 - aws_systems_manager
 - aws_trusted_advisor
-- aws_waf
 - aws_xray
 - axiom
 - azure_activity_log
