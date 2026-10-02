@@ -38,7 +38,8 @@ export function ArtefactTaskRun({
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<TaskLoadError | null>(null)
     const [attempt, setAttempt] = useState(0)
-    const task = knownTask ?? fetchedTask
+    // Guards the render between a `task_id` change and the effect that clears the old fetch.
+    const task = knownTask ?? (fetchedTask?.id === content.task_id ? fetchedTask : null)
 
     useEffect(() => {
         // The detail logic already resolved this task — no need to fetch it again.
