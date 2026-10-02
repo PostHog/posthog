@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
@@ -850,6 +850,35 @@ class TestSkippedResultsStayOutOfErrorTracking:
         assert exc_info.value.type == f"tagger_{error_type}"
         assert is_expected_activity_failure(exc_info.value)
         mock_capture_exception.assert_not_called()
+
+        activity_error = ActivityError(
+            "Tagger activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-worker",
+            activity_type="execute_tagger_activity",
+            activity_id="test-activity",
+            retry_state=None,
+        )
+        activity_error.__cause__ = exc_info.value
+        with (
+            patch("temporalio.workflow.deprecate_patch"),
+            patch("temporalio.workflow.now", return_value=datetime.now()),
+            patch("temporalio.workflow.execute_activity", side_effect=[tagger, activity_error]),
+        ):
+            result = asyncio.run(
+                RunTaggerWorkflow().run(
+                    RunTaggerInputs(tagger_id=tagger["id"], event_data=create_mock_event_data(team.id))
+                )
+            )
+
+        assert result == {
+            "tags": [],
+            "skipped": True,
+            "skip_reason": error_type,
+            "message": str(llm_error),
+            "tagger_id": tagger["id"],
+        }
 
 
 @pytest.mark.parametrize("rate_limited", [False, True])

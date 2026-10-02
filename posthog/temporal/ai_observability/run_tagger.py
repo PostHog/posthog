@@ -676,6 +676,7 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         "key_invalid",
                         "parse_error",
                         "no_default_model",
+                        "request_rejected",
                     ):
                         if error_type in (
                             "provider_key_required",
