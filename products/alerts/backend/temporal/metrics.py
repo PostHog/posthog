@@ -6,9 +6,13 @@ below. Every call site wraps these in `safe_record`: a metric must never fail a 
 """
 
 import datetime as dt
+from typing import TYPE_CHECKING
 
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.metrics import get_metric_meter
+
+if TYPE_CHECKING:
+    from products.alerts.backend.logic.inventory import AlertInventory
 
 logger = get_write_only_logger(__name__)
 
@@ -133,3 +137,31 @@ def record_scheduler_lag(source: str, lag_ms: int) -> None:
         description="Delay between a check's due time and the evaluation that took it",
         unit="ms",
     ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_inventory(inventory: "AlertInventory") -> None:
+    # Only the replica that ran the latest inventory holds current values. Read with max, which can lag after the count drops.
+    for configuration in inventory.configurations:
+        get_metric_meter({"source": configuration.source, "enabled": str(configuration.enabled).lower()}).create_gauge(
+            "alerts_platform_configurations",
+            "Platform alert configurations, by source and whether they are enabled",
+        ).set(configuration.count)
+    for alert in inventory.alerts:
+        get_metric_meter(
+            {"source": alert.source, "state": alert.state, "muted": str(alert.muted).lower()}
+        ).create_gauge(
+            "alerts_platform_alerts",
+            "Runtime rows of enabled platform alert configurations, by state and whether they are muted",
+        ).set(alert.count)
+    for slot in inventory.slots:
+        get_metric_meter(
+            {"source": slot.source, "interval_minutes": str(slot.interval_minutes), "slot": str(slot.slot)}
+        ).create_gauge(
+            "alerts_platform_configurations_by_slot",
+            "Enabled platform alert configurations due in each minute of their check interval",
+        ).set(slot.count)
+    for team in inventory.largest_teams:
+        get_metric_meter({"source": team.source}).create_gauge(
+            "alerts_platform_largest_team_configurations",
+            "Enabled platform alert configurations of the team with the most",
+        ).set(team.count)
