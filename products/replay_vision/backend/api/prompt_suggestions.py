@@ -249,6 +249,10 @@ class CurrentPromptSuggestionSerializer(serializers.Serializer):
         help_text="Maximum rated sessions one suggestion test re-runs. Each successful re-run charges "
         "credits like a normal observation of the same model."
     )
+    scanner_version = serializers.IntegerField(
+        help_text="The scanner's current version. A pending suggestion with a different `scanner_version` "
+        "is outdated and can't be applied or tested."
+    )
 
 
 class ReplayScannerPromptSuggestionViewSet(
@@ -328,6 +332,7 @@ class ReplayScannerPromptSuggestionViewSet(
             "stale": stale,
             "rated_count": self._rated_count(scanner),
             "evaluation_session_cap": EVALUATION_SESSION_CAP,
+            "scanner_version": scanner.scanner_version,
         }
         return Response(payload)
 
@@ -536,6 +541,9 @@ class ReplayScannerPromptSuggestionViewSet(
             # A test already in flight keeps reporting its state even if quota ran out meanwhile.
             if evaluation_in_flight(suggestion.evaluation):
                 return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
+            # Apply refuses this suggestion, so a test of it spends credits on a result nobody can use.
+            if suggestion.scanner_version != scanner.scanner_version:
+                raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
             # Each re-run session charges credits like a normal observation, so refuse a test that would
             # overspend the month. An uncapped org (no credit limit) never trips this.
             planned = min(session_limit, rated_count)

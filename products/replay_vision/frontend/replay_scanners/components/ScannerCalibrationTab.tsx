@@ -307,6 +307,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const {
         currentSuggestion,
         suggestionStale,
+        suggestionOutdated,
         ratedCount,
         evaluationSessionCap,
         plannedTestSessions,
@@ -343,6 +344,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
     const plannedTestCredits = plannedTestSessions * creditsPerTestSession
     const [historyOpen, setHistoryOpen] = useState(false)
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    const outdatedReason = suggestionOutdated
+        ? 'The scanner changed since this was generated. Regenerate to get a fresh recommendation.'
+        : undefined
 
     const pastSuggestions = suggestionHistory.filter((s) => s.id !== currentSuggestion?.id)
 
@@ -420,6 +424,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 loading={evaluating || currentSuggestion.evaluation?.status === 'running'}
                                 disabledReason={
                                     editDisabledReason ??
+                                    outdatedReason ??
                                     (ratedCount === 0
                                         ? 'Rate at least one result first'
                                         : quota?.exhausted && quota.credit_limit !== null
@@ -454,6 +459,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                 loading={applying}
                                 disabledReason={
                                     editDisabledReason ??
+                                    outdatedReason ??
                                     (applyIsNoop ? 'Your edits match the current config' : undefined)
                                 }
                                 tooltip="Writes this config to the scanner as a new version"
@@ -498,11 +504,15 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">Recommendation</span>
                 {currentSuggestion && <SuggestionStatusTag status={currentSuggestion.status} />}
-                {suggestionStale && currentSuggestion && (
+                {suggestionOutdated ? (
+                    <Tooltip title="Regenerate to get a recommendation for the current scanner">
+                        <LemonTag type="warning">Scanner changed since this was generated</LemonTag>
+                    </Tooltip>
+                ) : suggestionStale && currentSuggestion ? (
                     <Tooltip title="Refreshes automatically about once a day; regenerate to update now">
                         <LemonTag type="warning">New ratings since this was generated</LemonTag>
                     </Tooltip>
-                )}
+                ) : null}
                 <div className="ml-auto flex items-center gap-2">
                     {currentSuggestion && (
                         <LemonButton

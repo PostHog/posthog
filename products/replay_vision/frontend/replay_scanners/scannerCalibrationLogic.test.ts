@@ -11,7 +11,9 @@ import {
     environmentVisionQuotaRetrieve,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
+    visionScannersPromptSuggestionsApplyCreate,
     visionScannersPromptSuggestionsCurrentRetrieve,
+    visionScannersPromptSuggestionsDismissCreate,
     visionScannersPromptSuggestionsEvaluateCreate,
     visionScannersPromptSuggestionsGenerateCreate,
 } from '../generated/api'
@@ -370,6 +372,51 @@ describe('scannerCalibrationLogic', () => {
         await mountLogic()
 
         await expectLogic(logic).toDispatchActions([visionQuotaLogic.actionTypes.loadQuota])
+    })
+
+    it.each([
+        ['apply', visionScannersPromptSuggestionsApplyCreate, (l: typeof logic) => l.actions.applySuggestion('sug-1')],
+        [
+            'dismiss',
+            visionScannersPromptSuggestionsDismissCreate,
+            (l: typeof logic) => l.actions.dismissSuggestion('sug-1'),
+        ],
+        [
+            'test',
+            visionScannersPromptSuggestionsEvaluateCreate,
+            (l: typeof logic) => l.actions.evaluateSuggestion('sug-1', {}),
+        ],
+    ])('a refused %s reloads the current suggestion so the tab stops offering it', async (_, endpoint, act) => {
+        await mountLogic()
+        ;(endpoint as jest.Mock).mockRejectedValue({ detail: 'Only the current recommendation can be applied.' })
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
+            suggestion: { ...PENDING_SUGGESTION, status: 'superseded' },
+            stale: false,
+            rated_count: 3,
+            evaluation_session_cap: 10,
+            scanner_version: 1,
+        })
+
+        act(logic)
+        await expectLogic(logic).toDispatchActions(['loadCurrentSuggestionSuccess'])
+
+        expect(logic.values.currentSuggestion?.status).toEqual('superseded')
+    })
+
+    it.each([
+        ['matches', 1, false],
+        ['is newer', 2, true],
+    ])('a pending suggestion is outdated only when the scanner version %s', async (_, scannerVersion, outdated) => {
+        ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
+            suggestion: PENDING_SUGGESTION,
+            stale: false,
+            rated_count: 3,
+            evaluation_session_cap: 10,
+            scanner_version: scannerVersion,
+        })
+        await mountLogic()
+
+        expect(logic.values.suggestionOutdated).toBe(outdated)
     })
 
     it('never auto-generates on load, even when the recommendation is stale', async () => {

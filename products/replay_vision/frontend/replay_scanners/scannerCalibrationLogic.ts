@@ -63,10 +63,12 @@ export interface scannerCalibrationLogicValues {
     ratedCount: number
     ratedFilter: RatedFilterValue
     recommendationEditedSinceTest: boolean
+    scannerVersion: number | null
     sort: ObservationsSorting | null
     suggestionHistory: ReplayScannerPromptSuggestionApi[]
     suggestionHistoryLoading: boolean
     suggestionLoading: boolean
+    suggestionOutdated: boolean
     suggestionStale: boolean
     testSessionLimit: number | null
     themeFilter: FeedbackThemeApi | null
@@ -218,6 +220,10 @@ export interface scannerCalibrationLogicMeta {
             currentSuggestion: ReplayScannerPromptSuggestionApi | null,
             hasEditableFields: boolean,
             assembledConfig: Record<string, unknown>
+        ) => boolean
+        suggestionOutdated: (
+            currentSuggestion: ReplayScannerPromptSuggestionApi | null,
+            scannerVersion: number | null
         ) => boolean
     }
 }
@@ -385,6 +391,13 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
                 loadCurrentSuggestionSuccess: (_, { current }) => current.rated_count,
             },
         ],
+        scannerVersion: [
+            null as number | null,
+            {
+                loadCurrentSuggestionSuccess: (_, { current }) => current.scanner_version ?? null,
+                generateSuggestionSuccess: (_, { suggestion }) => suggestion.scanner_version,
+            },
+        ],
         // 0 until the first load, which keeps the cost line hidden until then.
         evaluationSessionCap: [
             0,
@@ -519,6 +532,14 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
                 hasEditableFields: boolean,
                 assembledConfig: Record<string, unknown>
             ): boolean => hasEditableFields && objectsEqual(assembledConfig, suggestion?.base_config ?? {}),
+        ],
+        // The scanner was edited after this suggestion was made, so the backend refuses to apply or test it.
+        suggestionOutdated: [
+            (s) => [s.currentSuggestion, s.scannerVersion],
+            (suggestion: ReplayScannerPromptSuggestionApi | null, scannerVersion: number | null): boolean =>
+                suggestion?.status === 'pending' &&
+                scannerVersion !== null &&
+                suggestion.scanner_version !== scannerVersion,
         ],
     }),
 
@@ -662,6 +683,7 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
             } catch (error: any) {
                 lemonToast.error(`Couldn't start the test${error.detail ? `: ${error.detail}` : ''}`)
                 actions.evaluateSuggestionFailure()
+                actions.loadCurrentSuggestion()
             }
         },
 
@@ -708,8 +730,10 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
                 // The scanner's prompt and version changed, so refresh it wherever the scene shows it.
                 replayScannerLogic.findMounted({ id: props.scannerId })?.actions.loadScanner()
             } catch (error: any) {
+                // A refusal usually means the server moved on (superseded or outdated), so show its current state.
                 lemonToast.error(`Failed to apply the recommendation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.applySuggestionFailure()
+                actions.loadCurrentSuggestion()
             }
         },
 
@@ -730,6 +754,7 @@ export const scannerCalibrationLogic = kea<scannerCalibrationLogicType>([
             } catch (error: any) {
                 lemonToast.error(`Failed to dismiss the recommendation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.dismissSuggestionFailure()
+                actions.loadCurrentSuggestion()
             }
         },
 

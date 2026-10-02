@@ -399,7 +399,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
             "team": self.team,
             "suggested_prompt": "new prompt",
             "status": PromptSuggestionStatus.PENDING,
-            "scanner_version": 1,
+            "scanner_version": self.scanner.scanner_version,
         }
         defaults.update(overrides)
         return ReplayScannerPromptSuggestion.objects.create(**defaults)
@@ -694,6 +694,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("not_pending", {"status": PromptSuggestionStatus.DISMISSED}, ScannerType.MONITOR, True),
+            ("outdated_scanner_version", {"scanner_version": 99}, ScannerType.MONITOR, True),
             ("no_ratings", {}, ScannerType.MONITOR, False),
         ]
     )
