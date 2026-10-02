@@ -13,17 +13,21 @@ describe('releaseStage', () => {
         expect(releaseStage(product)).toEqual(expected)
     })
 
-    test.each<[string | null, ReleaseStage | null]>([
-        ['Pulse', 'internal'],
-        ['DataCatalog', 'beta'],
-        ['Inbox', 'beta'],
-        ['Dashboard', null],
-        ['AIObservability', null],
-        ['AIObservabilityTags', 'alpha'],
-        ['SQLEditor', null],
-        [null, null],
-    ])('the %s scene shows %s', (sceneId, expected) => {
-        const product = releaseStageProductForScene(sceneId)
+    test.each<[string | null, string | null | undefined, ReleaseStage | null]>([
+        ['Pulse', 'Pulse', 'internal'],
+        ['DataCatalog', 'Data catalog', 'beta'],
+        ['DataCatalog', 'Weekly active users', null],
+        ['Inbox', 'Self-driving inbox', 'beta'],
+        ['CustomerAnalytics', 'Customer analytics', 'beta'],
+        ['CustomerAnalyticsAccount', 'Acme Inc', null],
+        ['LiveDebugger', 'Live debugger', 'internal'],
+        ['Dashboard', 'Dashboard', null],
+        ['AIObservability', 'AI observability', null],
+        ['SQLEditor', 'SQL editor', null],
+        ['Pulse', undefined, null],
+        [null, 'Pulse', null],
+    ])('the %s scene titled %s shows %s', (sceneId, title, expected) => {
+        const product = releaseStageProductForScene(sceneId, title)
         expect(product ? releaseStage(product) : null).toEqual(expected)
     })
 })
