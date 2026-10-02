@@ -476,7 +476,7 @@ export const reportListLogic = kea<reportListLogicType>([
         count: [
             null as number | null,
             {
-                loadCount: async () => {
+                loadCount: async (_, breakpoint) => {
                     const params = values.listApiParams
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
@@ -484,6 +484,8 @@ export const reportListLogic = kea<reportListLogicType>([
                         limit: 1,
                         count_only: 'true',
                     })
+                    // A newer count request supersedes this one, so an older answer cannot overwrite it.
+                    breakpoint()
                     actions.setCountQueryKey(JSON.stringify(params))
                     return response.count
                 },

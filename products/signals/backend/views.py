@@ -1089,7 +1089,7 @@ class UncountedReportListPagination(LimitOffsetPagination):
         return rows[: self.limit]
 
     def get_next_link(self) -> str | None:
-        if not self.has_next or self.limit is None:
+        if not self.has_next or self.request is None or self.limit is None or self.offset is None:
             return None
         url = self.request.build_absolute_uri()
         url = replace_query_param(url, self.limit_query_param, self.limit)

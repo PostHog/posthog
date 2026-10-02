@@ -277,6 +277,54 @@ describe('reportListLogic', () => {
 
     // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
     // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
+    describe('total count', () => {
+        async function waitUntil(condition: () => boolean): Promise<void> {
+            for (let i = 0; i < 100 && !condition(); i++) {
+                await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            expect(condition()).toBe(true)
+        }
+
+        it('keeps the newest count when an older count request lands later', async () => {
+            const releaseCount: Record<string, () => void> = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: async ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        const priority = searchParams.get('priority') ?? 'any'
+                        if (searchParams.get('count_only') === 'true') {
+                            await new Promise<void>((resolve) => {
+                                releaseCount[priority] = resolve
+                            })
+                            return [200, { count: priority === 'P0' ? 1 : 9, next: null, previous: null, results: [] }]
+                        }
+                        return [200, { count: null, next: null, previous: null, results: [makeReport(priority)] }]
+                    },
+                },
+            })
+            initKeaTests()
+            const logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await waitUntil(() => logic.values.isLoaded && 'any' in releaseCount)
+
+            logic.actions.togglePriority('P0')
+            await waitUntil(() => 'P0' in releaseCount && logic.values.reports[0]?.id === 'P0')
+            releaseCount['P0']()
+            await waitUntil(() => logic.values.count === 1)
+            releaseCount['any']()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+
+            expect(logic.values.count).toBe(1)
+            expect(logic.values.totalCount).toBe(1)
+            logic.unmount()
+        })
+    })
+
     describe('lazy source line', () => {
         let logic: ReturnType<typeof reportListLogic.build>
         let includeSourceMetadata: (string | null)[]
