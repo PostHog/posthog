@@ -956,6 +956,7 @@ export namespace Schemas {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1014,6 +1015,7 @@ export namespace Schemas {
       Action: 'action',
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
+      BusinessKnowledge: 'business_knowledge',
       CustomerAnalytics: 'customer_analytics',
       CustomerJourney: 'customer_journey',
       CustomerTask: 'customer_task',
@@ -1075,6 +1077,7 @@ export namespace Schemas {
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
+       * * `business_knowledge` - business_knowledge
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -1338,6 +1341,7 @@ export namespace Schemas {
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
+       * * `business_knowledge` - business_knowledge
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -1424,6 +1428,7 @@ export namespace Schemas {
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
+       * * `business_knowledge` - business_knowledge
        * * `customer_analytics` - customer_analytics
        * * `customer_journey` - customer_journey
        * * `customer_task` - customer_task
@@ -69667,6 +69672,8 @@ export namespace Schemas {
       readonly status: SignalReportCheckStatusEnum;
       /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
       config: SignalReportCheckConfig;
+      /** @nullable */
+      readonly approved_at: string | null;
       /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
       readonly next_run_at: string;
       /**
@@ -94457,6 +94464,21 @@ export namespace Schemas {
       not_found_count: number;
     }
 
+    export interface SignalReportCheckReplacement {
+      /**
+         * Label for the new metric check.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * Why this check is better.
+         * @maxLength 2000
+         */
+      rationale?: string;
+      /** Metric threshold configuration, including a bounded query and comparison. */
+      config: MetricThresholdConfig;
+    }
+
     export interface SignalReportClaim {
       /** Active claim ID returned by an earlier call. Stale claims are rejected. */
       claim_id?: string;
@@ -104740,6 +104762,65 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export interface TracePerson {
+      distinctId: string;
+      label: string;
+    }
+
+    export interface TraceNodeStats {
+      costUsd: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+      cacheReadTokens: number | null;
+      cacheWriteTokens: number | null;
+      latencyMs: number | null;
+    }
+
+    export type TraceNodeKindEnum = typeof TraceNodeKindEnum[keyof typeof TraceNodeKindEnum];
+
+
+    export const TraceNodeKindEnum = {
+      Trace: 'trace',
+      Span: 'span',
+      Generation: 'generation',
+      Embedding: 'embedding',
+    } as const;
+
+    export interface TraceNode {
+      id: string;
+      kind: TraceNodeKindEnum;
+      name: string;
+      model: string | null;
+      stats: TraceNodeStats;
+      hasError: boolean;
+      children: TraceNode[];
+    }
+
+    export interface TraceTimelineRow {
+      id: string;
+      kind: TraceNodeKindEnum;
+      name: string;
+      depth: number;
+      startMs: number;
+      durationMs: number | null;
+      hasError: boolean;
+    }
+
+    export interface Trace {
+      id: string;
+      name: string | null;
+      createdAt: string;
+      sessionId: string | null;
+      person: TracePerson | null;
+      totals: TraceNodeStats;
+      hasError: boolean;
+      errorCount: number;
+      tree: TraceNode[];
+      timeline: TraceTimelineRow[];
+      totalMs: number;
+      threadNodeIds: string[];
+    }
+
     export interface TraceReviewCreate {
       /**
          * Trace ID for the review. Only one active review can exist per trace and team.
@@ -112366,6 +112447,13 @@ export namespace Schemas {
      * @maxLength 255
      */
     suite_key?: string;
+    };
+
+    export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
     };
 
     export type AlertsListParams = {
