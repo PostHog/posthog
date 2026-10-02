@@ -1384,7 +1384,14 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     class Meta:
         model = Dashboard
         fields = DASHBOARD_SHARED_FIELDS
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+            "last_accessed_at",
+            "last_refresh",
+        ]
 
     def validate_restriction_level(self, value: int) -> int:
         if value == RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
@@ -1640,7 +1647,14 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "delete_insights",
             "_create_in_folder",
         ]
-        read_only_fields = ["creation_mode", "effective_restriction_level", "is_shared", "user_access_level"]
+        read_only_fields = [
+            "creation_mode",
+            "effective_restriction_level",
+            "is_shared",
+            "user_access_level",
+            "last_accessed_at",
+            "last_refresh",
+        ]
 
     def validate_variables(self, value) -> dict:
         if not isinstance(value, dict):
