@@ -32,7 +32,7 @@ export function BIShelfDropTarget({
     className?: string
     children: ReactNode
 }): JSX.Element {
-    const { activeDropShelf } = useValues(biEditorLogic)
+    const { activeDropShelf, dragSessionId } = useValues(biEditorLogic)
     const { addFieldToShelf, clearActiveDropShelf, moveFieldToShelf, setActiveDropShelf } = useActions(biEditorLogic)
 
     return (
@@ -67,6 +67,9 @@ export function BIShelfDropTarget({
                 clearActiveDropShelf(shelf)
                 const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
                 if (pill) {
+                    if (pill.dragSessionId !== dragSessionId) {
+                        return
+                    }
                     // Measures sit on the rows strip, so dropping one on rows or columns keeps it a measure
                     const keepsMeasure = pill.shelf === 'values' && (shelf === 'rows' || shelf === 'columns')
                     if (!keepsMeasure) {

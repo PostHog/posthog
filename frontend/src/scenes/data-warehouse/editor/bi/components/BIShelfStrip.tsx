@@ -26,12 +26,12 @@ export function BIShelfStrip({
     const { addBlankFieldToShelf } = useActions(biEditorLogic)
 
     return (
-        <div className="flex min-h-9 items-stretch border-b">
+        <BIShelfDropTarget shelf={shelf} className="flex min-h-9 items-stretch rounded-none border-b">
             <div className="flex w-24 shrink-0 items-center gap-1.5 border-r px-2 text-xs font-semibold text-secondary">
                 <span className="flex shrink-0">{icon}</span>
                 {title}
             </div>
-            <BIShelfDropTarget shelf={shelf} className="flex min-w-0 flex-1 flex-wrap items-center gap-1 px-1.5 py-1">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1 px-1.5 py-1">
                 {children.length > 0 ? children : <span className="px-1 text-xs text-tertiary">{emptyText}</span>}
                 <LemonButton
                     icon={<IconPlus />}
@@ -44,7 +44,7 @@ export function BIShelfStrip({
                     onClick={() => addBlankFieldToShelf(shelf)}
                     data-attr={`bi-editor-${shelf}-add-field`}
                 />
-            </BIShelfDropTarget>
-        </div>
+            </div>
+        </BIShelfDropTarget>
     )
 }

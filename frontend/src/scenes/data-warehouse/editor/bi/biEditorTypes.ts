@@ -213,6 +213,7 @@ export const BI_SHELF_PILL_DRAG_MIME_TYPE = 'application/x-posthog-bi-shelf-pill
 export interface BIShelfPillDragData {
     shelf: BIShelf
     index: number
+    dragSessionId: string
 }
 
 export function parseBIShelfPillDragData(serialized: string): BIShelfPillDragData | null {
@@ -220,9 +221,12 @@ export function parseBIShelfPillDragData(serialized: string): BIShelfPillDragDat
         const candidate = JSON.parse(serialized) as Partial<BIShelfPillDragData>
         if (
             ['rows', 'columns', 'values', 'filters'].includes(candidate.shelf as string) &&
-            typeof candidate.index === 'number'
+            typeof candidate.index === 'number' &&
+            Number.isInteger(candidate.index) &&
+            candidate.index >= 0 &&
+            typeof candidate.dragSessionId === 'string'
         ) {
-            return { shelf: candidate.shelf as BIShelf, index: candidate.index }
+            return { shelf: candidate.shelf as BIShelf, index: candidate.index, dragSessionId: candidate.dragSessionId }
         }
     } catch {
         return null

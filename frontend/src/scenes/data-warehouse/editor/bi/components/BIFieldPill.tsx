@@ -147,7 +147,7 @@ export function BIFieldPill({
                 }
             }}
         >
-            <span className="inline-flex min-w-0">
+            <span className="inline-flex min-w-0 max-w-[min(18rem,100%)]">
                 <LemonMenu items={items} placement="bottom-start">
                     <BIPill
                         kind={isMeasure ? 'measure' : 'dimension'}

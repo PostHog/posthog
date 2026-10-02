@@ -101,11 +101,12 @@ export function BIDataPane(): JSX.Element {
         databaseLoading,
         dataPaneFields,
         dataPaneFieldsLoading,
+        dataPaneFieldsError,
         dataPaneSearch,
         filteredDataPaneFields,
         selectableDataSources,
     } = useValues(biEditorLogic)
-    const { setDataPaneSearch, setDataSource } = useActions(biEditorLogic)
+    const { hydrateTableFields, setDataPaneSearch, setDataSource } = useActions(biEditorLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     const { locateTable } = useActions(queryDatabaseLogic)
 
@@ -183,6 +184,18 @@ export function BIDataPane(): JSX.Element {
                     <div className="flex items-center gap-2 px-2 text-xs text-secondary">
                         <Spinner /> Loading fields
                     </div>
+                ) : dataPaneFieldsError ? (
+                    <div className="flex flex-col items-start gap-2 px-2 text-xs text-secondary">
+                        <span>Couldn't load fields for this table.</span>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            loading={dataPaneFieldsLoading}
+                            onClick={() => config.source && hydrateTableFields([config.source.table])}
+                        >
+                            Retry
+                        </LemonButton>
+                    </div>
                 ) : !hasFields ? (
                     <p className="px-2 text-xs text-secondary">
                         No fields found. Drag columns from the database tree instead.
@@ -204,7 +217,7 @@ export function BIDataPane(): JSX.Element {
                             emptyText={
                                 dataPaneSearch
                                     ? 'No matching measures'
-                                    : 'No numeric fields. Use a dimension menu to count its values.'
+                                    : 'No measures listed. Add a dimension to Rows, then choose Convert to measure from its menu.'
                             }
                         />
                     </>

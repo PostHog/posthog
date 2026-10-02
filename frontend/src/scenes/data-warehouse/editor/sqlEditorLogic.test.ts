@@ -33,7 +33,7 @@ import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
-import { BIConfig, BIEditorView, BIField, getBIShelfEditorKey } from './bi/biEditorTypes'
+import { BIConfig, BIEditorView, BIField, getBIFieldPillLabel, getBIShelfEditorKey } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
@@ -2185,6 +2185,8 @@ describe('sqlEditorLogic', () => {
             biLogic.mount()
             biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
             expect(biLogic.values.dataPaneFields.dimensions).toEqual([])
+            databaseLogic.actions.hydrateTableFieldsFailure(['events'])
+            expect(biLogic.values.dataPaneFieldsError).toBe(true)
 
             queryEndpointMock.mockReturnValue([
                 200,
@@ -2215,7 +2217,84 @@ describe('sqlEditorLogic', () => {
             expect(biLogic.values.dataPaneFields.dimensions).toEqual([
                 expect.objectContaining({ name: 'event', expression: 'event' }),
             ])
+            expect(biLogic.values.dataPaneFieldsError).toBe(false)
             biLogic.unmount()
+        })
+
+        it('keeps field labels consistent with edited expressions', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.setFieldExpression('rows', 0, 'distinct_id')
+            expect(getBIFieldPillLabel(biLogic.values.config.rows[0])).toBe('distinct_id')
+            expect(biLogic.values.generatedQuery?.query).toContain('SELECT\n    distinct_id,')
+            biLogic.unmount()
+        })
+
+        it("does not expose another connection's fields and resets the worksheet when switching connections", () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            databaseLogic.actions.setConnection('other-connection')
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    events: {
+                        id: 'events',
+                        name: 'events',
+                        type: 'data_warehouse',
+                        fields: {
+                            private_field: {
+                                name: 'private_field',
+                                hogql_value: 'private_field',
+                                type: 'string',
+                                schema_valid: true,
+                            },
+                        },
+                    },
+                },
+                joins: [],
+            })
+            expect(biLogic.values.dataPaneFields).toEqual({ dimensions: [], measures: [] })
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, connectionId: 'other-connection' },
+            })
+            expect(biLogic.values.config.source).toBeNull()
+            expect(biLogic.values.config.rows).toEqual([])
+            expect(logic.values.selectedConnectionId).toBe('other-connection')
+            biLogic.unmount()
+        })
+
+        it('reuses results for chart-only changes but runs changed pivot SQL', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: { ...config, columns: [timestampField] },
+            })
+            biLogic.actions.syncGeneratedQuery()
+            logic.actions.setLastRunQuery(logic.values.sourceQuery)
+            const runQuery = jest.spyOn(logic.actions, 'runQuery')
+            jest.useFakeTimers()
+            try {
+                biLogic.actions.setAutoUpdate(true)
+                biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsTable)
+                expect(runQuery).not.toHaveBeenCalled()
+                biLogic.actions.setChartType(ChartDisplayType.TwoDimensionalHeatmap)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(runQuery).toHaveBeenCalledTimes(1)
+            } finally {
+                jest.useRealTimers()
+                runQuery.mockRestore()
+                biLogic.unmount()
+            }
         })
 
         test.each(['disable', 'sql', 'clear', 'unchanged'] as const)(
@@ -2263,10 +2342,13 @@ describe('sqlEditorLogic', () => {
             dataLogic.mount()
             dataLogic.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
             expect(dataLogic.values.response).not.toBeNull()
+            logic.actions.setLastRunQuery(logic.values.sourceQuery)
 
             await expectLogic(biLogic, () => biLogic.actions.resetConfig()).toFinishAllListeners()
 
             expect(dataLogic.values.response).toBeNull()
+            expect(dataLogic.values.queryCancelled).toBe(false)
+            expect(logic.values.lastRunQuery).toBeNull()
             expect(logic.values.queryInput).toBe('')
             dataLogic.unmount()
             biLogic.unmount()
@@ -2301,6 +2383,10 @@ describe('sqlEditorLogic', () => {
                     }),
                 })
             await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config: persistedConfig })
+
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.TwoDimensionalHeatmap)
+            expect(biLogic.values.config.chartType).toBe(ChartDisplayType.TwoDimensionalHeatmap)
 
             await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
 

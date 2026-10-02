@@ -20,7 +20,7 @@ import { BIToolbar } from './components/BIToolbar'
  * shelves above the view, and a chart picker on the right.
  */
 export function BIEditor({ tabId, children }: { tabId: string; children: ReactNode }): JSX.Element {
-    const { config, showMeOpen } = useValues(biEditorLogic({ tabId }))
+    const { config, showMeOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
     const { removeFieldFromShelf, setActiveDropShelf } = useActions(biEditorLogic({ tabId }))
     const { biSidePaneWidth, biEditorResizerProps } = useValues(editorSizingLogic)
 
@@ -35,7 +35,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 }}
                 onDrop={(event) => {
                     const pill = parseBIShelfPillDragData(event.dataTransfer.getData(BI_SHELF_PILL_DRAG_MIME_TYPE))
-                    if (pill) {
+                    if (pill?.dragSessionId === dragSessionId) {
                         event.preventDefault()
                         removeFieldFromShelf(pill.shelf, pill.index)
                     }

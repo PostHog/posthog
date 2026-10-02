@@ -1,9 +1,11 @@
+import { useValues } from 'kea'
 import { forwardRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { biEditorLogic } from '../biEditorLogic'
 import { BIShelf, BI_SHELF_PILL_DRAG_MIME_TYPE, BIShelfPillDragData } from '../biEditorTypes'
 
 export type BIPillKind = 'dimension' | 'measure' | 'filter'
@@ -22,18 +24,19 @@ export const BIPill = forwardRef<HTMLButtonElement, BIPillProps>(function BIPill
     { kind, label, detail, shelf, index, incomplete, className, ...buttonProps },
     ref
 ) {
+    const { dragSessionId } = useValues(biEditorLogic)
     return (
         <button
             ref={ref}
             type="button"
             draggable
             onDragStart={(event) => {
-                const dragData: BIShelfPillDragData = { shelf, index }
+                const dragData: BIShelfPillDragData = { shelf, index, dragSessionId }
                 event.dataTransfer.effectAllowed = 'move'
                 event.dataTransfer.setData(BI_SHELF_PILL_DRAG_MIME_TYPE, JSON.stringify(dragData))
             }}
             className={cn(
-                'inline-flex h-6 max-w-72 shrink-0 cursor-grab items-center gap-1 rounded border px-2 text-xs font-semibold',
+                'inline-flex h-6 min-w-0 max-w-full cursor-grab items-center gap-1 rounded border px-2 text-xs font-semibold',
                 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent',
                 incomplete
                     ? 'border-dashed border-primary bg-surface-primary text-secondary'
