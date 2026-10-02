@@ -2324,41 +2324,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
-        # Merge conversations_settings with existing values, unless explicitly clearing with null.
-        # The merge reads and the save must share one locked view of the team row: a dedicated
-        # integration update (Slack/Teams OAuth, support token rotation) commits whole-blob
-        # conversations_settings writes too, and a merge built on the pre-request snapshot would
-        # silently restore the state that update had just replaced. Keyed on the columns this
-        # request writes, not on which key the client sent: the token handler below can inject
-        # conversations_settings into a payload that only sent conversations_enabled.
+        # Merge conversations_settings with existing values, unless explicitly clearing with null
         if conversations_lock_applied:
-            with transaction.atomic():
-                locked_team = (
-                    # nosemgrep: hot-parent-row-select-for-update -- the merge mutates this Team row itself
-                    Team.objects.select_for_update()
-                    .only("conversations_settings", "conversations_enabled")
-                    .get(pk=instance.pk)
-                )
-                if patch_conversations_settings:
-                    validated_data["conversations_settings"] = merge_conversations_settings(
-                        validated_data["conversations_settings"], locked_team.conversations_settings
-                    )
-
-                validated_data = handle_conversations_token_on_update(
-                    validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
-                )
-                instance.conversations_settings = validated_data.get(
-                    "conversations_settings", locked_team.conversations_settings
-                )
-                if "conversations_enabled" in validated_data:
-                    instance.conversations_enabled = validated_data["conversations_enabled"]
-                    instance.save(update_fields=["conversations_settings", "conversations_enabled"])
-                else:
-                    instance.save(update_fields=["conversations_settings"])
-                # Drop the keys this block persisted so the generic save below cannot write
-                # them again from the stale request snapshot after the lock is released.
-                validated_data.pop("conversations_settings", None)
-                validated_data.pop("conversations_enabled", None)
+            merge_conversations_settings_locked(instance, validated_data, patch_conversations_settings)
 
         # Merge modifiers with existing values so that updating one modifier doesn't wipe out others
         if "modifiers" in validated_data and validated_data["modifiers"] is not None:
@@ -3234,6 +3202,51 @@ MANAGED_CONVERSATIONS_SETTINGS = (
     "teams_channel_name",
     "teams_channels",
 )
+
+
+def merge_conversations_settings_locked(
+    team: Team,
+    validated_data: dict[str, Any],
+    patch_conversations_settings: bool,
+) -> dict[str, Any]:
+    """Merge the conversations columns this request writes under one lock on the team row.
+
+    Shared by the team and project serializers — both endpoints can PATCH the settings.
+    The merge reads and the save must share one locked view of the team row: a dedicated
+    integration update (Slack/Teams OAuth, support token rotation) commits whole-blob
+    conversations_settings writes too, and a merge built on the pre-request snapshot would
+    silently restore the state that update had just replaced. Keyed on the columns this
+    request writes, not on which key the client sent: the token handler can inject
+    conversations_settings into a payload that only sent conversations_enabled.
+    Returns the conversation keys this request wrote, so the caller's generic save can
+    exclude them (they are already persisted here, and the caller's snapshot is stale).
+    """
+    with transaction.atomic():
+        locked_team = (
+            # nosemgrep: hot-parent-row-select-for-update -- the merge mutates this Team row itself
+            Team.objects.select_for_update().only("conversations_settings", "conversations_enabled").get(pk=team.pk)
+        )
+        if patch_conversations_settings:
+            validated_data["conversations_settings"] = merge_conversations_settings(
+                validated_data["conversations_settings"], locked_team.conversations_settings
+            )
+
+        validated_data = handle_conversations_token_on_update(
+            validated_data, locked_team.conversations_enabled, locked_team.conversations_settings
+        )
+        team.conversations_settings = validated_data.get("conversations_settings", locked_team.conversations_settings)
+        if "conversations_enabled" in validated_data:
+            team.conversations_enabled = validated_data["conversations_enabled"]
+            team.save(update_fields=["conversations_settings", "conversations_enabled"])
+        else:
+            team.save(update_fields=["conversations_settings"])
+        validated_data.pop("conversations_settings", None)
+        validated_data.pop("conversations_enabled", None)
+
+    return {
+        "conversations_settings": team.conversations_settings,
+        "conversations_enabled": team.conversations_enabled,
+    }
 
 
 def strip_managed_conversations_settings(value: dict[str, Any]) -> None:
