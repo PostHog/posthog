@@ -63,11 +63,9 @@ The consumer defaults follow [WarpStream's librdkafka recommendations](https://d
 The 10-second fetch wait only bounds idle long polls because `fetch.min.bytes`
 keeps librdkafka's low-latency default of 1.
 
-Analytics event ingestion uses the same `USAGE_INGESTION_MODE` setting. In
-Kafka mode it writes protobuf requests through the standard ingestion output
-registry to `INGESTION_OUTPUT_USAGE_INGESTION_TOPIC`. Local `hogli` event
-ingestion defaults to Kafka mode and starts both service transports; set
-`USAGE_INGESTION_MODE=grpc` to exercise the direct endpoint instead.
+Local `hogli` starts the service with both transports and pre-creates the
+`usage_ingestion` input topic, so a Kafka producer can be pointed at it
+without extra setup.
 
 When `DEBUG` is set, the service writes readable, colorized logs for local
 development. It uses structured JSON logs otherwise.
