@@ -6,7 +6,7 @@ import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn } fro
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
 import { crossProjectDashboardsListLogic } from './crossProjectDashboardsListLogic'
-import type { CrossProjectDashboardApi } from './generated/api.schemas'
+import type { CrossProjectDashboardListItemApi } from './generated/api.schemas'
 
 /** The list of cross-project dashboards, usable as a scene or as a tab on the dashboards page. */
 export function CrossProjectDashboardsList(): JSX.Element {
@@ -15,7 +15,10 @@ export function CrossProjectDashboardsList(): JSX.Element {
     )
     const { openNewModal, closeNewModal, setNewName, createDashboard } = useActions(crossProjectDashboardsListLogic)
 
-    const columns: LemonTableColumn<CrossProjectDashboardApi, keyof CrossProjectDashboardApi | undefined>[] = [
+    const columns: LemonTableColumn<
+        CrossProjectDashboardListItemApi,
+        keyof CrossProjectDashboardListItemApi | undefined
+    >[] = [
         {
             title: 'Name',
             dataIndex: 'name',
@@ -25,11 +28,11 @@ export function CrossProjectDashboardsList(): JSX.Element {
         },
         {
             title: 'Projects',
-            render: (_, dashboard) => new Set((dashboard.tiles ?? []).map((tile) => tile.project_id)).size,
+            dataIndex: 'project_count',
         },
         {
             title: 'Tiles',
-            render: (_, dashboard) => (dashboard.tiles ?? []).length,
+            dataIndex: 'tile_count',
         },
     ]
 
