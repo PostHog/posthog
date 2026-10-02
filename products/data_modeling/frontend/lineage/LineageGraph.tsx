@@ -8,7 +8,6 @@ import {
     FitViewOptions,
     MiniMap,
     Panel,
-    PanelPosition,
     ReactFlow,
     ReactFlowProvider,
     useReactFlow,
@@ -51,7 +50,6 @@ export interface LineageGraphProps {
     focusNodeIds?: Set<string> | null
     searchFocusRequest?: { nodeId: string; requestId: number } | null
     showMinimap?: boolean
-    minimapPosition?: PanelPosition
     showControls?: boolean
     className?: string
     loading?: boolean
@@ -67,7 +65,6 @@ export interface LineageGraphProps {
     nodeOpenUrl?: (node: DataModelingNode) => string
     /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
-    panelPosition?: PanelPosition
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
@@ -279,7 +276,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             {props.showControls && (
-                <Controls showInteractive={false} position="bottom-right">
+                <Controls showInteractive={false} position="bottom-left">
                     {props.nodesDraggable && props.onResetNodePositions && (
                         <ControlButton
                             aria-label="Reset layout"
@@ -296,12 +293,12 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                 <MiniMap
                     zoomable
                     pannable
-                    position={props.minimapPosition ?? 'bottom-left'}
+                    position="bottom-right"
                     nodeStrokeWidth={2}
                     className="hidden border rounded shadow-sm @min-[48rem]/lineage:block"
                 />
             )}
-            {props.panels && <Panel position={props.panelPosition ?? 'top-right'}>{props.panels}</Panel>}
+            {props.panels && <Panel position="top-right">{props.panels}</Panel>}
         </ReactFlow>
     )
 }
