@@ -84,7 +84,11 @@ def _make_runner(original_query: dict, team: Team, now: datetime | None = None) 
         # Pin the date range to materialization time so response labels reflect
         # when the data was snapshotted, not when the request was served.
         runner.query_date_range.pin_now(now)
-        if runner.query.compareFilter is not None and runner.query.compareFilter.compare:
+        if (
+            original_query.get("kind") == "TrendsQuery"
+            and runner.query.compareFilter is not None
+            and runner.query.compareFilter.compare
+        ):
             runner.query_previous_date_range.pin_now(now)
     return runner
 

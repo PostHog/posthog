@@ -21,12 +21,16 @@ from posthog.schema import (
     Breakdown,
     BreakdownFilter,
     BreakdownType,
+    CachedHogQLQueryResponse,
     CompareFilter,
     EventsNode,
+    HogQLQuery,
     HogQLQueryResponse,
     TrendsFilter,
     TrendsQuery,
 )
+
+from posthog.api.services.query import process_query_model
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.insight_transformers import (
@@ -103,6 +107,9 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
+    def _trends_query(self, **kwargs: Any) -> dict[str, Any]:
+        return TrendsQuery(**kwargs).model_dump()
+
     # =========================================================================
     # TRENDS
     # =========================================================================
@@ -111,10 +118,10 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         endpoint = create_endpoint_with_version(
             name="trends_parity",
             team=self.team,
-            query=TrendsQuery(
+            query=self._trends_query(
                 series=[EventsNode(event="$pageview")],
                 dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
-            ).model_dump(),
+            ),
             created_by=self.user,
             is_active=True,
         )
@@ -313,11 +320,11 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
 
     def test_transform_empty_compare_result_preserves_resolved_date_range(self):
         materialized_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
-        original_query = TrendsQuery(
+        original_query = self._trends_query(
             series=[EventsNode(event="$pageview")],
             dateRange={"date_from": "-7d"},
             compareFilter=CompareFilter(compare=True, compare_to="-1w"),
-        ).model_dump()
+        )
         result: dict[str, Any] = {"results": [], "columns": ["__series_index", "date", "total"]}
 
         _transform_trends(result, original_query, self.team, materialized_at)
@@ -391,15 +398,35 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
 
     def test_materialized_compare_formula_matches_inline_response_contract(self):
         materialized_at = datetime(2026, 9, 26, 12, tzinfo=UTC)
+        event_counts = [
+            ("2026-09-20", "$pageview", 1),
+            ("2026-09-21", "$pageview", 2),
+            ("2026-09-20", "$pageleave", 3),
+            ("2026-09-21", "$pageleave", 4),
+            ("2026-09-13", "$pageview", 5),
+            ("2026-09-14", "$pageview", 6),
+            ("2026-09-13", "$pageleave", 7),
+            ("2026-09-14", "$pageleave", 8),
+        ]
+        for event_date, event_name, count in event_counts:
+            for index in range(count):
+                _create_event(
+                    event=event_name,
+                    distinct_id=f"{event_name}-{event_date}-{index}",
+                    team=self.team,
+                    timestamp=f"{event_date} 12:{index:02d}:00",
+                )
+        flush_persons_and_events()
+
         endpoint = create_endpoint_with_version(
             name="compare_formula_parity",
             team=self.team,
-            query=TrendsQuery(
+            query=self._trends_query(
                 series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
                 dateRange={"date_from": "-7d"},
                 trendsFilter=TrendsFilter(formula="A+2*B"),
                 compareFilter=CompareFilter(compare=True, compare_to="-1w"),
-            ).model_dump(),
+            ),
             created_by=self.user,
             is_active=True,
             data_freshness_seconds=604800,
@@ -413,20 +440,14 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
                 "products.endpoints.backend.models.posthoganalytics.feature_enabled",
                 return_value=True,
             ):
-                self._materialize_endpoint(endpoint, data_freshness_seconds=604800)
+                saved_query = self._materialize_endpoint(endpoint, data_freshness_seconds=604800)
 
-        dates = [date(2026, 9, 20), date(2026, 9, 21)]
-        flat_response = HogQLQueryResponse(
-            results=[
-                (0, dates, [1.0, 2.0]),
-                (1, dates, [3.0, 4.0]),
-                (2, dates, [5.0, 6.0]),
-                (3, dates, [7.0, 8.0]),
-            ],
-            columns=["__series_index", "date", "total"],
-            types=["Int64", "Array(Date)", "Array(Float64)"],
-            hasMore=False,
-        )
+            flat_response = process_query_model(
+                self.team,
+                HogQLQuery.model_validate(saved_query.query),
+                user=self.user,
+            )
+            assert isinstance(flat_response, HogQLQueryResponse | CachedHogQLQueryResponse)
 
         with (
             time_machine.travel(materialized_at + timedelta(days=6), tick=False),
@@ -440,10 +461,13 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
         assert materialized_response.status_code == status.HTTP_200_OK, materialized_response.json()
         response_data = materialized_response.json()
         assert response_data["resolved_compare_date_range"] == inline_compare_range
-        assert [(result["compare_label"], result["data"]) for result in response_data["results"]] == [
-            ("current", [7.0, 10.0]),
-            ("previous", [19.0, 22.0]),
+        response_series = response_data["results"]
+        inline_series = inline_response.json()["results"]
+        fields = ("compare_label", "data", "days", "labels", "count")
+        assert [{field: series[field] for field in fields} for series in response_series] == [
+            {field: series[field] for field in fields} for series in inline_series
         ]
+        assert response_series[0]["days"] != response_series[1]["days"]
 
     # =========================================================================
     # DATE STRING COERCION (materialized tables return Array(Date) as strings)
