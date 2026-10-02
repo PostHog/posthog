@@ -1375,9 +1375,8 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(re.findall(r"\bAS\s+flag_evaluations__person\s+ON\b", page_queries[0])) == 1
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
-        page_query = next(sql for sql in (" ".join(q.split()) for q in queries) if "FROM flag_evaluations" in sql)
         expect_pushdown = person_id_pushdown is not False
-        assert ("SELECT DISTINCT" in page_query) is expect_pushdown
+        assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
         assert response.modifiers is not None
         assert response.modifiers.personIdPushdown is expect_pushdown
         assert "properties.$feature_flag," not in response.hogql
