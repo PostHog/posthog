@@ -3216,10 +3216,14 @@ class SignalReportViewSet(
             # (refund's own archive step) or in RESOLVED (a refunded merged-PR report stays resolved,
             # so the guard can't key on SUPPRESSED alone). RESOLVED is terminal and never re-promotes,
             # so resolving a refunded report is refused only out of the archive, to keep the refund's
-            # suppression — and the PR close it triggers — from being undone.
+            # suppression — and the PR close it triggers — from being undone. MONITORING is refused
+            # out of the archive for the same reason, and because it would re-arm the report's checks.
             if is_refunded and (
                 target_status == SignalReport.Status.POTENTIAL
-                or (report.status == SignalReport.Status.SUPPRESSED and target_status == SignalReport.Status.RESOLVED)
+                or (
+                    report.status == SignalReport.Status.SUPPRESSED
+                    and target_status in (SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING)
+                )
             ):
                 return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be restored."
 

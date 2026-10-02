@@ -429,14 +429,21 @@ class TestSignalReportRefundAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.RESOLVED
 
+    @parameterized.expand(
+        [
+            ("resolve", "resolved", SignalReport.Status.READY),
+            ("monitor", "monitoring", SignalReport.Status.READY),
+            ("monitor_archived_monitoring", "monitoring", SignalReport.Status.MONITORING),
+        ]
+    )
     @time_machine.travel(_NOW, tick=False)
-    def test_resolve_of_refunded_report_is_blocked(self, _flag):
+    def test_resolve_of_refunded_report_is_blocked(self, _flag, _name, target, report_status):
         # A refunded report is suppressed; resolving would undo that suppression — and the PR close
         # it triggers — so the refund guard must cover resolve too (not just restore to potential).
-        report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
+        report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC), report_status=report_status)
         assert self._refund(report).status_code == status.HTTP_200_OK
 
-        response = self.client.post(self._state_url(str(report.id)), {"state": "resolved"}, format="json")
+        response = self.client.post(self._state_url(str(report.id)), {"state": target}, format="json")
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["error"] == "Refunded reports can't be restored."
         report.refresh_from_db()
