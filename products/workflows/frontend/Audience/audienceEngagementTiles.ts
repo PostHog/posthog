@@ -77,6 +77,7 @@ export interface AudienceEngagementTile {
     key: AudienceEngagementTileKey
     name: string
     description: string
+    emptyStateHeading: string
     query: InsightVizNode
     fullWidth: boolean
 }
@@ -86,13 +87,16 @@ export const AUDIENCE_ENGAGEMENT_TILES: AudienceEngagementTile[] = [
         key: 'sent-per-day',
         name: 'Sent, delivered, opened and clicked',
         description: 'Emails per day from every workflow and broadcast.',
+        emptyStateHeading: 'No emails sent in the last 30 days',
         query: SENT_PER_DAY,
         fullWidth: false,
     },
     {
         key: 'unsubscribes-bounces-and-spam',
-        name: 'Unsubscribes, bounces and spam reports',
-        description: 'Per week. A rise here is the earliest sign of a sender reputation problem.',
+        name: 'Unsubscribed, bounced and marked as spam',
+        description:
+            'Per week, with the current week so far. A rise here is the earliest sign of a sender reputation problem.',
+        emptyStateHeading: 'Nothing unsubscribed, bounced or marked as spam in the last 30 days',
         query: UNSUBSCRIBES_BOUNCES_AND_SPAM_PER_WEEK,
         fullWidth: false,
     },
@@ -100,6 +104,7 @@ export const AUDIENCE_ENGAGEMENT_TILES: AudienceEngagementTile[] = [
         key: 'funnel',
         name: 'Sent to clicked',
         description: 'How many recipients reach each step, counted by the address the email went to.',
+        emptyStateHeading: 'No emails sent in the last 30 days',
         query: SENT_TO_CLICKED_FUNNEL,
         fullWidth: true,
     },

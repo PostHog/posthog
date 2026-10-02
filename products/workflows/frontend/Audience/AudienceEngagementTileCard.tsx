@@ -53,8 +53,8 @@ export function AudienceEngagementTileCard({ tile }: { tile: AudienceEngagementT
                     context={{
                         insightProps,
                         suppressSlowQuerySuggestions: true,
-                        emptyStateHeading: 'No emails sent in the last 30 days',
-                        emptyStateDetail: 'Engagement events show here after a workflow or broadcast sends an email.',
+                        emptyStateHeading: tile.emptyStateHeading,
+                        emptyStateDetail: 'Engagement events are recorded from the moment they are turned on.',
                     }}
                 />
             </div>
