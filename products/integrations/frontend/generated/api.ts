@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    EmailDomainStatusApi,
     GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
@@ -23,6 +24,7 @@ import type {
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
+    IntegrationsEmailStatusRetrieveParams,
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
@@ -394,6 +396,42 @@ export const integrationsEmailPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedIntegrationConfigApi),
+    })
+}
+
+export const getIntegrationsEmailStatusRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsEmailStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/email/status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/email/status/`
+}
+
+/**
+ * Read the setup progress of an email sender's domain from SES and public DNS without changing either. Poll this until verified is true. Marks the domain's senders as verified once SES verifies the domain.
+ * @summary Get email sending domain status
+ */
+export const integrationsEmailStatusRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsEmailStatusRetrieveParams,
+    options?: RequestInit
+): Promise<EmailDomainStatusApi> => {
+    return apiMutator<EmailDomainStatusApi>(getIntegrationsEmailStatusRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
