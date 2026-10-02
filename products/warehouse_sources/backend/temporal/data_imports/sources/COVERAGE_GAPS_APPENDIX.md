@@ -3880,10 +3880,10 @@ Today (4): `cards`, `collections`, `groups`, `members`
 
 Diffed against: <https://developer.getguru.com/reference/authentication>
 
-- [ ] `team analytics (GET /v1/teams/{id}/analytics)` — the vendor's headline usage stream - card views, searches, copies per user; the main reason to warehouse Guru data (high)
-- [ ] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
-- [ ] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
-- [ ] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
+- [x] `team analytics (GET /v1/teams/{id}/analytics)` — the vendor's headline usage stream - card views, searches, copies per user; the main reason to warehouse Guru data (high)
+- [x] `group members (GET /v1/groups/{id}/members)` — membership table joining the groups and members we already sync (high)
+- [x] `tag categories and tags (GET /v1/teams/{id}/tagcategories, /tagcategories/tags)` — lookup resolving the tag IDs carried on synced cards (high)
+- [x] `folders (GET /v1/folders, GET /v1/folders/{id}/items)` — the board/folder hierarchy that organizes cards - lookup plus card-to-folder membership (high)
 - [ ] `card comments (GET /v1/cards/{id}/comments)` — engagement and feedback events attached to synced cards (medium)
 - [ ] `card verifiers (GET /v1/cards/verifiers, /v1/cards/{id}/verifiers)` — verification ownership per card - drives knowledge-freshness reporting (medium)
 - [ ] `team stats (GET /v1/teams/{id}/stats)` — rolled-up workspace counters for trend dashboards (medium)
@@ -3901,10 +3901,10 @@ Today (5): `audit_logs`, `client_matters`, `query_history`, `usage_history`, `va
 
 Diffed against: <https://developers.harvey.ai/vault_api.json>
 
-- [ ] `vault project files (GET /api/v1/vault/projects/{project_id}/files)` — the documents inside each synced vault project - per-file processing status, size and timestamps (high)
-- [ ] `vault project users (GET /api/v1/vault/projects/{project_id}/users)` — membership table with access level per user, joining vault_projects to workspace users (high)
-- [ ] `review table rows (GET /api/v1/vault/get_row/{review_table_id}/{file_id})` — the extracted answer grid - the actual analytical output of a Vault review (medium)
-- [ ] `review table metadata (GET /api/v1/vault/review_table/{review_table_id})` — lookup naming each review table and listing the file IDs it covers (medium)
+- [x] `vault project files (GET /api/v1/vault/projects/{project_id}/files)` — the documents inside each synced vault project - per-file processing status, size and timestamps (high)
+- [x] `vault project users (GET /api/v1/vault/projects/{project_id}/users)` — membership table with access level per user, joining vault_projects to workspace users (high)
+- [x] `review table rows (GET /api/v1/vault/get_row/{review_table_id}/{file_id})` — the extracted answer grid - the actual analytical output of a Vault review (medium)
+- [x] `review table metadata (GET /api/v1/vault/review_table/{review_table_id})` — lookup naming each review table and listing the file IDs it covers (medium)
 - [ ] `vault project metadata (GET /api/v1/vault/get_metadata/{project_id})` — storage limits and file counts not present on the projects list response (low)
 - [ ] `recycle bin vaults (GET /api/v1/vault/workspace/recycle_bin)` — deleted-project retention view for lifecycle reporting (low)
 
@@ -3912,18 +3912,19 @@ Note: Harvey publishes six OpenAPI specs (listed in https://developers.harvey.ai
 
 ## Hatchet — gaps
 
-Today (4): `event_keys`, `events`, `tasks`, `workflow_runs`
+Today (8): `event_keys`, `events`, `task_events`, `task_timings`, `tasks`, `workers`, `workflow_runs`, `workflows`
 
 Diffed against: <https://raw.githubusercontent.com/hatchet-dev/hatchet/main/api-contracts/openapi/openapi.yaml>
 
-- [ ] `workflows (GET /api/v1/tenants/{tenant}/workflows, GET /api/v1/workflows/{workflow}/versions)` — lookup resolving the workflow ID and version carried on every synced workflow run and task (high)
-- [ ] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
-- [ ] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
+- [x] `workflows (GET /api/v1/tenants/{tenant}/workflows)` — lookup resolving the workflow ID carried on every synced workflow run and task (high)
+- [ ] `workflow versions (GET /api/v1/workflows/{workflow}/versions)` — returns one version per call (latest, or one by id), so there is no listable version history to sync (high)
+- [x] `task events (GET /api/v1/stable/tasks/{task}/task-events, GET /api/v1/stable/workflow-runs/{id}/task-events)` — state-transition history (queued, started, retried, failed) behind each task's final status (high)
+- [x] `workers (GET /api/v1/tenants/{tenant}/worker, GET /api/v1/workers/{worker})` — lookup identifying which worker executed a synced task, plus worker availability (high)
 - [ ] `task metrics (GET /api/v1/stable/tenants/{tenant}/task-metrics, /task-point-metrics, /task-stats)` — the vendor's headline throughput and status-count series for queue health dashboards (medium)
 - [ ] `queue metrics (GET /api/v1/tenants/{tenant}/queue-metrics, /step-run-queue-metrics)` — backlog depth per queue - the standard capacity-planning metric (medium)
 - [ ] `scheduled runs (GET /api/v1/tenants/{tenant}/workflows/scheduled)` — upcoming and past scheduled triggers, joinable to workflow_runs (medium)
 - [ ] `crons (GET /api/v1/tenants/{tenant}/workflows/crons)` — cron definitions that explain the trigger source of recurring runs (medium)
-- [ ] `task timings (GET /api/v1/stable/workflow-runs/{id}/task-timings)` — per-task duration breakdown within a run - latency attribution (medium)
+- [x] `task timings (GET /api/v1/stable/workflow-runs/{id}/task-timings)` — per-task duration breakdown within a run - latency attribution (medium)
 - [ ] `tenant members (GET /api/v1/tenants/{tenant}/members)` — membership table for the tenant whose runs are synced (medium)
 - [ ] `logs (GET /api/v1/stable/tenants/{tenant}/logs, /tasks/{task}/logs)` — task log lines for failure triage alongside run rows (medium)
 - [ ] `workflow run metrics (GET /api/v1/tenants/{tenant}/workflows/runs/metrics, GET /api/v1/workflows/{workflow}/metrics)` — success/failure counts per workflow without re-aggregating raw runs (low)
@@ -3997,11 +3998,11 @@ Today (11): `addons`, `apps`, `builds`, `collaborators`, `domains`, `dynos`, `fo
 Diffed against: <https://api.heroku.com/schema>
 
 - [ ] `team-member` — team membership and role — who has access to which team, no membership table today (high)
-- [ ] `add-on-attachment` — lookup resolving which app each add-on is attached to; we sync add-ons but not the attachment join (high)
-- [ ] `pipeline-coupling` — lookup joining apps to the pipelines we already sync, including the stage (review/staging/production) (high)
+- [x] `add-on-attachment` — lookup resolving which app each add-on is attached to; we sync add-ons but not the attachment join (high). Added as `addon_attachments`.
+- [x] `pipeline-coupling` — lookup joining apps to the pipelines we already sync, including the stage (review/staging/production) (high). Added as `pipeline_couplings`.
 - [ ] `add-on-service` — lookup table naming the add-on service behind every add-on row we sync (high)
-- [ ] `plan` — lookup giving the price and tier of each add-on plan id carried on add-ons — required for any cost analysis (high)
-- [ ] `team-monthly-usage` — Heroku's headline spend/usage metric per team per month (dyno hours, add-on cost, data usage) (high)
+- [ ] `plan` — lookup giving the price and tier of each add-on plan id carried on add-ons — required for any cost analysis (high). Skipped: there is no plan list, only `/addon-services/{id}/plans` across the whole public marketplace, and `addons` rows already carry `billed_price` and the plan name.
+- [x] `team-monthly-usage` — Heroku's headline spend/usage metric per team per month (dyno hours, add-on cost, data usage) (high). Added as `team_monthly_usage` (fan-out over Enterprise `teams`, rolling 12 months, off by default).
 - [ ] `team-daily-usage` — daily granularity of the same usage metric for trend analysis (medium)
 - [ ] `team-app` — apps owned by each team, the org-level view the /apps personal list misses (medium)
 - [ ] `team-invoice` — team-level invoices; we only sync personal /account/invoices today (medium)
@@ -4017,11 +4018,11 @@ Today (17): `actions`, `certificates`, `datacenters`, `firewalls`, `floating_ips
 
 Diffed against: <https://docs.hetzner.cloud/cloud.spec.json>
 
-- [ ] `GET /pricing` — lookup table of hourly/monthly prices per server type, volume, load balancer and location — the only way to cost the servers we already sync (high)
-- [ ] `GET /servers/{id}/metrics` — cpu, disk and network time series per server, the headline analytical data in the API (high)
-- [ ] `GET /zones` — DNS zones, now part of the Cloud API and not exposed at all today (medium)
+- [x] `GET /pricing` — lookup table of hourly/monthly prices per server type, volume, load balancer and location — the only way to cost the servers we already sync (high)
+- [x] `GET /servers/{id}/metrics` — cpu, disk and network time series per server, the headline analytical data in the API (high)
+- [x] `GET /zones` — DNS zones, now part of the Cloud API and not exposed at all today (medium)
 - [ ] `GET /zones/{id_or_name}/rrsets` — DNS records per zone — the actual queryable rows behind zones (medium)
-- [ ] `GET /load_balancers/{id}/metrics` — connections, throughput and requests per load balancer for capacity analysis (medium)
+- [x] `GET /load_balancers/{id}/metrics` — connections, throughput and requests per load balancer for capacity analysis (medium)
 
 Note: Note the payload's doc url (docs.hetzner.cloud) is an HTML docs site; the OpenAPI 3.1 spec lives at https://docs.hetzner.cloud/cloud.spec.json (docs.hetzner.cloud/spec.json 404s). Coverage of the plain list collections is essentially complete — every other GET collection in the spec is already synced.
 

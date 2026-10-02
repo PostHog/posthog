@@ -133,7 +133,8 @@ class TestReportsForBriefing(BaseTest):
             team_id=self.team.id, user=self.user, exclude_report_ids=[str(shown_open.id), str(resolved.id)]
         )
 
-        assert counts.in_project == 1
+        # An unowned P0 is for the person the same way the briefing ranks it, so both counts agree.
+        assert (counts.in_project, counts.for_person) == (1, 1)
 
     def test_merge_chance_comes_from_the_latest_readable_served_score(self) -> None:
         rescored = self._urgent_report("Rescored")
