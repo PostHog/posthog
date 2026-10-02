@@ -143,7 +143,8 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutData, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
-    const { addShortcutItem, reorderShortcutByDrag, setStarredNavigationRef } = useActions(projectTreeDataLogic)
+    const { addShortcutItem, moveShortcutToFolder, reorderShortcutByDrag, setStarredNavigationRef } =
+        useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
@@ -346,7 +347,8 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                     oldId,
                     dragEvent.over ? String(dragEvent.over.id) : null,
                     searchTerm && searchResults.results ? [...searchResults.results, ...viableItems] : viableItems,
-                    shortcutData
+                    shortcutData,
+                    dragEvent.position
                 )
                 if (!drop) {
                     return
@@ -357,6 +359,10 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                         drop.overId,
                         dragEvent.position === 'after' ? 'after' : 'before'
                     )
+                    return
+                }
+                if (drop.type === 'move-shortcut') {
+                    moveShortcutToFolder(drop.item, drop.folder, logicKey ?? uniqueKey)
                     return
                 }
                 if (drop.type === 'star') {
@@ -386,9 +392,12 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
             getItemDropMode={(item, activeId) =>
-                shortcutEntryIdMap.has(item.id) &&
-                (item.record?.type !== 'folder' || (activeId && shortcutEntryIdMap.has(activeId)))
-                    ? 'reorder'
+                shortcutEntryIdMap.has(item.id)
+                    ? item.record?.type === 'folder'
+                        ? 'onto-or-reorder'
+                        : activeId && shortcutEntryIdMap.has(activeId)
+                          ? 'reorder'
+                          : 'onto'
                     : 'onto'
             }
             isItemDroppable={(item) => {

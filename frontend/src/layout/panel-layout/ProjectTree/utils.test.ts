@@ -41,23 +41,26 @@ describe('project tree utils', () => {
             })
         })
 
-        it.each(['shortcuts://', 'shortcuts/overview'])(
-            'stars a nested file dropped on %s without moving it',
-            (overId) => {
-                expect(resolveProjectTreeDrop('project/note', overId, [note], shortcuts)).toEqual({
-                    type: 'star',
-                    item: note,
-                })
-                expect(
-                    resolveProjectTreeDrop(
-                        'project/note',
-                        overId,
-                        [note],
-                        [...shortcuts, { id: 'star-note', type: 'notebook', ref: 'note-ref', path: 'Notes' }]
-                    )
-                ).toBeNull()
-            }
-        )
+        it.each([
+            ['shortcuts://', 'onto'],
+            ['shortcuts/overview', 'onto'],
+            ['shortcuts://My home', 'before'],
+            ['shortcuts://My home', 'after'],
+        ] as const)('stars a nested file dropped on %s (%s) without moving it', (overId, position) => {
+            expect(resolveProjectTreeDrop('project/note', overId, [note], shortcuts, position)).toEqual({
+                type: 'star',
+                item: note,
+            })
+            expect(
+                resolveProjectTreeDrop(
+                    'project/note',
+                    overId,
+                    [note],
+                    [...shortcuts, { id: 'star-note', type: 'notebook', ref: 'note-ref', path: 'Notes' }],
+                    position
+                )
+            ).toBeNull()
+        })
 
         it.each([null, 'missing', 'shortcuts/missing', 'project/note', 'project://missing'])(
             'does not move a file to the project root for an invalid target %s',
@@ -66,13 +69,34 @@ describe('project tree utils', () => {
             }
         )
 
+        it.each(['project/note', 'shortcuts/star-note'])(
+            'moves %s into a starred folder without adding a shortcut',
+            (activeId) => {
+                const starredNote = { id: 'star-note', type: 'notebook', ref: 'note-ref', path: 'Notes' }
+                expect(
+                    resolveProjectTreeDrop(activeId, 'shortcuts://My home', [note], [...shortcuts, starredNote], 'onto')
+                ).toEqual({
+                    type: activeId.startsWith('shortcuts/') ? 'move-shortcut' : 'move',
+                    item: activeId.startsWith('shortcuts/') ? starredNote : note,
+                    folder: 'Users/Alex',
+                })
+                expect(resolveProjectTreeDrop(activeId, 'shortcuts://', [note], [...shortcuts, starredNote])).toBeNull()
+            }
+        )
+
         it('reorders starred folders without moving their contents', () => {
-            expect(resolveProjectTreeDrop('shortcuts/overview', 'shortcuts://My home', [], shortcuts)).toEqual({
+            expect(
+                resolveProjectTreeDrop('shortcuts/overview', 'shortcuts://My home', [], shortcuts, 'before')
+            ).toEqual({
                 type: 'reorder',
                 activeId: 'shortcuts/overview',
                 overId: 'shortcuts://My home',
             })
-            expect(resolveProjectTreeDrop('shortcuts://My home', 'project://Research', [folder], shortcuts)).toBeNull()
+            expect(resolveProjectTreeDrop('shortcuts://My home', 'project://Research', [folder], shortcuts)).toEqual({
+                type: 'move-shortcut',
+                item: shortcuts[0],
+                folder: 'Research',
+            })
         })
     })
 

@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { TreeNodeDroppable } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
@@ -46,7 +47,12 @@ export function NavTabFiles(): JSX.Element {
                         <NavFilesMenu />
                     </div>
                     {showStarred && (
-                        <div className="pb-2">
+                        <TreeNodeDroppable
+                            id="shortcuts://"
+                            scope={`${FILES_STARRED_TREE_KEY}-section`}
+                            isDroppable
+                            className="pb-2"
+                        >
                             <NavTabSection
                                 label="Starred"
                                 dataAttr="nav-files-starred-toggle"
@@ -70,7 +76,7 @@ export function NavTabFiles(): JSX.Element {
                                     </p>
                                 )}
                             </NavTabSection>
-                        </div>
+                        </TreeNodeDroppable>
                     )}
                     {/* Recents list what you viewed, not what matches the search, so a search hides them. */}
                     {!searchTerm.trim() && (

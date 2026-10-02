@@ -123,8 +123,9 @@ type LemonTreeBaseProps = Omit<
     isItemDroppable?: (item: TreeDataItem) => boolean
     /** Drop mode for the item when used as a drop target. 'reorder' renders an insertion
      * line above or below the row based on pointer position. 'onto' (default) highlights
-     * the whole row — appropriate for dropping *into* folders. */
-    getItemDropMode?: (item: TreeDataItem, activeId?: string) => 'onto' | 'reorder'
+     * the whole row — appropriate for dropping *into* folders. 'onto-or-reorder' reserves
+     * the middle half for folder drops and the edges for inserting siblings. */
+    getItemDropMode?: (item: TreeDataItem, activeId?: string) => 'onto' | 'reorder' | 'onto-or-reorder'
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The button to render for the item's side action. */
@@ -521,78 +522,68 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                 )
             ) : null
 
-        const content = (
-            <AccordionPrimitive.Item
-                value={item.id}
-                disabled={!!item.disabledReason}
-                className="flex flex-col w-full gap-y-px"
+        let row = (
+            <AccordionPrimitive.Trigger
+                className={cn('flex items-center gap-2 w-full', isEmptyFolder ? 'h-auto' : 'h-8')}
+                asChild
             >
-                <AccordionPrimitive.Trigger
-                    className={cn('flex items-center gap-2 w-full', isEmptyFolder ? 'h-auto' : 'h-8')}
-                    asChild
+                <ButtonGroupPrimitive
+                    fullWidth
+                    className={cn(
+                        'group/lemon-tree-button-group relative bg-transparent',
+                        isEmptyFolder ? 'h-auto' : 'h-[var(--lemon-tree-button-height)]',
+                        className
+                    )}
                 >
-                    <ButtonGroupPrimitive
-                        fullWidth
-                        className={cn(
-                            'group/lemon-tree-button-group relative bg-transparent',
-                            isEmptyFolder ? 'h-auto' : 'h-[var(--lemon-tree-button-height)]',
-                            className
-                        )}
-                    >
-                        <TreeNodeDisplayCheckbox
-                            item={item}
-                            handleCheckedChange={(checked, shift) => {
-                                onItemChecked?.(item.id, checked, shift)
+                    <TreeNodeDisplayCheckbox
+                        item={item}
+                        handleCheckedChange={(checked, shift) => {
+                            onItemChecked?.(item.id, checked, shift)
+                        }}
+                        className={cn('absolute z-2', {
+                            hidden: selectMode !== 'multi',
+                        })}
+                        style={{
+                            left: `${firstColumnOffset - 20}px`,
+                        }}
+                    />
+
+                    {isItemEditing?.(item) ? (
+                        <InlineEditField
+                            value={item.name}
+                            handleSubmit={(value) => {
+                                onItemNameChange?.(item, value)
+                                disableKeyboardInput?.(false)
                             }}
-                            className={cn('absolute z-2', {
-                                hidden: selectMode !== 'multi',
-                            })}
+                            className="z-1"
                             style={{
-                                left: `${firstColumnOffset - 20}px`,
+                                width:
+                                    selectMode === 'multi' && !item.disableSelect
+                                        ? `${emptySpaceOffset + 26}px`
+                                        : `${emptySpaceOffset}px`,
                             }}
-                        />
+                        >
+                            {renderItemIcon ? (
+                                renderItemIcon?.(item)
+                            ) : (
+                                <TreeNodeDisplayIcon
+                                    item={item}
+                                    expandedItemIds={expandedItemIds ?? []}
+                                    defaultNodeIcon={defaultNodeIcon}
+                                />
+                            )}
+                        </InlineEditField>
+                    ) : (
+                        button
+                    )}
 
-                        {isItemEditing?.(item) ? (
-                            <InlineEditField
-                                value={item.name}
-                                handleSubmit={(value) => {
-                                    onItemNameChange?.(item, value)
-                                    disableKeyboardInput?.(false)
-                                }}
-                                className="z-1"
-                                style={{
-                                    width:
-                                        selectMode === 'multi' && !item.disableSelect
-                                            ? `${emptySpaceOffset + 26}px`
-                                            : `${emptySpaceOffset}px`,
-                                }}
-                            >
-                                {renderItemIcon ? (
-                                    renderItemIcon?.(item)
-                                ) : (
-                                    <TreeNodeDisplayIcon
-                                        item={item}
-                                        expandedItemIds={expandedItemIds ?? []}
-                                        defaultNodeIcon={defaultNodeIcon}
-                                    />
-                                )}
-                            </InlineEditField>
-                        ) : (
-                            button
-                        )}
-
-                        {sideAction}
-                    </ButtonGroupPrimitive>
-                </AccordionPrimitive.Trigger>
-
-                {childrenContent}
-            </AccordionPrimitive.Item>
+                    {sideAction}
+                </ButtonGroupPrimitive>
+            </AccordionPrimitive.Trigger>
         )
 
-        let wrappedContent = content
-
         if (isItemDroppable?.(item)) {
-            wrappedContent = (
+            row = (
                 <TreeNodeDroppable
                     id={item.id}
                     scope={dragAndDropScope}
@@ -600,7 +591,7 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                     dropMode={getItemDropMode?.(item, activeId) ?? 'onto'}
                     onPositionChange={onReorderPositionChange}
                 >
-                    {wrappedContent}
+                    {row}
                 </TreeNodeDroppable>
             )
         }
@@ -619,7 +610,14 @@ const LemonTreeItemRow = forwardRef<HTMLDivElement, LemonTreeItemRowProps>(
                         : undefined
                 }
             >
-                {wrappedContent}
+                <AccordionPrimitive.Item
+                    value={item.id}
+                    disabled={!!item.disabledReason}
+                    className="flex flex-col w-full gap-y-px"
+                >
+                    {row}
+                    {childrenContent}
+                </AccordionPrimitive.Item>
             </div>
         )
     }
@@ -1623,8 +1621,9 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             dragEvent.over?.data.current?.dropMode ??
                             (overItem ? (getItemDropMode?.(overItem, String(active)) ?? 'onto') : 'onto')
                         const position: TreeDropPosition =
-                            overMode === 'reorder'
-                                ? (dragEvent.over?.data.current?.position ?? dropPositionRef.current)
+                            overMode !== 'onto'
+                                ? (dragEvent.over?.data.current?.position ??
+                                  (overMode === 'onto-or-reorder' ? 'onto' : dropPositionRef.current))
                                 : 'onto'
                         onDragEnd?.(Object.assign(dragEvent, { position }))
                     }
