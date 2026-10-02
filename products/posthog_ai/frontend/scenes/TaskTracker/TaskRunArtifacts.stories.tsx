@@ -208,7 +208,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey' | 'action',
+    objectKind: 'insight' | 'dashboard' | 'flag' | 'experiment' | 'cohort' | 'survey' | 'person' | 'action',
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -230,6 +230,7 @@ function objectReference(
 }
 
 const SURVEY_ID = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b'
+const PERSON_ID = '0190a1b2-c3d4-7e5f-8a9b-1c2d3e4f5a6b'
 
 const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
@@ -238,6 +239,7 @@ const OBJECT_REFERENCES = [
     objectReference('phref_experiment', 'Plan picker layout test', 'experiment', '12', '2026-09-28T18:09:00Z'),
     objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
     objectReference('phref_survey', 'Plan picker feedback', 'survey', SURVEY_ID, '2026-09-28T18:07:00Z'),
+    objectReference('phref_person', 'ada@example.com', 'person', PERSON_ID, '2026-09-28T18:06:00Z'),
     objectReference('phref_action', 'Started trial', 'action', '21', '2026-09-28T18:04:00Z'),
 ]
 
@@ -305,14 +307,72 @@ const CITED_SURVEY = {
     feature_flag_keys: [],
 }
 
+const CITED_PERSON_PROPERTIES = {
+    email: 'ada@example.com',
+    name: 'Ada Example',
+    $geoip_country_name: 'Portugal',
+    $geoip_city_name: 'Porto',
+    $browser: 'Firefox',
+    $os: 'Mac OS X',
+    plan: 'free',
+}
+
 /** The insight and cohort embeds each run their own query through the same endpoint. */
 async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
-    const { query } = (await request.json()) as { query: { kind: string; source?: { kind: string } } }
+    const { query } = (await request.json()) as {
+        query: { kind: string; source?: { kind: string }; query?: string; values?: Record<string, unknown> }
+    }
     if (query.kind === NodeKind.ExperimentExposureQuery) {
         return EXPOSURE_QUERY_RESULT
     }
     if (query.kind === NodeKind.ExperimentQuery) {
         return MEAN_METRIC_RESULT
+    }
+    if (query.kind === NodeKind.HogQLQuery && query.values?.id === PERSON_ID) {
+        return {
+            results: [
+                [
+                    PERSON_ID,
+                    ['ada@example.com', 'anon-7f3a9c'],
+                    JSON.stringify(CITED_PERSON_PROPERTIES),
+                    1,
+                    '2026-09-21T10:00:00Z',
+                    '2026-09-28T18:00:00Z',
+                ],
+            ],
+        }
+    }
+    if (query.kind === NodeKind.HogQLQuery && query.query?.includes('session_count')) {
+        return { results: [[14, 238]] }
+    }
+    if (query.kind === NodeKind.EventsQuery || query.source?.kind === NodeKind.EventsQuery) {
+        const events = ['$pageview', 'plan picker viewed', '$exception', '$pageleave']
+        return {
+            columns: [
+                '*',
+                'event',
+                'person_display_name -- Person',
+                'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
+                'properties.$lib',
+                'timestamp',
+            ],
+            types: ['Tuple', 'String', 'Tuple', 'String', 'String', 'DateTime'],
+            results: events.map((event, index) => [
+                {
+                    uuid: `event-${index}`,
+                    event,
+                    distinct_id: 'ada@example.com',
+                    properties: { $current_url: 'https://example.com/pricing' },
+                    timestamp: `2026-09-28T17:5${index}:00Z`,
+                },
+                event,
+                { display_name: 'ada@example.com', id: PERSON_ID, distinct_id: 'ada@example.com' },
+                'https://example.com/pricing',
+                'web',
+                `2026-09-28T17:5${index}:00Z`,
+            ]),
+            hasMore: false,
+        }
     }
     if (query.kind === NodeKind.ActorsQuery || query.source?.kind === NodeKind.ActorsQuery) {
         return {
@@ -615,6 +675,11 @@ export const PostHogObjectExperiment: Story = {
 export const PostHogObjectSurvey: Story = {
     parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_survey" />,
+}
+
+export const PostHogObjectPerson: Story = {
+    parameters: { msw: { mocks: objectMocks() } },
+    render: () => <StoryPage fileName="phref_person" />,
 }
 
 export const PostHogObjectWithoutEmbed: Story = {

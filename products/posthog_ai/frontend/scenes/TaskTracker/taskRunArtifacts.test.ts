@@ -102,10 +102,13 @@ describe('taskRunArtifacts', () => {
         expect(listboxKeyTarget(key, current, count)).toBe(expected)
     })
 
-    test.each(['experiment', 'survey'])('the %s kind from the object tag registry gets a product embed', (kind) => {
-        expect(LIVE_OBJECT_KINDS.has(kind)).toBe(true)
-        expect(PRODUCT_OBJECT_EMBEDS.get(kind)).toBeTruthy()
-    })
+    test.each(['experiment', 'survey', 'person'])(
+        'the %s kind from the object tag registry gets a product embed',
+        (kind) => {
+            expect(LIVE_OBJECT_KINDS.has(kind)).toBe(true)
+            expect(PRODUCT_OBJECT_EMBEDS.get(kind)).toBeTruthy()
+        }
+    )
 
     it('visibleRunArtifacts keeps files the agent wrote and cited PostHog objects', () => {
         const kept = artifact({ id: 'kept' })
