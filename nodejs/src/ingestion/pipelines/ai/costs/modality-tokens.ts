@@ -200,7 +200,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                 return
             }
             const audioTokens = promptDetails['audio_tokens']
-            if (typeof audioTokens === 'number' && audioTokens > 0) {
+            if (isValidTokenCount(audioTokens) && audioTokens > 0) {
                 event.properties['$ai_audio_input_tokens'] = audioTokens
                 extractedSources.add('openai_input')
             }
@@ -216,7 +216,7 @@ export const extractModalityTokens = (event: EventWithProperties): EventWithProp
                 return
             }
             const audioTokens = cachedDetails['audio_tokens']
-            if (typeof audioTokens === 'number' && audioTokens > 0) {
+            if (isValidTokenCount(audioTokens) && audioTokens > 0) {
                 event.properties['$ai_cache_read_audio_tokens'] = audioTokens
                 extractedSources.add('openai_cache')
             }

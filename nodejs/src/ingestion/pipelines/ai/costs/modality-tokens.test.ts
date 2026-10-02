@@ -913,6 +913,27 @@ describe('extractModalityTokens()', () => {
             expect(result.properties['$ai_cache_read_audio_tokens']).toBe(50)
         })
 
+        it.each([1.5, Number.MAX_SAFE_INTEGER + 1, Number.POSITIVE_INFINITY])(
+            'ignores invalid OpenAI audio token counts (%s)',
+            (audioTokens) => {
+                const event = createAIEvent({
+                    $ai_usage: {
+                        prompt_tokens_details: {
+                            audio_tokens: audioTokens,
+                            cached_tokens_details: { audio_tokens: audioTokens },
+                        },
+                    },
+                })
+
+                const result = extractModalityTokens(event)
+
+                expect({
+                    input: result.properties['$ai_audio_input_tokens'],
+                    cached: result.properties['$ai_cache_read_audio_tokens'],
+                }).toEqual({ input: undefined, cached: undefined })
+            }
+        )
+
         it('does not set audio input when OpenAI prompt audio_tokens is zero', () => {
             const event = createAIEvent({
                 $ai_usage: {
