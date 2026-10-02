@@ -2592,14 +2592,11 @@ export const tasksRunsLivingArtifactsList = async (
     taskId: string,
     runId: string,
     options?: RequestInit
-): Promise<TaskRunLivingArtifactsResponseApi[]> => {
-    return apiMutator<TaskRunLivingArtifactsResponseApi[]>(
-        getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
+): Promise<TaskRunLivingArtifactsResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactsResponseApi>(getTasksRunsLivingArtifactsListUrl(projectId, taskId, runId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsLivingArtifactsCreateUrl = (projectId: string, taskId: string, runId: string) => {
@@ -2677,6 +2674,34 @@ export const tasksRunsLivingArtifactsEdit = async (
             body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
         }
     )
+}
+
+export const getTasksRunsLivingArtifactsVersionContentUrl = (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    version: number
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/${id}/versions/${version}/`
+}
+
+/**
+ * Streams the content of one living artifact version from the app origin. Slack file versions return their stored file. Slack canvas and message versions return their text.
+ * @summary Download one version of a living artifact
+ */
+export const tasksRunsLivingArtifactsVersionContent = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    id: string,
+    version: number,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getTasksRunsLivingArtifactsVersionContentUrl(projectId, taskId, runId, id, version), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: string, runId: string) => {

@@ -79,6 +79,7 @@ import {
     artifactPreviewKind,
     formatArtifactSize,
     hasFullPageView,
+    hasLivingContent,
     isTextPreview,
     listboxKeyTarget,
     parseCsv,
@@ -380,7 +381,7 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     if (selectedKind === 'video') {
         return <VideoPreview taskId={taskId} name={selectedArtifact.name} />
     }
-    if (selectedArtifact.living && selectedArtifact.living.text === null) {
+    if (selectedArtifact.living && !hasLivingContent(selectedArtifact.living)) {
         return (
             <Empty className="h-full">
                 <EmptyHeader>
@@ -778,8 +779,8 @@ function ArtifactToolbar({
                     </IconAction>
                 </div>
                 <CopyLinkAction taskId={taskId} />
-                {/* No endpoint serves a living document's bytes, so it has no download. */}
-                {kind !== 'reference' && !artifact.living && (
+                {/* PostHog stores only the files of a living document. Canvas and message text has no file to download. */}
+                {kind !== 'reference' && (!artifact.living || artifact.living.stored) && (
                     <IconAction
                         label={versioned ? 'Download this version' : 'Download'}
                         href={downloadUrl ?? undefined}

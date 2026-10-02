@@ -1507,6 +1507,8 @@ class TaskRunLivingArtifactResponseSerializer(serializers.Serializer):
     updated_at = serializers.CharField(allow_null=True, required=False, help_text="ISO timestamp when last updated.")
 
 
+# drf-spectacular wraps a `list` action response in an array. This endpoint returns one envelope.
+@extend_schema_serializer(many=False)
 class TaskRunLivingArtifactsResponseSerializer(serializers.Serializer):
     artifacts = TaskRunLivingArtifactResponseSerializer(many=True, help_text="Living artifacts for this task run.")
 
