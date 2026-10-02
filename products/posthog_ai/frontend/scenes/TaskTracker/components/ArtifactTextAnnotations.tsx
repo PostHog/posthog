@@ -118,6 +118,11 @@ export function ArtifactTextAnnotations({
         }
         const index = buildTextNodeIndex(root)
         const box = container.getBoundingClientRect()
+        // Client rects include CSS transforms, such as the full page dialog's open animation, but the highlights
+        // are placed in the container's own layout pixels. A transform does not resize the container, so no
+        // observer measures again after it ends.
+        const scaleX = box.width / container.offsetWidth || 1
+        const scaleY = box.height / container.offsetHeight || 1
         const next: HighlightRect[] = []
         for (const thread of textThreads) {
             if (thread.anchor?.kind !== 'text') {
@@ -133,10 +138,10 @@ export function ArtifactTextAnnotations({
                 next.push({
                     id: thread.root.id,
                     label: `Open comment from ${author}`,
-                    left: rect.left - box.left,
-                    top: rect.top - box.top,
-                    width: rect.width,
-                    height: rect.height,
+                    left: (rect.left - box.left) / scaleX,
+                    top: (rect.top - box.top) / scaleY,
+                    width: rect.width / scaleX,
+                    height: rect.height / scaleY,
                 })
             }
         }
@@ -216,10 +221,12 @@ export function ArtifactTextAnnotations({
             const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0)
             const end = rects.at(-1) ?? range.getBoundingClientRect()
             const box = container.getBoundingClientRect()
+            const scaleX = box.width / container.offsetWidth || 1
+            const scaleY = box.height / container.offsetHeight || 1
             const maxLeft = container.clientWidth - PENDING_COMMENT_WIDTH_PX - EDGE_MARGIN_PX
             setPendingAnchor(anchor, {
-                left: Math.max(EDGE_MARGIN_PX, Math.min(end.left - box.left, maxLeft)),
-                top: end.bottom - box.top + 6,
+                left: Math.max(EDGE_MARGIN_PX, Math.min((end.left - box.left) / scaleX, maxLeft)),
+                top: (end.bottom - box.top) / scaleY + 6,
             })
         }
         const onRelease = (event: Event): void => {
@@ -260,11 +267,12 @@ export function ArtifactTextAnnotations({
                         type="button"
                         tabIndex={firstRectIndex.get(rect.id) === index ? 0 : -1}
                         aria-label={rect.label}
+                        // The same yellow as PostHog Desktop in both themes, so a highlight reads on dark text too.
                         className={cn(
-                            'pointer-events-auto absolute cursor-pointer rounded-xs bg-fill-warning-highlight',
+                            'pointer-events-auto absolute cursor-pointer rounded-xs',
                             rect.id === activeThreadId
-                                ? 'border-b-2 border-warning'
-                                : 'hover:border-b-2 hover:border-warning'
+                                ? 'border-b-2 border-warning bg-yellow-400/50'
+                                : 'bg-yellow-400/30 hover:bg-yellow-400/45'
                         )}
                         // Positions come from measured text boxes, which utility classes cannot express.
                         style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
