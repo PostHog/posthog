@@ -251,7 +251,6 @@ class TestGetTeamIdsForAIObservability:
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_sampling_size_tracks_percentage(self, mock_get_teams, _mock_ff):
-        # The stable hash is uniform, so a 50% sample over many teams stays close to half.
         extra_teams = list(range(10000, 11000))  # 1000 non-guaranteed teams
         mock_get_teams.return_value = extra_teams
         inputs = TeamDiscoveryInput()
@@ -264,8 +263,6 @@ class TestGetTeamIdsForAIObservability:
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_sample_membership_is_stable_across_runs(self, mock_get_teams, _mock_ff):
-        # The regression: a fresh random draw each run flipped a team in and out day to day.
-        # A stable hash returns the same teams every run.
         extra_teams = list(range(10000, 10100))
         mock_get_teams.return_value = extra_teams
         inputs = TeamDiscoveryInput()

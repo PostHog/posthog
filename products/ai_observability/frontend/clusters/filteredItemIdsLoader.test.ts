@@ -41,13 +41,10 @@ describe('loadFilterMatchedItemIds', () => {
         await callLoader()
 
         const [query] = mockApi.queryHogQL.mock.calls[0]
-        // A trace whose window holds only spans or embeddings still has to be testable,
-        // otherwise every filter empties the page.
         expect(query).toContain('$ai_span')
         expect(query).toContain('$ai_embedding')
         expect(query).toContain('$ai_trace')
         expect(query).toContain("properties.$ai_trace_id IN ['aaaaaaaa-0000-0000-0000-000000000001']")
-        // The run window bounds when embeddings were written, and a trace's events come before that.
         expect(query).toContain("parseDateTimeBestEffort('2026-09-01T00:00:00Z') - INTERVAL 7 DAY")
     })
 
@@ -66,10 +63,9 @@ describe('loadFilterMatchedItemIds', () => {
 
         const [query] = mockApi.queryHogQL.mock.calls[0]
         expect(query).toContain("event = '$ai_generation'")
-        // A value that is not a UUID in a comparison with the uuid column fails the whole query.
         expect(query).toContain("uuid IN ['aaaaaaaa-0000-0000-0000-000000000001']")
         expect(query).toContain("parseDateTimeBestEffort('2026-09-01T00:00:00Z') - INTERVAL 7 DAY")
-        // The SDK never sets this property on the event, so matching on it finds nothing.
+        // Clustering stores the event uuid, not $ai_generation_id.
         expect(query).not.toContain('$ai_generation_id')
     })
 

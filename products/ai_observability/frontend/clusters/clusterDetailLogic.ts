@@ -447,7 +447,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     },
                 ]
 
-                // Add centroid marker for non-outlier clusters that still show items
+                // Add centroid marker for non-outlier clusters
                 if (!isOutlier && visibleEntries.length > 0) {
                     result.push({
                         key: 'centroid',

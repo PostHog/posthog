@@ -14,19 +14,16 @@ export interface FilterMatchedItemIdsParams {
     windowEnd: string
     propertyFilters: AnyPropertyFilter[]
     filterTestAccounts: boolean
-    /** ClickHouse query tag, so the scene that issued the query stays visible in query logs. */
     scene: string
 }
 
 /**
- * A trace matches when any of its events matches, so test every event that belongs to a trace.
- * Reading only `$ai_generation` dropped every clustered trace with no generation in the window.
- * Generation items are `$ai_generation` event UUIDs — the SDK does not set `$ai_generation_id` on
- * the event, so match the `uuid` column the way cluster metrics do.
+ * A trace matches when any of its events matches. Clustering stores generation items as
+ * `$ai_generation` event UUIDs, so they match on `uuid`, the same as cluster metrics.
  *
- * The run window bounds when the summary embeddings were written, and a trace's events come before
- * its embedding, so the lower bound reaches back further than the window start. Seven days also
- * covers a manual summarization run over an older window, where that gap is much larger.
+ * The run window bounds when the embeddings were written, and a trace's events come before its
+ * embedding, so the lower bound starts 7 days before the window start. Seven days also covers
+ * most manual summarization runs over an older window.
  */
 function buildFilterQuery(
     level: ClusteringLevel,
@@ -70,10 +67,8 @@ function toItemIdSet(results: unknown[] | undefined): Set<string> {
 }
 
 /**
- * Subset of `itemIds` whose events match the active property filters and test-account toggle.
- *
- * Returns null when no filtering applies, which callers read as "show everything": no filters are
- * on, the level carries no person data, or the run is too large for one query.
+ * Subset of `itemIds` whose events match the active filters. Null means "show everything": no filters
+ * are on, the level carries no person data, or the run is too large for one query.
  */
 export async function loadFilterMatchedItemIds({
     itemIds,
@@ -95,15 +90,14 @@ export async function loadFilterMatchedItemIds({
     }
 
     // Trace ids are free-form strings, and the `hogql` tag escapes them. Generation ids go into a
-    // comparison with the uuid column, so drop values with characters a UUID never has.
+    // comparison with the uuid column, where one value that is not a UUID fails the whole query.
+    // So drop generation ids with characters a UUID never has.
     const safeIds = level === 'generation' ? itemIds.filter((id) => SAFE_ID_RE.test(id)) : itemIds.filter(Boolean)
     if (safeIds.length === 0) {
         return new Set<string>()
     }
 
-    // Above the row cap we would silently miss matches and render a misleading partial result.
-    // Skip filtering instead and warn — a later change can paginate through offsets if real runs
-    // start to hit this.
+    // Above the row cap the query would silently miss matches, so skip filtering instead.
     if (safeIds.length > FILTER_QUERY_MAX_ROWS) {
         console.warn(
             `Skipping cluster filters: ${safeIds.length} items exceed the ${FILTER_QUERY_MAX_ROWS}-row cap for filter queries.`
@@ -116,8 +110,6 @@ export async function loadFilterMatchedItemIds({
         { productKey: 'llm_analytics', scene },
         {
             queryParams: {
-                // `{filters}` turns the user's property filters and the test-account toggle into
-                // the same expressions an insight builds, including cohorts and person properties.
                 filters: { properties: propertyFilters, filterTestAccounts },
                 // Window bounds are in UTC (from the backend), so compare timestamps in UTC
                 modifiers: { convertToProjectTimezone: false },
