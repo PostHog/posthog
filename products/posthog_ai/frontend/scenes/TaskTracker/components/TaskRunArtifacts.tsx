@@ -13,7 +13,7 @@ import {
     IconExternal,
     IconLock,
     IconShare,
-    IconEyeHidden,
+    IconHide,
 } from '@posthog/icons'
 import {
     Badge,
@@ -808,7 +808,7 @@ function ArtifactToolbar({
                         onClick={() => dismissFile(selectedFile.key)}
                         dataAttr="task-artifact-dismiss"
                     >
-                        <IconEyeHidden className="size-4" />
+                        <IconHide className="size-4" />
                     </IconAction>
                 )}
                 {/* Full page always keeps its exit, because the stepper can land on an object with no embed. */}
