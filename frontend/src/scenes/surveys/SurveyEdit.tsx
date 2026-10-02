@@ -298,6 +298,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         clearAiGeneratedTranslationField,
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
+    const mountedSurveyLogic = useMountedLogic(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
@@ -377,12 +378,20 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
     }
 
     function loadPickedLinkedFlag(flagId: number): void {
+        // The lookup can finish after the user picks another flag or clears the field. Its result
+        // applies only while its flag is still the selected one, so it cannot overwrite a newer pick.
+        const isStillSelected = (): boolean => mountedSurveyLogic.values.survey.linked_flag_id === flagId
         api.featureFlags
             .get(flagId)
             .then((linkedFlag) => {
-                setSurveyValue('linked_flag', linkedFlag)
+                if (isStillSelected()) {
+                    setSurveyValue('linked_flag', linkedFlag)
+                }
             })
             .catch((error) => {
+                if (!isStillSelected()) {
+                    return
+                }
                 // Only a missing flag ends the link. A failed request keeps the pick, because a save with no
                 // linked_flag_id removes the survey's flag targeting.
                 if (error instanceof ApiError && error.status === 404) {
@@ -1443,61 +1452,31 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               value={value}
                                                                               onChange={(id, _key, flag) => {
                                                                                   onChange(id)
-                                                                                  if (
-                                                                                      survey.linked_flag_id &&
-                                                                                      !survey.linked_flag
-                                                                                  ) {
-                                                                                      api.featureFlags
-                                                                                          .get(survey.linked_flag_id)
-                                                                                          .then((flag) => {
-                                                                                              setSurveyValue(
-                                                                                                  'linked_flag',
-                                                                                                  flag
-                                                                                              )
-                                                                                          })
-                                                                                          .catch(() => {
-                                                                                              // If flag doesn't exist anymore, clear the linked_flag_id
-                                                                                              setSurveyValue(
-                                                                                                  'linked_flag_id',
-                                                                                                  null
-                                                                                              )
-                                                                                              // Reset variant selection when flag changes
-                                                                                              const {
-                                                                                                  linkedFlagVariant,
-                                                                                                  ...conditions
-                                                                                              } =
-                                                                                                  survey.conditions ||
-                                                                                                  {}
-                                                                                              setSurveyValue(
-                                                                                                  'conditions',
-                                                                                                  {
-                                                                                                      ...conditions,
-                                                                                                  }
-                                                                                              )
-                                                                                          })
+                                                                                  if (flag) {
+                                                                                      setSurveyValue(
+                                                                                          'linked_flag',
+                                                                                          flag
+                                                                                      )
                                                                                   } else {
-                                                                                      if (flag) {
-                                                                                          setSurveyValue(
-                                                                                              'linked_flag',
-                                                                                              flag
-                                                                                          )
-                                                                                      } else {
-                                                                                          // A pick from the Recent
-                                                                                          // category carries only the
-                                                                                          // flag id, and the variant
-                                                                                          // selector below reads the
-                                                                                          // flag itself.
-                                                                                          loadPickedLinkedFlag(id)
-                                                                                      }
-                                                                                      // Reset variant selection when flag changes
-                                                                                      const {
-                                                                                          linkedFlagVariant,
-                                                                                          ...conditions
-                                                                                      } = survey.conditions || {}
-                                                                                      setSurveyValue('conditions', {
-                                                                                          ...conditions,
-                                                                                      })
+                                                                                      // A pick from the Recent
+                                                                                      // category carries only the
+                                                                                      // flag id, and the variant
+                                                                                      // selector below reads the
+                                                                                      // flag itself.
+                                                                                      setSurveyValue(
+                                                                                          'linked_flag',
+                                                                                          null
+                                                                                      )
+                                                                                      loadPickedLinkedFlag(id)
                                                                                   }
+                                                                                  // Reset variant selection when flag changes
+                                                                                  const {
+                                                                                      linkedFlagVariant,
+                                                                                      ...conditions
+                                                                                  } = survey.conditions || {}
+                                                                                  setSurveyValue('conditions', {
+                                                                                      ...conditions,
+                                                                                  })
                                                                               }}
                                                                           />
                                                                           {value && (
