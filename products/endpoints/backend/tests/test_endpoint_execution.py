@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import EventsNode, HogQLQueryResponse, TrendsQuery
+from posthog.schema import EventsNode, TrendsQuery
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
@@ -1104,30 +1104,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
-
-    def test_materialized_insight_endpoint_has_no_implicit_row_limit(self):
-        endpoint = create_endpoint_with_version(
-            name="mat_trends_unbounded",
-            team=self.team,
-            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
-            created_by=self.user,
-            is_active=True,
-        )
-        self._materialize_endpoint(endpoint)
-
-        with mock.patch(
-            "products.endpoints.backend.logic.execution.process_query_model",
-            return_value=HogQLQueryResponse(results=[], columns=[], types=[], hasMore=False),
-        ) as mock_process_query:
-            response = self.client.post(
-                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
-                {},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_process_query.assert_called_once()
-        self.assertEqual(mock_process_query.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
