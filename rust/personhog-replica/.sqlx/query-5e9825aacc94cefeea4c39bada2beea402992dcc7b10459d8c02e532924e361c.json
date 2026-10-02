@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT uuid as \"uuid!\", COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "5e9825aacc94cefeea4c39bada2beea402992dcc7b10459d8c02e532924e361c"
+}

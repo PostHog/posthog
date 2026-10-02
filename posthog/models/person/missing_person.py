@@ -10,6 +10,16 @@ def uuidFromDistinctId(team_id: int, distinct_id: str) -> UUID:
     return uuid5(PERSON_UUIDV5_NAMESPACE, f"{team_id}:{distinct_id}")
 
 
+def splitPersonUuid(team_id: int, distinct_id: str) -> UUID:
+    """
+    The UUID a split gives a distinct_id that seeded the UUID of the person it is
+    split off. `uuidFromDistinctId` regenerates that same person there, so the
+    distinct_id would stay where it is. Keep in sync with
+    rust/personhog-common/src/persons.rs (split_person_uuid).
+    """
+    return uuid5(PERSON_UUIDV5_NAMESPACE, f"{team_id}:{distinct_id}:split")
+
+
 class MissingPerson:
     uuid: UUID
     properties: dict = {}

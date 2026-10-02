@@ -20,6 +20,18 @@ pub fn person_uuid(team_id: i64, distinct_id: &str) -> Uuid {
     )
 }
 
+/// The person UUID for a distinct id that is split off the person its own
+/// [`person_uuid`] seeded. That person was created for this distinct id, so
+/// the unsalted UUID regenerates it, and the split would move the distinct id
+/// to the person it already belongs to. The salt keeps the new UUID derivable
+/// by a caller.
+pub fn split_person_uuid(team_id: i64, distinct_id: &str) -> Uuid {
+    Uuid::new_v5(
+        &PERSON_UUIDV5_NAMESPACE,
+        format!("{team_id}:{distinct_id}:split").as_bytes(),
+    )
+}
+
 /// Validate a configured table identifier before it is interpolated into
 /// SQL (identifiers cannot be bound as parameters).
 pub fn validate_table_name(table: &str) -> Result<(), String> {
