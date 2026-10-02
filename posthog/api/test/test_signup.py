@@ -329,6 +329,43 @@ class TestSignupAPI(APIBaseTest):
         )
         self.assertEqual(User.objects.count(), 0)
 
+    @parameterized.expand(
+        [
+            ("full_match", '[{"id": "r1", "pattern": "[^@|]+@example\\\\.com\\\\|Blocked Org"}]', "Blocked Org", 403),
+            (
+                "partial_match",
+                '[{"id": "r1", "pattern": "[^@|]+@example\\\\.com\\\\|Blocked Org"}]',
+                "Blocked Org Inc",
+                201,
+            ),
+            (
+                "bad_regex_skipped",
+                '[{"id": "bad", "pattern": "["}, {"id": "r1", "pattern": "[^@|]+@example\\\\.com\\\\|Blocked Org"}]',
+                "Blocked Org",
+                403,
+            ),
+            ("bad_json", "[{", "Blocked Org", 201),
+        ]
+    )
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
+    def test_signup_block_rules(self, _name, rules, organization_name, expected_status, mock_capture):
+        with override_instance_config("SIGNUP_BLOCK_RULES", rules):
+            response = self.client.post(
+                "/api/signup/",
+                {
+                    "first_name": "John",
+                    "email": "John@Example.com",
+                    "password": VALID_TEST_PASSWORD,
+                    "organization_name": organization_name,
+                },
+            )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(User.objects.count(), 1 if expected_status == 201 else 0)
+        if expected_status == 403:
+            self.assertEqual(response.json()["code"], "suspicious_attempt_blocked")
+
     @pytest.mark.skip_on_multitenancy
     def test_signup_disallowed_on_stripped_alias_collision(self):
         User.objects.create(email="jane+old@posthog.com", first_name="Jane")

@@ -34,6 +34,7 @@ from posthog.event_usage import alias_invite_id, report_user_joined_organization
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.oauth_pending_connection import read_pending_oauth_connection
+from posthog.helpers.signup_block_rules import reject_blocked_signup
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
@@ -226,6 +227,9 @@ class SignupSerializer(serializers.Serializer):
             _save_session_with_recovery(request.session)
             passkey_credential = None
 
+        default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
+        reject_blocked_signup(validated_data["email"], validated_data.get("organization_name", default_org_name))
+
         if not self.is_social_signup:
             auth_method = RadarAuthMethod.PASSKEY if passkey_credential else RadarAuthMethod.PASSWORD
             evaluate_auth_attempt(
@@ -254,7 +258,6 @@ class SignupSerializer(serializers.Serializer):
         validated_data.pop("turnstile_token", None)
         validated_data.pop("challenge_nonce", None)
 
-        default_org_name = f"{validated_data['first_name']}'s Organization"[:64]
         organization_name = validated_data.pop("organization_name", default_org_name)
         role_at_organization = validated_data.pop("role_at_organization", "")
         referral_source = validated_data.pop("referral_source", "")

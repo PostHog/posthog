@@ -296,6 +296,11 @@ CONSTANCE_CONFIG = {
         "Kill switch for signup enrichment (products/growth/backend/enrichment): dispatch at signup, the daily re-enrichment sweep, and the recovery backfill. Every pod reads this row, so it is the one per-region toggle.",
         bool,
     ),
+    "SIGNUP_BLOCK_RULES": (
+        get_from_env("SIGNUP_BLOCK_RULES", "[]"),
+        'Sign-up block rules (posthog/helpers/signup_block_rules.py). JSON list of {"id": "...", "pattern": "..."}. A sign-up is rejected with a 403 when a Python regex pattern fully matches "<lowercased email>|<organization name>". Example: \'[{"id": "example", "pattern": "[^@|]+@example\\\\.com\\\\|Blocked Org"}]\'. A rule with bad JSON or a bad regex is skipped. "[]" blocks nobody. Changes apply within about 60 seconds.',
+        str,
+    ),
     "GROWTH_ICP_REENRICH_DAILY_CAP": (
         get_from_env("GROWTH_ICP_REENRICH_DAILY_CAP", 500, type_cast=int),
         "Max organizations the daily ICP re-enrichment sweep re-fetches from Harmonic per run. The provider spend bound.",
@@ -414,6 +419,7 @@ CONSTANCE_CONFIG = {
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
+    "SIGNUP_BLOCK_RULES",
     "GROWTH_SIGNUP_ENRICHMENT_ENABLED",
     "GROWTH_ICP_REENRICH_DAILY_CAP",
     "GROWTH_RESCORE_WEBHOOK_SECRET",
