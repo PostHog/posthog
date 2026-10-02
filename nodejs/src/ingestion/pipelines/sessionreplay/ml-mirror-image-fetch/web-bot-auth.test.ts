@@ -2,7 +2,7 @@ import { KeyObject, createHash, generateKeyPairSync, verify as verifySignature }
 
 import { createWebBotAuthRequestSigner } from './web-bot-auth'
 
-const SIGNATURE_AGENT = '"https://us.posthog.com/.well-known/http-message-signatures-directory"'
+const SIGNATURE_AGENT = 'sig1="https://us.posthog.com"'
 
 type TestKeyPair = {
     privateKeyPem: string
@@ -39,7 +39,7 @@ function expectSignedHeadersToVerify(
 
     const parameters = signatureInput.slice(label.length + 1)
     const parametersMatch = parameters.match(
-        /^\("@method" "@authority" "@target-uri" "signature-agent"\);created=(\d+);keyid="([^"]+)";alg="ed25519";expires=(\d+);nonce="([^"]+)";tag="web-bot-auth"$/
+        /^\("@method" "@authority" "@target-uri" "signature-agent";key="sig1"\);created=(\d+);keyid="([^"]+)";alg="ed25519";expires=(\d+);nonce="([^"]+)";tag="web-bot-auth"$/
     )
     if (!parametersMatch) {
         throw new Error(`Invalid ${label} parameters`)
@@ -55,7 +55,7 @@ function expectSignedHeadersToVerify(
         `"@method": ${method}\n` +
         `"@authority": ${targetUrl.host}\n` +
         `"@target-uri": ${targetUrl.toString()}\n` +
-        `"signature-agent": ${SIGNATURE_AGENT}\n` +
+        `"signature-agent";key="sig1": "https://us.posthog.com"\n` +
         `"@signature-params": ${parameters}`
     const signatureBytes = Buffer.from(signature.slice(`${label}=:`.length, -1), 'base64')
     expect(verifySignature(null, Buffer.from(signatureBase), publicKey, signatureBytes)).toBe(expectedResult)
@@ -70,7 +70,7 @@ describe('Web Bot Auth request signing', () => {
         jest.useRealTimers()
     })
 
-    it('creates a Cloudflare-compatible signature with current protocol parameters', () => {
+    it('signs with a dictionary Signature-Agent member that names the directory origin', () => {
         const keyPair = generateEd25519KeyPair()
         const signer = createWebBotAuthRequestSigner(keyPair.privateKeyPem)
         const url = 'https://cdn.example.com/image.png?size=large'

@@ -203,9 +203,11 @@ XMP is an opt-out for that image when it has one of these values:
 came from the lane. The operator does not need to trust the user agent. The signature uses three
 headers, per RFC 9421: `Signature`, `Signature-Input`, and `Signature-Agent`.
 
-**4.3** `Signature-Agent` names the origin that serves the lane's public key. That origin serves the
-key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, and answers with the media type
-`application/http-message-signatures-directory+json`.
+**4.3** `Signature-Agent` names the origin that serves the lane's public key, `https://us.posthog.com`. A verifier
+gets the key directory from the well-known path on that origin,
+`https://us.posthog.com/.well-known/http-message-signatures-directory`, which answers with the media type
+`application/http-message-signatures-directory+json`. The member value is an origin and not the directory URL, because
+[section 5.5 of the Web Bot Auth draft](https://datatracker.ietf.org/doc/html/draft-meunier-webbotauth-httpsig-protocol-02#section-5.5) tells a verifier to ignore a directory member that carries a path.
 
 **4.4** Our implementation of Web Bot Auth is tested against Cloudflare's implementation specifically
 
@@ -213,11 +215,11 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **4.6** The page at https://posthog.com/docs/ai-research/image-fetcher-bot (from the User Agent) should link to this README hosted on GitHub
 
-**4.7** The request signature covers `@method`, `@authority`, `@target-uri`, and `signature-agent`.
+**4.7** The request signature covers `@method`, `@authority`, `@target-uri`, and the `Signature-Agent` member for its label, `"signature-agent";key="sig1"`.
 
 **4.8** `Signature-Input` carries `tag="web-bot-auth"`, `alg="ed25519"`, a `keyid` holding the JWK thumbprint of the signing key, `created`, `expires`, and a random nonce. `expires` is 60 seconds after `created`.
 
-**4.9** `Signature-Agent` is a structured string inside double quotes. Cloudflare requires this legacy form and rejects the dictionary form from the current Web Bot Auth draft.
+**4.9** `Signature-Agent` is a dictionary with one member, `sig1="https://us.posthog.com"`. The member key is the label of the signature that covers it. [Section 5.2.1 of the Web Bot Auth draft](https://datatracker.ietf.org/doc/html/draft-meunier-webbotauth-httpsig-protocol-02#section-5.2.1) requires signers to send the dictionary form. The legacy form is a bare string, and a verifier can accept it but does not have to. Cloudflare's documentation describes the legacy form, and Cloudflare's `web-bot-auth` verifier parses both forms.
 
 **4.10** The first configured private key signs outbound requests. The key directory publishes every configured public key so that an operator can rotate keys.
 
@@ -679,7 +681,7 @@ ai_research_session_replay_image_fetch_retry_1h
 | [Directive (EU) 2019/790](https://eur-lex.europa.eu/eli/dir/2019/790/oj), Article 4                                      | Why a TDMRep reservation matters. It removes a permission rather than adds a prohibition                                                                              |
 | [Content Signals](https://contentsignals.org/)                                                                           | Requirement 2.6. The `Content-Signal` robots.txt rule and the `ai-train` category                                                                                     |
 | [RFC 9421](https://www.rfc-editor.org/rfc/rfc9421.html), HTTP Message Signatures                                         | Requirements 4.2 to 4.3 and 4.7 to 4.11. The signatures, covered components, parameters, and the directory response                                                   |
-| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 4.2, 4.4, and 4.7 to 4.11. Cloudflare's verification rules and legacy `Signature-Agent` format                                                           |
+| [Cloudflare Web Bot Auth](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/)               | Requirements 4.2, 4.4, and 4.7 to 4.11. Cloudflare's verification rules                                                                                               |
 | [draft-meunier-webbotauth-httpsig-protocol](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/) | Requirements 4.2 to 4.3 and 4.7 to 4.11. Web Bot Auth. An active individual submission                                                                                |
 | [RFC 7517](https://www.rfc-editor.org/rfc/rfc7517.html), JSON Web Key                                                    | Requirement 4.3. The key directory, and the rule that a reader ignores a member it does not understand                                                                |
 | [RFC 7638](https://www.rfc-editor.org/rfc/rfc7638.html), JWK Thumbprint                                                  | Requirement 4.8. The `kid`, computed over the required members only                                                                                                   |
