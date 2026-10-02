@@ -40,7 +40,6 @@ Metric follow-up checks wait until their full trailing query window contains onl
 
 New metric checks validate numeric goals and baselines against their metric kind, format, unit, and query. Existing check configurations remain readable.
 
-
 ## Repository selection
 
 The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
