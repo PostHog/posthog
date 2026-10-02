@@ -47,6 +47,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
@@ -120,6 +121,7 @@ export interface BroadcastEmailSettings {
     messageCategoryType: string | null
     trackingEnabled: boolean
     utmTagsEnabled: boolean
+    utmParams: UtmTagValues
 }
 
 export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
@@ -127,6 +129,7 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryType: null,
     trackingEnabled: true,
     utmTagsEnabled: false,
+    utmParams: {},
 }
 
 function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null {
@@ -139,6 +142,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
+        utmParams: config.utm_params ?? {},
     }
 }
 
@@ -151,6 +155,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         message_category_type: settings.messageCategoryType ?? undefined,
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
+        utm_params: settings.utmParams,
     }
 }
 

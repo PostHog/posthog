@@ -30,7 +30,7 @@ import {
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { addUtmTagsToEmail } from './helpers/utm'
+import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
@@ -579,11 +579,20 @@ export class EmailService {
                           ...params,
                           html: addUtmTagsToEmail(
                               params.html,
-                              {
-                                  utm_source: 'posthog',
-                                  utm_medium: 'email',
-                                  utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
-                              },
+                              resolveUtmTags(
+                                  {
+                                      utm_source: 'posthog',
+                                      utm_medium: 'email',
+                                      utm_campaign: metadata.hog_flow_name ?? invocation.hogFunction.name,
+                                      utm_content: metadata.hog_flow_action_name ?? '',
+                                  },
+                                  renderUtmOverrides(metadata.utm_params, invocation.state.globals, (key, message) =>
+                                      addLog(
+                                          'warn',
+                                          `Used the default ${key} because its value has an error: ${message}`
+                                      )
+                                  )
+                              ),
                               this.siteUrl
                           ),
                       }

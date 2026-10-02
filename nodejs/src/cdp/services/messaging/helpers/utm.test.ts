@@ -1,6 +1,6 @@
-import { addUtmTagsToEmail } from './utm'
+import { addUtmTagsToEmail, resolveUtmTags } from './utm'
 
-const TAGS = { utm_source: 'posthog', utm_medium: 'email', utm_campaign: 'Spring sale' }
+const TAGS = { utm_source: 'posthog', utm_medium: 'email', utm_campaign: 'Spring sale', utm_content: '' }
 const SITE_URL = 'https://us.posthog.com'
 const QUERY = 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale'
 
@@ -38,11 +38,39 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="mailto:hi@example.com">m</a><a href="/docs">r</a><a href="#top">a</a>',
         },
         {
+            case: 'a link marked data-ph-no-utm',
+            html: '<a data-ph-no-utm href="https://example.com/pricing">x</a>',
+            expected: '<a data-ph-no-utm href="https://example.com/pricing">x</a>',
+        },
+        {
             case: 'an unrendered template tag',
             html: '<a href="https://example.com/{{ person.id }}">x</a>',
             expected: '<a href="https://example.com/{{ person.id }}">x</a>',
         },
     ])('tags $case', ({ html, expected }) => {
         expect(addUtmTagsToEmail(html, TAGS, SITE_URL)).toEqual(expected)
+    })
+
+    it.each([
+        {
+            case: 'no custom values',
+            rendered: undefined,
+            expected: { utm_campaign: 'Spring sale', utm_content: 'Send email' },
+        },
+        {
+            case: 'a custom campaign and content',
+            rendered: { utm_campaign: 'pro-plan', utm_content: ' hero ' },
+            expected: { utm_campaign: 'pro-plan', utm_content: 'hero' },
+        },
+        {
+            case: 'a value that rendered empty',
+            rendered: { utm_campaign: '  ' },
+            expected: { utm_campaign: 'Spring sale' },
+        },
+    ])('resolves the tags from $case', ({ rendered, expected }) => {
+        expect(resolveUtmTags({ ...TAGS, utm_content: 'Send email' }, rendered)).toMatchObject({
+            utm_source: 'posthog',
+            ...expected,
+        })
     })
 })

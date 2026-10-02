@@ -1485,17 +1485,35 @@ describe('EmailService', () => {
                 expect(headerNames).toContain('X-PostHog-Tracking-Code')
             })
 
-            it('adds UTM tags named after the workflow to the links when the step turns them on', async () => {
+            it.each([
+                {
+                    case: 'the workflow and step names',
+                    utmParams: undefined,
+                    query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome',
+                },
+                {
+                    case: 'rendered custom values',
+                    utmParams: { utm_source: 'newsletter', utm_campaign: '{{ "pro" | upcase }}' },
+                    query: 'utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=PRO&amp;utm_content=Welcome',
+                },
+                {
+                    case: 'the default for a value with a Liquid error',
+                    utmParams: { utm_campaign: '{{ person.properties.plan' },
+                    query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome',
+                },
+            ])('tags the links with $case when the step turns UTM tags on', async ({ utmParams, query }) => {
                 invocation.hogFunction.metadata = {
                     tracking_enabled: false,
                     utm_tags_enabled: true,
+                    utm_params: utmParams,
                     hog_flow_name: 'Spring sale',
+                    hog_flow_action_name: 'Welcome',
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
-                    '<body>Hi! <a href="https://example.com?utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale">Click me</a></body>'
+                    `<body>Hi! <a href="https://example.com?${query}">Click me</a></body>`
                 )
             })
 

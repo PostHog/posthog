@@ -11,10 +11,11 @@ import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
+import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
 import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { email, stepValidationErrors, selectedSender, emailSettings } = useValues(broadcastWizardLogic)
+    const { email, name, stepValidationErrors, selectedSender, emailSettings } = useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -120,10 +121,12 @@ export function BroadcastContentStep(): JSX.Element {
                 data-attr="broadcast-utm-tags-toggle"
             />
             {emailSettings.utmTagsEnabled && (
-                <span className="text-xs text-secondary">
-                    Links get utm_source=posthog, utm_medium=email and utm_campaign with this broadcast's name. Tags
-                    already on a link are kept.
-                </span>
+                <UtmTagFields
+                    value={emailSettings.utmParams}
+                    onChange={(utmParams) => setEmailSettings({ utmParams })}
+                    campaignDefault={name || 'Broadcast name'}
+                    contentDefault="Send email"
+                />
             )}
         </div>
     )

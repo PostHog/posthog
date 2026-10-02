@@ -148,9 +148,7 @@ export function BroadcastReviewStep(): JSX.Element {
                     {!emailSettings.trackingEnabled && (
                         <div className="text-xs text-secondary">Open and click tracking is off.</div>
                     )}
-                    {emailSettings.utmTagsEnabled && (
-                        <div className="text-xs text-secondary">Links get UTM tags with this broadcast's name.</div>
-                    )}
+                    {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
                     <BroadcastEmailPreview />
                 </ReviewRow>
 

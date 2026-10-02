@@ -171,6 +171,8 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                             template_id: 'template-email',
                             // The test shows the links as the audience gets them.
                             utm_tags_enabled: emailSettings.utmTagsEnabled,
+                            // The real send's step is named "Send email", so the test uses that as the default content tag.
+                            utm_params: { utm_content: 'Send email', ...emailSettings.utmParams },
                             inputs: {
                                 email: {
                                     value: {
