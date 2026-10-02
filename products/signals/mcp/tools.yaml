@@ -233,8 +233,17 @@ tools:
             `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses
             are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
             full work log, including signal findings, judgments, and log entries, is readable via
-            inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
-            '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
+            inbox-report-artefacts-list; read it before acting on a report. Called with no filters (only `limit`,
+            `offset`, or `count_only`), the tool returns the requesting user's personal Inbox when it is enabled for
+            them: reports that name the user as a suggested reviewer or that the user claimed, in the same order the
+            Inbox shows them. Use this to answer "what needs me" or "what should I look at first". Each row then has
+            `personal_inbox` with the reasons, an action state, and a recommended next action; keep the order and use
+            these fields instead of re-deriving them. Rows with a null `personal_inbox` mean the list is project-wide.
+            Any filter, sort, or scope turns this default off and keeps its literal meaning, so a search without
+            `scope` searches the whole project. Pass `scope=for_me` with `sort=relevance` to filter the personal Inbox,
+            and pass `scope=entire_project` explicitly when you need complete project data. Task agents always get
+            the project-wide list. Otherwise results are paginated and ordered by
+            '-is_suggested_reviewer,status,-updated_at'. To pick ready work for an agent to implement, pass
             `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
             actionable reports that have no implementation PR yet, at or above the requesting user's personal
             PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
@@ -288,6 +297,7 @@ tools:
                 - tracker_issue_error
                 - work_state
                 - assignee
+                - personal_inbox
                 - created_at
                 - updated_at
     inbox-reports-merge:

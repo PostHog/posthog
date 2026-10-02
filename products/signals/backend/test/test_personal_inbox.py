@@ -293,6 +293,35 @@ class TestPersonalInboxListAPI(APIBaseTest):
         assert row["next_action"] == {"kind": "review_finding", "pull_request_url": None}
         assert row["policy_version"] == "personal-inbox-v1"
 
+    @parameterized.expand(
+        [
+            ("bare_mcp_call", {}, {"HTTP_X_POSTHOG_CLIENT": "mcp"}, {"Mine"}),
+            (
+                "mcp_search_keeps_project_scope",
+                {"search": "report"},
+                {"HTTP_X_POSTHOG_CLIENT": "mcp"},
+                {"Mine", "Theirs"},
+            ),
+            (
+                "task_agent_keeps_project_scope",
+                {},
+                {"HTTP_X_POSTHOG_CLIENT": "mcp", "HTTP_X_POSTHOG_TASK_ID": "00000000-0000-4000-8000-000000000001"},
+                {"Mine", "Theirs"},
+            ),
+            ("web_call_keeps_project_scope", {}, {}, {"Mine", "Theirs"}),
+        ]
+    )
+    def test_bare_mcp_list_defaults_to_the_personal_inbox(
+        self, _flag, _name: str, query: dict, headers: dict, expected: set[str]
+    ) -> None:
+        self._name_reviewer(self._report("Mine report"), self.user)
+        self._report("Theirs report")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{urlencode(query)}", **headers)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["title"].removesuffix(" report") for row in response.json()["results"]} == expected
+
     def test_relevance_requires_the_personal_scope(self, _flag) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?sort=relevance")
 

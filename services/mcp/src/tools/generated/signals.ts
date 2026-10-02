@@ -405,6 +405,7 @@ const inboxReportsList = (): ToolBase<
                     'tracker_issue_error',
                     'work_state',
                     'assignee',
+                    'personal_inbox',
                     'created_at',
                     'updated_at',
                 ])

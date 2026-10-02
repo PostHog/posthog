@@ -1037,6 +1037,8 @@ The same scope hides resolved, dismissed, and snoozed (`potential`) reports unle
 It ranks every selected report before pagination: urgent (`P0`) work the user can act on, then other actionable work, unverified state, and waiting work, each ordered by priority, then claimed before reviewer-only, then the latest research run.
 `decide` derives each row's action state and next action from report status, the actionability judgment, claims, and every linked PR, and the list returns it as `personal_inbox` with a `policy_version`.
 The list stays read-only: a next action is a recommendation, not permission to act.
+An MCP list call with no filters (only `limit`, `offset`, `count_only`, or `include_source_metadata`) gets `scope=for_me` and `sort=relevance` when the flag is on, so an agent sees the user's Inbox without a skill.
+Any other parameter keeps its literal meaning, and calls from task agents (`X-PostHog-Task-Id`) keep the project-wide default.
 
 **Dismissal feedback.** `dismissal_reason` / `dismissal_note` on the state and bulk-state bodies persist as a stacking `dismissal` artefact on the report, which stays the record of truth.
 When the caller typed a note, that feedback is _also_ forwarded to a `SignalScoutNote` (`dismissal_notes.forward_dismissal_note`).
