@@ -1255,6 +1255,7 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
                 "get_team": lambda: self._team,
                 "user": self._user,
                 "user_access_control": self.user_access_control,
+                "event_source": EventSource.POSTHOG_AI,
             },
         )
         if not serializer.is_valid():

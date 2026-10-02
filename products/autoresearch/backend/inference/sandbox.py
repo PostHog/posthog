@@ -74,7 +74,7 @@ from products.autoresearch.backend.dataset.labeling import (
     build_training_features_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
-from products.autoresearch.backend.query import run_hogql
+from products.autoresearch.backend.query import INTERACTIVE_QUERY, QueryContext, run_hogql
 from products.autoresearch.backend.training.artifacts import (
     MAX_ARTIFACT_BYTES,
     ArtifactBundle,
@@ -236,6 +236,7 @@ def score_via_sandbox(
     model: AutoresearchModel,
     cutoff_ts: int | None = None,
     user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> SandboxScoreResult:
     """
     Predict run: score the inference population with the champion's persisted model.
@@ -266,7 +267,12 @@ def score_via_sandbox(
         )
 
     score_rows = _materialize_score_data(
-        team=team, pipeline=pipeline, feature_sql=bundle.features_sql, cutoff_ts=cutoff_ts, user=acting_user
+        team=team,
+        pipeline=pipeline,
+        feature_sql=bundle.features_sql,
+        cutoff_ts=cutoff_ts,
+        user=acting_user,
+        query_context=query_context,
     )
     n_train = int((model.metrics or {}).get("n_train") or 0)
     # A population that matches nobody today is a real zero, not a failure: retrying cannot
@@ -433,6 +439,7 @@ def _materialize_score_data(
     feature_sql: str,
     cutoff_ts: int | None = None,
     user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> list[dict[str, Any]]:
     """
     Predict run materialization: the bundle's feature SQL against the inference anchors
@@ -450,8 +457,12 @@ def _materialize_score_data(
         target_definition=pipeline.target_definition,
         team=team,
     )
-    score_rows = _materialize_rows(team=team, sql=score_sql, values=score_values, user=user)
-    expected = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
+    score_rows = _materialize_rows(
+        team=team, sql=score_sql, values=score_values, user=user, query_context=query_context
+    )
+    expected = count_inference_anchors(
+        team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+    )
     _validate_rows_key_one_person(score_rows, source="inference feature_sql", expected_count=expected)
     logger.info(
         "autoresearch_score_materialized", pipeline_id=str(pipeline.pk), n_score=len(score_rows), cutoff_ts=cutoff_ts
@@ -460,14 +471,21 @@ def _materialize_score_data(
 
 
 def measure_training_sample(
-    *, team: Team, pipeline: AutoresearchPipeline, anchor_ts: int | None = None, user: User | None = None
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    anchor_ts: int | None = None,
+    user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> TrainingSample:
     """
     Count the whole labeled population and its positives, and choose the negative sample rate
     that fits it under the training budget. The counts are aggregates, so no row cap applies.
     """
     sql, values = _labeler_sql(team=team, pipeline=pipeline, anchor_ts=anchor_ts)
-    row = _count_rows(team=team, sql=sql, values=values, user=user, what="Training population")
+    row = _count_rows(
+        team=team, sql=sql, values=values, user=user, what="Training population", query_context=query_context
+    )
     population, positives = int(row[0] or 0), int(row[1] or 0)
     try:
         return TrainingSample.plan(population=population, positives=positives)
@@ -498,6 +516,7 @@ def count_training_anchors(
     anchor_ts: int | None = None,
     user: User | None = None,
     negative_sample_rate: float = 1.0,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> int:
     """
     How many labeled anchors the trainer materializes at ``negative_sample_rate``, so feature SQL
@@ -507,11 +526,18 @@ def count_training_anchors(
     sql, values = _labeler_sql(
         team=team, pipeline=pipeline, anchor_ts=anchor_ts, negative_sample_rate=negative_sample_rate
     )
-    return _count(team=team, sql=sql, values=values, user=user, what="Training anchor count")
+    return _count(
+        team=team, sql=sql, values=values, user=user, what="Training anchor count", query_context=query_context
+    )
 
 
 def count_inference_anchors(
-    *, team: Team, pipeline: AutoresearchPipeline, cutoff_ts: int | None = None, user: User | None = None
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    cutoff_ts: int | None = None,
+    user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> int:
     """
     How many people the inference anchors hold, so a feature query that drops some of them
@@ -527,16 +553,37 @@ def count_inference_anchors(
         team=team,
     )
     return _count(
-        team=team, sql=f"SELECT count() FROM ({anchors_sql.strip()})", values=values, user=user, what="Anchor count"
+        team=team,
+        sql=f"SELECT count() FROM ({anchors_sql.strip()})",
+        values=values,
+        user=user,
+        what="Anchor count",
+        query_context=query_context,
     )
 
 
-def _count(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> int:
+def _count(
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User | None,
+    what: str,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> int:
     """Run a query whose first column of its first row is the count the caller wants."""
-    return int(_count_rows(team=team, sql=sql, values=values, user=user, what=what)[0])
+    return int(_count_rows(team=team, sql=sql, values=values, user=user, what=what, query_context=query_context)[0])
 
 
-def _count_rows(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> list[Any]:
+def _count_rows(
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User | None,
+    what: str,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> list[Any]:
     """Run a query that returns one aggregate row, and return that row."""
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
@@ -545,6 +592,7 @@ def _count_rows(*, team: Team, sql: str, values: dict[str, Any], user: User | No
             query=HogQLQuery(query=sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_context=query_context,
         )
     except Exception as exc:
         raise SandboxInferenceError(f"{what} query failed: {exc}") from exc
@@ -563,7 +611,12 @@ def _validate_rows_key_one_person(
 
 
 def _materialize_rows(
-    *, team: Team, sql: str, values: dict[str, Any], user: User | None = None
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> list[dict[str, Any]]:
     """Run a HogQL query and return rows as dicts, coercing person_id (distinct_id) to str."""
     bounded_sql = sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
@@ -576,6 +629,7 @@ def _materialize_rows(
             query=HogQLQuery(query=bounded_sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_context=query_context,
         )
     except Exception as exc:
         raise SandboxInferenceError(f"Feature query failed: {exc}") from exc

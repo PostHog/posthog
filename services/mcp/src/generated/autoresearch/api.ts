@@ -425,6 +425,8 @@ export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
 
+export const autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault = ``
+
 export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
     .object({
         best_iteration_id: zod
@@ -450,6 +452,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
             .describe(
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
+            ),
+        report_notebook_short_id: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault)
+            .describe(
+                'Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion.'
             ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')

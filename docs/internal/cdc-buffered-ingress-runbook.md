@@ -134,10 +134,9 @@ columns reports no position on that run, since none of its files carries the sta
 residual buffer is merged once more and billed once; the next write lands with the statistic and the
 position reads normally from then on.
 
-**A run stands down while any delivery for the schema is still in the queue**: a previous attempt
-of this same job, or a batch the retired legacy lane queued before its source was converted. Either
-would write alongside whatever this run reads, and on the append lane that is a second copy of the
-same history. Two scheduled runs cannot overlap on their
+**A run stands down while any delivery for the schema is still in the queue**: a batch that a
+previous attempt of this same job left there. It would write alongside whatever this run reads, and
+on the append lane that is a second copy of the same history. Two scheduled runs cannot overlap on their
 own: the v3 pipeline lock is held from the start of the workflow until the loader completes the
 job. The window is a retried activity, which runs under the lock its own workflow already holds,
 and a lock takeover, which hands the lock to a new job while the old one's batches are still
@@ -147,29 +146,18 @@ consumed. The next scheduled run picks the buffer up once the queue has drained.
 
 ## Leftover legacy state
 
-Capture used to deliver some tables' changes itself, on what is now the retired legacy lane.
-That lane paused each such table's schedule while it streamed, held a snapshotting table's changes as deferred runs in `sync_type_config["cdc_deferred_runs"]`, marked its source `cdc_ingest_mode: legacy`, and created job rows of its own.
-Capture converts that state before every read (`cdc/legacy_conversion.py`), so nothing needs doing by hand:
+Capture used to deliver some tables' changes itself, on the retired legacy lane.
+The code that converted what that lane left behind is gone.
+Every source that still read as legacy when it was removed is marked `cdc_broken`, so Repair CDC is its only way back.
+Repair CDC resets every table, recreates the slot and resumes the table schedules, so no legacy state survives it.
 
-- **A source still marked legacy** has every CDC table's buffer emptied, since it holds only copies of changes the legacy lane already delivered.
-  Each table is stamped `cdc_legacy_converted_at`, because it is current as of the conversion: without the stamp, its first sync would find no run that ever listed the buffer, take the buffer for expired, and re-snapshot the table (see "Buffer expiry — no partial recovery").
-  Each syncing table's schedule is rebuilt unpaused, because it is now the table's consumer.
-  A table set slower than its source's fastest table is sped up to it (`cdc_legacy_table_frequency_raised`), because that is how often the legacy lane delivered its changes.
-  The source is then marked `cdc_ingest_mode: buffered`, last, so a failure repeats the whole conversion on the next run.
-  Legacy batches still in the load queue land first, because the consumer stands down while any are in flight.
-  Until then, a scheduled run of one of its tables, such as one a sync frequency change unpaused, no-ops the tick (`cdc_buffered_waiting_for_legacy_conversion`), because reading those copies would load them a second time.
-- **A table with deferred runs** snapshots again in the buffer, through the same pending reset a resync hands to capture (`cdc_legacy_deferred_runs_handed_to_reset`).
-  Nothing merges deferred runs anymore, so the reset pauses the table's schedule and cancels its running sync, and waits while either can still hand over (`cdc_reset_waits_for_running_sync`).
-  Then it resets the table, drops the deferred runs, empties its buffer, and starts the new snapshot.
-  Capture gives the table no buffered snapshot of its own before that, because the old sync could hand over into it without the deferred changes.
-- **A job row a legacy capture run left Running** is failed once it is 30 minutes old and has no batches in the queue.
+Two leftovers remain in the data, and nothing reads them:
 
-A rebuilt schedule is skipped where the pause is deliberate: the schema's status is `Paused`, an admin-triggered run holds it, the schema is halted and waits for Repair CDC, a pending reset holds it, or it has no sync frequency.
-Every step logs (`cdc_legacy_source_converted`, `cdc_legacy_deferred_runs_handed_to_reset`, `cdc_stranded_capture_jobs_closed`); once none of them appears across the fleet, the module can go.
-
-A source whose slot is gone does not capture at all, so it converts only after Repair CDC, which already resets every table and marks the source buffered.
-
-`cdc_ingest_mode` must survive every API write. A PATCH that dropped it would make capture read the source as legacy and empty its unconsumed buffer.
+- `cdc_ingest_mode` in a source's `job_inputs`.
+  CDC setup and Repair CDC still write `buffered`, and the API still keeps the key on a PATCH.
+  A rollback to the release that converted legacy sources would read a source without it as legacy and empty its unconsumed buffer.
+- `cdc_deferred_runs` in a table's `sync_type_config`.
+  A resync, a table-mode change and Repair CDC remove it.
 
 ## When a schedule stops firing
 

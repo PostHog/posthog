@@ -163,6 +163,7 @@ class TrainingRunSummary:
     dead_ends: list[TrainingRunSummaryLadderItem]
     recommended_next: str
     distillation: str
+    report_notebook_short_id: str
 
 
 @dataclass(frozen=True)
