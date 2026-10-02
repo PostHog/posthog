@@ -2,6 +2,8 @@ import './Today.scss'
 
 import { useValues } from 'kea'
 
+import { TodayPreviewCardProvider } from '~/layout/today/TodayPreviewCardProvider'
+
 import { TodayBriefing } from './TodayBriefing'
 import { todayLogic } from './todayLogic'
 import { TodayReportPage } from './TodayReportPage'
@@ -12,7 +14,13 @@ export function TodayHome(): JSX.Element {
 
     return (
         <div className="Today flex-1 min-h-full @container/today">
-            {reportId ? <TodayReportPage key={reportId} reportId={reportId} /> : <TodayBriefing />}
+            {reportId ? (
+                <TodayReportPage key={reportId} reportId={reportId} />
+            ) : (
+                <TodayPreviewCardProvider>
+                    <TodayBriefing />
+                </TodayPreviewCardProvider>
+            )}
         </div>
     )
 }

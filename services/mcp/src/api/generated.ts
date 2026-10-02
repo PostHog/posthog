@@ -17960,6 +17960,163 @@ export namespace Schemas {
     }
 
     /**
+     * * `draft` - draft
+     * * `open` - open
+     * * `closed` - closed
+     * * `merged` - merged
+     */
+    export type PullRequestStateEnum = typeof PullRequestStateEnum[keyof typeof PullRequestStateEnum];
+
+
+    export const PullRequestStateEnum = {
+      Draft: 'draft',
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
+    } as const;
+
+    /**
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom
+     */
+    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
+
+
+    export const ReportMetricKindEnum = {
+      AffectedUsers: 'affected_users',
+      AffectedSessions: 'affected_sessions',
+      Occurrences: 'occurrences',
+      ConversionRate: 'conversion_rate',
+      ErrorRate: 'error_rate',
+      Duration: 'duration',
+      Revenue: 'revenue',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `primary` - primary
+     * * `supporting` - supporting
+     */
+    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
+
+
+    export const RoleEnum = {
+      Primary: 'primary',
+      Supporting: 'supporting',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency
+     */
+    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
+
+
+    export const ValueFormatEnum = {
+      Number: 'number',
+      Count: 'count',
+      Percentage: 'percentage',
+      PercentageScaled: 'percentage_scaled',
+      Duration: 'duration',
+      Currency: 'currency',
+    } as const;
+
+    export interface BriefingItemMetric {
+      /** Stable slug of the metric within its report. */
+      metric_id: string;
+      /** Short label of what the metric measures. */
+      title: string;
+      /** What the value measures, for example affected_users.
+       *
+       * * `affected_users` - affected_users
+       * * `affected_sessions` - affected_sessions
+       * * `occurrences` - occurrences
+       * * `conversion_rate` - conversion_rate
+       * * `error_rate` - error_rate
+       * * `duration` - duration
+       * * `revenue` - revenue
+       * * `custom` - custom */
+      kind: ReportMetricKindEnum;
+      /** `primary` for the report's key observation, otherwise `supporting`.
+       *
+       * * `primary` - primary
+       * * `supporting` - supporting */
+      role: RoleEnum;
+      /** The latest saved snapshot of the metric. */
+      value: number;
+      /**
+         * Trailing per-bucket values saved with the snapshot, oldest first. Null when none were saved.
+         * @nullable
+         */
+      series: number[] | null;
+      /** How to format the value, for example count.
+       *
+       * * `number` - number
+       * * `count` - count
+       * * `percentage` - percentage
+       * * `percentage_scaled` - percentage_scaled
+       * * `duration` - duration
+       * * `currency` - currency */
+      value_format: ValueFormatEnum;
+      /**
+         * Optional short suffix or currency code, such as USD.
+         * @nullable
+         */
+      unit: string | null;
+      /** The metric's live InsightVizNode wrapping one TrendsQuery, as the report stores it. */
+      query: unknown;
+    }
+
+    export interface BriefingItemChart {
+      /** Stable slug of the chart within its report. */
+      chart_id: string;
+      /** Short heading of the chart. */
+      title: string;
+      /** The query node the report body draws, as the report stores it. */
+      query: unknown;
+    }
+
+    export interface BriefingItemReport {
+      /**
+         * The report's priority, P0 to P4, or null if unset.
+         * @nullable
+         */
+      priority: string | null;
+      /** The report's summary, shortened to a few sentences. */
+      summary: string;
+      /** State of the report's implementation pull request, or null when it has none.
+       *
+       * * `draft` - draft
+       * * `open` - open
+       * * `closed` - closed
+       * * `merged` - merged */
+      pull_request_state: PullRequestStateEnum | null;
+      /**
+         * URL of the report's implementation pull request, or null when it has none.
+         * @nullable
+         */
+      pull_request_url: string | null;
+      /** How many signals the report groups. */
+      signal_count: number;
+      /** When the report last changed. */
+      updated_at: string;
+      /** The report's metrics that have a saved snapshot, in the report's order. */
+      metrics: BriefingItemMetric[];
+      /** The charts in the report body, in the report's order. */
+      charts: BriefingItemChart[];
+    }
+
+    /**
      * * `report` - REPORT
      * * `dashboard` - DASHBOARD
      * * `other` - OTHER
@@ -18030,6 +18187,7 @@ export namespace Schemas {
     /**
      * * `open` - OPEN
      * * `done` - DONE
+     * * `dismissed` - DISMISSED
      */
     export type BriefingItemStateEnum = typeof BriefingItemStateEnum[keyof typeof BriefingItemStateEnum];
 
@@ -18037,6 +18195,7 @@ export namespace Schemas {
     export const BriefingItemStateEnum = {
       Open: 'open',
       Done: 'done',
+      Dismissed: 'dismissed',
     } as const;
 
     export interface BriefingItem {
@@ -18057,9 +18216,16 @@ export namespace Schemas {
          * @nullable
          */
       source_product: string | null;
+      /** For a report, its priority, summary, implementation pull request and the metric snapshots the viewer may read. Null for every other item and for a deleted report. */
+      report: BriefingItemReport | null;
       group: TodayItemGroupEnum;
       source: TodayItemSourceEnum;
       reason: TodayItemReasonEnum;
+      /** `done` when the item was resolved since the briefing was written, `dismissed` when it was dismissed or suppressed, else `open`. Pull requests always stay `open`.
+       *
+       * * `open` - OPEN
+       * * `done` - DONE
+       * * `dismissed` - DISMISSED */
       state: BriefingItemStateEnum;
     }
 
@@ -36681,62 +36847,6 @@ export namespace Schemas {
        * * `large` - large */
       size?: SizeEnum | null;
     }
-
-    /**
-     * * `affected_users` - affected_users
-     * * `affected_sessions` - affected_sessions
-     * * `occurrences` - occurrences
-     * * `conversion_rate` - conversion_rate
-     * * `error_rate` - error_rate
-     * * `duration` - duration
-     * * `revenue` - revenue
-     * * `custom` - custom
-     */
-    export type ReportMetricKindEnum = typeof ReportMetricKindEnum[keyof typeof ReportMetricKindEnum];
-
-
-    export const ReportMetricKindEnum = {
-      AffectedUsers: 'affected_users',
-      AffectedSessions: 'affected_sessions',
-      Occurrences: 'occurrences',
-      ConversionRate: 'conversion_rate',
-      ErrorRate: 'error_rate',
-      Duration: 'duration',
-      Revenue: 'revenue',
-      Custom: 'custom',
-    } as const;
-
-    /**
-     * * `primary` - primary
-     * * `supporting` - supporting
-     */
-    export type RoleEnum = typeof RoleEnum[keyof typeof RoleEnum];
-
-
-    export const RoleEnum = {
-      Primary: 'primary',
-      Supporting: 'supporting',
-    } as const;
-
-    /**
-     * * `number` - number
-     * * `count` - count
-     * * `percentage` - percentage
-     * * `percentage_scaled` - percentage_scaled
-     * * `duration` - duration
-     * * `currency` - currency
-     */
-    export type ValueFormatEnum = typeof ValueFormatEnum[keyof typeof ValueFormatEnum];
-
-
-    export const ValueFormatEnum = {
-      Number: 'number',
-      Count: 'count',
-      Percentage: 'percentage',
-      PercentageScaled: 'percentage_scaled',
-      Duration: 'duration',
-      Currency: 'currency',
-    } as const;
 
     /**
      * * `at_most` - at_most
@@ -69905,6 +70015,11 @@ export namespace Schemas {
      */
     export type ReportRankingScores = {[key: string]: number};
 
+    /**
+     * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+     */
+    export type ReportRankingLifts = {[key: string]: number};
+
     export interface ReportRanking {
       /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
       served_key: string;
@@ -69918,6 +70033,8 @@ export namespace Schemas {
       scored_at: string;
       /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
       scores: ReportRankingScores;
+      /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
+      lifts: ReportRankingLifts;
       /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
       readable_heads: string[];
     }
@@ -69928,6 +70045,8 @@ export namespace Schemas {
       readonly title: string | null;
       /** @nullable */
       readonly summary: string | null;
+      /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+      readonly summary_lead: string;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -90686,6 +90805,8 @@ export namespace Schemas {
       readonly title: string | null;
       /** @nullable */
       readonly summary: string | null;
+      /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+      readonly summary_lead: string;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;

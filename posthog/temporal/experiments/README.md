@@ -31,7 +31,7 @@ There are two parallel workflow systems:
 
 When a schedule triggers, it starts a workflow that:
 
-1. Discovers which experiment-metric pairs need calculation
+1. Discovers which experiment-metric pairs need calculation. It skips the metrics that `is_scheduled_metric` rejects, the same as recalculation discovery: legacy metrics without a `metric_type`, and metrics without a uuid
 2. Calculates each experiment's metrics in parallel, under one hour-wide concurrency limit
 3. Stores results in the database
 4. Assembles one completed metrics recalculation per experiment as soon as that experiment's own metrics finish (see below)

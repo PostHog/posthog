@@ -2,7 +2,6 @@ import './SavedInsights.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ComponentType } from 'react'
 
 import { IconEllipsis, IconHeart, IconHeartFilled, IconTrash } from '@posthog/icons'
 
@@ -28,7 +27,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { isNonEmptyObject } from 'lib/utils/guards'
 import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
@@ -46,21 +44,17 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { isNodeWithSource } from '~/queries/utils'
-import { AccessControlLevel, AccessControlResourceType, ActivityScope, InsightModel, SavedInsightsTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ActivityScope, SavedInsightsTabs } from '~/types'
 
 import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { HomeDashboardStarterModal } from 'products/product_analytics/frontend/insights/home/HomeDashboardStarterModal'
-
-export * from './insightTypesMetadata'
-
 import { ProductAnalyticsNotifications } from 'products/product_analytics/frontend/notifications/ProductAnalyticsNotifications'
 import { productAnalyticsNotificationsLogic } from 'products/product_analytics/frontend/notifications/productAnalyticsNotificationsLogic'
 
 import { isDraftInsightRow } from './draftInsight'
 import { DraftInsightMoreMenu, DraftInsightNameCell } from './DraftInsightRow'
 import { HomeTab } from './HomeTab'
-import { QUERY_TYPES_METADATA } from './insightTypesMetadata'
+import { InsightIcon } from './InsightIcon'
 import { NewInsightButton } from './NewInsightMenu'
 import { SavedInsightListItem, savedInsightsLogic } from './savedInsightsLogic'
 
@@ -69,18 +63,6 @@ export const scene: SceneExport = {
     logic: savedInsightsLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
     emptyState: productAnalyticsEmptyState,
-}
-
-export function InsightIcon({ insight, className }: { insight: InsightModel; className?: string }): JSX.Element | null {
-    let Icon: ComponentType<any> | null = null
-
-    if ('query' in insight && isNonEmptyObject(insight.query)) {
-        const insightType = isNodeWithSource(insight.query) ? insight.query.source.kind : insight.query.kind
-        const insightMetadata = QUERY_TYPES_METADATA[insightType]
-        Icon = insightMetadata && insightMetadata.icon
-    }
-
-    return Icon ? <Icon className={className} /> : null
 }
 
 export function SavedInsights(): JSX.Element {
