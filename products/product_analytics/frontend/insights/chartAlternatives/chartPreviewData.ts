@@ -22,6 +22,19 @@ export const RAW_TIME_SERIES_DISPLAYS = new Set<ChartDisplayType>([
     ChartDisplayType.Metric,
 ])
 
+// A tile is too small to tell more series apart, and each extra series adds render time to every tile.
+export const PREVIEW_SERIES_LIMIT = 10
+
+// Pie and donut tiles show the total of every slice, and a map needs every country, so they keep all rows.
+const SERIES_CAPPED_DISPLAYS = new Set<ChartDisplayType>([
+    ...RAW_TIME_SERIES_DISPLAYS,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.SlopeGraph,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.BoxPlot,
+])
+
 interface PreviewRows {
     response: AnyResponseType
     results: TrendResult[]
@@ -186,14 +199,32 @@ function candidateRows(
     return candidates
 }
 
-// Builds the result a chart type would render, without a query: from the insight's loaded result, or from
-// a raw time series for the same query when the loaded result is a total value. Returns null when neither
-// can produce the display.
-export function deriveChartPreview(
+function seriesKey(result: TrendResult): string {
+    return JSON.stringify([result.order ?? result.action?.order, result.breakdown_value])
+}
+
+// Keeps whole series, so a comparison keeps the previous-period row of each series it shows.
+function capSeries(display: ChartDisplayType, preview: ChartPreviewData): ChartPreviewData {
+    const results = resultsOf(preview.response)
+    const series = results.filter((result) => result.compare_label !== 'previous')
+    if (!SERIES_CAPPED_DISPLAYS.has(display) || series.length <= PREVIEW_SERIES_LIMIT) {
+        return preview
+    }
+    const kept = new Set(series.slice(0, PREVIEW_SERIES_LIMIT).map(seriesKey))
+    return {
+        ...preview,
+        response: withResults(
+            preview.response,
+            results.filter((result) => kept.has(seriesKey(result)))
+        ),
+    }
+}
+
+function deriveUncappedPreview(
     display: ChartDisplayType,
     source: TrendsQuery,
     loadedResponse: AnyResponseType,
-    timeSeriesResponse: AnyResponseType | null = null
+    timeSeriesResponse: AnyResponseType | null
 ): ChartPreviewData | null {
     const keepComparison =
         (display !== ChartDisplayType.SlopeGraph && !!source.compareFilter?.compare) ||
@@ -223,4 +254,17 @@ export function deriveChartPreview(
     return recipe.sampleRows
         ? { response: withResults(loaded.response, recipe.sampleRows(loaded.results)), sample: true }
         : null
+}
+
+// Builds the result a chart type would render, without a query: from the insight's loaded result, or from
+// a raw time series for the same query when the loaded result is a total value. Returns null when neither
+// can produce the display.
+export function deriveChartPreview(
+    display: ChartDisplayType,
+    source: TrendsQuery,
+    loadedResponse: AnyResponseType,
+    timeSeriesResponse: AnyResponseType | null = null
+): ChartPreviewData | null {
+    const preview = deriveUncappedPreview(display, source, loadedResponse, timeSeriesResponse)
+    return preview && capSeries(display, preview)
 }

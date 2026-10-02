@@ -16,6 +16,7 @@ use tonic::transport::{Channel, Endpoint};
 use tonic::{Request, Response, Status};
 
 use crate::grpc::{code_as_str, CLIENT_NAME_HEADER};
+use crate::h2_window::Http2Windows;
 
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
@@ -76,12 +77,26 @@ impl RouterClient {
         request_timeout: Duration,
         channels: usize,
     ) -> Result<Self, tonic::transport::Error> {
+        Self::with_channels_and_windows(
+            router_url,
+            request_timeout,
+            channels,
+            Http2Windows::default(),
+        )
+    }
+
+    pub fn with_channels_and_windows(
+        router_url: &str,
+        request_timeout: Duration,
+        channels: usize,
+        http2_windows: Http2Windows,
+    ) -> Result<Self, tonic::transport::Error> {
         let clients = (0..channels.max(1))
             .map(|_| {
-                let channel = Endpoint::from_shared(router_url.to_string())?
+                let endpoint = Endpoint::from_shared(router_url.to_string())?
                     .connect_timeout(CONNECT_TIMEOUT)
-                    .tcp_nodelay(true)
-                    .connect_lazy();
+                    .tcp_nodelay(true);
+                let channel = http2_windows.apply_to_endpoint(endpoint).connect_lazy();
                 Ok(PersonHogServiceClient::new(channel))
             })
             .collect::<Result<Vec<_>, tonic::transport::Error>>()?;

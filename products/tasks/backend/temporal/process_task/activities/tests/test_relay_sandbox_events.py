@@ -16,6 +16,11 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.logic.services.process_killed import (
+    ProcessKilledNotice,
+    format_process_killed_message,
+    parse_process_killed,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
@@ -50,6 +55,23 @@ from ee.hogai.sandbox import PI_RUNTIME_ERROR_MESSAGE, TURN_COMPLETE_METHOD, is_
 relay_sandbox_events_module = importlib.import_module(
     "products.tasks.backend.temporal.process_task.activities.relay_sandbox_events"
 )
+
+_GIB = 1024**3
+
+
+def _process_killed_event(**overrides: object) -> dict:
+    params: dict[str, object] = {
+        "pid": 4242,
+        "comm": "vitest",
+        "command": "node vitest run --token=secret-value",
+        "treeRssBytes": 12 * _GIB,
+        "memoryCurrentBytes": 14 * _GIB,
+        "memoryLimitBytes": 16 * _GIB,
+        "signal": "SIGTERM",
+        "at": "2026-01-01T00:00:00.000Z",
+        **overrides,
+    }
+    return {"type": "notification", "notification": {"method": "_posthog/process_killed", "params": params}}
 
 
 class TestIsTurnComplete:
@@ -331,6 +353,46 @@ class TestIsKeepaliveEvent:
     )
     def test_is_keepalive_event(self, _name: str, event_data: dict, expected: bool) -> None:
         assert _is_keepalive_event(event_data) == expected
+
+
+class TestParseProcessKilled:
+    @parameterized.expand(
+        [
+            (
+                "kill_notification",
+                _process_killed_event(),
+                ProcessKilledNotice(
+                    comm="vitest",
+                    signal="SIGTERM",
+                    tree_rss_bytes=12 * _GIB,
+                    memory_current_bytes=14 * _GIB,
+                    memory_limit_bytes=16 * _GIB,
+                ),
+            ),
+            ("other_method", {"type": "notification", "notification": {"method": "_posthog/error"}}, None),
+            ("not_a_notification", {"type": "keepalive"}, None),
+            ("missing_size", _process_killed_event(treeRssBytes=None), None),
+            ("boolean_size", _process_killed_event(memoryLimitBytes=True), None),
+            ("missing_comm", _process_killed_event(comm=None), None),
+        ],
+    )
+    def test_parse_process_killed(self, _name: str, event_data: dict, expected: ProcessKilledNotice | None) -> None:
+        assert parse_process_killed(event_data) == expected
+
+    @parameterized.expand(
+        [
+            ("whole_gib", 12 * _GIB, 16 * _GIB, "using 12.0 GiB of the 16.0 GiB available"),
+            ("fractional_gib", int(13.46 * _GIB), int(15.5 * _GIB), "using 13.5 GiB of the 15.5 GiB available"),
+        ],
+    )
+    def test_format_process_killed_message(self, _name: str, tree_rss: int, limit: int, expected: str) -> None:
+        notice = ProcessKilledNotice(
+            comm="node", signal="SIGKILL", tree_rss_bytes=tree_rss, memory_current_bytes=limit, memory_limit_bytes=limit
+        )
+
+        assert format_process_killed_message(notice) == (
+            f"The sandbox stopped node because it was {expected}. The agent is still running."
+        )
 
 
 class TestSanitizeHttpxError:
@@ -767,6 +829,71 @@ class TestRelaySandboxEventsErrorHandling:
         assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
+
+    async def test_process_killed_is_reported_without_ending_the_relay(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        killed_event = _process_killed_event()
+        terminal_event = {"type": "notification", "notification": {"method": "_posthog/task_complete"}}
+
+        class SuccessfulEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "SuccessfulEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(killed_event))
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> SuccessfulEventSource:
+            return SuccessfulEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        emit_agent_log_mock = MagicMock()
+        task_run = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+        monkeypatch.setattr(relay_sandbox_events_module, "emit_agent_log", emit_agent_log_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "parse_permission_request", lambda _event: None)
+
+        sandbox_gone = await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+            task_run=cast(TaskRun, task_run),
+        )
+
+        assert sandbox_gone is False
+        assert redis_stream.write_event.await_args_list == [call(killed_event), call(terminal_event)]
+        emit_agent_log_mock.assert_called_once_with(
+            "run-id",
+            "warn",
+            "The sandbox stopped vitest because it was using 12.0 GiB of the 16.0 GiB available. "
+            "The agent is still running.",
+        )
+        task_run.capture_event.assert_called_once_with(
+            "sandbox_process_killed",
+            {
+                "process_comm": "vitest",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * _GIB,
+                "memory_current_bytes": 14 * _GIB,
+                "memory_limit_bytes": 16 * _GIB,
+            },
+        )
+        assert "secret-value" not in json.dumps(task_run.capture_event.call_args.args)
 
     async def test_relay_signals_command_and_generated_activity_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
@@ -1720,7 +1847,9 @@ class TestBackgroundHeartbeat:
                 _background_heartbeat(
                     stop_event,
                     cast(temporalio.client.WorkflowHandle, handle),
-                    [time.monotonic() - 100.0],
+                    # The gate reads a value <= 0 as "no event yet". monotonic() counts from boot,
+                    # so subtracting an offset gives <= 0 on a runner that booted recently.
+                    [time.monotonic()],
                     [0.0],
                     [False],
                     inactivity_timeout_seconds=3600.0,

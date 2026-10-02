@@ -776,6 +776,18 @@ class TestRedactUrlsInName:
                 "a https://one.example.com/s, b https://two.example.com/s",
                 "a one.example.com, b two.example.com",
             ),
+            # An apostrophe and a double quote are legal in a URL query, and stopping at one used
+            # to leave the rest of the credential in the name.
+            (
+                "a_quote_inside_the_url_does_not_end_it",
+                "Errors https://hooks.example.com/hook?token='s3cr3t fires",
+                "Errors hooks.example.com fires",
+            ),
+            (
+                "a_url_written_inside_quotes_keeps_them",
+                'named "https://example.com/p/s3cr3t" here',
+                'named "example.com" here',
+            ),
         ]
     )
     def test_redacts_a_url_to_its_host(self, _name: str, name: str, expected: str) -> None:

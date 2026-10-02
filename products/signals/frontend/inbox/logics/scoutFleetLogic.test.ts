@@ -72,6 +72,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
     deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
@@ -779,6 +780,30 @@ describe('scoutFleetLogic', () => {
 
             expect(capture.mock.calls.filter(([event]) => event === 'Scout action')).toEqual([])
             expect(router.values.searchParams.scoutSearch).toEqual('rev')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it.each([
+        ['a trailing space', 'checkout ', 'checkout'],
+        ['a trailing space after a number', '123 ', '123'],
+        ['only spaces', '  ', undefined],
+    ])('keeps %s in the search box after the debounced URL write', async (_, typed, written) => {
+        jest.useFakeTimers()
+        try {
+            // The enabled filter keeps a roster param in the URL, so the search write reaches the
+            // shared-link hydration path.
+            router.actions.push(urls.inbox('scouts'), { scoutEnabled: 'enabled' })
+            logic.actions.setScoutSearch(typed)
+            await jest.advanceTimersByTimeAsync(600)
+
+            expect(router.values.searchParams.scoutSearch).toEqual(written)
+            expect(logic.values.scoutSearch).toEqual(typed)
+
+            // The filter controls push the URL, so a push must not trim the search either.
+            logic.actions.setScoutEnabledFilter('disabled')
+            expect(logic.values.scoutSearch).toEqual(typed)
         } finally {
             jest.useRealTimers()
         }

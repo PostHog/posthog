@@ -329,6 +329,11 @@ fn log_startup(config: &Config) {
         )
         .as_str(),
         scan_shadow_compare = config.seeder_scan_shadow_compare,
+        ch_max_threads = ?config.seeder_ch_max_threads,
+        ch_max_memory_usage = ?config.seeder_ch_max_memory_usage,
+        ch_distributed_replica_max_ignored_errors =
+            ?config.seeder_ch_distributed_replica_max_ignored_errors,
+        ch_max_bytes_in_set = config.seeder_ch_max_bytes_in_set,
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
         reconcile_max_concurrent_dispatches = config.seeder_reconcile_max_concurrent_dispatches,

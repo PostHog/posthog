@@ -121,6 +121,7 @@ class JSONResponseCursorPaginatorConfig(PaginatorTypeConfig, total=False):
     cursor_path: Optional[TJsonPath]
     cursor_param: Optional[str]
     param_location: Optional[str]  # "query" (default) or "json" (POST-body pagination)
+    raise_on_repeated_cursor: Optional[bool]
 
 
 PaginatorConfig = (

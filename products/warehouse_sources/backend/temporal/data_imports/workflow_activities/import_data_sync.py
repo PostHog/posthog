@@ -2,6 +2,7 @@ import uuid
 import socket
 import asyncio
 import datetime as dt
+import functools
 import dataclasses
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
@@ -25,7 +26,7 @@ from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -37,7 +38,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    TERMINAL_JOB_STATUSES,
+    get_worker_shutdown_handoff_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     handle_non_retryable_error,
     report_heartbeat_timeout,
@@ -47,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -69,11 +74,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.byte_bounded_extraction_flag import (
     is_byte_bounded_extraction_enabled,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import (
+    SourceCursorManager,
+    build_cursor_manager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_reuse_flag import (
-    is_fanout_warehouse_reuse_enabled,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.history_window import (
     history_start_for_schema,
@@ -91,7 +97,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -112,6 +117,10 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
+    # Fixed for the job lifetime so activity retries cannot switch cursor modes while old and new
+    # workers overlap. Defaults True for new payloads; an old payload that recorded False keeps the
+    # server-cursor path on both worker versions. Remove after this release is fully deployed.
+    keyset_full_load_enabled: bool = True
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -126,14 +135,17 @@ class ImportDataActivityInputs:
         }
 
 
-def _resolve_reset_pipeline(inputs: ImportDataActivityInputs, schema: ExternalDataSchema) -> bool:
+def _resolve_reset_pipeline(
+    inputs: ImportDataActivityInputs, schema: ExternalDataSchema, *, job_created_at: dt.datetime
+) -> bool:
     if inputs.reset_pipeline is not None:
         return inputs.reset_pipeline
     if schema.sync_type_config.get("reset_pipeline", False) is True:
         return True
-    # Each attempt loads the schema again, and the first wipe moves the due time a full interval ahead, so a
-    # retry after the wipe carries on with the re-import instead of wiping it again.
-    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due()
+    # Each attempt loads the schema again. Checked at the job's creation, it stays due until the wipe moves the due
+    # time past that point, so a retry after the wipe carries on instead of wiping again. The current time is not
+    # safe: with a 1-day interval and a set time, a wipe more than an hour early leaves that day's slot due.
+    return inputs.scheduled_full_refresh and schema.scheduled_full_refresh_due(now=job_created_at)
 
 
 @database_sync_to_async_pool
@@ -150,6 +162,13 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+@database_sync_to_async_pool
+def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
+    return ExternalDataJob.objects.filter(
+        schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
+    ).exists()
 
 
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
@@ -207,9 +226,8 @@ async def _warehouse_parent_reuse_available(
     """Whether this run reads its fan-out parents from the warehouse instead of the parent API.
 
     Reuse is an optimization, never a requirement: any parent the child can't read falls the
-    whole run back to the legacy parent-API path, so enabling the flag can't break a schema
-    that syncs today. Sources consume the result via `SourceInputs.fanout_warehouse_reuse`;
-    this is the single feature-flag evaluation for the run.
+    whole run back to the legacy parent-API path, so it can't break a schema that syncs today.
+    Sources consume the result via `SourceInputs.fanout_warehouse_reuse`.
 
     A parent that is mid-sync doesn't force the fallback: `resolve_parent_table_ref` pins the
     read to the parent's last completed snapshot (Delta time travel), so a concurrent rewrite
@@ -217,8 +235,6 @@ async def _warehouse_parent_reuse_available(
     """
     required_parents = source.get_required_parent_schemas(schema.name)
     if not required_parents:
-        return False
-    if not await database_sync_to_async_pool(is_fanout_warehouse_reuse_enabled)(team_id):
         return False
 
     for parent_name in required_parents:
@@ -413,6 +429,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             sync_type=model.schema.sync_type if model.schema is not None else None,
             pipeline_version=model.pipeline_version,
         )
+        shutdown_monitor.run_on_shutdown(functools.partial(_log_worker_shutdown_during_import, logger))
 
         job_inputs = PipelineInputs(
             source_id=inputs.source_id,
@@ -433,7 +450,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
 
-        reset_pipeline = _resolve_reset_pipeline(inputs, schema)
+        reset_pipeline = _resolve_reset_pipeline(inputs, schema, job_created_at=model.created_at)
 
         await logger.adebug(f"schema.sync_type_config = {schema.sync_type_config}")
         await logger.adebug(f"reset_pipeline = {reset_pipeline}")
@@ -515,8 +532,14 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     source_type=source_type,
                 )
 
+            # A reset or a revive empties the table, so the run starts from no cursor, like the watermark above.
+            source_cursor_manager = build_cursor_manager(
+                new_source, schema.sync_type_config if use_stored_cursors else None, logger
+            )
+
             source_inputs = SourceInputs(
                 schema_name=schema.name,
+                sync_type=ExternalDataSchema.SyncType(schema.sync_type) if schema.sync_type is not None else None,
                 schema_id=str(schema.id),
                 source_id=str(inputs.source_id),
                 team_id=inputs.team_id,
@@ -532,6 +555,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 db_incremental_field_last_value_before_lookback=incremental_last_value_before_lookback,
                 history_start=history_start,
                 last_synced_at=schema.last_synced_at if use_stored_cursors else None,
+                schema_has_ever_synced=schema.last_synced_at is not None
+                or await _has_completed_schema_job(inputs.schema_id, inputs.team_id),
                 logger=logger,
                 job_id=inputs.run_id,
                 reset_pipeline=reset_pipeline,
@@ -545,7 +570,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
+                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
+                source_cursor=source_cursor_manager,
             )
 
             try:
@@ -600,31 +627,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                     raise TypeError(
                         f"{new_source.__class__.__name__} does not implement either SimpleSource or ResumableSource"
                     )
-            except CDCHandledExternally:
-                await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-
-                await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
-                    billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
-                )
-
-                # Pause the per-schema schedule — CDCExtractionWorkflow handles this
-                # schema now. The schedule is unpaused if the schema transitions back
-                # to snapshot mode (e.g., after a TRUNCATE or re-enable after grace period).
-                try:
-                    from products.data_warehouse.backend.facade.api import pause_external_data_schedule
-
-                    await database_sync_to_async_pool(pause_external_data_schedule)(str(inputs.schema_id))
-                    await logger.ainfo("Paused per-schema schedule for CDC streaming schema")
-                except Exception:
-                    await logger.awarning("Failed to pause per-schema schedule for CDC streaming schema")
-
-                # This activity finalized the job itself just above, so the workflow must not
-                # write a second terminal status — see PipelineResult for the ownership contract.
-                return PipelineResult(
-                    should_trigger_cdp_producer=False,
-                    consumer_manages_job_status=True,
-                    skip_post_import_activities=True,
-                )
             except SourceExtractionNotImplementedError as e:
                 # Web refuses to create a source whose implementation it does not have, so the
                 # stub is only reachable while this worker still runs the build from before the
@@ -651,6 +653,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
                 resumable_source_manager=resumable_source_manager,
+                source_cursor_manager=source_cursor_manager,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -713,6 +716,18 @@ POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
 )
 
 
+def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
+    # One line per import still running when the worker got SIGTERM. A matching hand-off line from
+    # _handle_import_error means the import moved to another pod; without one, the import held
+    # this pod until it finished or the graceful shutdown timeout ran out.
+    info = activity.info()
+    logger.info(
+        "Worker shutdown detected while import is running",
+        attempt=info.attempt,
+        attempt_elapsed_seconds=round((dt.datetime.now(dt.UTC) - info.started_time).total_seconds()),
+    )
+
+
 async def _handle_import_error(
     job_inputs: PipelineInputs,
     logger: FilteringBoundLogger,
@@ -739,6 +754,13 @@ async def _handle_import_error(
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
+    if isinstance(error, WorkerShuttingDownError):
+        # An expected hand-off, not a failure: Temporal retries the activity on another worker.
+        if activity.in_activity():
+            get_worker_shutdown_handoff_metric(str(job_inputs.job_type)).add(1)
+        await logger.ainfo("Handing the import off to another worker because this worker is shutting down")
+        raise error
+
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
     error_msg = str(error)
 
@@ -876,6 +898,17 @@ async def _handle_import_error(
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
+    # The same concurrent-maintenance/reset race `is_transient_delta_maintenance_error` already
+    # covers for the writer's own table (a full-refresh purging `_delta_log` out from under a
+    # still-running maintenance pass) can just as well hit a *parent* table a warehouse-parent
+    # fan-out reader (sources/common/rest_source/warehouse_parent.py) opened at a pinned version:
+    # the parent resyncs and resets its table between the pin and the read. Same self-healing
+    # race, different table role, so classify it the same way here rather than letting it escape raw.
+    if is_transient_delta_maintenance_error(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
     # PostHog's own instance, never anything a customer's source touches. A connectivity blip there
     # (unreachable, refusing connections while restarting) clears on its own once the instance is
@@ -942,8 +975,10 @@ async def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
+    source_cursor_manager: SourceCursorManager[Any] | None = None,
 ) -> PipelineResult:
     try:
+        reset_pipeline = reset_pipeline or source_response.destination_reset_required
         models = await _get_models(job_inputs.run_id)
 
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
@@ -960,6 +995,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                source_cursor_manager=source_cursor_manager,
             )
         else:
             pipeline = PipelineNonDLT(
@@ -970,6 +1006,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
+                source_cursor_manager=source_cursor_manager,
             )
 
         result = await pipeline.run()

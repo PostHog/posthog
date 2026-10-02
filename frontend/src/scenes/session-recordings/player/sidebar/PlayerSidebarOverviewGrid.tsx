@@ -100,6 +100,7 @@ export function PlayerSidebarOverviewGrid({
                             placement="bottom"
                         >
                             <LemonButton
+                                data-attr="player-overview-property-popover-toggle"
                                 icon={<IconGear />}
                                 onClick={() => setIsPropertyPopoverOpen(!isPropertyPopoverOpen)}
                                 fullWidth

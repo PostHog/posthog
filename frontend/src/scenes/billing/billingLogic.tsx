@@ -28,6 +28,7 @@ import {
     BillingPlanType,
     BillingProductV2AddonType,
     BillingProductV2Type,
+    BillingProvider,
     BillingType,
     StartupProgramLabel,
 } from '~/types'
@@ -94,6 +95,11 @@ export interface BillingError {
     action: LemonButtonPropsBase
 }
 
+export interface OpenInvoices {
+    count: number
+    link: string | null
+}
+
 export type SwitchPlanPayload = {
     from_product_key: string
     from_plan_key: string
@@ -101,7 +107,11 @@ export type SwitchPlanPayload = {
     to_plan_key: string
 }
 
-const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
+// Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
+const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
+    if (!data) {
+        return null
+    }
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -208,8 +218,9 @@ export interface billingLogicValues {
     billingAlert: BillingAlertConfig | null
     billingEntryUrl: string | null
     billingError: BillingError | null
-    billingErrorLoading: boolean
     billingLoading: boolean
+    billingManagedByPartnerDisabledReason: string | null
+    billingManagedByPartnerNotice: string | null
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
@@ -259,9 +270,11 @@ export interface billingLogicValues {
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
     isAnnualPlanCustomer: boolean
+    isBillingManagedByPartner: boolean
     isCreditCTAHeroDismissed: boolean
     isCreditFormSubmitting: boolean
     isCreditFormValid: boolean
+    isExternallyBilled: boolean
     isManagedAccount: boolean
     isOnboarding: boolean
     isProductAtOrOverUsageLimit: (productKey: ProductKey) => boolean
@@ -269,6 +282,8 @@ export interface billingLogicValues {
     isUnlicensedDebug: boolean
     minimumBillingAccessLevel: OrganizationMembershipLevel
     minimumUsageSpendReadAccessLevel: OrganizationMembershipLevel
+    openInvoices: OpenInvoices | null
+    openInvoicesLoading: boolean
     platformAddons: BillingProductV2AddonType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
@@ -335,10 +350,10 @@ export interface billingLogicActions {
         errorObject?: any
     }
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     }
     loadCreditOverview: () => any
@@ -383,26 +398,10 @@ export interface billingLogicActions {
         errorObject?: any
     }
     loadInvoicesSuccess: (
-        billingError: {
-            action: {
-                children: string
-                targetBlank: boolean
-                to: any
-            }
-            message: string
-            status: 'warning'
-        } | null,
+        openInvoices: OpenInvoices | null,
         payload?: any
     ) => {
-        billingError: {
-            action: {
-                children: string
-                targetBlank: boolean
-                to: any
-            }
-            message: string
-            status: 'warning'
-        } | null
+        openInvoices: OpenInvoices | null
         payload?: any
     }
     loadProducts: () => any
@@ -611,12 +610,12 @@ export interface billingLogicActions {
         errorObject?: any
     }
     updateBillingLimitsSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: {
             [key: string]: number | null
         }
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: {
             [key: string]: number | null
         }
@@ -651,22 +650,35 @@ export interface billingLogicMeta {
         isProductAtOrOverUsageLimit: (billing: BillingType | null) => (productKey: ProductKey) => boolean
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
-        showCreditCTAHero: (creditOverview: {
-            cc_last_four: null
-            collection_method: null
-            credit_brackets: never[]
-            eligible: false
-            email: null
-            estimated_monthly_credit_amount_usd: null
-            invoice_url: null
-            status: string
-        }) => boolean
+        isBillingManagedByPartner: (billing: BillingType | null) => boolean
+        billingManagedByPartnerDisabledReason: (billing: BillingType | null) => string | null
+        billingManagedByPartnerNotice: (billingManagedByPartnerDisabledReason: string | null) => string | null
+        showCreditCTAHero: (
+            creditOverview: {
+                cc_last_four: null
+                collection_method: null
+                credit_brackets: never[]
+                eligible: false
+                email: null
+                estimated_monthly_credit_amount_usd: null
+                invoice_url: null
+                status: string
+            },
+            isBillingManagedByPartner: boolean
+        ) => boolean
         showBillingHero: (
             billing: BillingType | null,
             billingPlan: BillingPlan | null,
-            showCreditCTAHero: boolean
+            showCreditCTAHero: boolean,
+            isBillingManagedByPartner: boolean
         ) => boolean
         isManagedAccount: (billing: BillingType | null) => boolean
+        isExternallyBilled: (billing: BillingType | null) => boolean
+        billingError: (
+            openInvoices: OpenInvoices | null,
+            billing: BillingType | null,
+            isExternallyBilled: boolean
+        ) => BillingError | null
         accountOwner: (billing: BillingType | null) => {
             email?: string
             name?: string
@@ -857,12 +869,17 @@ export const billingLogic = kea<billingLogicType>([
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
                     const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                    const response = await api.get(
-                        'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
-                    )
-
-                    return parseBillingResponse(response)
+                    // Many scenes read billing, so a failed read keeps the last known state quietly
+                    // rather than toasting on every page or reaching error tracking.
+                    try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const response = await api.get(
+                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
+                        )
+                        return parseBillingResponse(response) ?? values.billing
+                    } catch {
+                        return values.billing
+                    }
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
@@ -871,11 +888,13 @@ export const billingLogic = kea<billingLogicType>([
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
-                        return parseBillingResponse(response)
+                        return parseBillingResponse(response) ?? values.billing
                     } catch (error: unknown) {
                         lemonToast.error(
                             'There was an error updating your billing limits. Please try again or contact support.'
                         )
+                        // A failure, not the last billing state: a success would close the limit editor and
+                        // discard the value the person was saving.
                         throw error
                     }
                 },
@@ -905,30 +924,38 @@ export const billingLogic = kea<billingLogicType>([
                         actions.loadUser()
                         actions.loadCurrentOrganization()
 
-                        return parseBillingResponse(jsonRes)
+                        return parseBillingResponse(jsonRes) ?? values.billing
                     } catch (error: any) {
                         if (error.code) {
                             if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
+                                const invoicesUrl = values.isExternallyBilled
+                                    ? values.billing?.external_billing_provider_invoices_url
+                                    : values.billing?.stripe_portal_url
                                 actions.setUnsubscribeError({
                                     detail: error.detail,
-                                    link: (
-                                        <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                    link: invoicesUrl ? (
+                                        <Link to={invoicesUrl} target="_blank">
                                             View invoices
                                         </Link>
-                                    ),
+                                    ) : undefined,
                                 } as UnsubscribeError)
                             } else if (error.code === BillingAPIErrorCodes.NO_ACTIVE_PAYMENT_METHOD_ERROR) {
                                 actions.setUnsubscribeError({
                                     detail: error.detail,
                                 } as UnsubscribeError)
                             } else if (error.code === BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR) {
+                                const invoicesUrl = values.isExternallyBilled
+                                    ? values.billing?.external_billing_provider_invoices_url
+                                    : error.link || values.billing?.stripe_portal_url
                                 actions.setUnsubscribeError({
                                     detail: error.detail,
-                                    link: (
-                                        <Link to={error.link || values.billing?.stripe_portal_url} target="_blank">
-                                            {error.link ? 'View invoice' : 'View invoices'}
+                                    link: invoicesUrl ? (
+                                        <Link to={invoicesUrl} target="_blank">
+                                            {error.link && !values.isExternallyBilled
+                                                ? 'View invoice'
+                                                : 'View invoices'}
                                         </Link>
-                                    ),
+                                    ) : undefined,
                                 } as UnsubscribeError)
                             }
                         } else {
@@ -973,35 +1000,15 @@ export const billingLogic = kea<billingLogicType>([
                 },
             },
         ],
-        billingError: [
-            null as BillingError | null,
+        openInvoices: [
+            null as OpenInvoices | null,
             {
-                loadInvoices: async () => {
-                    // First check to see if there are open invoices
+                loadInvoices: async (): Promise<OpenInvoices | null> => {
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingGetInvoicesRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                         const res = await api.getResponse('api/billing/get_invoices?status=open')
                         const jsonRes = await getJSONOrNull(res)
-                        const numOpenInvoices = jsonRes['count']
-                        if (numOpenInvoices > 0) {
-                            const viewInvoicesButton = {
-                                to:
-                                    numOpenInvoices == 1 && jsonRes['link']
-                                        ? jsonRes['link']
-                                        : values.billing?.stripe_portal_url,
-                                children: `View invoice${numOpenInvoices > 1 ? 's' : ''}`,
-                                targetBlank: true,
-                            }
-                            return {
-                                status: 'warning',
-                                message: `You have ${numOpenInvoices} open invoice${
-                                    numOpenInvoices > 1 ? 's' : ''
-                                }. Please pay ${
-                                    numOpenInvoices > 1 ? 'them' : 'it'
-                                } before adding items to your subscription.`,
-                                action: viewInvoicesButton,
-                            }
-                        }
+                        return { count: jsonRes['count'], link: jsonRes['link'] }
                     } catch (error: any) {
                         console.error(error)
                     }
@@ -1024,15 +1031,22 @@ export const billingLogic = kea<billingLogicType>([
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
                     if (values.billing?.has_active_subscription) {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                        const response = await api.get('api/billing/credits/overview')
+                        // A failed or empty read keeps the last overview rather than breaking the page.
+                        let response
+                        try {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                            response = await api.get('api/billing/credits/overview')
+                        } catch {
+                            return values.creditOverview
+                        }
+                        if (!response) {
+                            return values.creditOverview
+                        }
 
                         if (!values.creditForm.creditInput) {
-                            let spend = DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
-
-                            if (response.estimated_monthly_credit_amount_usd !== null) {
-                                spend = response.estimated_monthly_credit_amount_usd
-                            }
+                            const spend =
+                                response.estimated_monthly_credit_amount_usd ??
+                                DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
 
                             actions.setCreditBrackets(response.credit_brackets)
                             actions.setCreditFormValue('creditInput', Math.round(spend * 12))
@@ -1225,35 +1239,103 @@ export const billingLogic = kea<billingLogicType>([
                 return !isOnboarding && !!billing?.billing_period
             },
         ],
+        isBillingManagedByPartner: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => !!billing?.billing_managed_by_partner,
+        ],
+        billingManagedByPartnerDisabledReason: [
+            (s) => [s.billing],
+            (billing: BillingType | null): string | null => {
+                const partner = billing?.billing_managed_by_partner
+                if (!partner) {
+                    return null
+                }
+                return `Billing for this organization is managed by ${partner.partner_name.trim() || 'your partner'}.`
+            },
+        ],
+        billingManagedByPartnerNotice: [
+            (s) => [s.billingManagedByPartnerDisabledReason],
+            (billingManagedByPartnerDisabledReason: string | null): string | null =>
+                billingManagedByPartnerDisabledReason
+                    ? `${billingManagedByPartnerDisabledReason} Contact them to change your plan or payment details.`
+                    : null,
+        ],
         showCreditCTAHero: [
-            (s) => [s.creditOverview],
-            (creditOverview: {
-                cc_last_four: null
-                collection_method: null
-                credit_brackets: never[]
-                eligible: false
-                email: null
-                estimated_monthly_credit_amount_usd: null
-                invoice_url: null
-                status: string
-            }): boolean => {
+            (s) => [s.creditOverview, s.isBillingManagedByPartner],
+            (
+                creditOverview: {
+                    cc_last_four: null
+                    collection_method: null
+                    credit_brackets: never[]
+                    eligible: false
+                    email: null
+                    estimated_monthly_credit_amount_usd: null
+                    invoice_url: null
+                    status: string
+                },
+                isBillingManagedByPartner: boolean
+            ): boolean => {
                 const isEligible = creditOverview.eligible
-                return isEligible && creditOverview.status !== 'paid'
+                return !isBillingManagedByPartner && isEligible && creditOverview.status !== 'paid'
             },
         ],
         showBillingHero: [
-            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero],
-            (billing: BillingType | null, billingPlan: BillingPlan | null, showCreditCTAHero: boolean): boolean => {
+            (s) => [s.billing, s.billingPlan, s.showCreditCTAHero, s.isBillingManagedByPartner],
+            (
+                billing: BillingType | null,
+                billingPlan: BillingPlan | null,
+                showCreditCTAHero: boolean,
+                isBillingManagedByPartner: boolean
+            ): boolean => {
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
-                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero
+                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero && !isBillingManagedByPartner
             },
         ],
         isManagedAccount: [
             (s) => [s.billing],
             (billing: BillingType): boolean => {
                 return !!(billing?.account_owner?.name || billing?.account_owner?.email)
+            },
+        ],
+        isExternallyBilled: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean =>
+                (!!billing?.billing_provider && billing.billing_provider !== BillingProvider.PostHog) ||
+                !!billing?.external_billing_provider_invoices_url,
+        ],
+        billingError: [
+            (s) => [s.openInvoices, s.billing, s.isExternallyBilled],
+            (
+                openInvoices: OpenInvoices | null,
+                billing: BillingType | null,
+                isExternallyBilled: boolean
+            ): BillingError | null => {
+                if (!billing || !openInvoices?.count) {
+                    return null
+                }
+                const numOpenInvoices = openInvoices.count
+                const stripeInvoicesUrl =
+                    numOpenInvoices == 1 && openInvoices.link ? openInvoices.link : billing.stripe_portal_url
+                const invoicesUrl = isExternallyBilled
+                    ? billing.external_billing_provider_invoices_url
+                    : stripeInvoicesUrl
+                if (!invoicesUrl) {
+                    return null
+                }
+                const viewInvoicesButton = {
+                    to: invoicesUrl,
+                    children: `View invoice${isExternallyBilled || numOpenInvoices > 1 ? 's' : ''}`,
+                    targetBlank: true,
+                }
+                return {
+                    status: 'warning',
+                    message: `You have ${numOpenInvoices} open invoice${
+                        numOpenInvoices > 1 ? 's' : ''
+                    }. Please pay ${numOpenInvoices > 1 ? 'them' : 'it'} before adding items to your subscription.`,
+                    action: viewInvoicesButton,
+                }
             },
         ],
         accountOwner: [
@@ -1332,6 +1414,9 @@ export const billingLogic = kea<billingLogicType>([
                 actions.loadCreditOverview()
                 actions.reportCreditsFormSubmitted(+creditInput)
 
+                const billingUrl = values.isExternallyBilled
+                    ? values.billing?.external_billing_provider_invoices_url
+                    : values.billing?.stripe_portal_url
                 LemonDialog.open({
                     title: 'Your credit purchase has been submitted',
                     width: 536,
@@ -1347,14 +1432,33 @@ export const billingLogic = kea<billingLogicType>([
                                     invoice is paid you will be charged for usage as normal.
                                 </p>
                             </>
+                        ) : values.isExternallyBilled ? (
+                            <p>
+                                Your billing provider will collect the payment, and the credits will be applied to your
+                                account once it does.
+                                {billingUrl ? (
+                                    <>
+                                        {' '}
+                                        Please make sure your{' '}
+                                        <Link to={billingUrl} target="_blank">
+                                            payment method with your provider
+                                        </Link>{' '}
+                                        is up to date.
+                                    </>
+                                ) : null}
+                            </p>
                         ) : (
                             <>
                                 <p>
                                     Your card will be charged soon and the credits will be applied to your account.
                                     Please make sure your{' '}
-                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
-                                        card on file
-                                    </Link>{' '}
+                                    {billingUrl ? (
+                                        <Link to={billingUrl} target="_blank">
+                                            card on file
+                                        </Link>
+                                    ) : (
+                                        'card on file'
+                                    )}{' '}
                                     is up to date. You will receive an email when the credits are applied.
                                 </p>
                             </>
@@ -1513,7 +1617,8 @@ export const billingLogic = kea<billingLogicType>([
                 const { title, message } = buildUsageLimitReachedMessage(
                     productsAtOrOverLimit,
                     values.canAccessBilling,
-                    values.minimumBillingAccessLevel
+                    values.minimumBillingAccessLevel,
+                    values.billingManagedByPartnerNotice
                 )
 
                 actions.setBillingAlert({

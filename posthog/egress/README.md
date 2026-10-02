@@ -144,8 +144,8 @@ Every client is token-agnostic: the caller passes its own credentials.
 Response handling, such as what to do on a 403 or 429, stays with the caller.
 
 Two semgrep rules in `.semgrep/rules/devex/` fail CI on a raw call that bypasses a domain: `github-api-calls-go-through-egress` (a `requests` call that names `api.github.com`) and `slack-api-calls-go-through-egress` (a `requests` call that names `slack.com/api`, or a bare `WebClient`).
-The `requests` half of each rule reads the URL argument only, so a call that binds the URL to a variable first gets through. Keep the URL inline at the call site.
-No rule covers the other domains.
+A `-wide` twin of each rule catches the other shapes: a URL bound to a variable or constant, `requests.Session`, `httpx`, `aiohttp`, `urllib.request`, and an aliased Slack SDK client.
+No rule covers the other domains, another language, or a caller under `tools/`.
 
 ## The one identity rule
 
