@@ -53,6 +53,10 @@ def plan_variant_sampling(
     )
 
     budget = max(0.0, min(1.0, sampling_rate))
+    if budget <= 0:
+        # Rate 0 means paused; the cap-at-1 arm below must not turn "no budget" into
+        # "sample a zero-share variant whole".
+        return VariantSamplingPlan(rates=dict.fromkeys(selected_keys, 0.0), population_shares=population_shares)
     rates: dict[str, float] = {}
     remaining = set(selected_keys)
     while remaining:
@@ -94,4 +98,7 @@ def variant_sampling_plan_for_scope(
     except ValidationError:
         return None
     assert scope is not None
-    return plan_variant_sampling(sampling_rate, shares, scope.get("variants"))
+    # A legacy column scope narrows with the singular `variant`; treating it as "every variant"
+    # would balance a population the exposure join has already narrowed to one arm.
+    selected = scope.get("variants") or ([scope["variant"]] if scope.get("variant") else None)
+    return plan_variant_sampling(sampling_rate, shares, selected)
