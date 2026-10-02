@@ -131,6 +131,7 @@ class TestVariantSamplingPlanForScope(BaseTest):
                 scope=scope,
                 scanner_config={"prompt": "p"},
                 sampling_rate=0.1,
+                user=self.user,
             )
 
     def test_a_singular_legacy_variant_scope_watches_one_arm_and_gets_no_plan(self) -> None:

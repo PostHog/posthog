@@ -27,7 +27,9 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 
 logger = structlog.get_logger(__name__)
@@ -107,6 +109,7 @@ def variant_sampling_plan_for_scope(
     scope: dict | None,
     scanner_config: dict | None,
     sampling_rate: float,
+    user: User | None,
     scanner_id: str | None = None,
 ) -> VariantSamplingPlan | None:
     """The plan for an experiment scanner (or its frozen snapshot), from the window's exposure counts.
@@ -128,14 +131,16 @@ def variant_sampling_plan_for_scope(
     # A legacy column scope narrows with the singular `variant`; treating it as "every variant"
     # would balance a population the exposure join has already narrowed to one arm.
     selected = scope.get("variants") or ([scope["variant"]] if scope.get("variant") else None)
-    counts = _variant_exposure_counts(team, experiment_id=experiment_id, selected=selected, scanner_id=scanner_id)
+    counts = _variant_exposure_counts(
+        team, experiment_id=experiment_id, selected=selected, user=user, scanner_id=scanner_id
+    )
     if counts is None:
         return None
     return plan_variant_sampling(sampling_rate, counts, selected)
 
 
 def _variant_exposure_counts(
-    team: Team, *, experiment_id: int, selected: Sequence[str] | None, scanner_id: str | None
+    team: Team, *, experiment_id: int, selected: Sequence[str] | None, user: User | None, scanner_id: str | None
 ) -> dict[str, float] | None:
     """Exposed persons per watched variant over the experiment window, or None when uncountable.
 
@@ -149,8 +154,15 @@ def _variant_exposure_counts(
     from products.experiments.backend.facade.replay import (  # noqa: PLC0415
         exposed_persons_select,
         resolve_exposure_linkage,
+        validate_experiment_exposure_access,
     )
 
+    try:
+        # The same object-level gate every other exposure read runs, as the same principal the
+        # candidate query authorizes; a denied or missing principal costs balance, not candidates.
+        validate_experiment_exposure_access(team, user, experiment_id)
+    except UserAccessControlError:
+        return None
     try:
         linkage = resolve_exposure_linkage(
             team, experiment_id=experiment_id, variants=list(selected) if selected is not None else None

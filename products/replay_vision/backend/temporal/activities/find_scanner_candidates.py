@@ -196,6 +196,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         scope=scanner.experiment_scope(),
         scanner_config=scanner.scanner_config,
         sampling_rate=scanner.sampling_rate,
+        user=scanner.created_by,
         scanner_id=str(scanner.id),
     )
     variant_rates = variant_plan.rates if variant_plan is not None else None
