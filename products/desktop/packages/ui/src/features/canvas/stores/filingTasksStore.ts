@@ -39,12 +39,8 @@ export const useFilingTasksStore = create<FilingTasksStore>()((set) => ({
     set((state) => {
       const filing = state.filingTasks[taskId];
       if (!filing || filing.channelId !== channelId) return state;
-      return {
-        filingTasks: {
-          ...state.filingTasks,
-          [taskId]: { ...filing, status: "hidden" },
-        },
-      };
+      const { [taskId]: _, ...filingTasks } = state.filingTasks;
+      return { filingTasks };
     }),
   clearFiling: (taskId, channelId) =>
     set((state) => {
