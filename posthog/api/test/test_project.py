@@ -4,8 +4,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.db import connection
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -27,6 +25,7 @@ from posthog.models.tag import Tag
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
@@ -991,7 +990,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             payload = {"conversations_enabled": True}
 
         with (
-            CaptureQueriesContext(connection) as queries,
+            capture_db_queries() as queries,
             patch("posthog.api.team.report_user_action") as mock_report,
         ):
             with (
