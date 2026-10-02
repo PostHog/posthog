@@ -55,19 +55,15 @@ def build_team_view(team: "Team") -> str | None:
 
 
 def build_jobs_read_query(*, source_id: str, repository: str) -> str:
-    """One repository's stored rows in the shape the jobs builder returns."""
-    columns = [
-        stored_view.stored_column(name, FIELDS[_STORED_AS.get(name, name)], stored_as=_STORED_AS.get(name))
-        for name in workflow_jobs.COLUMNS
-    ]
-    return f"SELECT {', '.join(columns)} FROM {_rows(source_id, repository)}"
+    """One repository's stored rows with the columns of the jobs builder."""
+    columns = []
+    for name in workflow_jobs.COLUMNS:
+        stored_as = _STORED_AS.get(name, name)
+        columns.append(stored_view.stored_column(name, FIELDS[stored_as], stored_as=stored_as))
+    return stored_view.build_read_query(VIEW_NAME, columns, source_id=source_id, repository=repository)
 
 
 def build_job_costs_read_query(*, source_id: str, repository: str) -> str:
-    """One repository's stored rows in the shape the cost builder returns."""
+    """One repository's stored rows with the columns of the cost builder."""
     columns = [stored_view.stored_column(name, field) for name, field in job_costs.BUILDER_FIELDS.items()]
-    return f"SELECT {', '.join(columns)} FROM {_rows(source_id, repository)}"
-
-
-def _rows(source_id: str, repository: str) -> str:
-    return stored_view.stored_rows(VIEW_NAME, source_id=source_id, repository=repository)
+    return stored_view.build_read_query(VIEW_NAME, columns, source_id=source_id, repository=repository)

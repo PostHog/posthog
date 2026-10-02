@@ -93,6 +93,12 @@ def stored_rows(view_name: str, *, source_id: str, repository: str) -> str:
     )
 
 
+def build_read_query(view_name: str, columns: Iterable[str], *, source_id: str, repository: str) -> str:
+    """The ``columns`` of one repository's stored rows, for a product read."""
+    rows = stored_rows(view_name, source_id=source_id, repository=repository)
+    return f"SELECT {', '.join(columns)} FROM {rows}"
+
+
 def stored_column(name: str, field: FieldOrTable, *, stored_as: str | None = None) -> str:
     """SQL that reads the stored column ``stored_as`` as ``name``, with the type the view declares.
 

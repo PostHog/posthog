@@ -22,8 +22,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
 )
-from products.engineering_analytics.backend.logic.stored_views import StoredTables, stored_tables_for
-from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs
+from products.engineering_analytics.backend.logic.stored_views import STORED_VIEWS, StoredTables, stored_tables_for
 from products.engineering_analytics.backend.logic.views.stored_view import identity_columns
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
@@ -31,12 +30,12 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_warehouse_table_row,
     link_schema,
 )
-from products.engineering_analytics.backend.tests._logic_helpers import _CURATED
+from products.engineering_analytics.backend.tests._logic_helpers import _CURATED, _add_stored_views_to_catalog
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 _STORED_VIEWS = "products.engineering_analytics.backend.logic.stored_views"
-_BOTH_VIEWS = (ci_runs.VIEW_NAME, ci_jobs.VIEW_NAME)
+_BOTH_VIEWS = tuple(view.VIEW_NAME for view in STORED_VIEWS)
 _REPOSITORY = "PostHog/posthog"
 _RAW_READ = "engineering_analytics.test"
 _STORED_READ = f"{_RAW_READ}{STORED_QUERY_TYPE_SUFFIX}"
@@ -58,11 +57,11 @@ class TestStoredReads(BaseTest):
         [
             ("served", True, _BOTH_VIEWS, True, 5, 24 * 60, True),
             ("flag_off", False, _BOTH_VIEWS, True, 5, 24 * 60, False),
-            ("jobs_view_missing", True, (ci_runs.VIEW_NAME,), True, 5, 24 * 60, False),
+            ("one_view_missing", True, _BOTH_VIEWS[:1], True, 5, 24 * 60, False),
             ("source_not_in_the_views", True, _BOTH_VIEWS, False, 5, 24 * 60, False),
             ("never_built", True, _BOTH_VIEWS, True, None, 24 * 60, False),
             ("built_too_long_ago", True, _BOTH_VIEWS, True, 120, 24 * 60, False),
-            ("raw_table_landed_after_the_build", True, _BOTH_VIEWS, True, 5, 0, False),
+            ("built_too_soon_after_a_raw_table_landed", True, _BOTH_VIEWS, True, 5, 20, False),
         ]
     )
     def test_tables_are_served_only_when_recent_and_built_for_the_source(
@@ -106,14 +105,21 @@ class TestStoredReads(BaseTest):
 
     @parameterized.expand(
         [
-            ("floor_inside_the_stored_window", 10, True, None, [_STORED_READ], True),
-            ("floor_below_the_stored_window", 200, True, None, [_RAW_READ], True),
-            ("views_missing_from_the_reader_catalog", 10, False, None, [_RAW_READ], True),
-            ("stored_tables_reject_the_query", 10, True, QueryError("no such column"), [_STORED_READ, _RAW_READ], True),
+            ("floor_inside_the_stored_window", 10, True, None, [_STORED_READ, _STORED_READ], True),
+            ("floor_below_the_stored_window", 200, True, None, [_RAW_READ, _RAW_READ], True),
+            ("views_missing_from_the_reader_catalog", 10, False, None, [_RAW_READ, _RAW_READ], True),
+            (
+                "stored_tables_reject_the_query",
+                10,
+                True,
+                QueryError("no such column"),
+                [_STORED_READ, _RAW_READ, _RAW_READ],
+                True,
+            ),
             ("stored_read_lacks_capacity", 10, True, ClickHouseAtCapacity(), [_STORED_READ], False),
         ]
     )
-    def test_floored_read_takes_the_stored_tables_only_when_they_answer_it(
+    def test_two_floored_reads_take_the_stored_tables_only_while_they_answer(
         self,
         _name: str,
         floor_days_ago: int,
@@ -124,10 +130,7 @@ class TestStoredReads(BaseTest):
     ) -> None:
         now = timezone.now()
         if views_in_catalog:
-            for view_name in _BOTH_VIEWS:
-                DataWarehouseSavedQuery.objects.create(
-                    team=self.team, name=view_name, query={"kind": "HogQLQuery", "query": "SELECT 1"}
-                )
+            _add_stored_views_to_catalog(self.team)
         curated = CuratedGitHubSource.for_team(self.team)
         sql = f"SELECT count() FROM {curated.run_source(started_floor=True)} AS r"
         floor = (now - timedelta(days=floor_days_ago)).strftime("%Y-%m-%d")
@@ -142,11 +145,11 @@ class TestStoredReads(BaseTest):
             return curated.run(sql, query_type=_RAW_READ, placeholders=placeholders).results
 
         with (
-            patch(f"{_CURATED}.stored_tables_for", return_value=StoredTables(built_at=dict.fromkeys(_BOTH_VIEWS, now))),
+            patch(f"{_CURATED}.stored_tables_for", return_value=StoredTables(built_at=now)),
             patch(f"{_CURATED}.execute_hogql_query", side_effect=execute) as mock_execute,
         ):
             if answered:
-                assert read() == [(1,)]
+                assert [read(), read()] == [[(1,)], [(1,)]]
             else:
                 with self.assertRaises(type(stored_error)):
                     read()

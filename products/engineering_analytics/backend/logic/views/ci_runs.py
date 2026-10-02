@@ -37,8 +37,6 @@ REBUILT_AFTER = (WORKFLOW_RUNS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
 WINDOW = stored_view.STORED_RUNS_WINDOW
 
-_BEFORE_STOPPED_REPORTING = "duration_seconds"
-
 _BUILDER_FIELDS: dict[str, FieldOrTable] = {
     "id": IntegerDatabaseField(name="id"),
     "workflow_name": StringDatabaseField(name="workflow_name", nullable=True),
@@ -78,12 +76,8 @@ def build_team_view(team: "Team") -> str | None:
 
 
 def build_read_query(*, source_id: str, repository: str) -> str:
-    """One repository's stored rows in the shape the runs builder returns. It adds
+    """One repository's stored rows with the columns of the runs builder. It adds
     ``stopped_reporting`` back, so the column follows the reader's clock."""
-    columns: list[str] = []
-    for name, field in _BUILDER_FIELDS.items():
-        columns.append(stored_view.stored_column(name, field))
-        if name == _BEFORE_STOPPED_REPORTING:
-            columns.append(f"{workflow_runs.STOPPED_REPORTING_SQL} AS stopped_reporting")
-    rows = stored_view.stored_rows(VIEW_NAME, source_id=source_id, repository=repository)
-    return f"SELECT {', '.join(columns)} FROM {rows}"
+    columns = [stored_view.stored_column(name, field) for name, field in _BUILDER_FIELDS.items()]
+    columns.append(f"{workflow_runs.STOPPED_REPORTING_SQL} AS stopped_reporting")
+    return stored_view.build_read_query(VIEW_NAME, columns, source_id=source_id, repository=repository)

@@ -20,7 +20,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import cached_property, partial
+from functools import partial
 from typing import TYPE_CHECKING, Protocol
 
 from django.conf import settings
@@ -112,6 +112,7 @@ class _FlooredCiSource:
     floor_placeholder: str
     view_name: str
     stored_read_query: _StoredReadQuery
+    raw_source: Callable[["CuratedGitHubSource"], str]
 
 
 _FLOORED_RUNS = _FlooredCiSource(
@@ -119,18 +120,21 @@ _FLOORED_RUNS = _FlooredCiSource(
     floor_placeholder="run_started_floor",
     view_name=ci_runs.VIEW_NAME,
     stored_read_query=ci_runs.build_read_query,
+    raw_source=lambda curated: curated._raw_run_source(started_floor=True),
 )
 _FLOORED_JOBS = _FlooredCiSource(
     token="__FLOORED_CI_JOBS__",
     floor_placeholder="job_created_floor",
     view_name=ci_jobs.VIEW_NAME,
     stored_read_query=ci_jobs.build_jobs_read_query,
+    raw_source=lambda curated: curated._raw_jobs_source(created_floor=True),
 )
 _FLOORED_JOB_COSTS = _FlooredCiSource(
     token="__FLOORED_CI_JOB_COSTS__",
     floor_placeholder="job_created_floor",
     view_name=ci_jobs.VIEW_NAME,
     stored_read_query=ci_jobs.build_job_costs_read_query,
+    raw_source=lambda curated: curated._raw_job_cost_source(created_floor=True),
 )
 _FLOORED_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS)
 
@@ -238,7 +242,10 @@ class CuratedGitHubSource:
         self._database: Database | None = None
         # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
         self._lock = threading.Lock()
-        self._stored_read_failed = False
+        self._stored_tables: StoredTables | None = None
+        self._stored_tables_resolved = False
+        # Not ``_lock``: resolving the stored tables takes ``_lock`` for the catalog and the Depot table.
+        self._stored_tables_lock = threading.Lock()
 
     @property
     def team(self) -> Team:
@@ -498,14 +505,9 @@ class CuratedGitHubSource:
 
     def _with_raw_ci_sources(self, sql: str) -> str:
         """``sql`` with every floored CI source read from the raw tables."""
-        raw_sources = (
-            (_FLOORED_RUNS, lambda: self._raw_run_source(started_floor=True)),
-            (_FLOORED_JOBS, lambda: self._raw_jobs_source(created_floor=True)),
-            (_FLOORED_JOB_COSTS, lambda: self._raw_job_cost_source(created_floor=True)),
-        )
-        for source, build in raw_sources:
+        for source in _FLOORED_SOURCES:
             if source.token in sql:
-                sql = sql.replace(source.token, build())
+                sql = sql.replace(source.token, source.raw_source(self))
         return sql
 
     def _with_stored_ci_sources(self, sql: str, placeholders: dict[str, ast.Expr]) -> str | None:
@@ -513,7 +515,7 @@ class CuratedGitHubSource:
         must read the raw tables. A floor below the rows that a table keeps sends the whole query to
         the raw tables."""
         sources = [source for source in _FLOORED_SOURCES if source.token in sql]
-        stored = self._stored_tables if sources else None
+        stored = self._stored_ci_tables() if sources else None
         if stored is None:
             return None
         for source in sources:
@@ -526,11 +528,17 @@ class CuratedGitHubSource:
             sql = sql.replace(source.token, f"({read})")
         return sql
 
-    @cached_property
-    def _stored_tables(self) -> StoredTables | None:
-        """The stored CI tables when this reader may take them. The answer holds for the life of the
-        handle. A stored source and a raw source of one request can still differ by the age of the
-        tables."""
+    def _stored_ci_tables(self) -> StoredTables | None:
+        """The stored CI tables while this reader may take them. The handle resolves them once, so
+        the concurrent reads of a request share one answer. A stored source and a raw source of one
+        request can still differ by the age of the tables."""
+        with self._stored_tables_lock:
+            if not self._stored_tables_resolved:
+                self._stored_tables = self._resolve_stored_ci_tables()
+                self._stored_tables_resolved = True
+            return self._stored_tables
+
+    def _resolve_stored_ci_tables(self) -> StoredTables | None:
         # The views hold a repository only when both its runs and its jobs are synced.
         if not self._tables.workflow_jobs:
             return None
@@ -541,7 +549,7 @@ class CuratedGitHubSource:
         stored = stored_tables_for(
             self._team, self._user, source_id=self.source_id, repository=self.repository, raw_tables=raw_tables
         )
-        if stored is None or not self._may_read(stored.built_at):
+        if stored is None or not self._may_read({source.view_name for source in _FLOORED_SOURCES}):
             return None
         if self._bypass_warehouse_access_control:
             return stored
@@ -769,7 +777,7 @@ class CuratedGitHubSource:
                 if self._queries_remaining <= 0:
                     raise QueryWorkLimitExceededError
                 self._queries_remaining -= 1
-        stored_sql = None if self._stored_read_failed else self._with_stored_ci_sources(sql, placeholders or {})
+        stored_sql = self._with_stored_ci_sources(sql, placeholders or {})
         if stored_sql is not None:
             try:
                 return self._execute(
@@ -782,7 +790,8 @@ class CuratedGitHubSource:
                 # A read that ran out of time, memory or capacity fails harder on the raw tables.
                 if classify_query_error(error) not in _STORED_READ_REJECTED:
                     raise
-                self._stored_read_failed = True
+                with self._stored_tables_lock:
+                    self._stored_tables = None
                 logger.warning(
                     "engineering_analytics_stored_read_failed",
                     team_id=self._team.pk,

@@ -47,12 +47,12 @@ _MIN_REBUILD_GAP_SECONDS = 10 * 60
 
 # Each load starts a rebuild. Sized for a source that loads every 15 minutes: a table older than this
 # missed more than one load, so a read takes the raw tables until a rebuild lands again.
-_MAX_AGE = timedelta(minutes=45)
+_MAX_TABLE_AGE = timedelta(minutes=45)
 
 # A table built from the view of an earlier load has no row for a raw table that landed after it. A
 # rebuild that started before the raw table landed can still finish after it, so a table answers for a
 # raw table only when it was built this long after the raw table landed.
-_SETTLE = timedelta(minutes=30)
+_MIN_BUILD_AFTER_RAW_TABLE = timedelta(minutes=30)
 
 
 def _in_use_key(team_id: int) -> str:
@@ -127,13 +127,14 @@ def _start_rebuilds(team_id: int, view_names: Collection[str]) -> None:
 
 @frozen
 class StoredTables:
-    """The tables of the stored CI views that a read may take."""
+    """The tables of the stored CI views that a read may take. ``built_at`` is the build time of the
+    table that was built first."""
 
-    built_at: dict[str, datetime]
+    built_at: datetime
 
     def answers(self, view_name: str, floor: str) -> bool:
         """True when the table of the view holds every row at or above the date-only scan ``floor``."""
-        return floor >= lowest_stored_date(self.built_at[view_name], _WINDOWS[view_name])
+        return floor >= lowest_stored_date(self.built_at, _WINDOWS[view_name])
 
 
 def stored_tables_for(
@@ -147,28 +148,25 @@ def stored_tables_for(
     distinct_id = user.distinct_id if user else None
     if not team_flag(STORED_READS_FEATURE_FLAG, team, distinct_id=distinct_id, only_evaluate_locally=True):
         return None
-    views = {view.name: view for view in managed_views(team.pk, list(_WINDOWS)).filter(is_materialized=True)}
+    views = list(managed_views(team.pk, list(_WINDOWS)).filter(is_materialized=True))
     if len(views) != len(_WINDOWS):
         return None
     # A view takes a source when the first load of the source lands. Before that, its table has no row
     # for the source, and a read cannot tell that from a repository with no CI.
     identity = identity_columns(source_id, repository)
-    if any(identity not in ((view.query or {}).get("query") or "") for view in views.values()):
+    if any(identity not in ((view.query or {}).get("query") or "") for view in views):
         return None
-    built_at: dict[str, datetime] = {}
-    for name, view in views.items():
-        view_built_at = data_modeling.saved_query_materialized_at(view)
-        if view_built_at is None:
-            return None
-        built_at[name] = view_built_at
-    oldest = min(built_at.values())
-    if timezone.now() - oldest > _MAX_AGE:
+    builds = [built for view in views if (built := data_modeling.saved_query_materialized_at(view)) is not None]
+    if len(builds) != len(views):
+        return None
+    built_at = min(builds)
+    if timezone.now() - built_at > _MAX_TABLE_AGE:
         return None
     newest_raw_table = (
         DataWarehouseTable.objects.filter(team_id=team.pk, name__in=raw_tables)
         .exclude(deleted=True)
         .aggregate(newest=Max("created_at"))["newest"]
     )
-    if newest_raw_table is None or oldest < newest_raw_table + _SETTLE:
+    if newest_raw_table is None or built_at < newest_raw_table + _MIN_BUILD_AFTER_RAW_TABLE:
         return None
     return StoredTables(built_at=built_at)

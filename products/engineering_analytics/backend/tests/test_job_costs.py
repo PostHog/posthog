@@ -258,48 +258,37 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
             (run_id, source.source_id, source.repository, 1) for run_id in expected_run_ids
         ]
 
-    @parameterized.expand(
-        [
+    def test_stored_read_returns_the_columns_of_the_builder_it_stands_in_for(self) -> None:
+        source = self._source_with_runs_and_jobs([_JobOfRun(9000, created=_ago(1), run_started=_ago(1))])
+        stored_reads = [
             (
                 "runs",
-                ci_runs.build_source_query,
+                ci_runs,
                 ci_runs.build_read_query,
-                lambda source: workflow_runs.build_query(source.runs_source, pull_requests_table=source.pull_requests),
+                workflow_runs.build_query(source.runs_source, pull_requests_table=source.pull_requests),
             ),
-            (
-                "jobs",
-                ci_jobs.build_source_query,
-                ci_jobs.build_jobs_read_query,
-                lambda source: workflow_jobs.build_query(source.jobs_source),
-            ),
+            ("jobs", ci_jobs, ci_jobs.build_jobs_read_query, workflow_jobs.build_query(source.jobs_source)),
             (
                 "job_costs",
-                ci_jobs.build_source_query,
+                ci_jobs,
                 ci_jobs.build_job_costs_read_query,
-                lambda source: job_costs.build_query(jobs_table=source.jobs_source, runs_table=source.runs_source),
+                job_costs.build_query(jobs_table=source.jobs_source, runs_table=source.runs_source),
             ),
         ]
-    )
-    def test_stored_read_returns_the_columns_of_the_builder_it_stands_in_for(
-        self,
-        _name: str,
-        build_view: Callable[[JobSourceTables], str],
-        build_stored_read: Callable[..., str],
-        build_raw: Callable[[JobSourceTables], str],
-    ) -> None:
-        source = self._source_with_runs_and_jobs([(9000, _ago(1), _ago(1))])
-        # No table is materialized here, so the stored rows are the view body itself.
-        with patch(f"{_STORED_VIEW}.stored_rows", return_value=f"({build_view(source)})"):
-            stored_read = build_stored_read(source_id=source.source_id, repository=source.repository)
 
-        stored, raw = (
-            execute_hogql_query(
+        def columns(query: str) -> list[str]:
+            response = execute_hogql_query(
                 query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
             )
-            for query in (stored_read, build_raw(source))
-        )
+            return sorted(response.columns or [])
 
-        assert stored.columns == raw.columns
+        for name, view, build_stored_read, raw_read in stored_reads:
+            # No table is materialized here, so the stored rows are the view body itself.
+            view_body = f"({view.build_source_query(source)})"
+            with self.subTest(name), patch(f"{_STORED_VIEW}.stored_rows", return_value=view_body):
+                stored_read = build_stored_read(source_id=source.source_id, repository=source.repository)
+
+                assert columns(stored_read) == columns(raw_read)
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(

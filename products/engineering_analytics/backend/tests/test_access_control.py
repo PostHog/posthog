@@ -26,7 +26,6 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX, CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
@@ -34,7 +33,7 @@ from products.engineering_analytics.backend.logic.sources import (
     WORKFLOW_RUNS_SCHEMA,
     resolve_github_tables,
 )
-from products.engineering_analytics.backend.logic.stored_views import STORED_VIEWS, StoredTables
+from products.engineering_analytics.backend.logic.stored_views import StoredTables
 from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     connect_github_source_without_data,
@@ -42,6 +41,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_warehouse_table_row,
     link_schema,
 )
+from products.engineering_analytics.backend.tests._logic_helpers import _add_stored_views_to_catalog
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
@@ -219,14 +219,10 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
 
     def _floored_ci_reads(self, user_access_control: UserAccessControl) -> list[str]:
         now = timezone.now()
-        built_at = {view.VIEW_NAME: now for view in STORED_VIEWS}
-        for view_name in built_at:
-            DataWarehouseSavedQuery.objects.create(
-                team=self.team, name=view_name, query={"kind": "HogQLQuery", "query": "SELECT 1"}
-            )
+        _add_stored_views_to_catalog(self.team)
         with (
             mock.patch(_FLAG, side_effect=_warehouse_acl_enabled),
-            mock.patch(_STORED_TABLES_FOR, return_value=StoredTables(built_at=built_at)),
+            mock.patch(_STORED_TABLES_FOR, return_value=StoredTables(built_at=now)),
             mock.patch(_EXECUTE_HOGQL, return_value=SimpleNamespace(results=[])) as execute,
         ):
             curated = CuratedGitHubSource.for_team(self.team, user_access_control=user_access_control)
