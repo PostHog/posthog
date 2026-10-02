@@ -119,8 +119,10 @@ class TestFileSystemAPI(APIBaseTest):
             set(results),
             {f"Reports/{name}" for name, _, _, _ in entries} | {"Reports/Other notebook", "Reports/Other insight"},
         )
-        for name, _, _, content_type in entries:
+        for name, entry_type, _, content_type in entries:
             expected_meta = {"label": "example"}
+            if entry_type == "insight":
+                expected_meta["insight_type"] = "hog" if name == "SQL" else "trends"
             if include_content_type:
                 expected_meta["content_type"] = content_type
             self.assertEqual(results[f"Reports/{name}"]["meta"], expected_meta)
@@ -129,7 +131,10 @@ class TestFileSystemAPI(APIBaseTest):
         for name in ("Other notebook", "Other insight"):
             self.assertEqual(
                 results[f"Reports/{name}"]["meta"],
-                {"content_type": "application/json"} if include_content_type else {},
+                {
+                    **({"insight_type": "trends"} if name == "Other insight" else {}),
+                    **({"content_type": "application/json"} if include_content_type else {}),
+                },
             )
         if include_content_type:
             markdown.content = legacy.content
@@ -139,6 +144,33 @@ class TestFileSystemAPI(APIBaseTest):
                 {"ref": str(markdown.short_id), "include_content_type": "true"},
             )
             self.assertEqual(refreshed.json()["results"][0]["meta"]["content_type"], "application/json")
+
+    def test_list_insight_types_from_current_queries_and_legacy_filters(self) -> None:
+        queries = [
+            ("trends", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}),
+            ("funnels", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}),
+            ("retention", {"kind": "RetentionQuery"}),
+            ("paths", {"kind": "PathsQuery"}),
+            ("lifecycle", {"kind": "LifecycleQuery"}),
+            ("stickiness", {"kind": "StickinessQuery"}),
+            ("hog", {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "select 1"}}),
+            ("hog", {"kind": "HogQLQuery", "query": "select 1"}),
+            (
+                "funnels",
+                {"kind": "DataTableNode", "source": {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}},
+            ),
+            ("retention", None),
+        ]
+        expected = {}
+        for index, (insight_type, query) in enumerate(queries):
+            insight = Insight.objects.create(
+                team=self.team, filters={"insight": "RETENTION"}, saved=True, name=f"Report {index}"
+            )
+            Insight.objects.filter(team=self.team, pk=insight.pk).update(query=query)
+            expected[insight.short_id] = insight_type
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"type": "insight"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({item["ref"]: item["meta"]["insight_type"] for item in response.json()["results"]}, expected)
 
     def test_list_rejects_invalid_content_type_parameter(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"include_content_type": "invalid"})
@@ -1662,12 +1694,16 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["meta"]["content_type"], "application/json")
+        if entry_type == "insight":
+            self.assertIsNone(response.json()["results"][0]["meta"]["insight_type"])
 
         self._grant_to_user(entry_type, str(obj.pk), "viewer")
         response = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"path": entry.path, "include_content_type": "true"}
         )
         self.assertEqual(response.json()["results"][0]["meta"]["content_type"], content_type)
+        if entry_type == "insight":
+            self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], "hog")
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(
