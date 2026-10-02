@@ -1117,12 +1117,19 @@ class ConversionPeopleRequestSerializer(serializers.Serializer):
         help_text="The table query whose conversion cell was selected."
     )
     goal_id = serializers.CharField(help_text="The selected conversion goal ID.")
-    group = serializers.CharField(allow_blank=True, help_text="The displayed row grouping value.")
-    source_name = serializers.CharField(default="", allow_blank=True, help_text="The displayed row source.")
+    # The people query compares these row keys to table values exactly, and campaign names and UTM values
+    # can keep surrounding spaces. A trimmed key selects another row or no row.
+    group = serializers.CharField(
+        allow_blank=True, trim_whitespace=False, help_text="The displayed row grouping value."
+    )
+    source_name = serializers.CharField(
+        default="", allow_blank=True, trim_whitespace=False, help_text="The displayed row source."
+    )
     campaign_id = serializers.CharField(
         required=False,
         allow_null=True,
         allow_blank=True,
+        trim_whitespace=False,
         help_text="The displayed campaign ID, omitted for comparison rows.",
     )
     search = serializers.CharField(

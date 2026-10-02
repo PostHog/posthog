@@ -91,6 +91,16 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len({person["id"] for person in result["results"]}), count)
 
     def test_endpoint_search_and_pagination(self) -> None:
+        _create_person(team=self.team, distinct_ids=["pat"], properties={"email": "pat@example.com"})
+        _create_event(
+            team=self.team,
+            distinct_id="pat",
+            event="$pageview",
+            timestamp="2026-09-16T10:00:00Z",
+            properties={"utm_campaign": "winter-sale ", "utm_source": "google", "utm_medium": "cpc"},
+        )
+        _create_event(team=self.team, distinct_id="pat", event="purchase", timestamp="2026-09-16T11:00:00Z")
+        flush_persons_and_events()
         url = f"/api/projects/{self.team.pk}/marketing_analytics/conversion_people/"
         payload = {
             "source": self.source.model_dump(mode="json"),
@@ -113,6 +123,8 @@ class TestConversionPeople(ClickhouseTestMixin, APIBaseTest):
         self.assertNotEqual(first.json()["results"][0]["id"], second.json()["results"][0]["id"])
         searched = self.client.post(url, {**payload, "search": "alex@"}, format="json")
         self.assertEqual([p["name"] for p in searched.json()["results"]], ["alex@example.com"])
+        padded = self.client.post(url, {**payload, "group": "winter-sale ", "limit": 50}, format="json")
+        self.assertEqual([p["name"] for p in padded.json()["results"]], ["pat@example.com"])
         invalid = self.client.post(url, {**payload, "source": {"kind": "ActorsQuery"}}, format="json")
         self.assertEqual(invalid.status_code, 400)
 
