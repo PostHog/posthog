@@ -11,6 +11,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { recipientsLogic } from './recipientsLogic'
+import { unreachablePersonsUrl } from './unreachablePersonsUrl'
 
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -135,7 +136,7 @@ describe('recipientsLogic', () => {
         const capture = jest.spyOn(posthog, 'capture')
         await mountLogic()
 
-        router.actions.push(logic.values.unreachablePersonsUrl)
+        router.actions.push(unreachablePersonsUrl())
         const { q } = router.values.hashParams
 
         expect(router.values.location.pathname).toContain(urls.persons())
