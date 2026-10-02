@@ -246,9 +246,10 @@ class TestQueriedAccessControlledResources(BaseTest):
         [
             ("raw_name", "stripe_customers", "stripe_customers"),
             ("prefixed_name", "stripe_customers", "stripe.myprefix.customers"),
-            # Python lowercases "İ" to "i" plus a combining dot, which Postgres UPPER does not map back.
+            ("prefixed_mixed_case_name", "stripe_Invoices", "stripe.myprefix.invoices"),
+            # Python lowercases "İ" to "i" plus a combining dot.
             ("prefixed_non_ascii_name", "stripe_İnvoices", "`stripe.myprefix.i̇nvoices`"),
-            # Python lowercases the Kelvin sign to ASCII "k", which Postgres UPPER does not match.
+            # Python lowercases the Kelvin sign to ASCII "k".
             ("prefixed_kelvin_sign_name", "stripe_\u212austomers", "stripe.myprefix.kustomers"),
         ]
     )

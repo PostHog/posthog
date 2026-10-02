@@ -100,10 +100,11 @@ class _WarehouseCatalog:
         if unknown_names:
             # This runs on every cache hit, so load only candidate tables, not the whole catalog. Both
             # queryable forms end with the table's name, so a suffix match finds every candidate.
-            # Python and Postgres case folding can disagree outside ASCII, so non-ASCII names always load.
-            suffix_filter = reduce(or_, (Q(name__iendswith=name.rsplit(".", 1)[-1]) for name in unknown_names))
+            # The prefixed form is lowercased, so names that are not plain lowercase ASCII always load.
+            # This keeps case folding out of Postgres, where it depends on the collation.
+            suffix_filter = reduce(or_, (Q(name__endswith=name.rsplit(".", 1)[-1]) for name in unknown_names))
             for table in (
-                DataWarehouseTable.objects.filter(suffix_filter | Q(name__regex=r"[^ -~]"), team_id=self.team_id)
+                DataWarehouseTable.objects.filter(suffix_filter | Q(name__regex=r"[A-Z]|[^ -~]"), team_id=self.team_id)
                 .exclude(deleted=True)
                 # clear the manager's created_by/schema eager-loads: select_related chains additively,
                 # so without this the .only() below raises FieldError (created_by deferred + traversed)
