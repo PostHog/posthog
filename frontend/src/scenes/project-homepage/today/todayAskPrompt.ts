@@ -11,6 +11,7 @@ export const WALK_THROUGH_QUESTION = 'Walk me through my Today briefing and tell
 export type TodayAskContext =
     | { kind: 'briefing'; briefing: BriefingApi }
     | { kind: 'reports'; reports: SignalReport[] }
+    | { kind: 'report'; report: SignalReport }
     | { kind: 'none' }
 
 // Briefing item URLs from the API already start with `/project/<id>`, but Today's own report pages do not.
@@ -59,6 +60,36 @@ function reportsContext(reports: SignalReport[]): string[] {
     ]
 }
 
+function reportContext(report: SignalReport): string[] {
+    return [
+        `- Report: ${markdownLink(report.title ?? 'Untitled report', urls.todayReport(report.id))}`,
+        ...(report.priority ? [`- Priority: ${report.priority}`] : []),
+        `- Status: ${report.status}`,
+        `- Also in the ${markdownLink('Inbox', urls.inboxReport('reports', report.id))}`,
+        ...(report.implementation_pr_url ? [`- Pull request: ${report.implementation_pr_url}`] : []),
+        '',
+        'The report link ends with the report id. Use it with `inbox-reports-retrieve` to read the report in full, ' +
+            'with its summary and signals, before you answer.',
+    ]
+}
+
+function contextHeading(context: Exclude<TodayAskContext, { kind: 'none' }>): string {
+    return context.kind === 'report'
+        ? '#### Context from the report I am reading on Today'
+        : `#### Context from my ${markdownLink('Today home page', urls.projectHomepage())}`
+}
+
+function contextLines(context: Exclude<TodayAskContext, { kind: 'none' }>): string[] {
+    switch (context.kind) {
+        case 'briefing':
+            return briefingContext(context.briefing)
+        case 'reports':
+            return reportsContext(context.reports)
+        case 'report':
+            return reportContext(context.report)
+    }
+}
+
 /**
  * The question with the Today page's context under it, as Markdown. PostHog AI reads the briefing and reports
  * through the MCP tools the context names, so the context holds ids rather than the full report text.
@@ -67,13 +98,5 @@ export function todayAskPrompt(question: string, context: TodayAskContext): stri
     if (context.kind === 'none' || (context.kind === 'reports' && context.reports.length === 0)) {
         return question
     }
-    return [
-        question,
-        '',
-        '---',
-        '',
-        `#### Context from my ${markdownLink('Today home page', urls.projectHomepage())}`,
-        '',
-        ...(context.kind === 'briefing' ? briefingContext(context.briefing) : reportsContext(context.reports)),
-    ].join('\n')
+    return [question, '', '---', '', contextHeading(context), '', ...contextLines(context)].join('\n')
 }

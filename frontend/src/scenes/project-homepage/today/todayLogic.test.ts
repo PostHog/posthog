@@ -109,7 +109,16 @@ describe('todayLogic', () => {
             hasBriefing: false,
             expected: ['briefing is not written yet', '](http://localhost/project/997/home/reports/r-1)'],
         },
-    ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, expected }) => {
+        {
+            shown: 'the open report',
+            hasBriefing: true,
+            report: makeReport({ id: 'r-2', title: 'Checkout errors spike' }),
+            expected: [
+                'from the report i am reading',
+                '[checkout errors spike](http://localhost/project/997/home/reports/r-2)',
+            ],
+        },
+    ])('sends PostHog AI the question with $shown as context', async ({ hasBriefing, report, expected }) => {
         listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
         if (hasBriefing) {
             briefingResponses = [[200, makeBriefing()]]
@@ -118,7 +127,7 @@ describe('todayLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        logic.actions.askAi('Why is signup broken?', 'ask_box')
+        logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'ask_box', report)
 
         const prompt = router.values.searchParams.ask as string
         expect(prompt.startsWith('Why is signup broken?\n')).toBe(true)

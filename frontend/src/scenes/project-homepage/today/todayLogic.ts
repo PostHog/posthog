@@ -58,7 +58,7 @@ const MAX_BRIEFING_POLLS = 132
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'ask_box' | 'walk_through'
+export type TodayAskSource = 'ask_box' | 'walk_through' | 'report_page'
 
 /** What a person decides about a report from Today. */
 export type TodayReportVerdict = 'resolve' | 'dismiss'
@@ -243,9 +243,11 @@ export interface todayLogicActions {
     }
     askAi: (
         prompt: string,
-        source: TodayAskSource
+        source: TodayAskSource,
+        report?: SignalReport
     ) => {
         prompt: string
+        report: SignalReport | undefined
         source: TodayAskSource
     }
     itemOpened: (
@@ -420,7 +422,8 @@ export const todayLogic = kea<todayLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
-        askAi: (prompt: string, source: TodayAskSource) => ({ prompt, source }),
+        // `report` is the report the person reads. Without it, the context is the briefing or the report list.
+        askAi: (prompt: string, source: TodayAskSource, report?: SignalReport) => ({ prompt, source, report }),
         setHoveredReportId: (reportId: string | null) => ({ reportId }),
         openReport: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
@@ -689,19 +692,22 @@ export const todayLogic = kea<todayLogicType>([
             }, 'briefingPoll')
         }
         return {
-            askAi: ({ prompt, source }) => {
+            askAi: ({ prompt, source, report }) => {
                 // Sample reports have ids that do not exist, so PostHog AI gets no context to look up.
                 const context: TodayAskContext = values.useSampleData
                     ? { kind: 'none' }
-                    : values.showPersonalBriefing && values.personalBriefing
-                      ? { kind: 'briefing', briefing: values.personalBriefing }
-                      : { kind: 'reports', reports: values.reports }
+                    : report
+                      ? { kind: 'report', report }
+                      : values.showPersonalBriefing && values.personalBriefing
+                        ? { kind: 'briefing', briefing: values.personalBriefing }
+                        : { kind: 'reports', reports: values.reports }
                 router.actions.push(urls.ai(undefined, todayAskPrompt(prompt, context)))
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today ai asked', {
                     source,
                     context: context.kind,
                     briefing_id: context.kind === 'briefing' ? context.briefing.id : null,
+                    report_id: context.kind === 'report' ? context.report.id : null,
                 })
             },
             tick: () => {
