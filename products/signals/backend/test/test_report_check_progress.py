@@ -262,6 +262,65 @@ class TestReportCheckProgressAPI(APIBaseTest):
             self.assertEqual(response.status_code, 403)
             runner.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (
+                "latest_expiry_leads_even_when_it_ran_earlier",
+                {"last_run_at": timedelta(days=10), "updated_at": timedelta(days=1), "created_at": timedelta(days=30)},
+                {"last_run_at": None, "updated_at": timedelta(days=5), "created_at": timedelta(days=20)},
+            ),
+            (
+                "same_sweep_tie_goes_to_the_newest_check",
+                {"last_run_at": None, "updated_at": timedelta(days=1), "created_at": timedelta(days=20)},
+                {"last_run_at": None, "updated_at": timedelta(days=1), "created_at": timedelta(days=30)},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-10-03T12:23:00Z", tick=False)
+    def test_measures_the_expired_check_the_card_shows(
+        self, _: str, shown_ago: dict[str, timedelta | None], hidden_ago: dict[str, timedelta | None]
+    ) -> None:
+        now = datetime(2026, 10, 3, 12, 23, tzinfo=UTC)
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.MONITORING,
+            monitoring_started_at=now - timedelta(days=2),
+            title="Example failure",
+        )
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "example_failure"}])
+        checks = SignalReportCheck.objects.for_team(self.team.id)
+
+        def create_check(status: str, ago: dict[str, timedelta | None] | None = None) -> str:
+            check = checks.create(
+                team=self.team,
+                report=report,
+                title="Failures stay below 70",
+                kind="metric_threshold",
+                status=status,
+                config={"query": query, "comparison": {"operator": "lte", "value": 70}},
+                next_run_at=now + timedelta(days=12),
+                expires_at=now + timedelta(days=40),
+            )
+            if ago is not None:
+                checks.filter(id=check.id).update(
+                    **{field: None if delta is None else now - delta for field, delta in ago.items()}
+                )
+            return str(check.id)
+
+        hidden = create_check("expired", hidden_ago)
+        shown = create_check("expired", shown_ago)
+        active = [create_check("active") for _ in range(5)]
+        measured = SimpleNamespace(
+            results=[{"aggregated_value": 4, "days": [now.isoformat()], "data": [4]}], last_refresh=now
+        )
+
+        with patch("products.signals.backend.report_metric_refresh.run_cached_trends_query", return_value=measured):
+            response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/checks/progress/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+        measured_ids = {progress["check_id"] for progress in response.json()}
+        self.assertEqual(measured_ids, {*active, shown}, f"hidden check {hidden} was measured")
+
 
 class TestProgressQueryBounds(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel("2026-10-01T14:23:00Z", tick=False)

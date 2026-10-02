@@ -4947,6 +4947,8 @@ class SignalReportCheckViewSet(
             self.get_queryset()
             .filter(kind=SignalReportCheck.Kind.METRIC_THRESHOLD)
             .exclude(status=SignalReportCheck.Status.CANCELLED)
+            # Keep in sync with `orderingKey` in reportCheckPresentation.ts and the list's `-created_at`
+            # tiebreak, so that the endpoint measures the same checks that the report card shows.
             .order_by(
                 Case(
                     When(status=SignalReportCheck.Status.ACTIVE, then=Value(0)),
@@ -4955,7 +4957,11 @@ class SignalReportCheckViewSet(
                     default=Value(2),
                 ),
                 Case(When(status__in=SignalReportCheck.OPEN_STATUSES, then=F("next_run_at"))),
-                Coalesce("last_run_at", "updated_at").desc(),
+                Case(
+                    When(status=SignalReportCheck.Status.EXPIRED, then=F("updated_at")),
+                    default=Coalesce("last_run_at", "updated_at"),
+                ).desc(),
+                "-created_at",
             )[:MAX_PROGRESS_CHECKS]
         )
         measurements = report_check_progress(
