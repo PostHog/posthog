@@ -1,7 +1,12 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
+
+import * as messagingApi from 'products/messaging/frontend/generated/api'
 
 import { newCategoryLogic } from './newCategoryLogic'
 import type { MessageCategory } from './optOutCategoriesLogic'
@@ -31,6 +36,10 @@ describe('newCategoryLogic', () => {
     beforeEach(() => {
         initKeaTests()
         setAudienceFlag(true)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('slugifies the name into the key of a new topic on every name edit', () => {
@@ -116,6 +125,26 @@ describe('newCategoryLogic', () => {
         typeInto(logic, 'name', 'Product updates')
 
         expect(logic.values.categoryForm.key).toBe('')
+    })
+
+    it('shows on the key field that another topic already uses the key', async () => {
+        jest.spyOn(messagingApi, 'messagingCategoriesCreate').mockRejectedValue(
+            new ApiError('A message category with this key already exists.', 400, undefined, {
+                type: 'validation_error',
+                code: 'invalid_input',
+                detail: 'A message category with this key already exists.',
+                attr: 'key',
+            })
+        )
+        const logic = newCategoryLogic({})
+        logic.mount()
+        typeInto(logic, 'name', 'Product updates')
+
+        await expectLogic(logic, () => logic.actions.submitCategoryForm()).toDispatchActions([
+            'submitCategoryFormFailure',
+        ])
+
+        expect(logic.values.categoryFormAllErrors.key).toBe('Another topic already uses this key')
     })
 
     it('never changes the key of an existing topic', () => {

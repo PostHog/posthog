@@ -11,11 +11,13 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import * as messagingApi from 'products/messaging/frontend/generated/api'
 import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { NewCategoryButton } from '../OptOuts/NewCategoryButton'
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { OptOutScene } from '../OptOuts/OptOutScene'
+import { optOutSceneLogic } from '../OptOuts/optOutSceneLogic'
 import { AudienceScene } from './AudienceScene'
 
 const PRODUCT_UPDATES: MessageCategoryApi = {
@@ -77,6 +79,7 @@ describe('the Topics tab', () => {
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
     })
 
     it.each(TOPICS_TAB_BY_FLAG)(
@@ -138,6 +141,21 @@ describe('the Topics tab', () => {
         expect(within(await screen.findByRole('dialog')).getByText('Customer.io integration')).toBeInTheDocument()
     })
 
+    it.each([
+        { opened: "a recipient's preferences page from the list", recipient: 'jamie@example.com', busy: false },
+        { opened: 'the preview from the More menu', recipient: undefined, busy: true },
+    ])('keeps the More menu busy only while $opened loads', async ({ recipient, busy }) => {
+        jest.spyOn(messagingApi, 'messagingPreferencesGenerateLinkCreate').mockReturnValue(new Promise(() => {}))
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
+        render(<AudienceScene />)
+        await screen.findByText('Product updates')
+
+        act(() => optOutSceneLogic.actions.openPreferencesPage(recipient))
+
+        await waitFor(() => expect(optOutSceneLogic.values.preferencesUrlLoading).toBe(true))
+        expect(screen.getByTestId('audience-topics-more').getAttribute('aria-disabled') === 'true').toBe(busy)
+    })
+
     it('opens the preferences page from the More menu', async () => {
         useMocks({
             post: {
@@ -155,6 +173,5 @@ describe('the Topics tab', () => {
         act(() => screen.getByText('Preview preferences page').click())
 
         await waitFor(() => expect(openTab).toHaveBeenCalledWith('https://example.com/preferences/abc', '_blank'))
-        openTab.mockRestore()
     })
 })
