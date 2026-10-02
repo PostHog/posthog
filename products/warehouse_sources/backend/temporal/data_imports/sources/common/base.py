@@ -503,7 +503,6 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
         schema_name: str | None = None,
     ) -> bool:
         """Whether this source's resume mechanism covers a run of this shape.
