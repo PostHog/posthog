@@ -4096,6 +4096,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
 
+            if (
+                values.queryInput === null &&
+                !draftIdFromUrl &&
+                !viewIdFromUrl &&
+                insightShortIdFromUrl &&
+                insightShortIdFromUrl !== 'new'
+            ) {
+                actions.setInsightLoading(true)
+            }
+
             if (props.monaco) {
                 await createQueryTab()
             } else {
@@ -4123,6 +4133,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Monaco timed out - still try to create tab if monaco loaded late
                     if (props.monaco) {
                         await createQueryTab()
+                    } else {
+                        actions.setInsightLoading(false)
                     }
                 }
             }
