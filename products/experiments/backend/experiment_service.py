@@ -60,13 +60,11 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_conversion_window import (
-    UNITLESS_CONVERSION_WINDOW_ERROR,
-    first_unitless_conversion_window,
-)
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
+    UNITLESS_CONVERSION_WINDOW_ERROR,
     extract_entity_nodes,
+    first_unitless_conversion_window,
     parse_and_validate_metric,
     validate_metric_action_ids,
     validate_saved_metric_link_overrides,
