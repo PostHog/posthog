@@ -22,6 +22,7 @@ import { canvasSpaceLabel } from '../canvasTasksApi'
 import { CanvasEditSaveStatus } from '../editing/CanvasEditSaveStatus'
 import { CanvasEditToggle } from '../editing/CanvasEditToggle'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
+import { CanvasCommentsMenu } from '../sidePanel/comments/CanvasCommentsMenu'
 import { CanvasBuildStatus } from './CanvasBuildStatus'
 import { CanvasFullscreenToggle } from './CanvasFullscreenToggle'
 import { CanvasGenerationIndicator } from './CanvasGenerationIndicator'
@@ -56,6 +57,7 @@ export function CanvasSceneHeader(): JSX.Element {
                     <CanvasRuntimeErrorNotice />
                     <CanvasEditSaveStatus />
                     <CanvasEditToggle />
+                    <CanvasCommentsMenu />
                     <CanvasFullscreenToggle />
                     <CanvasSidePanelToggle />
                     <DropdownMenu>
