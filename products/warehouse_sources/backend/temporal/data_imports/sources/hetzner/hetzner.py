@@ -55,6 +55,12 @@ class HetznerResumeConfig:
     page: int = FIRST_PAGE
 
 
+@dataclasses.dataclass(frozen=True)
+class MetricsWindow:
+    start: int
+    end: int
+
+
 def _non_secret_headers() -> dict[str, str]:
     # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs and
     # raised error messages; only the non-secret Accept header is set here.
@@ -166,11 +172,11 @@ def _to_rfc3339(epoch: int) -> str:
     return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _metric_windows(start: int, end: int) -> Iterator[tuple[int, int]]:
+def _metric_windows(start: int, end: int) -> Iterator[MetricsWindow]:
     span = METRICS_STEP_SECONDS * (METRICS_MAX_SAMPLES - 1)
     while start <= end:
         window_end = min(start + span, end)
-        yield start, window_end
+        yield MetricsWindow(start=start, end=window_end)
         # Windows include both ends, so the next one starts a step later to not repeat a sample.
         start = window_end + METRICS_STEP_SECONDS
 
@@ -235,11 +241,11 @@ def hetzner_metrics_source(
         ):
             for resource in resources:
                 start = _metrics_start(now, resource.get("created"), db_incremental_field_last_value)
-                for window_start, window_end in _metric_windows(start, end):
+                for window in _metric_windows(start, end):
                     params = {
                         "type": config.metric_types,
-                        "start": _to_rfc3339(window_start),
-                        "end": _to_rfc3339(window_end),
+                        "start": _to_rfc3339(window.start),
+                        "end": _to_rfc3339(window.end),
                         "step": METRICS_STEP_SECONDS,
                     }
                     try:
