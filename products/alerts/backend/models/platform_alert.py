@@ -104,3 +104,50 @@ class PlatformAlert(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["configuration", "grouping_key"], name="platform_alert_one_per_group")
         ]
+
+
+class PlatformAlertThread(TeamScopedRootMixin, UUIDModel):
+    """One provider conversation, and what has already been said in it.
+
+    A resolve replies under the message that fired, which needs the handle from that first send.
+    One row is one conversation: the configuration, the group, the provider and the channel it
+    posts to, plus the firing it belongs to. Without the firing a thread would span every
+    incident an alert ever had; without the group two groups would share one.
+
+    It also carries what makes a redelivery safe. A send that a crash left unrecorded repeats
+    on retry, because no provider offers an idempotency key, so the row holds who has already
+    been delivered and who is mid-send right now.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    configuration = models.ForeignKey(PlatformAlertConfiguration, on_delete=models.CASCADE, related_name="threads")
+
+    grouping_key = models.CharField(max_length=255, default="", db_default="")
+    provider = models.CharField(max_length=32)
+    # A repointed destination gives a different answer, which stops a reply going to the old place.
+    channel_target = models.CharField(max_length=255)
+    episode_started_at = models.DateTimeField()
+
+    # The provider's own handle, `{"channel": ..., "ts": ...}` for Slack. Opaque to everything
+    # but the transport that issued it.
+    external_ref = models.JSONField(default=dict)
+
+    # Evaluations already delivered into this conversation, newest last. Capped, because a
+    # thread lives as long as its firing and the list only has to outlive a retry.
+    delivered_evaluation_keys = models.JSONField(default=list)
+
+    # A send in flight. Held for `PENDING_CLAIM_TTL` so a retry that starts while the first
+    # attempt is still mid-post waits rather than posting a second copy.
+    pending_evaluation_key = models.CharField(max_length=255, null=True, blank=True)
+    pending_claimed_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["configuration", "grouping_key", "provider", "channel_target", "episode_started_at"],
+                name="platform_alert_thread_one_per_conversation",
+            )
+        ]

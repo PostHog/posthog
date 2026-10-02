@@ -36,6 +36,7 @@ Each head is graded only on its cohort.
 | `thumbs_up`     | P(thumbs up) over every report           | 7d      |
 | `pr_created`    | P(PR created) over every report          | 7d      |
 | `pr_merged`     | P(PR merged) over every report           | 14d     |
+| `fixed`         | P(fixed) over every report               | 21d     |
 | `refund`        | P(refund) over every report              | 14d     |
 
 Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
