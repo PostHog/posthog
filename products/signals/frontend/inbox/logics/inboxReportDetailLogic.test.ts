@@ -2,6 +2,10 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+// Imported from the source module rather than the `@posthog/lemon-ui` barrel, so the spy below
+// replaces the method on the same `lemonToast` singleton the logic calls at runtime.
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -12,6 +16,7 @@ import type { SignalReportCheckApi } from 'products/signals/frontend/generated/a
 import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { EnrichedReviewer, SignalReport } from '../types'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
@@ -43,6 +48,11 @@ describe('inboxReportDetailLogic', () => {
                     '/api/projects/:team_id/signals/reports/available_reviewers/': [],
                 },
                 post: {
+                    '/api/projects/:team_id/signals/reports/:id/state/': {
+                        ...REPORT,
+                        status: 'monitoring',
+                        monitoring_started_at: '2026-09-30T00:00:00Z',
+                    },
                     '/api/projects/:team_id/signals/reports/:id/checks/:check_id/approve/': {
                         ...openCheck,
                         approved_at: '2026-09-30T00:00:00Z',
@@ -56,6 +66,71 @@ describe('inboxReportDetailLogic', () => {
         })
 
         afterEach(() => logic.unmount())
+
+        it('records the server monitoring state, reloads the armed checks, and clears the update loading state', async () => {
+            const armedCheck = { ...openCheck, status: 'active', next_run_at: '2026-10-01T00:00:00Z' }
+            useMocks({ get: { '/api/projects/:team_id/signals/reports/:id/checks/': { results: [armedCheck] } } })
+            logic.actions.startReportMonitoring()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.status).toBe('monitoring')
+            expect(logic.values.report?.monitoring_started_at).toBe('2026-09-30T00:00:00Z')
+            expect(logic.values.reportChecks?.[0]).toMatchObject({
+                status: 'active',
+                next_run_at: armedCheck.next_run_at,
+            })
+            expect(logic.values.monitoringUpdateLoading).toBe(false)
+        })
+
+        it('reconciles the lists when the detail closes before monitoring starts', async () => {
+            let release: () => void = () => {}
+            const held = new Promise<void>((resolve) => {
+                release = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/state/': async () => {
+                        await held
+                        return [200, { ...REPORT, status: 'monitoring', monitoring_started_at: '2026-09-30T00:00:00Z' }]
+                    },
+                },
+            })
+            const toast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-1')
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            try {
+                logic.actions.startReportMonitoring()
+                logic.unmount()
+                release()
+
+                await expectLogic(bulkLogic).toDispatchActions(['reportStateChanged'])
+                expect(toast).toHaveBeenCalledTimes(1)
+            } finally {
+                toast.mockRestore()
+                bulkLogic.unmount()
+                logic.mount()
+            }
+        })
+
+        it('shows the server reason and refreshes the report when monitoring is refused', async () => {
+            const reason = "Merge or close the report's open pull requests before marking the fix as implemented."
+            useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': () => [409, { error: reason }] } })
+            const toast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.startReportMonitoring()).toFinishAllListeners()
+
+                expect(toast).toHaveBeenCalledWith(reason)
+                expect(logic.values.report?.status).toBe('ready')
+                expect(logic.values.monitoringUpdateLoading).toBe(false)
+                await expectLogic(bulkLogic).toDispatchActions(['reportStateChanged'])
+            } finally {
+                resumeKeaLoadersErrors()
+                toast.mockRestore()
+                bulkLogic.unmount()
+            }
+        })
 
         it('updates only the approved row and clears its loading state', async () => {
             logic.actions.approveReportCheck(openCheck.id)

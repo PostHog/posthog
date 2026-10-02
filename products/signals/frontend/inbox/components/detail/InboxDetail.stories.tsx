@@ -84,6 +84,8 @@ const successfulPrChecks = {
     })),
 }
 
+const monitoringReportId = '019e64b8-0000-7000-8000-000000000901'
+
 // Detail-body stories. Each detail component mounts the keyed `inboxReportDetailLogic`,
 // which fetches artefacts / signals / tasks – mocked here. Polish the two-column detail
 // layout (summary, evidence, runs, reviewers) against the desktop detail views.
@@ -97,40 +99,39 @@ const detailMocks = mswDecorator({
         '/api/projects/:id/signals/reports/:reportId/checks/': (req) => [
             200,
             {
-                count: req.params.reportId === reportTabReports[0].id ? 1 : 0,
-                results:
-                    req.params.reportId === reportTabReports[0].id
-                        ? [
-                              {
-                                  id: 'expected-outcome-check',
-                                  title: 'API key validation errors fall to at most 50 in 14 days',
-                                  rationale: 'The form should show users why their key could not be created.',
-                                  kind: 'metric_threshold',
-                                  status: 'pending',
-                                  config: {
-                                      metric_id: reportMetricsFixture[0].metric_id,
-                                      query: reportMetricsFixture[0].query,
-                                      metric_kind: reportMetricsFixture[0].kind,
-                                      value_format: reportMetricsFixture[0].value_format,
-                                      unit: reportMetricsFixture[0].unit,
-                                      comparison: { operator: 'lte', value: 50 },
-                                      baseline_value: 80,
-                                  },
-                                  approved_at: null,
-                                  next_run_at: '2026-09-12T00:00:00Z',
-                                  soak_minutes: 20160,
-                                  run_interval_minutes: null,
-                                  runs_remaining: 1,
-                                  expires_at: '2026-10-12T00:00:00Z',
-                                  last_run_at: null,
-                                  last_outcome: null,
-                                  dispatched_at: null,
-                                  consecutive_errors: 0,
-                                  created_at: '2026-08-29T00:00:00Z',
-                                  updated_at: '2026-08-29T00:00:00Z',
+                count: [reportTabReports[0].id, monitoringReportId].includes(String(req.params.reportId)) ? 1 : 0,
+                results: [reportTabReports[0].id, monitoringReportId].includes(String(req.params.reportId))
+                    ? [
+                          {
+                              id: 'expected-outcome-check',
+                              title: 'API key validation errors fall to at most 50 in 14 days',
+                              rationale: 'The form should show users why their key could not be created.',
+                              kind: 'metric_threshold',
+                              status: req.params.reportId === monitoringReportId ? 'active' : 'pending',
+                              config: {
+                                  metric_id: reportMetricsFixture[0].metric_id,
+                                  query: reportMetricsFixture[0].query,
+                                  metric_kind: reportMetricsFixture[0].kind,
+                                  value_format: reportMetricsFixture[0].value_format,
+                                  unit: reportMetricsFixture[0].unit,
+                                  comparison: { operator: 'lte', value: 50 },
+                                  baseline_value: 80,
                               },
-                          ]
-                        : [],
+                              approved_at: null,
+                              next_run_at: '2026-09-12T00:00:00Z',
+                              soak_minutes: 20160,
+                              run_interval_minutes: null,
+                              runs_remaining: 1,
+                              expires_at: '2026-10-12T00:00:00Z',
+                              last_run_at: null,
+                              last_outcome: null,
+                              dispatched_at: null,
+                              consecutive_errors: 0,
+                              created_at: '2026-08-29T00:00:00Z',
+                              updated_at: '2026-08-29T00:00:00Z',
+                          },
+                      ]
+                    : [],
             },
         ],
         '/api/projects/:id/signals/reports/:reportId/artefacts/:artefactId/diff/': () => [200, mockBranchDiff()],
@@ -140,7 +141,11 @@ const detailMocks = mswDecorator({
         ],
         '/api/projects/:id/signals/reports/:reportId/pr_checks/': (req) => [
             200,
-            req.params.reportId === pullRequestReports[1].id ? successfulPrChecks : mixedPrChecks,
+            req.params.reportId === monitoringReportId
+                ? { checks: [] }
+                : req.params.reportId === pullRequestReports[1].id
+                  ? successfulPrChecks
+                  : mixedPrChecks,
         ],
         '/api/projects/:id/signals/reports/:reportId/pr_comments/': () => [200, { comments: [] }],
         '/api/projects/:id/signals/reports/available_reviewers': () => [200, mockReviewers],
@@ -326,6 +331,47 @@ export const ReportWithFollowUpMetricHidden: Story = {
             [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: false,
         },
     },
+}
+
+export const ReportMonitoring: Story = {
+    parameters: { mockDate: '2026-08-30' },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    id: monitoringReportId,
+                    status: SignalReportStatus.MONITORING,
+                    monitoring_started_at: '2026-08-29T00:00:00Z',
+                    monitoring_enabled: false,
+                    implementation_pr_state: 'merged',
+                    implementation_pr_merged: true,
+                    implementation_pr_url: 'https://github.com/example/project/pull/1',
+                    pull_requests: [
+                        {
+                            id: '019e64b8-0000-7000-8000-000000000902',
+                            url: 'https://github.com/example/project/pull/1',
+                            state: 'merged',
+                            merged: true,
+                            review_decision: 'approved',
+                            merged_at: '2026-08-29T00:00:00Z',
+                            claim_id: null,
+                            attached_at: '2026-08-28T00:00:00Z',
+                            attached_by: null,
+                        },
+                    ],
+                })}
+            />
+        </Frame>
+    ),
+}
+
+export const ReportMonitoringEnabled: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail report={makeReport({ ...reportTabReports[0], monitoring_enabled: true })} />
+        </Frame>
+    ),
 }
 
 export const ReportFollowUpPending: Story = {

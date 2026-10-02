@@ -1815,6 +1815,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="No judgment")
         self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
         self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        monitoring = self._create_report(title="Fix implemented", status=SignalReport.Status.MONITORING)
         with_pr = self._create_report(title="Has an implementation PR")
         self._actionability_artefact(with_pr, actionability="immediately_actionable")
         self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
@@ -1833,6 +1834,19 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url(view="needs_decision", scope="entire_project", count_only="true"))
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 4
+
+        response = self.client.get(self._list_url(view="inbox", scope="entire_project"))
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in response.json()["results"]} == {
+            str(failed.id),
+            str(actionable.id),
+            str(needs_input.id),
+            str(failed_with_pr.id),
+            str(monitoring.id),
+        }
+        response = self.client.get(self._list_url(view="verifying", scope="entire_project"))
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["id"] for row in response.json()["results"]] == [str(monitoring.id)]
 
     def test_priority_preference_uses_personal_threshold_then_project_threshold(self):
         reports_by_priority: dict[str, SignalReport] = {}
@@ -2556,14 +2570,21 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "malformed_corrected_repository",
                 {"state": "suppressed", "dismissal_reason": "wrong_repo", "corrected_repository": "not-a-repo"},
             ),
+            (
+                "feedback_with_monitoring",
+                {"state": "monitoring", "dismissal_reason": "pr_merged", "dismissal_note": "Merged the fix."},
+            ),
         ]
     )
     def test_state_transition_rejects_invalid_dismissal(self, _name, body):
         report = self._create_report()
-        response = self.client.post(
-            self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
-        )
+        with patch("products.signals.backend.report_content_gates.team_report_monitoring_enabled", return_value=True):
+            response = self.client.post(
+                self._state_url(str(report.id)), data=json.dumps(body), content_type="application/json"
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
         assert not SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
@@ -2904,6 +2925,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             # researched report; every other status keeps returning 409 (the model state machine is
             # not loosened).
             ("ready", SignalReport.Status.READY, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            ("monitoring", SignalReport.Status.MONITORING, None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+            (
+                "suppressed_from_monitoring",
+                SignalReport.Status.SUPPRESSED,
+                SignalReport.Status.MONITORING,
+                status.HTTP_200_OK,
+                SignalReport.Status.RESOLVED,
+            ),
             (
                 "pending_input",
                 SignalReport.Status.PENDING_INPUT,
@@ -2982,9 +3011,42 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("unresearched", SignalReport.Status.CANDIDATE, True, status.HTTP_409_CONFLICT),
+            ("ready_without_rollout", SignalReport.Status.READY, False, status.HTTP_400_BAD_REQUEST),
+            ("ready_with_rollout", SignalReport.Status.READY, True, status.HTTP_200_OK),
+            ("monitoring_restore_without_rollout", SignalReport.Status.MONITORING, False, status.HTTP_200_OK),
+        ]
+    )
+    def test_monitoring_from_the_archive_obeys_direct_entry_rules(
+        self, _name, prior_status, rollout_enabled, expected_code
+    ):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        report.status_before_suppression = prior_status
+        report.save(update_fields=["status_before_suppression"])
+        with (
+            self.settings(DEBUG=False),
+            patch(
+                "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=rollout_enabled
+            ),
+        ):
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "monitoring"}),
+                content_type="application/json",
+            )
+        assert response.status_code == expected_code, response.json()
+        report.refresh_from_db()
+        expected_status = (
+            SignalReport.Status.MONITORING if expected_code == status.HTTP_200_OK else SignalReport.Status.SUPPRESSED
+        )
+        assert report.status == expected_status
+
+    @parameterized.expand(
+        [
             # prior status before archiving, expected status after restore
             ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
             ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("monitoring", SignalReport.Status.MONITORING, SignalReport.Status.MONITORING),
             ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
             ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
             # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.

@@ -17,7 +17,7 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -40,6 +40,7 @@ import {
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
+    signalsReportsStateCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -313,6 +314,8 @@ export interface inboxReportDetailLogicValues {
     isReportActive: boolean
     isUpdatingReviewers: boolean
     latestCommitArtefact: SignalReportArtefact | null
+    monitoringUpdate: boolean
+    monitoringUpdateLoading: boolean
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
@@ -586,6 +589,21 @@ export interface inboxReportDetailLogicActions {
     setSelectedTaskId: (taskId: string | null) => {
         taskId: string | null
     }
+    startReportMonitoring: () => any
+    startReportMonitoringFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    startReportMonitoringSuccess: (
+        monitoringUpdate: boolean,
+        payload?: any
+    ) => {
+        monitoringUpdate: boolean
+        payload?: any
+    }
     submitFeedbackNote: (note: string) => {
         note: string
     }
@@ -737,7 +755,33 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions, cache }) => ({
+        monitoringUpdate: [
+            false,
+            {
+                startReportMonitoring: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        throw new Error('Select a project before updating this report.')
+                    }
+                    const response = await signalsReportsStateCreate(String(teamId), props.reportId, {
+                        state: 'monitoring',
+                    })
+                    // Reconcile the lists first: the user can close this detail while the request runs,
+                    // and an unmounted logic has no values to read.
+                    lemonToast.success('Fix marked as implemented. Follow-up checks will confirm its outcome.')
+                    inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+                    if (!cache.disposables.isDisposed && values.report) {
+                        actions.setReport({
+                            ...values.report,
+                            status: response.status as SignalReportStatus,
+                            monitoring_started_at: response.monitoring_started_at,
+                        })
+                    }
+                    return true
+                },
+            },
+        ],
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
@@ -1424,6 +1468,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.cancelReportCheckDone(checkId)
             }
         },
+        // The global loader handler stays quiet on a 409 and finds no `detail` in this endpoint's
+        // `{ error }` body, so the reason the server gave is surfaced here.
+        startReportMonitoringFailure: ({ errorObject }) => {
+            lemonToast.error(
+                readableErrorMessage(errorObject) ?? "Couldn't mark the fix as implemented. Refresh and try again."
+            )
+            if (errorObject?.status === 409) {
+                // The report changed underneath this view, so refresh it to offer the actions it now allows.
+                inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            }
+        },
         setDetailTab: ({ tab }) => {
             // Reviewing the diff is the deepest engagement a report gets short of acting on it.
             if (tab === 'files' && values.report) {
@@ -1773,7 +1828,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadPrChecks()
             actions.loadPrComments()
         },
-        setReport: () => {
+        setReport: (_, __, ___, previousState) => {
+            // Entering monitoring arms the report's pending follow-up checks on the server, so their
+            // status and schedule change. The first `setReport` after mount is skipped, because
+            // `afterMount` loads the checks already.
+            const previous = selectors.report(previousState)
+            if (
+                previous &&
+                previous.status !== SignalReportStatus.MONITORING &&
+                values.report?.status === SignalReportStatus.MONITORING
+            ) {
+                actions.loadReportChecks()
+            }
             // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
             // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
             // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
