@@ -169,7 +169,7 @@ When the user opts in:
 
 HogQL has no function that applies the project's rules. To get the same result
 in a raw HogQL query, chain one `replaceRegexpAll(path, regex, alias)` call per
-rule, in `order` ascending, with each regex backslash doubled.
+rule, in stored list order, with each regex backslash doubled.
 
 The rules are stored once per project — they are not insight-scoped.
 
