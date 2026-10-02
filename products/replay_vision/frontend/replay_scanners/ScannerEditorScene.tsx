@@ -111,7 +111,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     // Multivariate flag; a truthy check would turn the goal flow on for control too.
-    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
+    const goalFlow = featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
     // Read once on mount, because the wizard strips the deep-link params as soon as it consumes them.
     const [experimentDeepLink] = useState(() => parseExperimentScannerParams(router.values.searchParams) !== null)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard

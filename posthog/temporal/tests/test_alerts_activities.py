@@ -1039,6 +1039,39 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
 
+    @pytest.mark.parametrize("state", [AlertState.FIRING, AlertState.NOT_FIRING])
+    async def test_delayed_data_skips_without_recovery_or_investigation(self, ateam, state) -> None:
+        alert = await _create_alert(
+            ateam,
+            query={
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "order completed"}],
+                "interval": "hour",
+            },
+            state=state,
+        )
+        alert.evaluation_delay_intervals = 2
+        await sync_to_async(alert.save)(update_fields=["evaluation_delay_intervals"])
+        dates = ["2026-01-15T08:00:00Z", "2026-01-15T09:00:00Z", "2026-01-15T10:00:00Z"]
+        with (
+            patch(
+                "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+                return_value=MagicMock(result=[{"data": [0, 0, 0], "dates": dates, "label": "Orders"}]),
+            ),
+            patch("posthog.temporal.alerts.activities.decide_investigation") as investigate,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
+        assert result.new_state == state
+        assert result.should_notify is False
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == state
+        assert check.calculated_value is None
+        assert check.triggered_metadata is not None
+        assert check.triggered_metadata["skipped_reason"]
+        investigate.assert_not_called()
+
     async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
         with (
             patch(
@@ -1124,7 +1157,6 @@ class TestEvaluateAlert:
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",

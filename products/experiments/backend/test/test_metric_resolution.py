@@ -1,9 +1,17 @@
 import uuid
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
 
-from products.experiments.backend.metric_resolution import find_metric_dict, iter_metric_dicts
+from parameterized import parameterized
+
+from products.experiments.backend.metric_resolution import (
+    find_metric_dict,
+    resolve_experiment_metrics,
+    resolve_saved_metric_definition,
+    scheduled_metric_definitions,
+)
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -40,18 +48,38 @@ class TestMetricResolution(BaseTest):
         assert resolved is not None
         assert resolved["source"] == "inline"
 
-    def test_resolution_order_is_primary_secondary_saved(self):
+    def test_resolution_order_and_roles(self):
         primary = {"uuid": str(uuid.uuid4()), "metric_type": "mean"}
         secondary = {"uuid": str(uuid.uuid4()), "metric_type": "mean"}
         experiment = self._experiment(metrics=[primary], metrics_secondary=[secondary])
-        saved_uuid = str(uuid.uuid4())
-        self._attach_saved(experiment, {"uuid": saved_uuid, "metric_type": "mean"})
+        saved_secondary_uuid = str(uuid.uuid4())
+        saved_untyped_uuid = str(uuid.uuid4())
+        self._attach_saved(experiment, {"uuid": saved_secondary_uuid, "metric_type": "mean"}, {"type": "secondary"})
+        self._attach_saved(experiment, {"uuid": saved_untyped_uuid, "metric_type": "mean"})
 
-        assert [m["uuid"] for m in iter_metric_dicts(experiment)] == [
-            primary["uuid"],
-            secondary["uuid"],
-            saved_uuid,
+        assert [(m.uuid, m.role) for m in resolve_experiment_metrics(experiment)] == [
+            (primary["uuid"], "primary"),
+            (secondary["uuid"], "secondary"),
+            (saved_secondary_uuid, "secondary"),
+            (saved_untyped_uuid, "primary"),
         ]
+
+    def test_prefetched_links_resolve_without_queries(self):
+        saved_uuid = str(uuid.uuid4())
+        breakdowns = [{"property": "$browser", "type": "event"}]
+        self._attach_saved(
+            self._experiment(),
+            {"uuid": saved_uuid, "metric_type": "mean"},
+            {"breakdowns": breakdowns, "breakdown_limit": 3},
+        )
+        experiment = Experiment.objects.prefetch_related("experimenttosavedmetric_set__saved_metric").get(
+            team=self.team
+        )
+
+        with self.assertNumQueries(0):
+            definitions = scheduled_metric_definitions(experiment)
+
+        assert definitions[saved_uuid]["breakdownFilter"] == {"breakdowns": breakdowns, "breakdown_limit": 3}
 
     def test_saved_metric_breakdowns_merged_from_link_metadata(self):
         experiment = self._experiment()
@@ -86,4 +114,88 @@ class TestMetricResolution(BaseTest):
         )
         self._attach_saved(experiment, {"metric_type": "funnel"})
         self._attach_saved(experiment, {"uuid": str(uuid.uuid4())})
-        assert iter_metric_dicts(experiment) == []
+        assert scheduled_metric_definitions(experiment) == {}
+
+
+_FUNNEL_WITH_SAVED_OVERRIDES: dict[str, Any] = {
+    "uuid": "saved-funnel",
+    "metric_type": "funnel",
+    "breakdownAttributionType": "step",
+    "breakdownAttributionValue": 2,
+    "breakdownFilter": {"breakdown_limit": 5, "breakdowns": [{"property": "$os", "type": "event"}]},
+}
+
+
+@parameterized.expand(
+    [
+        (
+            "omitted_overrides_keep_saved_values_but_not_saved_breakdowns",
+            _FUNNEL_WITH_SAVED_OVERRIDES,
+            {"type": "primary"},
+            {"breakdownAttributionType": "step", "breakdownAttributionValue": 2},
+            {"breakdown_limit": 5, "breakdowns": []},
+        ),
+        (
+            "null_overrides_count_as_omitted",
+            _FUNNEL_WITH_SAVED_OVERRIDES,
+            {"breakdownAttributionType": None, "breakdownAttributionValue": None, "breakdown_limit": None},
+            {"breakdownAttributionType": "step", "breakdownAttributionValue": 2},
+            {"breakdown_limit": 5, "breakdowns": []},
+        ),
+        (
+            "link_values_replace_saved_values",
+            _FUNNEL_WITH_SAVED_OVERRIDES,
+            {
+                "breakdownAttributionType": "last_touch",
+                "breakdown_limit": 20,
+                "breakdowns": [{"property": "$browser", "type": "event"}],
+            },
+            {"breakdownAttributionType": "last_touch"},
+            {"breakdown_limit": 20, "breakdowns": [{"property": "$browser", "type": "event"}]},
+        ),
+        (
+            "attribution_step_zero_is_explicit",
+            _FUNNEL_WITH_SAVED_OVERRIDES,
+            {
+                "breakdownAttributionType": "step",
+                "breakdownAttributionValue": 0,
+                "breakdowns": [{"property": "$browser", "type": "event"}],
+            },
+            {"breakdownAttributionType": "step", "breakdownAttributionValue": 0},
+            {"breakdown_limit": 5, "breakdowns": [{"property": "$browser", "type": "event"}]},
+        ),
+        (
+            "attribution_on_a_mean_metric_is_ignored",
+            {"uuid": "saved-mean", "metric_type": "mean"},
+            {
+                "breakdownAttributionType": "last_touch",
+                "breakdownAttributionValue": 1,
+                "breakdowns": [{"property": "$browser", "type": "event"}],
+            },
+            {},
+            {"breakdowns": [{"property": "$browser", "type": "event"}]},
+        ),
+        (
+            "limit_and_attribution_without_link_breakdowns_are_ignored",
+            _FUNNEL_WITH_SAVED_OVERRIDES,
+            {"breakdownAttributionType": "last_touch", "breakdown_limit": 20, "breakdowns": []},
+            {"breakdownAttributionType": "step", "breakdownAttributionValue": 2},
+            {"breakdown_limit": 5, "breakdowns": []},
+        ),
+    ]
+)
+def test_saved_metric_override_precedence(
+    _name: str,
+    saved_query: dict[str, Any],
+    metadata: dict[str, Any],
+    expected_attribution: dict[str, Any],
+    expected_breakdown_filter: dict[str, Any],
+) -> None:
+    resolved = resolve_saved_metric_definition(saved_query, metadata)
+
+    attribution = {
+        key: resolved[key] for key in ("breakdownAttributionType", "breakdownAttributionValue") if key in resolved
+    }
+    assert attribution == expected_attribution
+    assert resolved["breakdownFilter"] == expected_breakdown_filter
+    assert resolved["uuid"] == saved_query["uuid"]

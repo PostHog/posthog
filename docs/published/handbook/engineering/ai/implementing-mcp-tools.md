@@ -56,24 +56,9 @@ For lookup tools, return an explicit normal result when absence is an expected a
 checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
 server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
 
-## Two MCP server versions
+## SQL-first data retrieval
 
-Clients must support two main capabilities: MCPs and skills.
-MCP support is widespread; however, skills support is still very early
-and mostly coding agents support them.
-To mitigate this, the MCP server ships two versions controlled via the
-`x-posthog-mcp-version: <version_number>` header.
-
-### Legacy MCP (v1)
-
-For clients that don't support skills.
-Exposes the full set of CRUD tools with simple instructions (list, read, create, update, delete).
-
-Primarily oriented toward vibe-coding web tools.
-
-### SQL-first MCP for clients supporting skills (v2)
-
-v2 instructs the agent to read data through a unified HogQL interface
+The MCP server instructs the agent to read data through a unified HogQL interface
 (list and get tools are generally excluded),
 which unlocks flexibility in data retrieval, search, and manipulation.
 Additionally, the consumer has access to a skill that provides schema references and example patterns,
@@ -162,8 +147,6 @@ API scopes and billing access checks still apply.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
-
-Use `mcp_version: 1/2` to control availability of retrieval tools in v2 of the MCP.
 
 Example from the codebase:
 
@@ -307,7 +290,6 @@ Product teams own their definitions and control which operations are exposed as 
          destructive: false
          idempotent: true
        # --- optional: ---
-       mcp_version: 2 # 2 for create/update/delete operations or not available through SQL for retrieval, 1 for read/list if available via HogQL
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.

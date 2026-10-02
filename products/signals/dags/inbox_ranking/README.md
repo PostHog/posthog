@@ -68,7 +68,7 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 
 ## The training dag
 
-`inbox_ranking_training_job` runs daily at 06:00 UTC on the same partition definition (gated like the dataset job) and writes:
+`inbox_ranking_training_job` runs daily at 06:13 UTC on the same partition definition (gated like the dataset job) and writes:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -249,13 +249,28 @@ Writes use boto3: ambient AWS config (the node role) when the dedicated bucket i
 
 ## ClickHouse posture
 
-All reads route to the offline cluster replicas on Cloud (`etl_workload()`), carry the dagster run in `log_comment`, and the cross-team embeddings scan runs under explicit time/memory/spill guards (see `queries.py` for why that scan has no `team_id` sort-key prefix and why that is acceptable).
+All reads route to the offline cluster replicas on Cloud (`etl_workload()`), carry the dagster run in `log_comment`, and the cross-team embeddings scan runs under explicit time/memory/spill guards (see `queries.py` for why that scan still reads nearly the whole table, even with the training consent `team_id` list, and why that is acceptable).
 
 ## Operating it
 
 - Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch). Every asset sits in the `inbox_ranking_etl` pool so concurrent partitions don't each start their own fleet-wide embeddings scan — the pool's limit is a Dagster deployment setting, provisioned with the bucket.
 - Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_`, `inbox_signal_`, and `inbox_ranking_` asset-name prefixes.
 - Runtime budgets are per job (`dagster/max_runtime`): 3h for the dataset and training jobs, 1h for the shadow job. The 3h figure is what the dataset needs — its seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them. The shadow read is one day of two event families plus the scores objects in its lookback, so it gets an hour.
+
+## Training consent
+
+The dags train only on reports from organizations whose `Organization.is_ai_training_opted_in` is `True`.
+`False` and `None` both mean no consent.
+`consent.training_consent_team_ids()` returns the consenting teams that hold an inbox report, and every asset reads it once per run.
+
+- `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
+- `inbox_report_embeddings`, `inbox_report_title_embeddings` and `inbox_signal_embeddings` read only those teams, through `team_id IN (...)` in the ClickHouse query.
+- The examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
+
+The filter follows the current setting, so an organization that opts back in is trained on again.
+The state asset and the examples asset record `excluded_no_training_consent_reports` and `excluded_no_training_consent_teams` as metadata, and `inbox_ranking_examples_built` carries the examples counts. They are counts, never ids.
+The unseen scores read the dt=D state snapshot, so the newborn pool shrinks to consenting teams too. Scoring in the sweep and the shadow read do not change.
+The filter does not delete existing partitions or models. A re-run of `inbox_signal_embeddings` stays additive, so rows that an older run wrote remain in that partition. Nothing trains on signal embeddings today, and a future reader must apply the same filter.
 
 ## Deletion and retention
 

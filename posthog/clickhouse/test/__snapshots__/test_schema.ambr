@@ -1431,6 +1431,20 @@
   
   '''
 # ---
+# name: test_create_table_query[distributed_person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS distributed_person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'person_group_membership_config', sipHash64(team_id))
+  
+  '''
+# ---
 # name: test_create_table_query[distributed_posthog_document_embeddings]
   '''
   
@@ -5213,17 +5227,19 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   AS SELECT
       team_id,
       metric_name,
       toStartOfHour(timestamp) AS time_bucket,
       toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
+      maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp,
+      service_name
   FROM posthog_test.metrics4_input AS input
   WHERE has_labels
-  GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket
+  GROUP BY team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name
   
   '''
 # ---
@@ -5349,11 +5365,12 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_names', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
   
@@ -5756,6 +5773,38 @@
   _partition
   FROM kafka_person_distinct_id_overrides
   WHERE version > 0 -- only store updated rows, not newly inserted ones
+  
+  '''
+# ---
+# name: test_create_table_query[person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key))
+  
+  '''
+# ---
+# name: test_create_table_query[person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
+  ORDER BY team_id
+  SETTINGS index_granularity = 8192
   
   '''
 # ---
@@ -8373,6 +8422,25 @@
   
   '''
 # ---
+# name: test_create_table_query[sharded_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
+  ORDER BY (team_id, group_type_index, group_key, distinct_id)
+  SETTINGS index_granularity = 8192, min_rows_for_wide_part = 0, min_bytes_for_wide_part = 0
+  
+  '''
+# ---
 # name: test_create_table_query[sharded_platform_alert_events]
   '''
   
@@ -10713,7 +10781,8 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics4_names')
   
@@ -10837,6 +10906,22 @@
   
       
   ) ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'person_distinct_id_overrides')
+  
+  '''
+# ---
+# name: test_create_table_query[writable_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS writable_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
+  )
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key))
   
   '''
 # ---
@@ -12709,11 +12794,12 @@
       `metric_name` LowCardinality(String),
       `time_bucket` DateTime64(0),
       `original_expiry_time_bucket` DateTime64(0),
-      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6))
+      `original_expiry_timestamp` SimpleAggregateFunction(max, DateTime64(6)),
+      `service_name` LowCardinality(String)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_names', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket)
+  ORDER BY (team_id, time_bucket, metric_name, original_expiry_time_bucket, service_name)
   TTL original_expiry_timestamp
   SETTINGS index_granularity = 8192
   
@@ -12933,6 +13019,22 @@
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
       
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[person_group_membership_config]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS person_group_membership_config
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      enabled UInt8,
+      version UInt64
+  )
+  ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_group_membership_config', '{replica}-{shard}', version)
+  ORDER BY team_id
+  SETTINGS index_granularity = 8192
+  
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[person_overrides]
@@ -14055,6 +14157,25 @@
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
   SETTINGS storage_policy = 'hot_to_cold'
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_person_group_membership]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_person_group_membership
+  (
+      team_id Int64,
+      group_type_index UInt8,
+      group_key String,
+      distinct_id String,
+      first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
+      last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
+      INDEX idx_distinct_id distinct_id TYPE bloom_filter(0.01) GRANULARITY 1
+  )
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_person_group_membership', '{replica}')
+  ORDER BY (team_id, group_type_index, group_key, distinct_id)
+  SETTINGS index_granularity = 8192, min_rows_for_wide_part = 0, min_bytes_for_wide_part = 0
   
   '''
 # ---

@@ -74,9 +74,12 @@ PARTITION_PRUNING_INTERVAL = "14 days"
 
 # Oldest a batch may be and still be claimed or recovery-swept. MUST stay below
 # the retention window (RETENTION_DAYS in
-# posthog/temporal/warehouse_sources_queue_partition_management/activities.py):
-# a claimed batch's extraction parquet must still exist in S3, and the half-day
-# margin absorbs clock skew and sweep timing. Applies only to the outer claim
+# posthog/temporal/warehouse_sources_queue_partition_management/activities.py),
+# because that job fails and drops old batches on the assumption that no
+# consumer can still claim them. The half-day margin absorbs clock skew and
+# sweep timing. It MUST also stay below the warehouse bucket's lifecycle rule,
+# which deletes extraction parquet 8 days after upload, so that a claimed
+# batch's file still exists. Applies only to the outer claim
 # candidates and the recovery sweep — never to the head-of-line/failed-run/
 # schema-busy gates, which must keep seeing rows aged past this window for as
 # long as they exist.

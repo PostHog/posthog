@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from posthog.hogql.errors import QueryError
 
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.sync import database_sync_to_async
@@ -415,6 +416,17 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Verify SavedQuery is soft-deleted
         saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
         self.assertTrue(saved_query.deleted)
+
+        # The endpoint's history tab filters on the endpoint id, so both toggles must be logged there too.
+        endpoint_history = ActivityLog.objects.filter(
+            team_id=self.team.id, scope__in=["Endpoint", "EndpointVersion"], item_id=str(endpoint.id)
+        ).values_list("activity", flat=True)
+        self.assertIn("materialization_enabled", endpoint_history)
+        self.assertIn("materialization_disabled", endpoint_history)
+        model_history = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="DataWarehouseSavedQuery", item_id=str(saved_query_id)
+        ).values_list("activity", flat=True)
+        self.assertIn("materialization_disabled", model_history)
 
     def test_cannot_materialize_query_with_invalid_variables(self):
         """Test that queries with invalid variable metadata cannot be materialized."""

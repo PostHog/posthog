@@ -126,6 +126,7 @@ function DiagnosisContent({ diagnosis }: { diagnosis: ReplayCaptureDiagnosis }):
                     <div className="flex gap-2 flex-wrap">
                         {diagnosis.suggestedActions.map((action, idx) => (
                             <LemonButton
+                                data-attr="replay-diagnostics-action"
                                 key={idx}
                                 type="secondary"
                                 size="small"
