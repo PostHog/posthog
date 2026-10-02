@@ -131,10 +131,8 @@ Escalating to the next rung is the last resort, not the default.
   Two more caveats. First, `.errors` carries DRF's _raw_ code (`invalid`, `max_digits`); the `{"attr", "code", "detail", "type"}` HTTP envelope is rendered later by `exceptions-hog` (which maps `invalid` → `invalid_input`) — that rendering is framework behavior, so don't re-assert it per case (the wiring-guard test covers the envelope once). Second, validation that genuinely needs the DB stays at the endpoint — uniqueness checks, `PrimaryKeyRelatedField` queryset lookups, related-object existence, permission/team scoping, password-hash checks. Don't force those into a `SimpleTestCase`.
 
 - **Parameterize** repeated assertions with the `parameterized` library — don't copy-paste test bodies.
-- **Use a `parameterized` case when the cases are known before the test runs, and `self.subTest` only when they are not.**
-  A decision table of inputs and expected outputs is known up front, so it is `parameterized`: each case is its own test, which can be selected by name, rerun, timed and reported alone.
-  Cases that only exist once the test is running, such as one check per row a query returns or per file found on disk, cannot be parameterized, and `self.subTest` labels them.
-  A `self.subTest` failure ends the test at the first failing case here, so do not use it to collect every failure in one run.
+- **Use a `parameterized` case when the cases are known before the test runs, and `self.subTest` only when they are not**, such as one check per row a query returns.
+  A `self.subTest` failure ends the test at the first failing case.
   Do not use the pytest `subtests` fixture: it leaves a failure in the junit file after a rerun passes.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
