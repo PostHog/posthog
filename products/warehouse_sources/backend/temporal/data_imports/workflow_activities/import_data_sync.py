@@ -117,10 +117,6 @@ class ImportDataActivityInputs:
     fast_return_eligible: bool = False
     # Kept apart from `reset_pipeline`, which every retry would read again and wipe the table again.
     scheduled_full_refresh: bool = False
-    # Fixed for the job lifetime so activity retries cannot switch cursor modes while old and new
-    # workers overlap. Defaults True for new payloads; an old payload that recorded False keeps the
-    # server-cursor path on both worker versions. Remove after this release is fully deployed.
-    keyset_full_load_enabled: bool = True
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -570,7 +566,6 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 api_version=new_source.resolve_api_version(schema.api_version or model.pipeline.api_version),
                 fanout_warehouse_reuse=fanout_warehouse_reuse,
                 byte_bounded_extraction=byte_bounded_extraction,
-                keyset_full_load=inputs.keyset_full_load_enabled,
                 activity_attempt=activity.info().attempt if activity.in_activity() else 1,
                 source_cursor=source_cursor_manager,
             )

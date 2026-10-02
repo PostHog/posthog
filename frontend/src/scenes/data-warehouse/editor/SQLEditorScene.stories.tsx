@@ -11,6 +11,8 @@ import type { DataWarehouseSavedQuery } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
+import { expect, userEvent, waitFor, within } from 'storybook/test'
+
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -199,6 +201,100 @@ export const ManagedWarehouseConnection: Story = {
         // The `c` hash param preselects the connection, so the selector renders the long label
         // instead of the default "PostHog (ClickHouse)".
         pageUrl: urls.sqlEditor({ query: SAMPLE_SQL, connectionId: MANAGED_WAREHOUSE_CONNECTION_ID }),
+    },
+}
+
+const DISCARD_VIEW = {
+    id: 'discard-view',
+    name: 'Saved query',
+    query: { kind: 'HogQLQuery', query: 'SELECT 1' },
+    columns: [],
+    is_materialized: false,
+    user_access_level: AccessControlLevel.Editor,
+}
+const DISCARD_INSIGHT = {
+    id: 42,
+    short_id: 'discard1',
+    name: 'Saved insight',
+    description: '',
+    query: { kind: 'DataVisualizationNode', source: DISCARD_VIEW.query, display: 'Auto' },
+    saved: true,
+    dashboards: [],
+    user_access_level: AccessControlLevel.Editor,
+}
+
+const discardMocks = {
+    get: {
+        '/api/projects/:team_id/warehouse_saved_queries/': [200, { results: [DISCARD_VIEW] }],
+        '/api/:scope/:team_id/warehouse_saved_queries/:id/': [200, DISCARD_VIEW],
+        '/api/environments/:team_id/insights/': [200, { results: [DISCARD_INSIGHT] }],
+        '/api/projects/:team_id/warehouse_expressions/': [200, { results: [] }],
+        '/api/projects/:team_id/data_modeling_nodes/lineage/': [200, { nodes: [], edges: [] }],
+        '/api/projects/:team_id/query_tab_state/user/': [200, { state: {} }],
+    },
+}
+
+export const EditedView: Story = {
+    parameters: {
+        pageUrl: `${urls.sqlEditor({ view_id: DISCARD_VIEW.id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const discard = await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
+        await waitFor(() =>
+            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
+        )
+        await expect(canvas.getByText('Edited')).toBeVisible()
+        await expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'true')
+        await userEvent.click(discard)
+        await waitFor(() =>
+            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'true')
+        )
+        await expect(canvas.queryByText('Edited')).not.toBeInTheDocument()
+        await expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'true')
+        sqlEditorLogic({ tabId: 'default' }).actions.setQueryInput('SELECT 2')
+        await waitFor(() =>
+            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
+        )
+        await userEvent.click(canvas.getByRole('button', { name: 'Run' }))
+        await waitFor(
+            () => expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'false'),
+            {
+                timeout: 15000,
+            }
+        )
+        sqlEditorLogic({ tabId: 'default' }).actions.setQueryInput('SELECT 3')
+        await waitFor(() =>
+            expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'true')
+        )
+    },
+}
+
+export const EditedInsight: Story = {
+    parameters: {
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
+        await waitFor(() =>
+            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
+        )
+        await expect(canvas.getByText('Edited')).toBeVisible()
+        await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
+        await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
+        const menu = within(canvasElement.ownerDocument.body)
+        await expect(await menu.findByRole('menuitem', { name: 'Save as new insight...' })).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+        await expect(menu.getByRole('menuitem', { name: 'Save as new view...' })).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        await userEvent.keyboard('{Escape}')
     },
 }
 

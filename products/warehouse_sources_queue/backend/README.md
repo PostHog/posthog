@@ -149,3 +149,15 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
 Followers returned by a successful handler (`sdk.Success(followers=...)`) are enqueued in the same transaction as the terminal status write. Dedup of live `(kind, dedup_key)` pairs is enforced by the insert statement's `NOT EXISTS` guard rather than a unique index — a partitioned table cannot carry a unique index that omits the partition key.
 
 SQL lives in `core/generic_jobs.py`; the SDK wiring (`JobHandler`, `Outcome`, `GenericJobAdapter`, `JobConsumer`) in `sdk/jobs.py`. Nothing produces or consumes these tables yet; the run orchestrator lands on them in later phases.
+
+## Scheduler state (phase 2, shadow mode)
+
+`queueschedulerstate` holds one row per `(kind, schedule_key)` with its cadence and epoch-aligned `next_due_at`.
+`queueschedulerdecision` records one decision per `(kind, schedule_key, due_at)`.
+The warehouse scheduler uses `sync.extract` as its kind and the schema ID as its schedule key.
+SQL lives in `core/scheduler_state.py`.
+The tick loop, scope predicate, and due-time math live in `products/warehouse_sources/backend/scheduling/`.
+The `run_warehouse_scheduler` command runs the tick loop.
+The scheduler uses sentinel rows in `queuejoblease` (lane `scheduler`) to select one leader across the fleet.
+It starts no syncs.
+The `report_warehouse_scheduler_shadow` command compares decisions with the `ExternalDataJob` rows that Temporal schedules created.

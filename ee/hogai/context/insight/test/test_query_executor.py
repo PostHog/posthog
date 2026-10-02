@@ -51,7 +51,7 @@ from ee.hogai.context.insight.query_executor import (
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
 
 
@@ -289,10 +289,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(MaxToolRetryableError) as context:
+        with self.assertRaises(MaxToolFatalError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("API error message", str(context.exception))
+        self.assertEqual(str(context.exception), "API error message")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
@@ -364,7 +364,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("max execution time", str(context.exception))
+        self.assertEqual(str(context.exception), "Query has hit the max execution time before completing.")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -414,30 +416,45 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
 
+    @parameterized.expand(
+        [
+            ("validation", "Unknown field: missing_column", None),
+            ("timeout", "Query timed out", "error"),
+            ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
+            ("warehouse_connection", "Warehouse connection failed", None),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
-        """Test async query polling that returns an error"""
-        # Initial response with incomplete query
+    async def test_async_query_polling_with_error(
+        self,
+        _name: str,
+        error_message: str,
+        error_code: str | None,
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
-        # Mock polling to return error
         mock_get_query_status.return_value = Mock(
             model_dump=lambda mode: {
                 "id": "test-query-id",
                 "complete": True,
                 "error": True,
-                "error_message": "Query failed with error",
+                "error_message": error_message,
+                "error_code": error_code,
             }
         )
 
         query = AssistantTrendsQuery(series=[])
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query failed with error", str(context.exception))
+        self.assertEqual(str(context.exception), error_message)
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
+        self.assertEqual(context.exception.error_type, "internal")
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
