@@ -1,12 +1,12 @@
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.test import Client
 from django.urls import reverse
-from django.utils import timezone
 
 from parameterized import parameterized
 from requests import Response
@@ -23,6 +23,8 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+
+FROZEN_NOW = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
 
 def mock_response(status_code: int, response_json: dict):
@@ -746,15 +748,16 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
     def test_first_preference_received_is_reported_once_per_team(
         self, _name, first_endpoint, other_row_created_after_now, expected_reports, mock_capture
     ):
-        if other_row_created_after_now is not None:
-            other = MessageRecipientPreference.objects.create(team=self.team, identifier="other@example.com")
-            MessageRecipientPreference.objects.filter(id=other.id).update(
-                created_at=timezone.now() + other_row_created_after_now
-            )
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            if other_row_created_after_now is not None:
+                other = MessageRecipientPreference.objects.create(team=self.team, identifier="other@example.com")
+                MessageRecipientPreference.objects.filter(id=other.id).update(
+                    created_at=FROZEN_NOW + other_row_created_after_now
+                )
 
-        self._post_preference(first_endpoint, "first@example.com")
-        self._post_preference("add_opt_out", "first@example.com")
-        self._post_preference("add_opt_out", "second@example.com")
+            self._post_preference(first_endpoint, "first@example.com")
+            self._post_preference("add_opt_out", "first@example.com")
+            self._post_preference("add_opt_out", "second@example.com")
 
         reports = [
             call for call in mock_capture.call_args_list if call.kwargs["event"] == "audience first preference received"
