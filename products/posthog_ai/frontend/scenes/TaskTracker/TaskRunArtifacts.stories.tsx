@@ -403,6 +403,7 @@ function taskMocks(
                     headers: { 'Content-Type': 'text/plain' },
                 })
             },
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/dismiss/`]: { artifacts },
         },
     }
 }
@@ -567,7 +568,24 @@ const LIVING_DOCUMENTS = [
             version: 1,
             size: 9216,
             content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            location: { kind: 'slack_file', storage_path: 'tasks/living/doc-trial-sheet/trial-starts-by-week.v1.xlsx' },
             created_at: '2026-09-28T18:17:00Z',
+        },
+    ]),
+    livingDocument('doc-trial-chart', 'trial-funnel-chart.svg', 'slack_file', [
+        {
+            version: 1,
+            size: 3584,
+            content_type: 'image/svg+xml',
+            location: { kind: 'slack_file', storage_path: 'tasks/living/doc-trial-chart/trial-funnel-chart.v1.svg' },
+            created_at: '2026-09-28T18:12:00Z',
+        },
+        {
+            version: 2,
+            size: 3712,
+            content_type: 'image/svg+xml',
+            location: { kind: 'slack_file', storage_path: 'tasks/living/doc-trial-chart/trial-funnel-chart.v2.svg' },
+            created_at: '2026-09-28T18:19:00Z',
         },
     ]),
 ]
@@ -581,6 +599,8 @@ function livingMocks(): ReturnType<typeof taskMocks> {
             [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/`]: {
                 artifacts: LIVING_DOCUMENTS,
             },
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/doc-trial-chart/versions/:version/`]:
+                () => new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
         },
         post: { ...mocks.post, ...OBJECT_MOCKS.post },
     }
@@ -589,6 +609,11 @@ function livingMocks(): ReturnType<typeof taskMocks> {
 export const LivingArtifact: Story = {
     parameters: { msw: { mocks: livingMocks() } },
     render: () => <StoryPage fileName="living-doc-weekly-trials" />,
+}
+
+export const LivingSlackFile: Story = {
+    parameters: { msw: { mocks: livingMocks() } },
+    render: () => <StoryPage fileName="living-doc-trial-chart" />,
 }
 
 export const ResumedTask: Story = {
