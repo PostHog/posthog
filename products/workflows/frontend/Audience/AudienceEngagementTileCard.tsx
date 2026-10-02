@@ -24,7 +24,7 @@ export function AudienceEngagementTileCard({ tile }: { tile: AudienceEngagementT
         <LemonCard
             hoverEffect={false}
             className={clsx(
-                'flex flex-col gap-2 p-0 overflow-hidden h-100',
+                'flex flex-col gap-2 p-0 min-w-0',
                 tile.fullWidth && '@min-[64rem]/main-content:col-span-2'
             )}
             data-attr={`audience-engagement-tile-${tile.key}`}

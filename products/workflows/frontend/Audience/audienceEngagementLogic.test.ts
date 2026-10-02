@@ -13,6 +13,7 @@ import { TeamType } from '~/types'
 import { engagementEventsLogic } from '../engagementEventsLogic'
 import { audienceEngagementLogic } from './audienceEngagementLogic'
 import { AUDIENCE_ENGAGEMENT_TILES } from './audienceEngagementTiles'
+import { emailMetricsTotalsLogic } from './emailMetricsTotalsLogic'
 
 const CREATED_DASHBOARD_ID = 42
 
@@ -140,13 +141,14 @@ describe('audience engagement', () => {
             },
         })
         logic = audienceEngagementLogic()
+        logic.mount()
+        const totalsLogic = emailMetricsTotalsLogic()
 
-        await expectLogic(logic, () => {
-            logic.mount()
+        await expectLogic(totalsLogic, () => {
+            totalsLogic.mount()
         })
             .toFinishAllListeners()
             .toMatchValues({
-                engagementEventsCaptured: false,
                 metricsTotals: {
                     sent: 1200,
                     delivered: 1150,
@@ -156,6 +158,8 @@ describe('audience engagement', () => {
                     markedAsSpam: 2,
                 },
             })
+        totalsLogic.unmount()
+        expect(logic.values.engagementEventsCaptured).toBe(false)
         expect(hogQLQueries).toHaveLength(1)
         expect(hogQLQueries[0]).toContain("app_source = 'hog_flow'")
         expect(hogQLQueries[0]).not.toContain('app_source_id')

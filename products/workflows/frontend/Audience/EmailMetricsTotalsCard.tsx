@@ -4,7 +4,7 @@ import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { EmailMetricsTotals, METRICS_TOTALS_PERIOD_DAYS, audienceEngagementLogic } from './audienceEngagementLogic'
+import { EmailMetricsTotals, METRICS_TOTALS_PERIOD_DAYS, emailMetricsTotalsLogic } from './emailMetricsTotalsLogic'
 
 const TOTAL_LABELS: Record<keyof EmailMetricsTotals, string> = {
     sent: 'Sent',
@@ -16,7 +16,7 @@ const TOTAL_LABELS: Record<keyof EmailMetricsTotals, string> = {
 }
 
 export function EmailMetricsTotalsCard(): JSX.Element {
-    const { metricsTotals, metricsTotalsLoading, metricsTotalsFailed } = useValues(audienceEngagementLogic)
+    const { metricsTotals, metricsTotalsLoading, metricsTotalsFailed } = useValues(emailMetricsTotalsLogic)
 
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3" data-attr="audience-engagement-metrics-totals">

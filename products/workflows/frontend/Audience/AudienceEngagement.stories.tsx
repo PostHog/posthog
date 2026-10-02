@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
@@ -13,6 +14,7 @@ import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { EventsNode } from '~/queries/schema/schema-general'
 
+import { engagementEventsLogic } from '../engagementEventsLogic'
 import { AudienceScene } from './AudienceScene'
 
 const STORY_DATE = '2026-10-01T09:00:00Z'
@@ -137,13 +139,19 @@ function engagementStory({
 }): Story {
     return {
         render: function Render() {
+            const { engagementEventsCaptured: captured } = useValues(engagementEventsLogic)
             useEffect(() => {
-                teamLogic.actions.loadCurrentTeamSuccess({
-                    ...MOCK_DEFAULT_TEAM,
-                    workflows_config: { capture_workflows_engagement_events: engagementEventsCaptured },
-                })
                 router.actions.push(urls.audience('engagement'))
             }, [])
+            // Storybook decorators restore the default team after the story mounts, so keep reapplying it.
+            useEffect(() => {
+                if (captured !== engagementEventsCaptured) {
+                    teamLogic.actions.loadCurrentTeamSuccess({
+                        ...MOCK_DEFAULT_TEAM,
+                        workflows_config: { capture_workflows_engagement_events: engagementEventsCaptured },
+                    })
+                }
+            }, [captured])
             return (
                 <div style={{ width: containerWidth ?? '100%' }}>
                     <AudienceScene />

@@ -31,7 +31,7 @@ const SENT_PER_DAY: InsightVizNode<TrendsQuery> = {
         interval: 'day',
         dateRange: LAST_30_DAYS,
         series: [SENT, DELIVERED, OPENED, CLICKED],
-        trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        trendsFilter: { display: ChartDisplayType.ActionsLineGraph, showLegend: true },
     },
 }
 
@@ -42,7 +42,7 @@ const UNSUBSCRIBES_BOUNCES_AND_SPAM_PER_WEEK: InsightVizNode<TrendsQuery> = {
         interval: 'week',
         dateRange: LAST_30_DAYS,
         series: [UNSUBSCRIBED, BOUNCED, MARKED_AS_SPAM],
-        trendsFilter: { display: ChartDisplayType.ActionsBar },
+        trendsFilter: { display: ChartDisplayType.ActionsBar, showLegend: true },
     },
 }
 
