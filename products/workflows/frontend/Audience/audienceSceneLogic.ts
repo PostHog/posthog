@@ -7,15 +7,16 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 // pinned: URL path segments under /audience, renaming breaks bookmarks
-export const AUDIENCE_TABS = ['topics', 'suppression'] as const
+export const AUDIENCE_TABS = ['recipients', 'topics', 'suppression'] as const
 export type AudienceTab = (typeof AUDIENCE_TABS)[number]
 
 export const AUDIENCE_TAB_LABELS: Record<AudienceTab, string> = {
+    recipients: 'Recipients',
     topics: 'Topics',
     suppression: 'Suppression list',
 }
 
-const DEFAULT_AUDIENCE_TAB: AudienceTab = 'topics'
+const DEFAULT_AUDIENCE_TAB: AudienceTab = 'recipients'
 
 function isAudienceTab(tab: string | undefined): tab is AudienceTab {
     return (AUDIENCE_TABS as readonly (string | undefined)[]).includes(tab)
@@ -66,7 +67,7 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
     }),
     urlToAction(({ actions }) => ({
         [urls.audience()]: () => actions.setCurrentTab(DEFAULT_AUDIENCE_TAB),
-        '/audience/recipients/:email': () => actions.setCurrentTab(DEFAULT_AUDIENCE_TAB),
+        '/audience/recipients/:email': () => actions.setCurrentTab('recipients'),
         [urls.audience(':tab' as AudienceTab)]: ({ tab }) =>
             actions.setCurrentTab(isAudienceTab(tab) ? tab : DEFAULT_AUDIENCE_TAB),
     })),

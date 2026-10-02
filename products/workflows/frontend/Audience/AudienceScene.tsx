@@ -16,6 +16,7 @@ import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { NewCategoryButton } from '../OptOuts/NewCategoryButton'
 import { OptOutScene } from '../OptOuts/OptOutScene'
 import { SuppressionScene } from '../Suppression/SuppressionScene'
+import { AudienceRecipients } from './AudienceRecipients'
 import { AUDIENCE_TAB_LABELS, AudienceTab, audienceSceneLogic } from './audienceSceneLogic'
 
 export const scene: SceneExport = {
@@ -25,6 +26,12 @@ export const scene: SceneExport = {
 }
 
 const AUDIENCE_SCENE_TABS: LemonTab<AudienceTab>[] = [
+    {
+        key: 'recipients',
+        label: AUDIENCE_TAB_LABELS.recipients,
+        link: urls.audience(),
+        content: <AudienceRecipients />,
+    },
     {
         key: 'topics',
         label: AUDIENCE_TAB_LABELS.topics,
