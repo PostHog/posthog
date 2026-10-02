@@ -3997,11 +3997,11 @@ Today (11): `addons`, `apps`, `builds`, `collaborators`, `domains`, `dynos`, `fo
 Diffed against: <https://api.heroku.com/schema>
 
 - [ ] `team-member` — team membership and role — who has access to which team, no membership table today (high)
-- [ ] `add-on-attachment` — lookup resolving which app each add-on is attached to; we sync add-ons but not the attachment join (high)
-- [ ] `pipeline-coupling` — lookup joining apps to the pipelines we already sync, including the stage (review/staging/production) (high)
+- [x] `add-on-attachment` — lookup resolving which app each add-on is attached to; we sync add-ons but not the attachment join (high). Added as `addon_attachments`.
+- [x] `pipeline-coupling` — lookup joining apps to the pipelines we already sync, including the stage (review/staging/production) (high). Added as `pipeline_couplings`.
 - [ ] `add-on-service` — lookup table naming the add-on service behind every add-on row we sync (high)
-- [ ] `plan` — lookup giving the price and tier of each add-on plan id carried on add-ons — required for any cost analysis (high)
-- [ ] `team-monthly-usage` — Heroku's headline spend/usage metric per team per month (dyno hours, add-on cost, data usage) (high)
+- [ ] `plan` — lookup giving the price and tier of each add-on plan id carried on add-ons — required for any cost analysis (high). Skipped: there is no plan list, only `/addon-services/{id}/plans` across the whole public marketplace, and `addons` rows already carry `billed_price` and the plan name.
+- [x] `team-monthly-usage` — Heroku's headline spend/usage metric per team per month (dyno hours, add-on cost, data usage) (high). Added as `team_monthly_usage` (fan-out over Enterprise `teams`, rolling 12 months, off by default).
 - [ ] `team-daily-usage` — daily granularity of the same usage metric for trend analysis (medium)
 - [ ] `team-app` — apps owned by each team, the org-level view the /apps personal list misses (medium)
 - [ ] `team-invoice` — team-level invoices; we only sync personal /account/invoices today (medium)
