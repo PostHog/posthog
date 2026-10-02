@@ -22,6 +22,7 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
+import { registerMountedCodeEditor } from 'lib/monaco/mountedCodeEditors'
 import 'lib/monaco/monacoEnvironment'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
@@ -486,6 +487,7 @@ export function CodeEditor({
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
         remeasureFontsWhenReady(monaco)
         monacoDisposables.current.push(trackFindWidgetVisibility(editor))
+        monacoDisposables.current.push({ dispose: registerMountedCodeEditor({ editor, monaco }) })
 
         monacoDisposables.current.push(retriggerSuggestionsAfterDeletion(editor))
 

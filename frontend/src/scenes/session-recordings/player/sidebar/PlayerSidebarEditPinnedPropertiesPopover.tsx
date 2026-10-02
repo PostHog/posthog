@@ -9,10 +9,12 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { sessionRecordingPinnedPropertiesLogic } from '../player-meta/sessionRecordingPinnedPropertiesLogic'
 
 export type PlayerSidebarEditPinnedPropertiesPopoverProps = {
-    onClose?: () => void
+    initialGroupType?: TaxonomicFilterGroupType.SessionProperties | TaxonomicFilterGroupType.PersonProperties
 }
 
-export function PlayerSidebarEditPinnedPropertiesPopover(): JSX.Element {
+export function PlayerSidebarEditPinnedPropertiesPopover({
+    initialGroupType = TaxonomicFilterGroupType.SessionProperties,
+}: PlayerSidebarEditPinnedPropertiesPopoverProps): JSX.Element {
     const { pinnedProperties } = useValues(sessionRecordingPinnedPropertiesLogic)
     const { togglePropertyPin } = useActions(sessionRecordingPinnedPropertiesLogic)
 
@@ -33,10 +35,11 @@ export function PlayerSidebarEditPinnedPropertiesPopover(): JSX.Element {
 
             <TaxonomicFilter
                 taxonomicFilterLogicKey="pinned-properties-popover"
-                taxonomicGroupTypes={[
-                    TaxonomicFilterGroupType.SessionProperties,
-                    TaxonomicFilterGroupType.PersonProperties,
-                ]}
+                taxonomicGroupTypes={
+                    initialGroupType === TaxonomicFilterGroupType.PersonProperties
+                        ? [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.SessionProperties]
+                        : [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.PersonProperties]
+                }
                 selectedProperties={selectedProperties}
                 onChange={(_, propertyKey) => {
                     togglePropertyPin(String(propertyKey))

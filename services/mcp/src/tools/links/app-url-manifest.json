@@ -144,6 +144,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityScorer": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityScorers": {
         "template": "/ai-evals/evaluations/scorers",
         "params": [],
