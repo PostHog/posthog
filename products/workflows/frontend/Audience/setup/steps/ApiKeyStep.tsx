@@ -22,7 +22,7 @@ export function ApiKeyStep(): JSX.Element {
             }
             dataAttr="audience-setup-api-key"
         >
-            <div>
+            <div className="flex">
                 <LemonButton
                     type="secondary"
                     to={EMAIL_PREFERENCE_KEY_URL}

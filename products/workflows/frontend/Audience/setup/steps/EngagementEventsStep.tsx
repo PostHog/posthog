@@ -27,7 +27,7 @@ export function EngagementEventsStep(): JSX.Element {
             description="PostHog records an event when an email is sent, delivered, opened or clicked, when it bounces or is marked as spam, and when a recipient unsubscribes."
             dataAttr="audience-setup-engagement-events-on"
         >
-            <div>
+            <div className="flex">
                 <LemonButton
                     type="secondary"
                     to={urls.audience('engagement')}

@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { urls } from 'scenes/urls'
 
 import { recipientsLogic } from './recipientsLogic'
 import { RecipientsTable } from './RecipientsTable'
@@ -18,9 +17,6 @@ export function RecipientsBody({ onClearSearch }: { onClearSearch: () => void })
                 <EmptyMessage
                     title="No recipients yet"
                     description="An address shows up here once your app records a topic preference for it or it's on the suppression list. Persons with an email property show up too."
-                    buttonText="Set up"
-                    buttonTo={urls.audienceSetup()}
-                    buttonDataAttr="audience-recipients-empty-set-up"
                 />
             )
         case 'no-match':
