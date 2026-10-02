@@ -12216,6 +12216,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `bot` - SupportHog
+     * * `user` - The person who created it
+     */
+    export type AnnouncementSendAsEnum = typeof AnnouncementSendAsEnum[keyof typeof AnnouncementSendAsEnum];
+
+
+    export const AnnouncementSendAsEnum = {
+      Bot: 'bot',
+      User: 'user',
+    } as const;
+
+    /**
      * * `pending` - Pending
      * * `sent` - Sent
      * * `failed` - Failed
@@ -12266,6 +12278,13 @@ export namespace Schemas {
        * * `partially_failed` - Partially failed
        * * `failed` - Failed */
       readonly status: AnnouncementStatusEnum;
+      /** Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).
+       *
+       * * `bot` - SupportHog
+       * * `user` - The person who created it */
+      send_as?: AnnouncementSendAsEnum;
+      /** Slack display name the message was posted under when send_as is 'user'; empty otherwise. */
+      readonly sender_display_name: string;
       /** Number of channels this announcement targets. */
       readonly total_channels: number;
       /** Number of channels the message was successfully delivered to. */
@@ -30306,6 +30325,7 @@ export namespace Schemas {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -31665,6 +31685,7 @@ export namespace Schemas {
       Donorbox: 'Donorbox',
       Doorloop: 'Doorloop',
       Dovetail: 'Dovetail',
+      Dragonboat: 'Dragonboat',
       Drchrono: 'Drchrono',
       Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
       EcbDataPortal: 'EcbDataPortal',
@@ -33038,6 +33059,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -35623,6 +35645,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -40307,12 +40330,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -40939,12 +40962,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -46470,6 +46493,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -47863,6 +47887,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -58722,6 +58747,14 @@ export namespace Schemas {
       Failed: 'failed',
       Incompatible: 'incompatible',
     } as const;
+
+    export interface LiftOnMergeInput {
+      /**
+         * Identifier of a quarantined snapshot in this run, such as a Storybook story ID. The snapshot's picture is what a default-branch run must render for the quarantine to lift. An unchanged snapshot uses its baseline. A changed or new snapshot must be approved first, because requesting a lift never approves a picture.
+         * @maxLength 512
+         */
+      identifier: string;
+    }
 
     /**
      * Request body for `scout-lighthouse-audit`: one page, one device profile.
@@ -70015,6 +70048,11 @@ export namespace Schemas {
      */
     export type ReportRankingScores = {[key: string]: number};
 
+    /**
+     * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+     */
+    export type ReportRankingLifts = {[key: string]: number};
+
     export interface ReportRanking {
       /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
       served_key: string;
@@ -70028,6 +70066,8 @@ export namespace Schemas {
       scored_at: string;
       /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
       scores: ReportRankingScores;
+      /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
+      lifts: ReportRankingLifts;
       /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
       readable_heads: string[];
     }
@@ -75992,12 +76032,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -86148,6 +86188,74 @@ export namespace Schemas {
       source_run_id?: string | null;
       /** Post the quarantine to the Slack channel of the team that owns the story, naming the user who quarantined it. Only Storybook snapshots have an owning team. Best effort: skipped when the story has no owning team or the project has no Slack integration. */
       notify_owners?: boolean;
+    }
+
+    /**
+     * * `pending` - pending
+     * * `applied` - applied
+     * * `cancelled` - cancelled
+     * * `superseded` - superseded
+     */
+    export type QuarantineLiftStateEnum = typeof QuarantineLiftStateEnum[keyof typeof QuarantineLiftStateEnum];
+
+
+    export const QuarantineLiftStateEnum = {
+      Pending: 'pending',
+      Applied: 'applied',
+      Cancelled: 'cancelled',
+      Superseded: 'superseded',
+    } as const;
+
+    export interface QuarantineLiftEntry {
+      /** UUID of the lift request. */
+      id: string;
+      /** UUID of the quarantine event this request lifts. A later quarantine of the same snapshot is a different event. */
+      quarantine_id: string;
+      /** Snapshot identifier under quarantine. */
+      identifier: string;
+      /** Run type of the quarantine, for example storybook. */
+      run_type: string;
+      /** Pull request whose merge the lift waits for. */
+      pr_number: number;
+      /** Content hash a default-branch run must render, against a baseline entry with the same hash, for the lift to apply. */
+      expected_hash: string;
+      /** `pending` waits for the merge and a matching default-branch run. `applied` lifted the quarantine. `cancelled` was withdrawn, or the pull request closed without merging into the run's branch. `superseded` means the quarantine ended some other way, or another request lifted it.
+       *
+       * * `pending` - pending
+       * * `applied` - applied
+       * * `cancelled` - cancelled
+       * * `superseded` - superseded */
+      state: QuarantineLiftStateEnum;
+      /** The latest verification outcome, in plain words. */
+      detail: string;
+      /** When the lift was requested. */
+      created_at: string;
+      /** When the request last changed. */
+      updated_at: string;
+      /**
+         * When the request left `pending`. Null while it waits.
+         * @nullable
+         */
+      resolved_at?: string | null;
+      /**
+         * Run the lift was requested from. Null after that run is deleted.
+         * @nullable
+         */
+      source_run_id?: string | null;
+      /** User who requested the lift, or on whose behalf an agent did. */
+      requested_by?: UserBasicInfo | null;
+      /**
+         * Merge commit of the pull request. Set when the lift applies.
+         * @nullable
+         */
+      merge_commit_sha?: string | null;
+      /**
+         * Commit of the default-branch run that proved the fix and lifted the quarantine. A branch that does not contain it still treats the snapshot as quarantined.
+         * @nullable
+         */
+      lifted_at_sha?: string | null;
+      /** Who requested the lift: `human` for a person in the UI, `agent` for an agent through MCP. */
+      source: string;
     }
 
     /**
@@ -96710,6 +96818,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -98119,6 +98228,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -99510,6 +99620,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -104214,12 +104325,12 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
-         * Inclusive minimum numeric score. Omit for no lower bound.
+         * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
          * @nullable
          */
       min?: number | null;
       /**
-         * Inclusive maximum numeric score. Omit for no upper bound.
+         * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
          * @nullable
          */
       max?: number | null;
@@ -106203,6 +106314,40 @@ export namespace Schemas {
     export interface WebAnalyticsUserPreferences {
       /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
       achievements_opt_out: boolean;
+    }
+
+    export interface WebMCPExecRequest {
+      /**
+         * The exec command to run, for example `search insights` or `call insight-get {...}`.
+         * @maxLength 100000
+         */
+      command: string;
+    }
+
+    export type WebMCPExecResultContentItem = {
+      type: string;
+      [key: string]: unknown;
+     };
+
+    export interface WebMCPExecResult {
+      /** MCP content blocks the tool returned, such as `{type: 'text', text: '...'}`. */
+      content: WebMCPExecResultContentItem[];
+      /** True when the tool ran and reported a failure. */
+      is_error: boolean;
+    }
+
+    /**
+     * JSON Schema of the tool input, as the MCP server advertises it.
+     */
+    export type WebMCPExecToolInputSchema = { [key: string]: unknown };
+
+    export interface WebMCPExecTool {
+      /** Tool name to register with WebMCP. */
+      name: string;
+      /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
+      description: string;
+      /** JSON Schema of the tool input, as the MCP server advertises it. */
+      input_schema: WebMCPExecToolInputSchema;
     }
 
     export interface WebhookExternalStatus {
@@ -110004,7 +110149,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110056,7 +110201,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110108,7 +110253,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110160,7 +110305,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110588,7 +110733,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110640,7 +110785,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110679,7 +110824,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -110731,7 +110876,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -123389,6 +123534,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Whether to list only the snapshots whose identifier is currently quarantined. Defaults to false. When true, `include_quarantined` is ignored and quarantined snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined story that rendered `unchanged`, which is the snapshot to request a lift on merge for.
+     */
+    quarantined_only?: boolean;
     /**
      * Return only the snapshot with this id, read from the `id` field of a snapshot in the run. Use it to fetch one snapshot without listing the whole run.
      */
