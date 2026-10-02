@@ -1,4 +1,5 @@
 import datetime as dt
+from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -8,7 +9,9 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.clickhouse.client import sync_execute
+from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql.query import execute_hogql_query
 
 from products.metrics.backend import metrics_overview_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
@@ -71,24 +74,15 @@ class TestMetricsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
         seed_metric(team_id=self.team.id, metric_name="http.duration", points=[(anchor, 1.0)], service_name="api")
 
-        MetricsOverviewQueryRunner(team=self.team).run()
+        def force_projection(**kwargs: Any) -> HogQLQueryResponse:
+            if kwargs["query_type"] == "MetricsOverviewServicesQuery":
+                kwargs["settings"] = kwargs["settings"].model_copy(update={"force_optimize_projection": True})
+            return execute_hogql_query(**kwargs)
 
-        sync_execute("SYSTEM FLUSH LOGS")
-        rows = sync_execute(
-            """
-            SELECT projections
-            FROM system.query_log
-            WHERE type = 'QueryFinish'
-              AND event_time > now() - INTERVAL 10 MINUTE
-              AND JSONExtractString(log_comment, 'query_type') = 'MetricsOverviewServicesQuery'
-              AND JSONExtractInt(log_comment, 'team_id') = %(team_id)s
-            ORDER BY event_time_microseconds DESC
-            LIMIT 1
-            """,
-            {"team_id": self.team.id},
-        )
-        self.assertEqual(len(rows), 1)
-        self.assertTrue(any(name.endswith(".services_by_hour") for name in rows[0][0]), rows[0][0])
+        with patch.object(metrics_overview_query_runner, "execute_hogql_query", side_effect=force_projection):
+            overview = MetricsOverviewQueryRunner(team=self.team).run()
+
+        self.assertEqual([(s.service_name, s.series) for s in overview.services], [("api", 1)])
 
     def test_quiet_project_keeps_overall_last_seen_but_lists_no_services(self):
         stale = timezone.now().replace(microsecond=0) - dt.timedelta(days=3)
