@@ -2,13 +2,13 @@
 
 A stored CI view is a materialized view whose rows are the output of a builder the product's reads
 use. A rebuild reads every row it stores, so its cost follows the days kept. The views keep what a
-page range of ``MAX_STORED_RANGE`` needs.
+page range of 30 days needs.
 
 A view unions every repository of every GitHub source of the team, and a member can be denied some
 sources. So each row names the source and the repository it came from.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -25,7 +25,7 @@ from products.engineering_analytics.backend.logic.sources import JobSourceTables
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-MAX_STORED_RANGE = timedelta(days=30)
+_LONGEST_STORED_RANGE = timedelta(days=30)
 
 # A read floors its scan one day below its window, a floor is a whole date, and a table built before
 # midnight is read after it. One day for each keeps the stored rows a superset of the rows a read scans.
@@ -33,7 +33,7 @@ _FLOOR_MARGIN = timedelta(days=3)
 
 # A read reaches one more span before its range: a timeline also reads the CI from ``CI_LOOKBACK``
 # before its range, and a comparison reads the previous period of the same length.
-STORED_RUNS_WINDOW = MAX_STORED_RANGE + max(MAX_STORED_RANGE, CI_LOOKBACK) + _FLOOR_MARGIN
+STORED_RUNS_WINDOW = _LONGEST_STORED_RANGE + max(_LONGEST_STORED_RANGE, CI_LOOKBACK) + _FLOOR_MARGIN
 
 # A read that windows the run floors the jobs lower than the runs, by the same slack.
 STORED_JOBS_WINDOW = STORED_RUNS_WINDOW + JOB_FLOOR_SLACK_ON_RUN_STARTED
@@ -57,11 +57,10 @@ def identity_columns(source_id: str, repository: str) -> str:
     return f"{source} AS source_id, {repo} AS repository"
 
 
-def build_source_view(source: JobSourceTables, fields: dict[str, FieldOrTable], rows: str) -> str:
-    """One repository's part of a stored CI view: the ``fields`` columns of the ``rows`` query, with
-    the source and the repository they came from."""
-    columns = ", ".join(name for name in fields if name not in IDENTITY_FIELDS)
-    return f"SELECT {columns}, {identity_columns(source.source_id, source.repository)} FROM ({rows})"
+def build_source_view(source: JobSourceTables, columns: Iterable[str], rows: str) -> str:
+    """One repository's part of a stored CI view: the ``columns`` of the ``rows`` query, then the
+    source and the repository they came from."""
+    return f"SELECT {', '.join(columns)}, {identity_columns(source.source_id, source.repository)} FROM ({rows})"
 
 
 def build_team_view(team: "Team", build_source_query: Callable[[JobSourceTables], str]) -> str | None:

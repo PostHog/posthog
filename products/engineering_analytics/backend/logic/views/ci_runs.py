@@ -37,8 +37,8 @@ VIEW_NAME = "engineering_analytics_ci_runs"
 # jobs, and takes those rows as of their last load.
 REBUILT_AFTER = (WORKFLOW_RUNS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA)
 
-# Column order is the saved-query schema and the UNION ALL order across sources: append, never reorder.
-FIELDS: dict[str, FieldOrTable] = {
+# The columns of the runs builder that the view stores, in the builder's order.
+_BUILDER_FIELDS: dict[str, FieldOrTable] = {
     "id": IntegerDatabaseField(name="id"),
     "workflow_name": StringDatabaseField(name="workflow_name", nullable=True),
     "head_sha": StringDatabaseField(name="head_sha", nullable=True),
@@ -59,8 +59,10 @@ FIELDS: dict[str, FieldOrTable] = {
     "ci_engine": StringDatabaseField(name="ci_engine"),
     "native_run_id": StringDatabaseField(name="native_run_id", nullable=True),
     "native_workflow_run_id": StringDatabaseField(name="native_workflow_run_id", nullable=True),
-    **stored_view.IDENTITY_FIELDS,
 }
+
+# Column order is the saved-query schema and the UNION ALL order across sources: append, never reorder.
+FIELDS: dict[str, FieldOrTable] = {**_BUILDER_FIELDS, **stored_view.IDENTITY_FIELDS}
 
 
 def build_source_query(source: JobSourceTables) -> str:
@@ -68,7 +70,7 @@ def build_source_query(source: JobSourceTables) -> str:
     runs = workflow_runs.build_query(
         source.runs_source, pull_requests_table=source.pull_requests, started_floor=True
     ).replace("{run_started_floor}", raw_date_floor(stored_view.STORED_RUNS_WINDOW))
-    return stored_view.build_source_view(source, FIELDS, runs)
+    return stored_view.build_source_view(source, _BUILDER_FIELDS, runs)
 
 
 def build_team_view(team: "Team") -> str | None:

@@ -45,7 +45,7 @@ def build_source_query(source: JobSourceTables) -> str:
     jobs = job_costs.build_query(jobs_table=source.jobs_source, runs_table=runs, created_floor=True).replace(
         "{job_created_floor}", raw_date_floor(stored_view.STORED_JOBS_WINDOW)
     )
-    return stored_view.build_source_view(source, FIELDS, jobs)
+    return stored_view.build_source_view(source, job_costs.BUILDER_FIELDS, jobs)
 
 
 def build_team_view(team: "Team") -> str | None:
