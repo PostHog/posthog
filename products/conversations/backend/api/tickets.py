@@ -103,6 +103,7 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.person_lookup import _get_persons_by_email
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
+from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
 
 from .. import reply_dedupe
 
@@ -890,9 +891,15 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 raise PermissionDenied("You need manager access to delete this ticket.")
 
         with transaction.atomic():
-            ticket.deleted_at = timezone.now()
+            # Conditional update, so a second concurrent delete cannot move the purge date or the actor.
+            now = timezone.now()
+            deleted = Ticket.objects.filter(team_id=self.team_id, id=ticket.id).update(
+                deleted_at=now, deleted_by=request.user, updated_at=now
+            )
+            if not deleted:
+                raise Http404("Ticket not found")
+            ticket.deleted_at = now
             ticket.deleted_by = request.user
-            ticket.save(update_fields=["deleted_at", "deleted_by", "updated_at"])
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
@@ -910,6 +917,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         def _after_delete() -> None:
             cancel_open_deliveries_for_ticket(team_id=team_id, ticket_id=ticket_id)
+            cancel_pending_email_replies_for_ticket(team_id=team_id, ticket_id=ticket_id)
             invalidate_unread_count_cache(team_id)
             invalidate_messages_cache(team_id, str(ticket_id))
             invalidate_identity_tickets_cache(team_id)

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, Mock, patch
 from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from celery.exceptions import MaxRetriesExceededError, Retry
 from parameterized import parameterized
@@ -24,6 +25,7 @@ from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_OPEN,
     TICKET_VIEW_ACTION,
     SlackConfirmationNeedsRetry,
+    create_or_update_slack_ticket,
     create_ticket_from_confirmation,
     handle_link_shared,
     handle_member_joined_channel,
@@ -94,16 +96,20 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is True
 
+    @parameterized.expand([("thread_reply", True), ("root_message", False)])
     @patch("products.conversations.backend.slack.resolve_posthog_user_for_slack", return_value=None)
     @patch("products.conversations.backend.slack.resolve_slack_user", return_value={"name": "Ada", "email": None})
     @patch("products.conversations.backend.slack.extract_slack_files", return_value=[])
     @patch("products.conversations.backend.slack.get_slack_client")
-    def test_reply_on_deleted_ticket_does_not_open_another(self, _client, _files, _user, _posthog_user) -> None:
-        # A later Slack message on a deleted thread must not create a replacement ticket.
-        from django.utils import timezone
-
-        from products.conversations.backend.slack import create_or_update_slack_ticket
-
+    def test_message_on_deleted_ticket_does_not_open_another(
+        self,
+        _name: str,
+        is_thread_reply: bool,
+        _client: MagicMock,
+        extract_files: MagicMock,
+        _user: MagicMock,
+        _posthog_user: MagicMock,
+    ) -> None:
         deleted = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.SLACK,
@@ -121,11 +127,13 @@ class TestSlackMessageRouting(BaseTest):
             thread_ts="1700000000.000100",
             slack_user_id="U123",
             text="Still here",
-            is_thread_reply=True,
+            files=[{"id": "F1"}],
+            is_thread_reply=is_thread_reply,
             post_confirmation=False,
         )
 
         assert result is None
+        extract_files.assert_not_called()
         assert Ticket.objects.filter(team=self.team).count() == 0
         assert Ticket.all_objects.filter(team=self.team, slack_thread_ts="1700000000.000100").count() == 1
 

@@ -113,6 +113,9 @@ class TestTicketAPI(APIBaseTest):
             content="Customer wrote this",
             created_by=self.user,
         )
+        outbox = EmailOutboxMessage.objects.create(
+            team=self.team, ticket=self.ticket, comment=comment, message_id="<reply@example.com>"
+        )
         set_cached_tickets(
             self.team.id,
             self.ticket.widget_session_id,
@@ -131,7 +134,10 @@ class TestTicketAPI(APIBaseTest):
             team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity="deleted"
         )
         self.assertEqual(log.user_id, self.user.id)
+        assert log.detail is not None
         self.assertEqual(log.detail["name"], f"Ticket #{self.ticket.ticket_number}")
+        outbox.refresh_from_db()
+        self.assertEqual(outbox.status, EmailOutboxMessage.Status.FAILED_PERMANENT)
 
         listed = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
         self.assertEqual(listed.json()["count"], 0)
@@ -1786,7 +1792,7 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
         # Pause before the insert so the advisory lock is held and the Team row is not.
         paused = Event()
         resume = Event()
-        real_create = type(Ticket.objects).create
+        real_create = type(Ticket.all_objects).create
 
         def pausing_create(manager, *args, **kwargs):
             paused.set()
@@ -1809,7 +1815,7 @@ class TestTicketNumberAllocationConcurrency(NonAtomicBaseTest):
             finally:
                 close_old_connections()
 
-        with patch.object(type(Ticket.objects), "create", pausing_create):
+        with patch.object(type(Ticket.all_objects), "create", pausing_create):
             with ThreadPoolExecutor(max_workers=1) as executor:
                 future = executor.submit(allocate)
                 if not paused.wait(timeout=5):

@@ -84,6 +84,24 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
+def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
+    """Stop queued replies for a ticket that was just soft-deleted."""
+    pending = EmailOutboxMessage.objects.filter(
+        team_id=team_id, ticket_id=ticket_id, status=EmailOutboxMessage.Status.PENDING
+    )
+    comment_ids = list(pending.values_list("comment_id", flat=True))
+    if not comment_ids:
+        return
+    pending.update(
+        status=EmailOutboxMessage.Status.FAILED_PERMANENT,
+        last_error="ticket deleted",
+        locked_until=None,
+        updated_at=timezone.now(),
+    )
+    for comment_id in comment_ids:
+        _set_comment_delivery_status(team_id, comment_id, "failed")
+
+
 def _schedule_outbox_retry(outbox: EmailOutboxMessage, error: str) -> None:
     outbox.attempts += 1
     backoff = min(
@@ -107,6 +125,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     config = ticket.email_config
     comment = outbox.comment
 
+    # The FK loads soft-deleted tickets too. A reply must not reach the customer after the delete.
+    if ticket.deleted_at is not None:
+        _mark_outbox_failed(outbox, "ticket deleted")
+        return
     settings_dict = ticket.team.conversations_settings or {}
     if not settings_dict.get("email_enabled"):
         _mark_outbox_failed(outbox, "email disabled for team")

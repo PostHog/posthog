@@ -1047,7 +1047,7 @@ def redrive_failed_delivery_part(part_id: str, *, wake: DeliveryWake) -> Convers
     return part
 
 
-def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: object) -> None:
+def cancel_open_deliveries_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
     """Stop outbound sends for a ticket that was just soft-deleted.
 
     QuerySet.update skips the model save hook, so terminal_at is set here.

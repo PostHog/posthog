@@ -484,6 +484,17 @@ def create_or_update_slack_ticket(
         files_count=len(files or []),
     )
 
+    # A deleted ticket holds its thread until the purge. Stop before files are re-hosted,
+    # or the stored copies have no comment that the purge can find them through.
+    if deleted_ticket_holds_thread(team_id=team.id, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts):
+        logger.info(
+            "slack_inbound_deleted_ticket",
+            team_id=team_id,
+            slack_channel_id=slack_channel_id,
+            thread_ts=thread_ts,
+        )
+        return None
+
     # Extract attachments from Slack files, making them publicly accessible
     attachments = split_slack_attachments(extract_slack_files(files, team, client))
 
@@ -516,21 +527,11 @@ def create_or_update_slack_ticket(
         ).first()
 
         if not ticket:
-            if deleted_ticket_holds_thread(
-                team_id=team.id, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts
-            ):
-                logger.info(
-                    "slack_inbound_deleted_ticket",
-                    team_id=team_id,
-                    slack_channel_id=slack_channel_id,
-                    thread_ts=thread_ts,
-                )
-            else:
-                logger.debug(
-                    "slack_support_thread_reply_no_ticket",
-                    slack_channel_id=slack_channel_id,
-                    thread_ts=thread_ts,
-                )
+            logger.debug(
+                "slack_support_thread_reply_no_ticket",
+                slack_channel_id=slack_channel_id,
+                thread_ts=thread_ts,
+            )
             return None
         if slack_team_id and not ticket.slack_team_id:
             Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)

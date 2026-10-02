@@ -16,7 +16,7 @@ from temporalio import activity, workflow
 # activity sync helpers touch them at runtime, so pass them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
     from django.db import transaction
-    from django.db.models import F, Max
+    from django.db.models import F
     from django.utils import timezone
     from django.utils.dateparse import parse_datetime
     from django.utils.html import strip_tags
@@ -634,8 +634,8 @@ def _persist_ticket_batch(team: Team, built: list[_BuiltTicket], tags_by_name: d
     # Comment.objects.create(), or .save() would fire those signals for every imported row —
     # triggering workflows and re-sending replies to real customers for years-old tickets. Don't.
     with transaction.atomic():
-        Ticket.objects.lock_ticket_number_allocation(team.id)
-        max_num = Ticket.objects.filter(team_id=team.id).aggregate(Max("ticket_number"))["ticket_number__max"] or 0
+        Ticket.all_objects.lock_ticket_number_allocation(team.id)
+        max_num = Ticket.all_objects.highest_used_ticket_number(team.id)
         tickets_to_create = [b.ticket for b in built]
         for offset, ticket_to_number in enumerate(tickets_to_create):
             ticket_to_number.ticket_number = max_num + 1 + offset

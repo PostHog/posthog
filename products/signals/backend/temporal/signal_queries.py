@@ -156,12 +156,18 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
         )
 
 
+_RETRACT_PAGE_SIZE = 500
+
+
 def retract_source_signals(*, team: Team, source_product: str, source_type: str, source_id: str) -> int:
     """Blank and mark deleted every signal embedding for one source record.
 
     Re-emits each document at its original timestamp so the ReplacingMergeTree
     row is replaced, not appended. Content is cleared because a deleted flag
     alone leaves the text in ClickHouse.
+
+    Pages by document_id, because re-emitted rows land asynchronously and a
+    repeated or offset query can return them again or skip others.
     """
     if not source_id:
         return 0
@@ -170,39 +176,47 @@ def retract_source_signals(*, team: Team, source_product: str, source_type: str,
         AND JSONExtractString(metadata, 'source_type') = {source_type}
         AND JSONExtractString(metadata, 'source_id') = {source_id}
     """
-    result = execute_hogql_query(
-        query_type="SignalsRetractSource",
-        query=f"""
-            SELECT document_id, content, metadata, timestamp
-            FROM ({_deduped_signals_subquery(extra_where=extra_where)})
-            LIMIT 500
-        """,
-        team=team,
-        placeholders={
-            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            "source_product": ast.Constant(value=source_product),
-            "source_type": ast.Constant(value=source_type),
-            "source_id": ast.Constant(value=source_id),
-        },
-    )
     retracted = 0
-    for row in result.results or []:
-        document_id, _content, metadata_str, timestamp_raw = row
-        metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else dict(metadata_str or {})
-        metadata["deleted"] = True
-        emit_embedding_request(
-            content="",
-            team_id=team.id,
-            product=SIGNAL_DOCUMENT_PRODUCT,
-            document_type=SIGNAL_DOCUMENT_TYPE,
-            rendering=SIGNAL_DOCUMENT_RENDERING,
-            document_id=document_id,
-            models=[model.value for model in EmbeddingModelName],
-            timestamp=_ensure_tz_aware(timestamp_raw),
-            metadata=metadata,
+    after = ""
+    while True:
+        result = execute_hogql_query(
+            query_type="SignalsRetractSource",
+            query=f"""
+                SELECT document_id, content, metadata, timestamp
+                FROM ({_deduped_signals_subquery(extra_where=extra_where)})
+                WHERE document_id > {{after}}
+                ORDER BY document_id ASC
+                LIMIT {_RETRACT_PAGE_SIZE}
+            """,
+            team=team,
+            placeholders={
+                "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+                "source_product": ast.Constant(value=source_product),
+                "source_type": ast.Constant(value=source_type),
+                "source_id": ast.Constant(value=source_id),
+                "after": ast.Constant(value=after),
+            },
         )
-        retracted += 1
-    return retracted
+        rows = result.results or []
+        for row in rows:
+            document_id, _content, metadata_str, timestamp_raw = row
+            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else dict(metadata_str or {})
+            metadata["deleted"] = True
+            emit_embedding_request(
+                content="",
+                team_id=team.id,
+                product=SIGNAL_DOCUMENT_PRODUCT,
+                document_type=SIGNAL_DOCUMENT_TYPE,
+                rendering=SIGNAL_DOCUMENT_RENDERING,
+                document_id=document_id,
+                models=[model.value for model in EmbeddingModelName],
+                timestamp=_ensure_tz_aware(timestamp_raw),
+                metadata=metadata,
+            )
+            retracted += 1
+        if len(rows) < _RETRACT_PAGE_SIZE:
+            return retracted
+        after = rows[-1][0]
 
 
 def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, team_id: int, team: Team) -> int:

@@ -4,11 +4,8 @@ import { IconTrash } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
-import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
 
@@ -22,16 +19,8 @@ export function SupportTicketSceneMenuBar({ ticketId }: { ticketId: string }): J
 
 function SupportTicketSceneMenuBarInner({ ticketId }: { ticketId: string }): JSX.Element {
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
-    const { ticket, ticketDeleting } = useValues(logic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { ticket, ticketDeleting, deleteDisabledReason } = useValues(logic)
     const { deleteTicket } = useActions(logic)
-    const deleteDisabledReason = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
-        ? (getAccessControlDisabledReason(
-              AccessControlResourceType.Ticket,
-              AccessControlLevel.Manager,
-              ticket?.user_access_level
-          ) ?? undefined)
-        : undefined
 
     return (
         <SceneMenuBar>
