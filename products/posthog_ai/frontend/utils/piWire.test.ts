@@ -29,7 +29,7 @@ describe('piWire', () => {
             },
         },
         {
-            caseName: 'built-in tool start maps to the Claude renderer name and file_path',
+            caseName: 'built-in tool start maps to the Claude renderer name',
             event: {
                 type: 'tool_call_started',
                 timestamp: 1,
@@ -40,6 +40,7 @@ describe('piWire', () => {
                     kind: 'read',
                     status: 'pending',
                     rawInput: { path: 'a.ts' },
+                    locations: [{ path: 'a.ts' }],
                 },
             },
             expected: {
@@ -50,66 +51,64 @@ describe('piWire', () => {
                         toolCallId: 't1',
                         kind: 'read',
                         status: 'pending',
-                        rawInput: { path: 'a.ts', file_path: 'a.ts' },
+                        rawInput: { path: 'a.ts' },
+                        locations: [{ path: 'a.ts' }],
                         _meta: { posthog: { toolName: 'Read' } },
                     },
                 },
             },
         },
         {
-            caseName: 'PostHog exec tool start keeps the MCP identity',
+            caseName: 'user shell command keeps the command as its title',
             event: {
                 type: 'tool_call_started',
                 timestamp: 1,
-                toolCall: { id: 't2', name: 'posthog_exec', title: 'posthog_exec', rawInput: { command: 'tools' } },
+                toolCall: { id: 'pi-bash-1', title: 'ls', kind: 'execute', rawInput: { command: 'ls' } },
             },
             expected: {
                 method: 'session/update',
                 params: {
                     update: {
                         sessionUpdate: 'tool_call',
-                        toolCallId: 't2',
-                        title: 'posthog_exec',
-                        rawInput: { command: 'tools' },
-                        _meta: {
-                            posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'posthog', tool: 'exec' } },
-                        },
+                        toolCallId: 'pi-bash-1',
+                        title: 'ls',
+                        kind: 'execute',
+                        rawInput: { command: 'ls' },
                     },
                 },
             },
         },
         ...[
             {
+                caseName: 'PostHog exec tool start keeps the MCP identity',
+                toolCall: { name: 'posthog_exec', title: 'posthog_exec' },
+                posthog: { toolName: 'mcp__posthog__exec', mcp: { server: 'posthog', tool: 'exec' } },
+            },
+            {
                 caseName: 'MCP proxy tool start names the proxied tool',
-                type: 'tool_call_started',
                 toolCall: { name: 'mcp', title: 'mcp', details: { kind: 'tool', name: 'linear_create_issue' } },
-                title: 'linear - Create issue',
+                posthog: { toolName: 'mcp__linear__create_issue', mcp: { server: 'linear', tool: 'create_issue' } },
             },
             {
-                caseName: 'MCP proxy search start',
-                type: 'tool_call_started',
+                caseName: 'MCP proxy search start renders as a tool search',
                 toolCall: { name: 'mcp', title: 'mcp', details: { kind: 'search', query: 'issue' } },
-                title: 'Search MCP tools',
+                posthog: { toolName: 'ToolSearch' },
             },
             {
-                caseName: 'MCP proxy tool completion uses the tool descriptor',
-                type: 'tool_call_updated',
+                caseName: 'MCP proxy tool completion keeps the tool descriptor the server sent',
                 toolCall: {
-                    _meta: {
-                        posthog: {
-                            mcp: { server: 'linear', tool: 'create_issue', title: 'Create an issue' },
-                            mcpProxy: { kind: 'tool', name: 'linear_create_issue' },
-                        },
-                    },
+                    name: 'mcp',
+                    _meta: { posthog: { mcp: { server: 'linear', tool: 'create_issue', title: 'Create an issue' } } },
                 },
-                title: 'linear - Create an issue',
+                posthog: { mcp: { server: 'linear', tool: 'create_issue', title: 'Create an issue' } },
             },
-        ].map(({ caseName, type, toolCall, title }) => ({
+        ].map(({ caseName, toolCall, posthog }) => ({
             caseName,
-            event: { type, timestamp: 1, toolCall: { id: 't3', ...toolCall } },
-            expected: expect.objectContaining({
-                params: { update: expect.objectContaining({ toolCallId: 't3', title }) },
-            }),
+            event: { type: 'tool_call_started', timestamp: 1, toolCall: { id: 't3', ...toolCall } },
+            expected: {
+                method: 'session/update',
+                params: { update: { sessionUpdate: 'tool_call', toolCallId: 't3', _meta: { posthog } } },
+            },
         })),
         {
             caseName: 'tool update',

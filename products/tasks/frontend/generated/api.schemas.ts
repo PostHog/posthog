@@ -3012,7 +3012,7 @@ export interface ClaudeTaskRunCreateSchemaApi {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Claude runtime. */
     model: string
-    /** Reasoning effort to request for models that expose an effort control. A Pi task sets it as the Pi thinking level and does not accept 'ultracode'.
+    /** Reasoning effort to request for models that expose an effort control.
      *
      * * `low` - low
      * * `medium` - medium
@@ -3155,7 +3155,7 @@ export interface CodexTaskRunCreateSchemaApi {
     runtime_adapter: CodexRuntimeAdapterEnumApi
     /** LLM model identifier to run in the Codex runtime. */
     model: string
-    /** Reasoning effort to request for models that expose an effort control. A Pi task sets it as the Pi thinking level and does not accept 'ultracode'.
+    /** Reasoning effort to request for models that expose an effort control.
      *
      * * `low` - low
      * * `medium` - medium
