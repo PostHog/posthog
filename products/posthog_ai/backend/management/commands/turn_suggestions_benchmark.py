@@ -58,7 +58,7 @@ def _f1(value: float | None) -> str:
 
 
 ENDPOINTS_VARIABLE = "TURN_SUGGESTIONS_BENCHMARK_ENDPOINTS"
-_SERVER_SETTINGS = ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY", "TYPESAFE_API_KEY")
+_SERVER_SETTINGS = ("AI_GATEWAY_URL", "AI_GATEWAY_API_KEY")
 DEFAULT_TARGET_OFFER_RATE = 0.45
 
 # A judge is Jev through the configured System One server (no endpoint) or one candidate endpoint.
@@ -81,8 +81,7 @@ def _judges(options: dict[str, Any], jev_label: str | None) -> list[Judge]:
     if not options["skip_jev"]:
         if jev_label is None:
             raise CommandError(
-                "Set AI_GATEWAY_URL and AI_GATEWAY_API_KEY, or TYPESAFE_API_KEY, in the environment or in "
-                ".env.local, or pass --skip-jev."
+                "Set AI_GATEWAY_URL and AI_GATEWAY_API_KEY in the environment or in .env.local, or pass --skip-jev."
             )
         judges.append((jev_label, None))
     if options["jev_only"]:
@@ -164,7 +163,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        # The ai-gateway answers where it is configured, and TypeSafe elsewhere, as in production.
+        # Only the ai-gateway answers, as in production.
         servers = {name: getattr(settings, name) or _from_env_local(name) or "" for name in _SERVER_SETTINGS}
         with override_settings(**servers):
             judges = _judges(options, judge_model())

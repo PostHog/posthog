@@ -46,7 +46,7 @@ DEFAULT_THRESHOLDS: tuple[float, ...] = tuple(round(0.2 + step * 0.05, 2) for st
 # Fine enough that a small case file can land within a case or two of a target offer rate.
 FINE_THRESHOLDS: tuple[float, ...] = tuple(round(step * 0.01, 2) for step in range(1, 100))
 
-# A candidate server can answer slower than TypeSafe. The benchmark prints the seconds per case, so a
+# A candidate server can answer slower than the ai-gateway. The benchmark prints the seconds per case, so a
 # slow answer shows up there instead of as a failure.
 ENDPOINT_TIMEOUT: tuple[float, float] = (5.0, 60.0)
 
@@ -87,8 +87,8 @@ class BenchmarkCase:
 
 @frozen
 class SystemOneEndpoint:
-    """A server other than TypeSafe that serves the System One API. ``model`` is sent only when set,
-    because a candidate server can reject TypeSafe's model ids. Basic auth is sent only when
+    """A server other than the ai-gateway that serves the System One API. ``model`` is sent only when
+    set, because a candidate server can reject the gateway's model ids. Basic auth is sent only when
     ``username`` is set."""
 
     url: str
@@ -265,7 +265,6 @@ def load_cases(path: Path = CASES_PATH) -> list[BenchmarkCase]:
 def _judge_at_endpoint(case: BenchmarkCase, endpoint: SystemOneEndpoint) -> TurnJudgment:
     questions = build_judge_questions(case.transcript, case.available)
     body = build_system_one_body(state=build_judge_state(case.transcript), questions=questions, model=endpoint.model)
-    # The candidate server is not TypeSafe, so this call stays out of the TypeSafe egress budget and metrics.
     response = requests.post(
         endpoint.url,
         json=body,
