@@ -32,7 +32,7 @@ SELECT
     maxIf(changed_at, source_kind = 'suppression') AS suppressed_at,
     countIf(source_kind = 'suppression') > 0 AS is_suppressed,
     countIf(source_kind = 'person') AS person_count,
-    arraySlice(arraySort(groupArrayIf(tuple(person_id, distinct_id, person_name), source_kind = 'person')), 1, 3) AS persons
+    arraySlice(arraySort(groupArrayIf(tuple(person_id, person_name), source_kind = 'person')), 1, 3) AS persons
 FROM (
     SELECT
         'preference' AS source_kind,
@@ -42,7 +42,6 @@ FROM (
         '' AS suppression_source,
         '' AS suppression_reason,
         '' AS person_id,
-        '' AS distinct_id,
         '' AS person_name
     FROM system.message_recipient_preferences
     WHERE deleted = 0 AND {address_filter}
@@ -55,7 +54,6 @@ FROM (
         source AS suppression_source,
         ifNull(reason, '') AS suppression_reason,
         '' AS person_id,
-        '' AS distinct_id,
         '' AS person_name
     FROM system.message_suppressions
     WHERE deleted = 0 AND suppressed AND {address_filter}
@@ -68,11 +66,9 @@ FROM (
         '' AS suppression_source,
         '' AS suppression_reason,
         toString(persons.id) AS person_id,
-        min(persons.pdi.distinct_id) AS distinct_id,
-        coalesce(any(persons.properties.name), '') AS person_name
+        coalesce(persons.properties.name, '') AS person_name
     FROM persons
     WHERE address != '' AND {address_filter}
-    GROUP BY persons.id, address
 )
 GROUP BY address
 HAVING {facet_filter}
@@ -96,6 +92,18 @@ FROM (
 )
 WHERE latest_is_deleted = 0
 GROUP BY address
+"""
+
+_FIRST_DISTINCT_ID_QUERY = """
+SELECT toString(person_id), min(distinct_id)
+FROM (
+    SELECT distinct_id, argMax(person_id, version) AS person_id, argMax(is_deleted, version) AS is_deleted
+    FROM raw_person_distinct_ids
+    WHERE distinct_id IN (SELECT distinct_id FROM raw_person_distinct_ids WHERE person_id IN {person_ids})
+    GROUP BY distinct_id
+)
+WHERE is_deleted = 0 AND person_id IN {person_ids}
+GROUP BY person_id
 """
 
 _PERSONS_WITHOUT_EMAIL_QUERY = (
@@ -230,9 +238,10 @@ def list_recipients(team: "Team", user: "User", query: RecipientQuery) -> Recipi
     rows = _query_recipient_rows(team, user, query, topics)
     page_rows = rows[: query.limit]
     last_sent_at = _last_sent_at_by_address(team.id, [row[0] for row in page_rows])
+    distinct_ids = _first_distinct_id_by_person(team, user, _previewed_person_ids(page_rows))
     keys_by_id = topics.keys_by_id
     return RecipientPage(
-        results=[_build_recipient(row, keys_by_id, last_sent_at.get(row[0])) for row in page_rows],
+        results=[_build_recipient(row, keys_by_id, last_sent_at.get(row[0]), distinct_ids) for row in page_rows],
         next_cursor=page_rows[-1][0] if len(rows) > query.limit else None,
     )
 
@@ -297,6 +306,23 @@ def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, da
     return dict(rows)
 
 
+def _previewed_person_ids(rows: list[tuple[Any, ...]]) -> list[str]:
+    return [person_id for row in rows for person_id, _name in row[-1]]
+
+
+def _first_distinct_id_by_person(team: "Team", user: "User", person_ids: list[str]) -> dict[str, str]:
+    if not person_ids:
+        return {}
+    response = execute_hogql_query(
+        _FIRST_DISTINCT_ID_QUERY,
+        team=team,
+        user=user,
+        placeholders={"person_ids": ast.Constant(value=person_ids)},
+        query_type="MessagingRecipientsDistinctIdsQuery",
+    )
+    return dict(response.results or [])
+
+
 def _facet_filter(filters: Iterable[RecipientFilter], topics: _Topics) -> ast.Expr:
     filters_by_facet: dict[RecipientFacet, list[RecipientFilter]] = defaultdict(list)
     for recipient_filter in filters:
@@ -326,7 +352,10 @@ def _facet_condition(recipient_filter: RecipientFilter, topics: _Topics) -> ast.
 
 
 def _build_recipient(
-    row: tuple[Any, ...], topic_keys_by_id: dict[str, str], last_sent_at: datetime | None
+    row: tuple[Any, ...],
+    topic_keys_by_id: dict[str, str],
+    last_sent_at: datetime | None,
+    distinct_id_by_person: dict[str, str],
 ) -> Recipient:
     (
         address,
@@ -354,8 +383,8 @@ def _build_recipient(
         if is_suppressed
         else None,
         persons=[
-            RecipientPerson(uuid=person_id, distinct_id=distinct_id, name=name or None)
-            for person_id, distinct_id, name in persons
+            RecipientPerson(uuid=person_id, distinct_id=distinct_id_by_person.get(person_id, ""), name=name or None)
+            for person_id, name in persons
         ],
         person_count=person_count,
         last_sent_at=last_sent_at,
