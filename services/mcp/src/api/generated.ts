@@ -118392,7 +118392,7 @@ export namespace Schemas {
      */
     tags?: string;
     /**
-     * How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag.
+     * How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag, and accepts at most 20 distinct tags.
      */
     tags_match?: InsightsListTagsMatch;
     /**

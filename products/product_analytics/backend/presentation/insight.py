@@ -42,7 +42,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
-from posthog.api.project_tags import MATCH_MODES
+from posthog.api.project_tags import MATCH_MODES, MAX_TAGS_PER_FILTER
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
@@ -1769,7 +1769,7 @@ Background calculation can be tracked using the `query_status` response field.""
                 name="tags_match",
                 type=OpenApiTypes.STR,
                 enum=list(MATCH_MODES),
-                description="How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag.",
+                description=f"How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag, and accepts at most {MAX_TAGS_PER_FILTER} distinct tags.",
             ),
         ]
     ),
@@ -2151,7 +2151,17 @@ class InsightViewSet(
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        tag_groups = [[name] for name in set(tags_list)] if tags_match == "all" else [tags_list]
+                        if tags_match == "all":
+                            distinct_tags = set(tags_list)
+                            if len(distinct_tags) > MAX_TAGS_PER_FILTER:
+                                raise ValidationError(
+                                    {
+                                        "tags": f"Filter by at most {MAX_TAGS_PER_FILTER} tags at a time with `tags_match=all`."
+                                    }
+                                )
+                            tag_groups = [[name] for name in distinct_tags]
+                        else:
+                            tag_groups = [tags_list]
                         for names in tag_groups:
                             matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=names)
                             queryset = queryset.filter(Exists(matching_tags))

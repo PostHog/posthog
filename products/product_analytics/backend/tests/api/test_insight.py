@@ -894,9 +894,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.status_code == status.HTTP_200_OK
         assert sorted(r["short_id"] for r in response.json()["results"]) == expected
 
-    @parameterized.expand([("with tags", 'tags=["app"]&'), ("without tags", "")])
-    def test_list_rejects_unknown_tags_match_mode(self, _name: str, tags_query: str) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/?{tags_query}tags_match=either")
+    @parameterized.expand(
+        [
+            ("with tags", 'tags=["app"]&tags_match=either'),
+            ("without tags", "tags_match=either"),
+            ("too many tags for all", f"tags={json.dumps([f'tag-{i}' for i in range(21)])}&tags_match=all"),
+        ]
+    )
+    def test_list_rejects_invalid_tags_match_request(self, _name: str, query: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
