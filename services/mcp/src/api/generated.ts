@@ -120388,13 +120388,11 @@ export namespace Schemas {
     /**
      * `next_cursor` from the previous page. Omit for the first page.
      * @minLength 1
-     * @maxLength 512
      */
     cursor?: string;
     /**
      * Return only this address, matched case-insensitively. The other parameters still narrow the lookup. Responds 404 when no recipient matches.
      * @minLength 1
-     * @maxLength 512
      */
     email?: string;
     /**
