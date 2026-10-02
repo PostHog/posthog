@@ -1960,6 +1960,10 @@ snapshots:
         hash: v1.k794b7964.a3e65d5201b873423bb6d077e88fcad12715ee293bdedcf5a2dc78efbc2d0cda.VSPF0yHLd7eCx-17S2ASvg21MoomuY6VOjuxq3oPQmI
     components-playerinspector-itemsessionchange--session-previous--light:
         hash: v1.k794b7964.33ce327f146d06d1412d431080ac84ae39558411b2073fe18a2ed98d834a2681.FDbDlC4-qfrH2RR1F_KpijnZNM9Ss_4s-p19Ee8fGtY
+    components-playground-variables-panel--filled-and-unfilled-variables--dark:
+        hash: v1.k794b7964.d28a4b122342606c71fde8cfe726699c638c612006427700a69f4583ac90c0f7.vg3kJyg8C3Yq4hkjUqsB1V7Yzn8CH_HJQKRN-uZU3w0
+    components-playground-variables-panel--filled-and-unfilled-variables--light:
+        hash: v1.k794b7964.4aa2c49e33f2fb605e8250c6c6dfc5a57efe9ab48e238d8e9e67c59349da62f8.VNbcy3xbFYA93udMaRpGuGWNUtfz4_Xb7zBrBcU3Nps
     components-product-empty-state--actions-needs-setup--dark:
         hash: v1.k794b7964.bcb8a737d22c6d807eb524fca2acc9c36420609fa1dc3921cee64b73cfb5fdea.686y8Z8cYiKOvpy5d_0CEVwMkSP00WIznn1Cqd7lxEI
     components-product-empty-state--actions-needs-setup--light:
@@ -12906,6 +12910,14 @@ snapshots:
         hash: v1.k794b7964.6b6e47f7a6e819c6f5001b08535c3dff93cbad7acf5ebfeafeff9c5dcfc36189.lZn-6YFthsicyD42YSyFBP-KQ1ghbNYQ1C4uqgeTvlM
     scenes-app-support-aipanel--suggested--light:
         hash: v1.k794b7964.6c3b559141a22910e91279c6a78db5b3eb7c8c6fd603b0c9604dda0b18561f26.LPgQxRSVfVCglr43R6HXDc9tsTy6zB9W81t1WTzsB8I
+    scenes-app-support-grouprevenue--from-revenue-analytics--dark:
+        hash: v1.k794b7964.c422e690e5d597b7ccbeee9fc6656893b68e5a2abf17c2c9b411009b413c0460.4h2u5iNaeTBSTHWIQObDxV4T6W2YLqmIymqNwgMGrqk
+    scenes-app-support-grouprevenue--from-revenue-analytics--light:
+        hash: v1.k794b7964.1f516758e8bc6f08fdc97d012bf7a208e2f657bfc1dace6e45b1fe0b1a4dc463.SvaOZZYVTI5ff9hCYkwminwj910vZcqATfA-eMwgkc4
+    scenes-app-support-grouprevenue--only-mrr-from-group-properties--dark:
+        hash: v1.k794b7964.c6299ce9c9f6b7e785f1efcb79f8d6b094b26484a544e1d6674cacf4472508ae.nNpGp13zyL__JEBS4O3erFqmI_N8rHLw-RQxj6ZlZD0
+    scenes-app-support-grouprevenue--only-mrr-from-group-properties--light:
+        hash: v1.k794b7964.82bce2bbc0eb23eff8e9c0708c93dd239dccea0fe815bbcdf4b680b86b7d2cb0.nMRLbQvkGfmd9JMySDaaKW00sTo-v4GQaj7E1Z2ceUQ
     scenes-app-support-supportplaybookeditor--customized--dark:
         hash: v1.k794b7964.56dd8c26993da8181fb09aa4d9868be1f5925885f1f1854ca38100636acdaaec.yjA6yaERFMxD3ydwD-uPOPa4qSoIgBECHwHq3wOm_1E
     scenes-app-support-supportplaybookeditor--customized--light:

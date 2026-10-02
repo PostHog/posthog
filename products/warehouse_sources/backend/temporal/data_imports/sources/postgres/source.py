@@ -415,13 +415,11 @@ class PostgresSource(
         self,
         *,
         incremental_or_append: bool,
-        keyset_full_load_enabled: bool = False,
+        keyset_full_load_enabled: bool = True,
         schema_name: str | None = None,
     ) -> bool:
-        # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
-        # its watermark and keeps the incremental budget. And a full load only resumes once the flag
-        # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
-        # and would cost a whole re-read on each extra attempt.
+        # Old activity payloads that recorded False keep the server-cursor path during the rolling
+        # deploy, so only keyset full loads receive the resumable retry budget.
         return not incremental_or_append and keyset_full_load_enabled
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:

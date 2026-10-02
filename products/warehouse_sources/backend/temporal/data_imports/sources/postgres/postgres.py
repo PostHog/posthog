@@ -3565,7 +3565,7 @@ def postgres_source(
     byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
-    keyset_full_load_enabled: bool = False,
+    keyset_full_load_enabled: bool = True,
 ) -> SourceResponse:
     table_name = table_names[0]
     if not table_name:
@@ -3954,17 +3954,14 @@ def postgres_source(
         full_table=full_table,
     )
     if keyset.reason is not None:
-        # Logged for every run that can't checkpoint so the ineligible share, and its breakdown, is
-        # measurable before the seek path is widened past its read-replica fallback.
+        # Logged for every run that can't checkpoint, so the ineligible share and its breakdown by
+        # reason stay measurable.
         logger.info(f"Postgres keyset resume unavailable: reason={keyset.reason}")
 
-    # Two ways in. The flag makes seeking the default for a full load, which is what lets a drained
-    # worker resume rather than restart the read. The second arm is the original fallback, unchanged:
-    # a server cursor idles in an open transaction through every Delta merge, and a replica that
-    # cancels reads during that idle kills each attempt at the same place — the cursor's order is
-    # arbitrary, so nothing can resume past the first row and a restart repeats the failure. Seeking
-    # pages in autocommit, so nothing idles and a conflict resumes at the last key. Leaving that arm
-    # conditioned on the second attempt is what makes a flag-off deploy read exactly as it does now.
+    # New full loads over a seekable key page by keyset, which lets a drained worker resume rather
+    # than restart the read. A False value can only come from an activity payload recorded before
+    # rollout completed; honoring it keeps that activity on one cursor mode across worker versions.
+    # The read-replica retry fallback remains unchanged for those old payloads.
     takes_keyset_path = keyset.columns is not None and (
         keyset_full_load_enabled or (activity_attempt > 1 and using_read_replica)
     )
@@ -4452,8 +4449,8 @@ def postgres_source(
             # variable so the two cannot disagree about whether this run resumes.
             if takes_keyset_path and keyset_primary_keys is not None:
                 logger.debug(
-                    f"Attempt {activity_attempt} of a full-table read on a read replica. Seeking "
-                    f"instead of reopening a server cursor. keys = {keyset_primary_keys}"
+                    f"Full-table read by keyset seek instead of a server cursor. attempt={activity_attempt} "
+                    f"keys = {keyset_primary_keys}"
                 )
                 yield from offset_chunking(
                     0,
