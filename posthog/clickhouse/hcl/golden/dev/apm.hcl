@@ -434,6 +434,12 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -1108,7 +1114,9 @@ SELECT
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
+  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
 FROM posthog.kafka_logs_avro
 SQL
 
@@ -1158,7 +1166,7 @@ SQL
       type = "Int32"
     }
     column "original_expiry_timestamp" {
-      type = "Nullable(DateTime64(6))"
+      type = "DateTime64(6)"
     }
     column "_partition" {
       type = "UInt64"
@@ -1173,16 +1181,22 @@ SQL
       type = "Int64"
     }
     column "_bytes_uncompressed" {
-      type = "Nullable(Float64)"
+      type = "Nullable(Int64)"
     }
     column "_bytes_compressed" {
-      type = "Nullable(Float64)"
+      type = "Nullable(Int64)"
     }
     column "pattern" {
       type = "String"
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
     }
   }
 
