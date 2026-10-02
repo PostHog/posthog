@@ -67,7 +67,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.helpers.impersonation import is_impersonated
@@ -652,13 +652,6 @@ def _get_flag_rollout_info(flag: FeatureFlag, checker: FeatureFlagStatusChecker)
     summary = checker.get_rollout_summary(flag)
     rollout_state, active_variant = checker.rollout_state_and_variant(flag, summary)
     return {"rollout_state": rollout_state, "active_variant": active_variant}
-
-
-def _first_error_message(detail: Any) -> str:
-    """The first message in a DRF error detail, which nests messages in dicts and lists."""
-    while isinstance(detail, (dict, list)) and detail:
-        detail = next(iter(detail.values())) if isinstance(detail, dict) else detail[0]
-    return str(detail)
 
 
 def calculate_filter_size_bytes(filters: dict | None) -> int:
@@ -2703,8 +2696,9 @@ class FeatureFlagSerializer(
                 # Every read and the save below use the locked row, not the instance loaded
                 # before the lock. `save()` writes every field, so applying this request to the
                 # stale copy would restore whatever another writer changed in the meantime for
-                # a field this request never sent. A bulk delete leaves `version` untouched, so
-                # the version check above cannot catch it and the flag came back undeleted.
+                # a field this request never sent. A soft delete from outside this serializer (the
+                # file-system trash, or a bulk delete of a config version 1 flag) leaves `version`
+                # untouched, so the version check above cannot catch it and the flag came back undeleted.
                 old_key = locked_instance.key
 
                 # Clear any soft-deleted tombstone on `new_key` so the (team, key)
@@ -5062,8 +5056,9 @@ class FeatureFlagViewSet(
 
         Returns same format as bulk_delete for UI compatibility.
 
-        Uses bulk operations for efficiency: database updates are batched and cache
-        invalidation happens once at the end rather than per-flag.
+        Config version 1 flags are deleted with batched updates, and cache invalidation
+        runs once at the end. Config version 2 flags are deleted one at a time through
+        ``update_flag``. Each one bumps its ``version`` and commits on its own.
         """
         from django.utils import timezone
 
@@ -5246,9 +5241,10 @@ class FeatureFlagViewSet(
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
+            entry = {"id": flag_id, "key": old_key, **rollout_info}
 
             if detect_config_format(flag.filters).kind == "v2":
-                v2_flags.append((flag, {"id": flag_id, "key": old_key, **rollout_info}))
+                v2_flags.append((flag, entry))
                 continue
 
             # Rename the key if the flag is linked to any experiment, to free it up.
@@ -5274,7 +5270,7 @@ class FeatureFlagViewSet(
                 )
             )
 
-            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+            deleted.append(entry)
 
         # Perform bulk database updates
         # Using queryset.update() instead of individual saves means Django signals don't fire.
@@ -5320,6 +5316,8 @@ class FeatureFlagViewSet(
 
                 transaction.on_commit(invalidate_caches)
 
+        # Outside the transaction above: the facade requires gated writes like `update_flag` to run
+        # outside any transaction, so each config version 2 flag commits on its own.
         if v2_flags:
             from products.feature_flags.backend.facade.api import update_flag
 
@@ -5334,7 +5332,7 @@ class FeatureFlagViewSet(
                         serializer_context=self.get_serializer_context(),
                     )
                 except exceptions.APIException as exc:
-                    errors.append({"id": flag.id, "key": flag.key, "reason": _first_error_message(exc.detail)})
+                    errors.append({"id": flag.id, "key": flag.key, "reason": first_error_message(exc.detail)})
                 else:
                     deleted.append(entry)
 

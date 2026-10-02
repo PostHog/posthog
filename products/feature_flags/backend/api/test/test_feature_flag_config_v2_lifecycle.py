@@ -2,6 +2,8 @@
 work with both writer flags off; creating and enabling need the project's flags on.
 """
 
+from unittest.mock import patch
+
 from django.conf import settings
 from django.test import override_settings
 
@@ -15,7 +17,11 @@ from posthog.models import Team
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    _get_flag_rollout_info,
+    flag_version_conflict_message,
+)
 from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates import (
     AdmittedV2TestCase,
     JsonValue,
@@ -121,6 +127,34 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         assert (flag.deleted, flag.active, flag.version) == (False, True, 3)
         assert self.activity(flag) == []
         assert not ChangeRequest.objects.filter(organization=self.organization).exists()
+
+    def test_bulk_delete_reports_a_row_that_changed_after_the_read_and_deletes_the_rest(self) -> None:
+        moved = self.flag(active=True, key="moved")
+        other = self.flag(active=True, key="other")
+
+        def read_then_move(flag, checker):
+            if flag.pk == moved.pk:
+                FeatureFlag.objects.filter(pk=moved.pk).update(version=4)
+            return _get_flag_rollout_info(flag, checker)
+
+        with patch(
+            "products.feature_flags.backend.api.feature_flag._get_flag_rollout_info", side_effect=read_then_move
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                {"ids": [moved.id, other.id]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["errors"] == [
+            {"id": moved.id, "key": moved.key, "reason": flag_version_conflict_message(3, 4)}
+        ]
+        assert [item["id"] for item in response.json()["deleted"]] == [other.id]
+        moved.refresh_from_db()
+        assert (moved.deleted, moved.active, moved.version) == (False, True, 4)
+        other.refresh_from_db()
+        assert (other.deleted, other.active, other.version) == (True, False, 4)
 
     def test_bulk_delete_still_soft_deletes_a_row_in_an_unsupported_format(self) -> None:
         flag = self.flag({"version": 99}, active=True)
