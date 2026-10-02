@@ -1894,14 +1894,14 @@ message_suppressions: PostgresTable = PostgresTable(
     # Team-level messaging data not tied to any single flow, so a per-flow grant never keys these
     # rows: resource-level "hog_flow" access is what MessageSuppressionViewSet checks too.
     resource_level_access_only=True,
-    description="Email addresses the team never sends to, for any message type; one row per address. Rows with suppressed = 0 are still counting soft bounces and do not block sends yet.",
+    description="Email addresses the team never sends to, for any message type; one row per address. An address blocks sends only while suppressed = 1 and deleted = 0. Rows with suppressed = 0 are still counting soft bounces or were removed.",
     fields={
         "id": StringDatabaseField(name="id", description="Suppression row UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
         "identifier": StringDatabaseField(name="identifier", description="Lower-cased recipient email address."),
         "source": StringDatabaseField(
             name="source",
-            description="Why the address is suppressed: 'BOUNCE' (repeated soft bounces), 'COMPLAINT' (marked as spam) or 'MANUAL' (added by a user).",
+            description="Why the address is suppressed: 'BOUNCE' (a hard bounce or repeated soft bounces), 'COMPLAINT' (marked as spam) or 'MANUAL' (added by a user).",
         ),
         "reason": StringDatabaseField(
             name="reason", nullable=True, description="Free-text reason recorded with the suppression."
@@ -1910,7 +1910,9 @@ message_suppressions: PostgresTable = PostgresTable(
             name="suppressed", description="Whether the address is actively suppressed and skipped on send."
         ),
         "suppressed_at": DateTimeDatabaseField(
-            name="suppressed_at", nullable=True, description="When the address became suppressed; NULL while it is not."
+            name="suppressed_at",
+            nullable=True,
+            description="When the address became suppressed; NULL if it never was. It stays set after the address is removed, so use suppressed and deleted for the current state.",
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
