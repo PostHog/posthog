@@ -17,8 +17,9 @@
 //!   series as live `/flags`, so a large cohort run dominates those on its pod.
 //! - The matcher always runs with `skip_writes(true)`: experience-continuity hash key
 //!   overrides are read but never written.
-//! - The matcher treats the target as enabled-only (`with_enabled_only_flag_keys`): a failed
-//!   dependency fails the target only when it could change whether the target is enabled.
+//! - The matcher compares dependency answers by match only for the target and for each
+//!   dependency that no evaluated flag reads by variant (`enabled_only_flag_keys`), because the
+//!   caller reads only the target's `enabled`.
 //! - Flags are always read fresh from Postgres (never the hypercache) so the
 //!   `expected_version` optimistic-lock check is meaningful.
 //!
@@ -57,7 +58,7 @@ use crate::{
         cache_builder::compute_flag_dependencies_or_single_stage,
         feature_flag_list::PreparedFlags,
         flag_matching::FeatureFlagMatcher,
-        flag_models::{FeatureFlag, FeatureFlagList},
+        flag_models::{EvaluationMetadata, FeatureFlag, FeatureFlagId, FeatureFlagList},
     },
     handler::authentication::is_internal_request_inner,
     metrics::consts::{
@@ -367,6 +368,33 @@ pub async fn batch_flag_evaluation(
     result.map(Json)
 }
 
+/// Keys of the flags the matcher compares by match only: the target, and each of its dependencies
+/// that no evaluated flag reads by variant. A person joins the cohort on the target's `enabled`
+/// alone. A dependency that only `true` or `false` filters read cannot change that through its
+/// variant.
+fn enabled_only_flag_keys(
+    flags: &[FeatureFlag],
+    target_id: FeatureFlagId,
+    evaluation_metadata: &EvaluationMetadata,
+) -> HashSet<String> {
+    let dependency_ids = evaluation_metadata.transitive_deps.get(&target_id);
+    let evaluated: Vec<&FeatureFlag> = flags
+        .iter()
+        .filter(|flag| {
+            flag.id == target_id || dependency_ids.is_some_and(|ids| ids.contains(&flag.id))
+        })
+        .collect();
+    let read_by_variant: HashSet<FeatureFlagId> = evaluated
+        .iter()
+        .flat_map(|flag| flag.filters.flag_ids_read_by_variant())
+        .collect();
+    evaluated
+        .into_iter()
+        .filter(|flag| !read_by_variant.contains(&flag.id))
+        .map(|flag| flag.key.clone())
+        .collect()
+}
+
 fn failure_code(result: &Result<FlagsResponse, FlagError>, target_key: &str) -> Option<String> {
     let response = match result {
         Ok(response) => response,
@@ -552,6 +580,8 @@ async fn handle_batch_flag_evaluation(
 
     let evaluation_metadata =
         compute_flag_dependencies_or_single_stage(request.team_id, &flags_vec);
+    let enabled_only_flag_keys =
+        enabled_only_flag_keys(&flags_vec, flags_vec[target_index].id, &evaluation_metadata);
 
     let flag_list = FeatureFlagList {
         flags: PreparedFlags::seal(flags_vec),
@@ -625,9 +655,7 @@ async fn handle_batch_flag_evaluation(
             .with_parallel_eval_threshold(state.config.parallel_eval_threshold)
             // Read-only: experience-continuity overrides are consulted but never written.
             .with_skip_writes(true)
-            // A person joins the cohort on `enabled` alone. A failed dependency that could change
-            // only the target's variant must not drop that person.
-            .with_enabled_only_flag_keys(HashSet::from([target_key.clone()]))
+            .with_enabled_only_flag_keys(enabled_only_flag_keys.clone())
             .with_timezone(team_timezone);
 
             let flag_list = flag_list.clone();
@@ -704,6 +732,7 @@ mod tests {
     use super::*;
     use crate::api::types::{FlagDetails, FromFeatureAndMatch};
     use crate::config::DEFAULT_TEST_CONFIG;
+    use crate::flags::config_format::decode_filters;
     use crate::flags::flag_match_reason::FeatureFlagMatchReason;
     use crate::flags::flag_matching::FeatureFlagMatch;
     use crate::mock;
@@ -711,9 +740,39 @@ mod tests {
     use crate::utils::test_utils::{counter_total, TestContext};
     use common_database::{get_pool_with_config, PoolConfig};
     use metrics_util::debugging::DebuggingRecorder;
+    use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    #[test]
+    fn enabled_only_flag_keys_skip_dependencies_read_by_variant() {
+        let flag = |id: i32, key: &str, properties: Value| {
+            mock!(FeatureFlag,
+                id: id,
+                key: key.to_string(),
+                filters: decode_filters(json!({"groups": [{"properties": properties}]})).unwrap()
+            )
+        };
+        let reads = |flag_id: i32, value: Value| json!({"key": flag_id.to_string(), "type": "flag", "value": value, "operator": "flag_evaluates_to"});
+        let flags = vec![
+            flag(1, "failed", json!([])),
+            flag(2, "read_by_match", json!([reads(1, json!(true))])),
+            flag(3, "read_by_variant", json!([reads(1, json!(true))])),
+            flag(
+                4,
+                "target",
+                json!([reads(2, json!(true)), reads(3, json!("control"))]),
+            ),
+            flag(5, "unrelated", json!([])),
+        ];
+        let metadata = compute_flag_dependencies_or_single_stage(1, &flags);
+
+        assert_eq!(
+            enabled_only_flag_keys(&flags, 4, &metadata),
+            HashSet::from(["failed", "read_by_match", "target"].map(String::from))
+        );
+    }
 
     fn target_flag_response(details: FlagDetails) -> Result<FlagsResponse, FlagError> {
         Ok(FlagsResponse::new(
