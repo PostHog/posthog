@@ -34,8 +34,9 @@ const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => nam
  * `includeHiddenEvents`. Surfaces that browse captured events (the activity explorer, live events, a
  * group's event feed, ingestion triggers) and the experiment pickers pass it.
  *
- * The team API reports Events while the instance switch that sends flag reads back to `events` is on.
- * That switch therefore shows these events again.
+ * While the instance switch that sends flag reads back to `events` is on, the team API reports Events for
+ * an organization on mode 1, so the switch shows these events again there. The switch skips mode 2, so
+ * the events stay hidden at mode 2.
  */
 export function hiddenEventNames(
     flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
