@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
@@ -262,37 +265,46 @@ describe('DiscussReportButton', () => {
         expect(screen.queryByTestId('inbox-report-ask-ai-suggestion')).not.toBeInTheDocument()
     })
 
-    it('fills Get it merged into the box and sends it with the merge intent only on submit', async () => {
-        const user = await openPanel(withPullRequest(makeReport(), 'open', 'approved'))
+    it('sends Get it merged with the merge intent in one click from the Ask AI menu', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: true,
+        })
+        const user = userEvent.setup()
+        render(
+            <DiscussReportButton
+                report={withPullRequest(makeReport(), 'open', 'approved')}
+                reportUrl="https://app/report-1"
+            />
+        )
 
+        await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
         await user.click(screen.getByText('Get it merged'))
-
-        expect(discussReport).not.toHaveBeenCalled()
-        expect(screen.getByRole('textbox')).toHaveValue(MERGE_PR_REQUEST)
-        await user.type(screen.getByRole('textbox'), ' Use squash.')
-        await user.click(screen.getByTestId('inbox-report-ask-ai-submit'))
 
         expect(discussReport).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'report-1' }),
             'https://app/report-1',
-            `${MERGE_PR_REQUEST} Use squash.`,
+            MERGE_PR_REQUEST,
             undefined,
             'merge_pr'
         )
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
-            question_source: 'edited_suggestion',
+            question_source: 'suggested',
             suggestion_count: 1,
             question_intent: 'merge_pr',
         })
     })
 
     it.each([
-        ['needs review', withPullRequest(makeReport(), 'open', 'review_required')],
-        ['already merged', withPullRequest(makeReport(), 'merged', 'approved')],
-    ])('does not offer Get it merged when the PR %s', async (_name, report) => {
-        await openPanel(report)
+        ['the PR needs review', true, withPullRequest(makeReport(), 'open', 'review_required')],
+        ['the PR is already merged', true, withPullRequest(makeReport(), 'merged', 'approved')],
+        ['the flag is off', false, withPullRequest(makeReport(), 'open', 'approved')],
+    ])('does not offer the Ask AI menu when %s', async (_name, flagEnabled, report) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
+            [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: flagEnabled,
+        })
+        render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
 
-        expect(screen.queryByText('Get it merged')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('inbox-report-ask-ai-actions')).not.toBeInTheDocument()
     })
 
     it('does not invite actions where the kickoff wrapper would only answer', async () => {

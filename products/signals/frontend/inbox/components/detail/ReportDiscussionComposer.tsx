@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef, useState } from 'react'
 
-import { IconGitBranch, IconSparkles } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -19,12 +19,9 @@ import { captureInboxReportAction, discussQuestionProperties } from '../../inbox
 import {
     inboxTaskKickoffLogic,
     isActionCapableReport,
-    MERGE_PR_REQUEST,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
-    type ReportDiscussionIntent,
 } from '../../inboxTaskKickoffLogic'
 import type { SignalReport } from '../../types'
-import { hasApprovedOpenReportPullRequest } from '../../utils/reportPullRequests'
 
 export function ReportDiscussionComposer({
     report,
@@ -37,11 +34,9 @@ export function ReportDiscussionComposer({
     const { discussReport } = useActions(inboxTaskKickoffLogic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const [draft, setDraft] = useState('')
-    const [intent, setIntent] = useState<ReportDiscussionIntent | undefined>(undefined)
     const [activeSuggestionGroup, setActiveSuggestionGroup] = useState<SuggestionGroup | null>(null)
     const [headline] = useState(() => pickHeadline())
     const suggestions = isActionCapableReport(report) ? (report.suggested_prompts ?? []) : []
-    const canMerge = hasApprovedOpenReportPullRequest(report)
     const loading = isDiscussing || isCreatingPr
     const promptLength = useMemo(
         () => (draft.length >= REPORT_DISCUSSION_QUESTION_MAX_LENGTH * 0.9 ? Array.from(draft.trim()).length : null),
@@ -49,24 +44,8 @@ export function ReportDiscussionComposer({
     )
     const isOverLengthLimit = promptLength !== null && promptLength > REPORT_DISCUSSION_QUESTION_MAX_LENGTH
     const suggestionGroups = useMemo<SuggestionGroup[]>(
-        () => [
-            ...(canMerge
-                ? [
-                      {
-                          label: 'Get it merged',
-                          icon: <IconGitBranch />,
-                          tooltip: 'Fill in a request to fix CI and merge the approved PR',
-                          suggestions: [
-                              {
-                                  content: MERGE_PR_REQUEST,
-                                  requiresUserInput: true,
-                                  dataAttr: 'inbox-report-ask-ai-merge-pr',
-                              },
-                          ],
-                      },
-                  ]
-                : []),
-            ...(suggestions.length > 0
+        () =>
+            suggestions.length > 0
                 ? [
                       {
                           label: suggestions.length === 1 ? suggestions[0] : 'Report suggestions',
@@ -77,22 +56,14 @@ export function ReportDiscussionComposer({
                           })),
                       },
                   ]
-                : []),
-        ],
-        [canMerge, suggestions]
+                : [],
+        [suggestions]
     )
     const disabledReason = isOverLengthLimit
         ? `Your message is too long. Shorten it to ${REPORT_DISCUSSION_QUESTION_MAX_LENGTH.toLocaleString()} characters or fewer.`
         : (aiConsentDisabledReason ?? undefined)
 
-    const changeDraft = (value: string): void => {
-        setDraft(value)
-        if (!value.trim()) {
-            setIntent(undefined)
-        }
-    }
-
-    const submit = (prompt: string, source: 'typed' | 'suggested', submitIntent?: ReportDiscussionIntent): void => {
+    const submit = (prompt: string, source: 'typed' | 'suggested'): void => {
         const trimmed = prompt.trim()
         if (
             !trimmed ||
@@ -106,27 +77,12 @@ export function ReportDiscussionComposer({
             report,
             actionType: 'discuss',
             surface: 'detail_pane',
-            extra: discussQuestionProperties({
-                source: submitIntent ? (trimmed === MERGE_PR_REQUEST ? 'suggested' : 'edited_suggestion') : source,
-                suggestionCount: suggestions.length + (canMerge ? 1 : 0),
-                intent: submitIntent,
-            }),
+            extra: discussQuestionProperties({ source, suggestionCount: suggestions.length }),
         })
-        if (submitIntent) {
-            discussReport(report, reportUrl, trimmed, undefined, submitIntent)
-        } else {
-            discussReport(report, reportUrl, trimmed)
-        }
+        discussReport(report, reportUrl, trimmed)
     }
 
     const selectSuggestion = (suggestion: SuggestionItem): void => {
-        // "Get it merged" asks the agent to land code, so it only fills the box and the person sends it.
-        if (suggestion.requiresUserInput) {
-            setDraft(suggestion.content)
-            setIntent('merge_pr')
-            textAreaRef.current?.focus()
-            return
-        }
         submit(suggestion.content, 'suggested')
     }
 
@@ -143,8 +99,8 @@ export function ReportDiscussionComposer({
                 >
                     <Composer.Root
                         value={draft}
-                        onChange={changeDraft}
-                        onSubmit={() => submit(draft, 'typed', intent)}
+                        onChange={setDraft}
+                        onSubmit={() => submit(draft, 'typed')}
                         loading={loading}
                         disabled={loading}
                         disabledReason={disabledReason}
