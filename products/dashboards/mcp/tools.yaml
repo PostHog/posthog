@@ -57,6 +57,10 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+        param_overrides:
+            restriction_level:
+                description: >
+                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
                 - effective_restriction_level
@@ -458,7 +462,8 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, filters, and restriction level. After you create or add insight tiles, call dashboard-get to
+            status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API.
+            After you create or add insight tiles, call dashboard-get to
             get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h
             per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is
             12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole
@@ -487,6 +492,9 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            restriction_level:
+                description: >
+                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
                 - effective_restriction_level
