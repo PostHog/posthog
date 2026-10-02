@@ -1114,7 +1114,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         default=None,
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
-    # Proposed goals live in impact_measurement_plan artefacts, so the authoring schema must not advertise them.
+    # Proposed goals live in follow-up checks, so the metric authoring schema must not advertise them.
     goal_value = None  # type: ignore[assignment]
     goal_direction = None  # type: ignore[assignment]
     goal_grain = None  # type: ignore[assignment]
