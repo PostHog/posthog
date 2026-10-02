@@ -52,6 +52,8 @@ pub struct AppContext {
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
+    // Parsed from ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS. Empty means no team.
+    pub drop_code_variables_team_ids: Arc<HashSet<i32>>,
     // Shared `(team_id, fingerprint) -> issue_id` mapping cache. Lives on AppContext so
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
@@ -180,6 +182,9 @@ impl AppContext {
         let rate_limiter = build_rate_limiter(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
+        let drop_code_variables_team_ids = Arc::new(
+            parse_team_id_allowlist(&config.drop_code_variables_team_ids).unwrap_or_default(),
+        );
 
         Ok(Self {
             health_registry,
@@ -194,6 +199,7 @@ impl AppContext {
             issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
             rate_limiter_enabled_team_ids,
+            drop_code_variables_team_ids,
             issue_cache,
             release_cache,
             remote_resolution,
@@ -237,8 +243,8 @@ async fn build_rate_limiter(
     ))))
 }
 
-/// Parse a comma-separated team-id allowlist. `None` (empty input) means the
-/// rate limiter applies to all teams; `Some(set)` restricts it to those teams.
+/// Parse a comma-separated team-id list. `None` means the input was empty, which
+/// the rate limiter reads as "all teams" and the code-variables drop reads as "no team".
 fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
     if value.is_empty() {
         return None;

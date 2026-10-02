@@ -7,6 +7,7 @@ use cymbal::{
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
     frames::Frame,
+    modes::processing::ProcessingConfig,
     symbolication::symbol_store::saving::SymbolSetRecord,
     types::{
         event::AnyEvent, Exception, ExceptionList, Mechanism, ProcessedExceptionProperties,
@@ -227,6 +228,28 @@ impl TestHarness {
 
     async fn post_event<T: DeserializeOwned>(&self, event: &AnyEvent) -> (StatusCode, T) {
         self.post_events(vec![event.clone()]).await
+    }
+
+    async fn post_event_with_config<T: DeserializeOwned>(
+        &self,
+        event: &AnyEvent,
+        configure: impl FnOnce(&mut ProcessingConfig),
+    ) -> (StatusCode, T) {
+        utils::get_response_with_config(
+            self.db.clone(),
+            STORAGE_BUCKET.to_string(),
+            || {
+                Request::builder()
+                    .method("POST")
+                    .header("content-type", "application/json")
+                    .uri("/process")
+                    .body(Body::from(serde_json::to_vec(&vec![event]).unwrap()))
+                    .unwrap()
+            },
+            Arc::new(Self::create_s3_mock()),
+            configure,
+        )
+        .await
     }
 
     async fn post_raw_string(&self, json: &[u8]) -> (StatusCode, String) {
@@ -720,6 +743,80 @@ async fn resolves_python_raw_frames(db: PgPool) {
     assert_json_snapshot!(exception_list.0, {
         "[].id" => "REDACTED",
     });
+}
+
+fn python_event_with_code_variables() -> AnyEvent {
+    let mut event = load_static_event("python");
+    for frame in event.properties["$exception_list"][0]["stacktrace"]["frames"]
+        .as_array_mut()
+        .unwrap()
+    {
+        frame["code_variables"] = json!({"token": "fake-token-for-tests"});
+    }
+    event
+}
+
+fn frames_with_code_variables(body: &SuccessResponse) -> usize {
+    let event = body
+        .first_event()
+        .as_ref()
+        .expect("event should be returned");
+    event.properties["$exception_list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|exception| exception["stacktrace"]["frames"].as_array())
+        .flatten()
+        .filter(|frame| !frame["code_variables"].is_null())
+        .count()
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn drops_code_variables_replayed_from_stored_frames(db: PgPool) {
+    let harness = TestHarness::new(db);
+
+    // Team 1 is not on the drop list yet, so its frame records are stored with code variables.
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&python_event_with_code_variables(), |_| {})
+        .await;
+    assert!(status.is_success());
+    assert!(frames_with_code_variables(&body) > 0);
+
+    // The second event carries no code variables, so any that come back are replayed records.
+    let mut event = load_static_event("python");
+    event.uuid = Uuid::now_v7();
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&event, |config| {
+            config.drop_code_variables_team_ids = "1".to_string();
+        })
+        .await;
+    assert!(status.is_success());
+    assert_eq!(frames_with_code_variables(&body), 0);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn drops_code_variables_from_events_that_fail_to_parse(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let mut event = python_event_with_code_variables();
+    // A python frame without `function` does not deserialize, so the event is returned as sent.
+    event.properties["$exception_list"][0]["stacktrace"]["frames"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("function");
+
+    let (status, body): (_, SuccessResponse) = harness
+        .post_event_with_config(&event, |config| {
+            config.drop_code_variables_team_ids = "1".to_string();
+        })
+        .await;
+
+    assert!(status.is_success());
+    let returned = body
+        .first_event()
+        .as_ref()
+        .expect("event should be returned");
+    assert!(returned.properties["$cymbal_errors"].is_array());
+    assert_eq!(frames_with_code_variables(&body), 0);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
