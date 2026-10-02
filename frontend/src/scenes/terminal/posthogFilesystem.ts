@@ -115,7 +115,7 @@ Try:
 
 open [path] opens a project file or folder in PostHog. With no path, it opens the
 current folder. JSON files open their PostHog item, including files in /posthog/api.
-Folders open in the Files tab when the simple side panel is enabled.
+Folders open in the Files tab.
 
 Optional tools download on first use: nvim, node, pi, nyancat, and doom.
 In Doom, W/S move, A/D strafe, left/right arrows turn, Space fires, E opens doors,

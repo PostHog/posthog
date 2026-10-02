@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -64,22 +63,20 @@ class TestUserProductList(BaseTest):
             assert row.enabled is True
 
 
-class TestStarCustomProductsForSimpleSidebar(BaseTest):
+class TestStarCustomProducts(BaseTest):
     def _starred(self, user: User) -> dict[str, str]:
         return dict(FileSystemShortcut.objects.filter(user=user, team=self.team).values_list("path", "type"))
 
     @parameterized.expand(
         [
-            ("brand_new_user_on_flag", True, False, False, set(DEFAULT_PRODUCT_PATHS), True),
-            ("brand_new_user_off_flag", False, False, False, set(), False),
-            ("existing_user_mid_migration", True, True, False, set(), False),
-            ("user_who_finished_setup", True, True, True, set(DEFAULT_PRODUCT_PATHS), True),
+            ("brand_new_user", False, False, set(DEFAULT_PRODUCT_PATHS), True),
+            ("existing_user_mid_migration", True, False, set(), False),
+            ("user_who_finished_setup", True, True, set(DEFAULT_PRODUCT_PATHS), True),
         ]
     )
-    def test_default_products_are_starred_only_for_flagged_new_or_finished_users(
+    def test_default_products_are_starred_only_for_new_or_finished_users(
         self,
         _name: str,
-        flag_enabled: bool,
         has_custom_products: bool,
         setup_completed: bool,
         expected_starred: set[str],
@@ -96,10 +93,7 @@ class TestStarCustomProductsForSimpleSidebar(BaseTest):
             }
             user.save()
 
-        with patch(
-            "posthog.models.file_system.starred_products.posthoganalytics.feature_enabled", return_value=flag_enabled
-        ):
-            add_default_products_for_user(user, self.team)
+        add_default_products_for_user(user, self.team)
 
         assert set(self._starred(user)) == expected_starred
         user.refresh_from_db()
@@ -114,9 +108,8 @@ class TestStarCustomProductsForSimpleSidebar(BaseTest):
         FileSystemShortcut.objects.create(team=self.team, user=user, path="Session replay", type="session_replay")
         intent = ProductIntent.objects.create(team=self.team, product_type="session_replay")
 
-        with patch("posthog.models.file_system.starred_products.posthoganalytics.feature_enabled", return_value=True):
-            UserProductList.create_from_product_intent(intent, user)
-            UserProductList.create_from_product_intent(intent, user)
+        UserProductList.create_from_product_intent(intent, user)
+        UserProductList.create_from_product_intent(intent, user)
 
         assert FileSystemShortcut.objects.filter(user=user, team=self.team, path="Session replay").count() == 1
         assert set(self._starred(user)) == {
@@ -129,8 +122,7 @@ class TestStarCustomProductsForSimpleSidebar(BaseTest):
         user.save()
         UserProductList.objects.create(user=user, team=self.team, product_path="Session replay", enabled=True)
 
-        with patch("posthog.models.file_system.starred_products.posthoganalytics.feature_enabled", return_value=True):
-            UserProductList.enable_all_for_user(user, self.team)
+        UserProductList.enable_all_for_user(user, self.team)
 
         starred = set(self._starred(user))
         assert "Session replay" not in starred

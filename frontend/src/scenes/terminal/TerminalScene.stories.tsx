@@ -415,7 +415,7 @@ export const DockedWide: StoryObj<typeof TerminalScene> = {
     ...Docked,
     parameters: {
         ...Docked.parameters,
-        featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL, FEATURE_FLAGS.SIMPLE_SIDEPANEL],
+        featureFlags: [FEATURE_FLAGS.POSTHOG_TERMINAL],
         testOptions: { viewport: { width: 1440, height: 900 }, includeNavigationInSnapshot: true },
     },
 }

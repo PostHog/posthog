@@ -35,24 +35,3 @@ export function NavSearchButton({
         </ButtonPrimitive>
     )
 }
-
-/** Input-styled full-width search trigger shown below the nav header when the nav is expanded. */
-export function NavSearchBar({ toggleCommand }: { toggleCommand: (source: CommandOpenSource) => void }): JSX.Element {
-    return (
-        <ButtonPrimitive
-            fullWidth
-            data-attr="nav-search-bar"
-            className="justify-between border border-primary bg-surface-primary rounded-md px-2"
-            onClick={() => {
-                posthog.capture('nav search clicked')
-                toggleCommand('nav-search-bar')
-            }}
-        >
-            <span className="flex items-center gap-1.5 text-secondary">
-                <IconSearch className="size-4 shrink-0" />
-                <span className="text-xs">Search</span>
-            </span>
-            <RenderKeybind keybind={[keyBinds.search]} />
-        </ButtonPrimitive>
-    )
-}

@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -21,7 +20,6 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
-    const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
     const { starredProductsSetupCompleted } = useValues(uiCustomizationLogic)
     const { customProducts } = useValues(customProductsLogic)
 
@@ -34,7 +32,7 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     // A one-time setup for everyone moving to the simple sidebar, so it outranks promotional cards.
     // Users without custom products have nothing to move, which includes brand new users before
     // their defaults are seeded.
-    if (isSimpleSidepanelEnabled && user && !starredProductsSetupCompleted && customProducts.length > 0) {
+    if (user && !starredProductsSetupCompleted && customProducts.length > 0) {
         return <NavPanelStarredSetupAd />
     }
 
