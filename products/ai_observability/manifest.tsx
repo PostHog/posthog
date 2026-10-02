@@ -81,6 +81,13 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_evaluations',
         },
+        AIObservabilityScorer: {
+            import: () => import('./frontend/scoreDefinitions/AIObservabilityScorerScene'),
+            projectBased: true,
+            name: 'Scorer',
+            layout: 'app-container',
+            iconType: 'llm_evaluations',
+        },
         AIObservabilityOfflineExperiments: {
             import: () => import('./frontend/offline-evaluations/OfflineExperimentsScene'),
             projectBased: true,
@@ -204,6 +211,7 @@ export const manifest: ProductManifest = {
             'AIObservabilityOfflineScorerHistory',
             'aiObservabilityOfflineScorerHistory',
         ],
+        '/ai-evals/evaluations/scorers/:scorerId': ['AIObservabilityScorer', 'aiObservabilityScorer'],
         '/ai-evals/evaluations/templates': ['AIObservabilityEvaluationTemplates', 'aiObservabilityEvaluationTemplates'],
         '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
         '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
@@ -404,6 +412,8 @@ export const manifest: ProductManifest = {
         aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
         aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
+        aiObservabilityScorer: (scorerId: string, params?: { duplicate?: string }): string =>
+            combineUrl(`/ai-evals/evaluations/scorers/${encodeURIComponent(scorerId)}`, params).url,
         aiObservabilityOfflineScorerHistory: (scorerId: string, encode: boolean = true): string =>
             `/ai-evals/evaluations/scorers/${encode ? encodeURIComponent(scorerId) : scorerId}/offline`,
         aiObservabilityOfflineEvaluations: (): string => '/ai-evals/evaluations/offline/experiments',

@@ -1,10 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
 import { toast } from '@posthog/quill'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -60,6 +61,7 @@ import {
     sessionItem,
     sessionReadRequest,
     setActivityUnread,
+    unreadSessionCountsBySpace,
     unreadSessionIds,
     unreadSpaceIds,
 } from './todayWorkItems'
@@ -78,11 +80,10 @@ const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
-/** The space page reads this search param once and focuses its new-session composer. */
-export const SPACE_COMPOSE_PARAM = 'compose'
-
-export function spaceNewSessionUrl(spaceId: string): string {
-    return combineUrl(urls.taskSpace(spaceId), { [SPACE_COMPOSE_PARAM]: 1 }).url
+/** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
+export function spaceIdForPath(pathname: string): string | null {
+    const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
+    return match && match[1] !== 'new' ? match[1] : null
 }
 
 /** The personal space first, then the team's general space, then starred spaces, then the rest by name. */
@@ -132,6 +133,7 @@ export interface todaySpacesLogicValues {
     user: UserType | null // userLogic
     allRecentItems: TodayWorkItem[]
     collapsedSections: TodayWorkSectionId[]
+    lastSpaceId: string | null
     pendingSpaceIds: string[]
     pinnedItems: TodayWorkItem[]
     pinnedTasks: TaskListItemApi[]
@@ -164,6 +166,7 @@ export interface todaySpacesLogicValues {
     storedRecentFilters: Partial<TodayRecentFilters>
     taskActivity: TaskActivityDTOApi[]
     taskActivityLoading: boolean
+    unreadSessionCounts: Record<string, number>
     unreadSessionIds: Set<string>
     unreadSpaceIds: Set<string>
     visibleSpaces: ChannelDTOApi[]
@@ -323,6 +326,9 @@ export interface todaySpacesLogicActions {
     setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => {
         heights: Partial<Record<TodayWorkSectionId, number>>
     }
+    spaceVisited: (spaceId: string) => {
+        spaceId: string
+    }
     starFailed: (spaceId: string) => {
         spaceId: string
     }
@@ -372,10 +378,12 @@ export interface todaySpacesLogicMeta {
         ) => TodayRecentSection[]
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
         unreadSpaceIds: (taskActivity: TaskActivityDTOApi[]) => Set<string>
+        unreadSessionCounts: (taskActivity: TaskActivityDTOApi[]) => Record<string, number>
         spacePresence: (spaceActivity: SpaceActivity) => Record<string, SpacePresence>
         spacePreviews: (
             visibleSpaces: ChannelDTOApi[],
-            spaceActivity: SpaceActivity
+            spaceActivity: SpaceActivity,
+            unreadSessionCounts: Record<string, number>
         ) => Record<string, TodaySpacePreview>
     }
 }
@@ -404,6 +412,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         toggleSection: (sectionId: TodayWorkSectionId) => ({ sectionId }),
         setSectionHeights: (heights: Partial<Record<TodayWorkSectionId, number>>) => ({ heights }),
         resetSectionPair: (upper: TodayWorkSectionId, lower: TodayWorkSectionId) => ({ upper, lower }),
+        spaceVisited: (spaceId: string) => ({ spaceId }),
         setRecentQuery: (query: string) => ({ query }),
         setRecentSearchOpen: (open: boolean) => ({ open }),
         setRecentFilters: (filters: TodayRecentFilters) => ({ filters }),
@@ -525,6 +534,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 },
             },
         ],
+        // A generic New session files here, like PostHog Desktop's scoped space. A stale id falls back to personal.
+        lastSpaceId: [null as string | null, { persist: true }, { spaceVisited: (_, { spaceId }) => spaceId }],
         recentQuery: ['', { setRecentQuery: (_, { query }) => query, clearRecentSearchAndFilters: () => '' }],
         recentSearchOpen: [
             false,
@@ -664,14 +675,22 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             (s) => [s.taskActivity],
             (taskActivity: TaskActivityDTOApi[]): Set<string> => unreadSpaceIds(taskActivity),
         ],
+        unreadSessionCounts: [
+            (s) => [s.taskActivity],
+            (taskActivity: TaskActivityDTOApi[]): Record<string, number> => unreadSessionCountsBySpace(taskActivity),
+        ],
         spacePresence: [
             (s) => [s.spaceActivity],
             (spaceActivity: SpaceActivity): Record<string, SpacePresence> => spaceActivity.presence,
         ],
         // One object per space that changes only when its inputs do, so the hover card's payload stays stable.
         spacePreviews: [
-            (s) => [s.visibleSpaces, s.spaceActivity],
-            (visibleSpaces: ChannelDTOApi[], spaceActivity: SpaceActivity): Record<string, TodaySpacePreview> =>
+            (s) => [s.visibleSpaces, s.spaceActivity, s.unreadSessionCounts],
+            (
+                visibleSpaces: ChannelDTOApi[],
+                spaceActivity: SpaceActivity,
+                unreadSessionCounts: Record<string, number>
+            ): Record<string, TodaySpacePreview> =>
                 Object.fromEntries(
                     visibleSpaces.map((space) => [
                         space.id,
@@ -679,7 +698,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                             space,
                             spaceLabel(space),
                             spaceActivity.presence[space.id],
-                            spaceActivity.lastActivityAt[space.id]
+                            spaceActivity.lastActivityAt[space.id],
+                            unreadSessionCounts[space.id] ?? 0
                         ),
                     ])
                 ),
@@ -696,7 +716,13 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
             }
         }
         return {
-            locationChanged: markOpenSessionRead,
+            locationChanged: ({ pathname }) => {
+                const spaceId = spaceIdForPath(pathname)
+                if (spaceId) {
+                    actions.spaceVisited(spaceId)
+                }
+                markOpenSessionRead()
+            },
             loadTaskActivitySuccess: markOpenSessionRead,
             loadRecentTasks: () => actions.loadTaskActivity(),
             markSessionRead: async ({ marker, activityIds }) => {
@@ -745,6 +771,10 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        const spaceId = spaceIdForPath(router.values.location.pathname)
+        if (spaceId) {
+            actions.spaceVisited(spaceId)
+        }
         actions.loadSpaces()
         actions.loadPinnedTasks()
         actions.loadRecentTasks()

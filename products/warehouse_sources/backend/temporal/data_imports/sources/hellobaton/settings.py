@@ -22,10 +22,15 @@ class HellobatonEndpointConfig:
 HELLOBATON_ENDPOINTS: dict[str, HellobatonEndpointConfig] = {
     "activity": HellobatonEndpointConfig(name="activity", path="/activity/"),
     "companies": HellobatonEndpointConfig(name="companies", path="/companies/"),
+    "custom_fields": HellobatonEndpointConfig(name="custom_fields", path="/custom_fields/"),
+    "custom_field_values": HellobatonEndpointConfig(name="custom_field_values", path="/custom_field_values/"),
     "milestones": HellobatonEndpointConfig(name="milestones", path="/milestones/"),
     "phases": HellobatonEndpointConfig(name="phases", path="/phases/"),
     "projects": HellobatonEndpointConfig(name="projects", path="/projects/"),
     "project_attachments": HellobatonEndpointConfig(name="project_attachments", path="/project_attachments/"),
+    # Project phases carry no created/modified timestamp, and their start/end datetimes are nullable.
+    "project_phases": HellobatonEndpointConfig(name="project_phases", path="/project_phases/", partition_key=None),
+    "project_users": HellobatonEndpointConfig(name="project_users", path="/project_users/"),
     "tasks": HellobatonEndpointConfig(name="tasks", path="/tasks/"),
     "task_attachments": HellobatonEndpointConfig(name="task_attachments", path="/task_attachments/"),
     # Templates carry no non-null created/modified timestamp, so there's no stable partition key.

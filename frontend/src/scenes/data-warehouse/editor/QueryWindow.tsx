@@ -370,7 +370,11 @@ export function QueryWindow({
                 </div>
             ) : null}
 
-            {showQueryPanel && showBIEditor ? <BIEditor tabId={tabId} /> : null}
+            {showQueryPanel && showBIEditor ? (
+                <BIEditor tabId={tabId}>
+                    {showOutputPanel ? <InternalQueryWindow tabId={tabId} biMode onShareTab={onShareTab} /> : null}
+                </BIEditor>
+            ) : null}
 
             {showQueryPanel && !showBIEditor ? (
                 <QueryPane
@@ -436,7 +440,7 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? (
+            {showOutputPanel && !(showQueryPanel && showBIEditor) ? (
                 <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
             ) : null}
         </div>

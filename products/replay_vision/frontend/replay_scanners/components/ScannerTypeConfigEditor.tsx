@@ -36,7 +36,7 @@ import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } fr
 function useManualWithoutAi(scannerId: string): boolean {
     const { isNew, goalDraft } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
-    return isNew && !goalDraft && featureFlags[FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW] === 'test'
+    return isNew && !goalDraft && featureFlags[FEATURE_FLAGS.VISION_GOAL_FLOW_V2] === 'test'
 }
 
 export const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [

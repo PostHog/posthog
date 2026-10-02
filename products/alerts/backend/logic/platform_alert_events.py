@@ -25,6 +25,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
+from products.alerts.backend.facade.contracts import AlertEventKind, AnnouncedTransition, EvaluationAnnouncement
 from products.alerts.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
 logger = structlog.get_logger(__name__)
@@ -136,3 +137,72 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
         )
         return 0
     return len(rows)
+
+
+_ANNOUNCEMENT_SQL = f"""
+SELECT grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
+       source_config_snapshot, error_message, alert_name, consecutive_failures
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id = %(configuration_id)s
+  AND evaluation_key = %(evaluation_key)s
+  AND kind != %(check_kind)s
+ORDER BY grouping_key, occurred_at DESC
+LIMIT 1 BY grouping_key
+"""
+
+
+def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> EvaluationAnnouncement | None:
+    """What one evaluation left for a destination to say, or None when it announced nothing.
+
+    Rows whose kind is `CHECK` are excluded here rather than in the caller. They are recorded so
+    a comparison can read every check, and they say nothing, so a message built from one would
+    have no headline.
+
+    `LIMIT 1 BY grouping_key` is the read's own deduplication. The insert carries a token the
+    engine drops a repeat under, but it only remembers a bounded window of them, so a retry far
+    enough behind writes a second row for a group. The newest is the one this evaluation meant.
+    """
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = sync_execute(
+        _ANNOUNCEMENT_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "evaluation_key": evaluation_key,
+            "check_kind": AlertEventKind.CHECK.value,
+        },
+        team_id=team_id,
+    )
+    if not rows:
+        return None
+
+    transitions = tuple(
+        AnnouncedTransition(
+            grouping_key=grouping_key,
+            kind=AlertEventKind(kind),
+            episode_started_at=episode_started_at,
+            value=value,
+            labels=dict(labels or {}),
+            condition=_snapshot(condition_snapshot),
+            source_config=_snapshot(source_config_snapshot),
+            error_message=error_message or None,
+        )
+        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, _, _ in rows
+    )
+    # Evaluation-level, and the same on every row of one evaluation, so the first row carries it.
+    alert_name, consecutive_failures = rows[0][8], rows[0][9]
+    return EvaluationAnnouncement(
+        alert_name=alert_name, consecutive_failures=consecutive_failures, transitions=transitions
+    )
+
+
+def _snapshot(raw: str) -> dict[str, Any]:
+    """A snapshot column the writer may have left empty, or that predates the field it holds."""
+    if not raw:
+        return {}
+    try:
+        loaded = json.loads(raw)
+    except ValueError:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}

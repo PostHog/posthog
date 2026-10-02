@@ -745,7 +745,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                     "$browser": "Firefox",
                     "amount": 2.5,
                     "person": {"properties": "event value"},
-                    "$feature_flags": {"named-false": "$false", "some-feature": "true"},
+                    "$feature_flags": {"named-false": "$false", "named-true": "$true", "some-feature": "true"},
                 },
                 "person_properties": {"email": "buyer@example.com"},
                 "temporary_properties": {"$set": {"email": "buyer@example.com"}},
@@ -755,10 +755,10 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 + "\n".join(json.dumps(value) for value in [row, row, {**row, "team_id": ateam.pk + 1}])
             )
             schema: BatchExportSchema = {
-                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag, e.properties.`$feature/named-false` AS named_false FROM events AS e",
+                "hogql_query": "SELECT e.properties.$browser AS browser, e.properties.amount AS amount, e.person.properties.email AS email, e.properties.person.properties AS nested, e.properties.`$feature/some-feature` AS flag, e.properties.`$feature/named-false` AS named_false, e.properties.`$feature/named-true` AS named_true FROM events AS e",
                 "fields": [
                     {"expression": "events.mat_removed_column", "alias": alias}
-                    for alias in ("browser", "amount", "email", "nested", "flag", "named_false")
+                    for alias in ("browser", "amount", "email", "nested", "flag", "named_false", "named_true")
                 ],
                 "values": {"unused_old_parameter": "stale"},
             }
@@ -798,6 +798,7 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert rows[0]["nested"] == "event value"
             assert rows[0]["flag"] == "true"
             assert rows[0]["named_false"] == "false"
+            assert rows[0]["named_true"] == "true"
             assert json.loads(rows[0]["properties"])["$browser"] == "Firefox"
             assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
             assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}

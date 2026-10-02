@@ -50,6 +50,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.today.backend.apps.TodayConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
     "products.aeo.backend.apps.AEOConfig",
@@ -122,6 +123,7 @@ PRODUCTS_APPS = [
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
     "products.security.backend.apps.SecurityConfig",
+    "products.webmcp.backend.apps.WebmcpConfig",
 ]
 
 INSTALLED_APPS = [
@@ -633,6 +635,10 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
+            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
+            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
+            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
+            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
@@ -674,6 +680,7 @@ SPECTACULAR_SETTINGS = {
             "PRTimelineSegmentKindEnum": "products.engineering_analytics.backend.facade.contracts.PRTimelineSegmentKind",
             "DeliveryScopeKindEnum": "products.engineering_analytics.backend.facade.contracts.DeliveryScopeKind",
             "FrictionGroupEnum": "products.engineering_analytics.backend.facade.contracts.FrictionGroup",
+            "TraceNodeKindEnum": "products.ai_observability.backend.facade.contracts.TRACE_NODE_KINDS",
             "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",
             "SignalSourceType": "products.signals.backend.enums.SIGNAL_SOURCE_TYPE_VALUES",
             "ErrorTrackingIssueSeverityRuleEnum": ["low", "medium", "high", "critical"],
@@ -911,6 +918,10 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
 
 # We keep the number of buckets low to reduce resource usage on the Prometheus
 PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1, float("inf")]
+
+# Chrome origin trial tokens, comma-separated. Each token is bound to one origin, so each deployment sets its own.
+# Tokens are base64, so they never contain a comma.
+ORIGIN_TRIAL_TOKENS = get_list(os.getenv("ORIGIN_TRIAL_TOKENS", ""))
 
 ####
 # Proxy and IP egress config
@@ -1322,6 +1333,10 @@ AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 # Decision model behind the HogQL `jev` function. Per environment, so a
 # different model can be measured without a code change.
 HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogference/jeeves-0.1")
+# Limits for one `jev`/`decide` query: rows read per SELECT, and model decisions across the whole query.
+# Each decision is a billed gateway call, so these bound the cost of one query.
+HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
+HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
@@ -1396,6 +1411,10 @@ DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "pos
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
+# Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the
+# posthog-desktop-signup-gate flag is on for them, unless posthog-desktop-access-override matches
+# them. An empty value turns the signup gate off.
+DESKTOP_SIGNUP_CUTOFF = get_from_env("DESKTOP_SIGNUP_CUTOFF", "" if TEST else "2026-10-01T00:00:00+00:00")
 
 # Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
 # when normal SSRF validation rejects their private/internal address. This is an

@@ -80,10 +80,21 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         assert _streamed_text(mock_client).count("<@U123>") == 1
 
+    @parameterized.expand(
+        [
+            ("thread_creator", None, "Signups grew.", "U123", "<@U123> Signups grew."),
+            # A later participant asked this turn, so the reply is for them, not the thread's creator.
+            ("follow_up_sender", "U456", "Signups grew.", "U456", "<@U456> Signups grew."),
+            # Markdown reads a heading only at the start of a line.
+            ("heading_answer", None, "## Signups\nThey grew.", "U123", "<@U123>\n\n## Signups\nThey grew."),
+        ]
+    )
     @patch("products.slack_app.backend.slack_thread.slack_message_exists", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_start_status_stream_leads_an_answer_with_the_mention(self, mock_get_client, _mock_integration, _exists):
+    def test_start_status_stream_leads_an_answer_with_the_mention(
+        self, _name, actor, answer, expected_recipient, expected_text, mock_get_client, _mock_integration, _exists
+    ):
         # An answer that opens the stream is the whole reply, so it carries the one ping.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -91,23 +102,25 @@ class TestSlackThreadHandler(SimpleTestCase):
             integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
 
-        SlackThreadHandler(context).start_status_stream(first_markdown_text="Signups grew.")
+        SlackThreadHandler(context, actor_slack_user_id=actor).start_status_stream(first_markdown_text=answer)
 
-        chunks = mock_client.chat_startStream.call_args.kwargs["chunks"]
-        assert [chunk.get("text") for chunk in chunks] == ["<@U123> Signups grew."]
+        kwargs = mock_client.chat_startStream.call_args.kwargs
+        assert kwargs["recipient_user_id"] == expected_recipient
+        assert [chunk.get("text") for chunk in kwargs["chunks"]] == [expected_text]
 
     @parameterized.expand(
         [
-            ("answer", "Signups grew.", False, ["plan_update", "<@U123> Signups grew.", "blocks"]),
+            ("answer", "Signups grew.", False, None, ["plan_update", "<@U123> Signups grew.", "blocks"]),
             # The answer went out when the stream opened, and carried the mention there.
-            ("answer_streamed_at_start", None, True, ["plan_update", "blocks"]),
+            ("answer_streamed_at_start", None, True, None, ["plan_update", "blocks"]),
             # A stopped run has no answer, so the mention alone notifies the requester.
-            ("no_answer", None, False, ["plan_update", "blocks", "\n\n<@U123>"]),
+            ("no_answer", None, False, None, ["plan_update", "blocks", "\n\n<@U123>"]),
+            ("follow_up_no_answer", None, False, "U456", ["plan_update", "blocks", "\n\n<@U456>"]),
         ]
     )
     @patch.object(SlackThreadHandler, "_get_client")
     def test_stop_status_stream_mentions_the_requester_once_before_the_answer(
-        self, _name, final_markdown, mention_sent, expected_order, mock_get_client
+        self, _name, final_markdown, mention_sent, actor, expected_order, mock_get_client
     ):
         # Chart cards describe the answer above them, and the reply pings the requester once.
         mock_client = MagicMock()
@@ -115,7 +128,7 @@ class TestSlackThreadHandler(SimpleTestCase):
         context = SlackThreadContext(
             integration_id=1, channel="C001", thread_ts="1234.5678", mentioning_slack_user_id="U123"
         )
-        handler = SlackThreadHandler(context)
+        handler = SlackThreadHandler(context, actor_slack_user_id=actor)
 
         def append_attachments() -> None:
             handler.append_status_blocks("1234.9999", [{"type": "image"}])
@@ -525,6 +538,35 @@ class TestFooterNeverCostsTheAnswer(SimpleTestCase):
         retry = mock_client.chat_postMessage.call_args_list[1].kwargs
         assert retry["text"] == "the answer"
         assert not retry.get("blocks")
+
+
+class TestStreamClosedBySlack(SimpleTestCase):
+    @patch.object(SlackThreadHandler, "_get_integration")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_the_answer_is_posted_in_the_thread_and_the_closed_stream_gets_nothing_more(
+        self, mock_get_client, mock_get_integration
+    ) -> None:
+        mock_client = MagicMock()
+        mock_client.chat_appendStream.side_effect = SlackApiError(
+            "message_not_in_streaming_state", {"error": "message_not_in_streaming_state"}
+        )
+        mock_get_client.return_value = mock_client
+        mock_get_integration.return_value = Integration(id=1, config={}, integration_id="T1")
+        context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
+        handler = SlackThreadHandler(context, RunFooter(model="claude-opus-5"), actor_slack_user_id="U123")
+
+        assert (
+            handler.append_status_chunks(ts="1.0", task_updates=[{"id": "a", "title": "Read", "status": "in_progress"}])
+            is False
+        )
+        handler.stop_status_stream(ts="1.0", final_markdown="Signups grew.")
+
+        assert mock_client.chat_appendStream.call_count == 1
+        mock_client.chat_stopStream.assert_not_called()
+        posted = mock_client.chat_postMessage.call_args.kwargs
+        assert posted["thread_ts"] == "1234.5678"
+        assert "Signups grew." in posted["text"]
+        assert posted["text"].startswith("<@U123>")
 
 
 class TestRelayedAnswerFooter(SimpleTestCase):
