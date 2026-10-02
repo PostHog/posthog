@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -62,7 +62,11 @@ describe('recipient detail', () => {
             },
             post: {
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
-                    timelineQueries.push(((await request.json()) as { query: { query: string } }).query.query)
+                    const { query } = ((await request.json()) as { query: { query: string } }).query
+                    if (!query.includes('$workflows_email_')) {
+                        return [200, { results: [] }]
+                    }
+                    timelineQueries.push(query)
                     return [
                         200,
                         {
@@ -142,10 +146,12 @@ describe('recipient detail', () => {
         useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
 
-        expect(await screen.findByText('Clicked a link')).toBeInTheDocument()
-        expect(screen.getByText('Opened')).toBeInTheDocument()
-        expect(screen.getByText('Unsubscribed')).toBeInTheDocument()
-        expect(screen.getByText('https://example.com/pricing')).toBeInTheDocument()
+        const timeline = await screen.findByTestId('audience-recipient-timeline')
+        expect(await within(timeline).findByText('Clicked a link')).toBeInTheDocument()
+        expect(within(timeline).getByText('https://example.com/pricing')).toBeInTheDocument()
+        expect(within(timeline).getByText('Opened')).toBeInTheDocument()
+        expect(within(timeline).getByText('Unsubscribed')).toBeInTheDocument()
+        expect(within(timeline).getByText('All marketing')).toBeInTheDocument()
         expect(screen.getByText(/follows the address, not a person/)).toBeInTheDocument()
         expect(timelineQueries).toHaveLength(1)
         expect(timelineQueries[0]).toContain("lower(properties.$email_to) = 'jamie@example.com'")
@@ -161,7 +167,8 @@ describe('recipient detail', () => {
 
         fireEvent.click(turnOnButton)
 
-        expect(await screen.findByText('Clicked a link')).toBeInTheDocument()
+        const timeline = await screen.findByTestId('audience-recipient-timeline')
+        expect(await within(timeline).findByText('Clicked a link')).toBeInTheDocument()
         expect(capturedEvents('audience engagement events enabled')).toEqual([
             ['audience engagement events enabled', { surface: 'recipient' }],
         ])

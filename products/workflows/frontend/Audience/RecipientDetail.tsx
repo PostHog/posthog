@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { recipientDetailLogic } from './recipientDetailLogic'
+import { RecipientEmailActivity } from './RecipientEmailActivity'
 import { RecipientPersonsCard } from './RecipientPersonsCard'
 import { RecipientSuppressionBanner } from './RecipientSuppressionBanner'
 import { RecipientTopicsCard } from './RecipientTopicsCard'
@@ -27,6 +28,7 @@ function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Eleme
                 <RecipientTopicsCard recipient={recipient} />
                 <RecipientPersonsCard recipient={recipient} />
             </div>
+            <RecipientEmailActivity email={recipient.email} />
         </>
     )
 }
