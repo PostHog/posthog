@@ -372,8 +372,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
         MAX_RECALCULATION_TIMES,
         MIN_RECALCULATION_GAP_HOURS,
         TeamExperimentsConfig,
-        legacy_from_recalculation_times,
-        recalculation_times_from_legacy,
         validate_recalculation_times,
     )
 
@@ -390,15 +388,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             help_text=(
                 "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
                 f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
-                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC). "
-                "Takes precedence over experiment_recalculation_time."
+                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
             ),
         )
 
         class Meta:
             model = TeamExperimentsConfig
             fields = [
-                "experiment_recalculation_time",
                 "experiment_recalculation_times",
                 "default_experiment_confidence_level",
                 "default_experiment_stats_method",
@@ -424,16 +420,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
                 instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-            # The two recalculation fields must stay coherent while both exist: writing one
-            # syncs the other, so old clients and the workflow reader never disagree.
-            if "experiment_recalculation_times" in validated_data:
-                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
-                    validated_data["experiment_recalculation_times"]
-                )
-            elif "experiment_recalculation_time" in validated_data:
-                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
-                    validated_data["experiment_recalculation_time"]
-                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
