@@ -1495,7 +1495,7 @@ mod tests {
         let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
+            &*records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
         );
     }
@@ -1854,7 +1854,7 @@ mod tests {
         let topics = test_outputs();
         let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
-            records[0].topic, ai_topic,
+            &*records[0].topic, ai_topic,
             "an allowlisted AI event diverts to the AI lane under Ai mode too"
         );
     }
@@ -3279,7 +3279,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion_overflow",
+            &*records[0].topic, "events_plugin_ingestion_overflow",
             "ForceLimited must route to overflow topic"
         );
         assert_eq!(
@@ -3335,11 +3335,11 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 2);
         assert_eq!(
-            records[0].topic, "events_plugin_ingestion",
+            &*records[0].topic, "events_plugin_ingestion",
             "event[0]: within burst -> main topic"
         );
         assert_eq!(
-            records[1].topic, "events_plugin_ingestion_overflow",
+            &*records[1].topic, "events_plugin_ingestion_overflow",
             "event[1]: over burst -> overflow topic"
         );
         assert!(
@@ -3719,11 +3719,11 @@ mod tests {
 
         let original = records
             .iter()
-            .find(|r| r.topic == "events_plugin_ingestion")
+            .find(|r| &*r.topic == "events_plugin_ingestion")
             .expect("original event should land on the main events topic");
         let redirect = records
             .iter()
-            .find(|r| r.topic == "heatmaps")
+            .find(|r| &*r.topic == "heatmaps")
             .expect("redirect should land on the heatmaps topic");
 
         // ---- original on events topic ----

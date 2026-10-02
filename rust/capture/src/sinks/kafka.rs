@@ -405,7 +405,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         };
 
         producer.send(ProduceRecord {
-            topic: topic.to_string(),
+            topic,
             key,
             payload: payload.payload,
             headers: payload.headers,
@@ -1149,7 +1149,7 @@ mod tests {
                 input.overflow_reason,
             );
 
-            assert_eq!(record.topic, expected.topic, "wrong topic for {ctx}");
+            assert_eq!(&*record.topic, expected.topic, "wrong topic for {ctx}");
             assert_eq!(
                 record.key.is_some(),
                 expected.has_key,
@@ -2222,7 +2222,7 @@ mod tests {
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(&*records[0].topic, AI_EVENTS_TOPIC);
             assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
         }
 
@@ -2318,8 +2318,8 @@ mod tests {
 
             let records = producer.get_records();
             assert_eq!(records.len(), 2);
-            assert_eq!(records[0].topic, AI_EVENTS_TOPIC);
-            assert_eq!(records[1].topic, ERROR_TRACKING_TOPIC);
+            assert_eq!(&*records[0].topic, AI_EVENTS_TOPIC);
+            assert_eq!(&*records[1].topic, ERROR_TRACKING_TOPIC);
             assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
             assert_eq!(records[0].key, records[1].key);
             assert_eq!(records[0].payload, records[1].payload);
@@ -2861,7 +2861,7 @@ mod tests {
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "expected exactly one record");
-            assert_eq!(records[0].topic, MAIN_TOPIC);
+            assert_eq!(&*records[0].topic, MAIN_TOPIC);
         }
 
         #[tokio::test]
@@ -3128,18 +3128,18 @@ mod tests {
 
             // Per-index topic assertions (order-preserving: phase-2 is serial
             // in input order on both paths).
-            assert_eq!(records[0].topic, MAIN_TOPIC, "event[0]: AnalyticsMain");
-            assert_eq!(records[1].topic, HEATMAPS_TOPIC, "event[1]: HeatmapMain");
+            assert_eq!(&*records[0].topic, MAIN_TOPIC, "event[0]: AnalyticsMain");
+            assert_eq!(&*records[1].topic, HEATMAPS_TOPIC, "event[1]: HeatmapMain");
             assert_eq!(
-                records[2].topic, ERROR_TRACKING_TOPIC,
+                &*records[2].topic, ERROR_TRACKING_TOPIC,
                 "event[2]: ExceptionErrorTracking"
             );
             assert_eq!(
-                records[3].topic, CLIENT_INGESTION_WARNING_TOPIC,
+                &*records[3].topic, CLIENT_INGESTION_WARNING_TOPIC,
                 "event[3]: ClientIngestionWarning"
             );
             assert_eq!(
-                records[4].topic, OVERFLOW_TOPIC,
+                &*records[4].topic, OVERFLOW_TOPIC,
                 "event[4]: AnalyticsMain + force_overflow"
             );
         }

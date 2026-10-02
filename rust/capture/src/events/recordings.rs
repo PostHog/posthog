@@ -1531,7 +1531,7 @@ mod tests {
         let records = producer.get_records();
         assert_eq!(records.len(), 1);
         assert_eq!(
-            records[0].topic, "replay_overflow",
+            &*records[0].topic, "replay_overflow",
             "ReplayLimited must route to replay_overflow topic"
         );
         assert_eq!(

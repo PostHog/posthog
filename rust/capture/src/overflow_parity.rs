@@ -159,12 +159,12 @@ async fn run_v0(limits: Limits, batch_size: usize, observe: usize) -> Observed {
     let record = &records[observe];
     let topics = test_outputs();
     Observed {
-        lane: if record.topic == *topics.analytics_main.topic {
+        lane: if *record.topic == *topics.analytics_main.topic {
             Lane::Main
-        } else if record.topic == *topics.analytics_overflow.topic {
+        } else if *record.topic == *topics.analytics_overflow.topic {
             Lane::Overflow
         } else {
-            Lane::Other(record.topic.clone())
+            Lane::Other(record.topic.to_string())
         },
         has_key: record.key.is_some(),
         person_processing_disabled: record

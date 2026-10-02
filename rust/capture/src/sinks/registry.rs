@@ -117,7 +117,7 @@ impl Destination {
 /// the producer handle once a sink is built.
 #[derive(Clone, Debug)]
 pub struct OutputTarget<R = ProducerName> {
-    // `Arc<str>` so the per-record metric label and lookup never allocate.
+    // `Arc<str>` so the per-record lookup, metric labels and produce record never allocate.
     pub(crate) topic: Arc<str>,
     pub(crate) producer: R,
 }
