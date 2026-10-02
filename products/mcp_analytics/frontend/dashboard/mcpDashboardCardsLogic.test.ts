@@ -6,8 +6,6 @@ import { initKeaTests } from '~/test/init'
 import { McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
-jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-
 describe('mcpDashboardCardsLogic', () => {
     let logic: ReturnType<typeof mcpDashboardCardsLogic.build>
 

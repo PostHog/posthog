@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { ActivityChart } from './dashboard/ActivityChart'
+import { MCP_DASHBOARD_CARDS } from './dashboard/dashboardCards'
 import { DashboardCardsMenu } from './dashboard/DashboardCardsMenu'
 import { HarnessBarChart } from './dashboard/HarnessBarChart'
 import { KpiTiles } from './dashboard/KpiTiles'
@@ -59,7 +60,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, reloadAll, markFilterInteraction } = useActions(mcpDashboardOverviewLogic)
-    const { isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -77,6 +78,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const showRecentActivity = isCardVisible('recent-activity')
     const showUsage = showActivity || showToolUsage || showHarness || showModel || showProtocolVersion
     const showReliability = showToolErrors || showNotableSessions
+    const showsNoCards = !(showKpis || showUsage || showReliability || showRecentActivity)
 
     return (
         <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
@@ -118,14 +120,24 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                 prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
             />
             <MCPAnalyticsFirstLook />
-            {!(showKpis || showUsage || showReliability || showRecentActivity) && (
-                <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
-                    <p className="mb-0">No cards to show.</p>
-                    <LemonButton type="secondary" size="small" onClick={showAllCards}>
-                        Show all cards
-                    </LemonButton>
-                </div>
-            )}
+            {showsNoCards &&
+                (hiddenCards.length === MCP_DASHBOARD_CARDS.length ? (
+                    <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
+                        <p className="mb-0">All cards are hidden.</p>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={showAllCards}
+                            data-attr="mcp-dashboard-empty-show-all-cards"
+                        >
+                            Show all cards
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <p className="mb-0" data-attr="mcp-dashboard-visible-cards-no-data">
+                        The cards you kept have no data in this date range.
+                    </p>
+                ))}
             {showKpis && (
                 <section className="flex min-w-0 flex-col gap-4" data-quill>
                     <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
