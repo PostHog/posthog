@@ -292,6 +292,7 @@ def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, da
     rows = sync_execute(
         _LAST_SENT_QUERY,
         {"team_id": team_id, "addresses": addresses, "sent_after": sent_after, "whitespace": _ADDRESS_WHITESPACE},
+        team_id=team_id,
     )
     return dict(rows)
 
