@@ -17244,6 +17244,10 @@
                 "trendLine": {
                     "type": "boolean"
                 },
+                "wrapText": {
+                    "description": "Show full text and preserve line breaks in table cells.",
+                    "type": "boolean"
+                },
                 "yAxisPosition": {
                     "enum": ["left", "right"],
                     "type": "string"

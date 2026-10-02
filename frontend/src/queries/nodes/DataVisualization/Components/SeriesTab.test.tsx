@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
@@ -14,6 +14,72 @@ import { YSeriesDisplayTab, YSeriesFormattingTab } from './SeriesTab'
 import { YSeriesLogicProps } from './ySeriesLogic'
 
 describe('SeriesTab', () => {
+    afterEach(cleanup)
+
+    it.each([false, true])(
+        'persists a column wrap toggle from %s without changing other settings',
+        async (wrapText) => {
+            initKeaTests()
+            const setQuery = jest.fn()
+            const query: DataVisualizationNode = {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'select prompt, count from examples' },
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: {
+                    columns: [
+                        { column: 'prompt', settings: { display: { label: 'Prompt', wrapText } } },
+                        { column: 'count', settings: { formatting: { prefix: '#' } } },
+                    ],
+                },
+            }
+            const props: DataVisualizationLogicProps = {
+                key: `wrap-toggle-${wrapText}`,
+                query,
+                dataNodeCollectionId: `wrap-toggle-${wrapText}`,
+                setQuery: (setter) => setQuery(setter(query)),
+            }
+            dataVisualizationLogic(props).mount()
+            dataNodeLogic({
+                key: props.key,
+                query: query.source,
+                dataNodeCollectionId: props.dataNodeCollectionId,
+            }).mount()
+            const ySeriesLogicProps: YSeriesLogicProps = {
+                seriesIndex: 0,
+                dataVisualizationProps: props,
+                series: {
+                    column: {
+                        name: 'prompt',
+                        label: 'prompt',
+                        dataIndex: 0,
+                        type: { name: 'STRING', isNumerical: false },
+                    },
+                    data: [],
+                    settings: query.tableSettings!.columns![0].settings,
+                },
+            }
+            render(
+                <BindLogic logic={dataVisualizationLogic} props={props}>
+                    <YSeriesDisplayTab ySeriesLogicProps={ySeriesLogicProps} />
+                </BindLogic>
+            )
+            await userEvent.setup().click(screen.getByTestId('sql-table-wrap-text'))
+            await waitFor(() =>
+                expect(setQuery).toHaveBeenLastCalledWith(
+                    expect.objectContaining({
+                        source: query.source,
+                        tableSettings: expect.objectContaining({
+                            columns: [
+                                { column: 'prompt', settings: { display: { label: 'Prompt', wrapText: !wrapText } } },
+                                query.tableSettings!.columns![1],
+                            ],
+                        }),
+                    })
+                )
+            )
+        }
+    )
+
     it('persists table column formatting changes immediately', async () => {
         initKeaTests()
 
