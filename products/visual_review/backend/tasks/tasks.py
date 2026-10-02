@@ -259,3 +259,35 @@ def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
     except Exception:
         # Nothing retries a notice: a late one no longer reports something that just happened.
         logger.warning("visual_review.quarantine_notice_failed", entry_id=entry_id, team_id=team_id, exc_info=True)
+
+
+@shared_task(
+    name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
+    bind=True,
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    max_retries=3,
+)
+@with_team_scope()
+def reconcile_quarantine_lifts(self, team_id: int, run_id: str) -> None:
+    """Apply the pending lift requests that a completed default-branch run proves ready."""
+    from posthog.egress.github.transport import GitHubRateLimitError
+
+    from ..logic import quarantine_lifts  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_lifts.reconcile_lift_requests(UUID(run_id))
+    except GitHubRateLimitError as e:
+        logger.warning(
+            "visual_review.quarantine_lift_rate_limited",
+            run_id=run_id,
+            retry=self.request.retries,
+            max_retries=self.max_retries,
+        )
+        # `retry(exc=e)` re-raises `e` once the budget is spent, so check the budget first.
+        if self.max_retries is not None and self.request.retries >= self.max_retries:
+            # The next default-branch run checks the same requests again.
+            logger.warning("visual_review.quarantine_lift_giving_up", run_id=run_id)
+            return
+        raise self.retry(countdown=min(e.retry_after or 60, 600), exc=e)
