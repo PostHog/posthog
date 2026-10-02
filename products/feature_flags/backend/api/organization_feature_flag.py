@@ -41,6 +41,7 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     get_decrypted_flag_payloads_protected,
 )
 from products.feature_flags.backend.facade.api import create_flag, serialize_flags, update_flag
+from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -286,7 +287,7 @@ class OrganizationFeatureFlagView(
             self._redact_encrypted_payloads(request, flag)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
-            cast(str, feature_flag_key), [flag.team_id for flag in flags]
+            cast(str, feature_flag_key), [flag.team_id for flag in flags], self.organization.id
         )
 
         flags_data = [
@@ -496,14 +497,18 @@ class OrganizationFeatureFlagView(
                 return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
 
         copy_source_flags = [*dependency_graph.dependency_flags, flag_to_copy]
-        copy_source_contexts = {
-            source_flag.id: self._get_feature_flag_copy_source_context(
-                source_flag,
-                copy_schedule,
-                user,
-            )
-            for source_flag in copy_source_flags
-        }
+        copy_source_contexts: dict[int, FeatureFlagCopySourceContext] = {}
+        for source_flag in copy_source_flags:
+            try:
+                copy_source_contexts[source_flag.id] = self._get_feature_flag_copy_source_context(
+                    source_flag, copy_schedule, user
+                )
+            except ConfigFormatError:
+                subject = "This flag" if source_flag.id == flag_to_copy.id else f"Dependency flag '{source_flag.key}'"
+                return Response(
+                    {"error": f"{subject} uses a configuration format that cannot be copied yet."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         successful_projects = []
         failed_projects = []

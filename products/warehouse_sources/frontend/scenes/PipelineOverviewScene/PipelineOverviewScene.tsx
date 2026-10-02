@@ -4,6 +4,7 @@ import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,7 +22,7 @@ import { PipelineHealth } from './PipelineHealth'
 import type { PipelineStatsWindow } from './pipelineOverviewSceneLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
 import { PipelineStatTiles } from './PipelineStatTiles'
-import { RecentFailures } from './RecentFailures'
+import { RecentRuns } from './RecentRuns'
 import { RowsByDestination } from './RowsByDestination'
 
 export const scene: SceneExport = {
@@ -32,7 +33,7 @@ export const scene: SceneExport = {
 
 export function PipelineOverviewScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { window, jobStatsLoading, hasIssues } = useValues(pipelineOverviewSceneLogic)
+    const { window, jobStatsLoading, hasIssues, lastUpdatedAt } = useValues(pipelineOverviewSceneLogic)
     const { setWindow, refresh } = useActions(pipelineOverviewSceneLogic)
 
     // Wait for the flags to land before refusing. Rendering NotFound first and the scene a beat
@@ -73,6 +74,11 @@ export function PipelineOverviewScene(): JSX.Element {
             />
 
             <PipelineStatTiles />
+            {lastUpdatedAt ? (
+                <div className="-mt-1 text-xs text-muted">
+                    Updated <TZLabel time={lastUpdatedAt} />, and every 30 seconds while this page is open
+                </div>
+            ) : null}
 
             <SceneDivider />
 
@@ -89,8 +95,16 @@ export function PipelineOverviewScene(): JSX.Element {
             ) : null}
 
             <SceneSection
+                title="Rows synced by destination"
+                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
+            >
+                <RowsByDestination />
+            </SceneSection>
+
+            <SceneDivider />
+            <SceneSection
                 title="Runs"
-                description="Runs that failed in this window. A table can be broken here with no recent run, if nothing retried it."
+                description="Every sync in this window, newest first. Runs in flight appear as they start."
                 actions={
                     <LemonSelect<PipelineStatsWindow>
                         size="small"
@@ -105,16 +119,7 @@ export function PipelineOverviewScene(): JSX.Element {
                     />
                 }
             >
-                <RecentFailures />
-            </SceneSection>
-
-            <SceneDivider />
-
-            <SceneSection
-                title="Rows synced by destination"
-                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
-            >
-                <RowsByDestination />
+                <RecentRuns />
             </SceneSection>
 
             <SceneDivider />

@@ -343,12 +343,13 @@ describe('Tool Filtering - API Scopes', () => {
     })
 
     it('should only return read tools when user has read scope', async () => {
-        const context = createMockContext(['insight:read', 'query:read'])
+        const context = createMockContext(['query:read'])
         const tools = await getToolsFromContext(context)
         const toolNames = tools.map((t) => t.name)
 
         // insight-query is in the hand-written TOOL_MAP and requires query:read
         expect(toolNames).toContain('insight-query')
+        expect(toolNames).toContain('execute-sql')
 
         expect(toolNames).not.toContain('dashboard-create')
     })
@@ -964,6 +965,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(off).not.toContain('notebooks-create-markdown')
         expect(off).not.toContain('notebooks-add-cell')
         expect(off).not.toContain('notebooks-set-variables')
+        expect(off).not.toContain('notebooks-run')
+        expect(off).not.toContain('notebooks-run-status')
         expect(off).not.toContain('notebooks-get')
 
         const on = getToolsForFeatures({ featureFlags: { 'revamped-py-notebooks': true } })
@@ -972,6 +975,8 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('notebooks-update-cell')
         expect(on).toContain('notebooks-delete-cell')
         expect(on).toContain('notebooks-set-variables')
+        expect(on).toContain('notebooks-run')
+        expect(on).toContain('notebooks-run-status')
         expect(on).toContain('notebooks-run-cell-result')
         expect(on).toContain('notebooks-get')
         expect(on).toContain('notebooks-list-frames')
@@ -993,11 +998,12 @@ describe('Tool Filtering - Feature Flags', () => {
 
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
-        expect(allFlags).toContain('self-optimising-workflows')
-        // The flag this branch adds is asserted on the line above and held out of the list and
+        const branchFlags = ['self-optimising-workflows', 'business-knowledge-github-repos']
+        expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
+        // The flags branches add are asserted on the line above and held out of the list and
         // count below. Those belong to master and move with every flag master adds or drops, so a
         // stacked branch that adds one does not edit them.
-        const flags = allFlags.filter((flag) => flag !== 'self-optimising-workflows')
+        const flags = allFlags.filter((flag) => !branchFlags.includes(flag))
         expect(flags).toEqual(
             expect.arrayContaining([
                 'logs-anomalies',
@@ -1039,9 +1045,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'context-layer',
                 'warehouse-multi-destination',
                 'autoresearch',
+                'today-rail-nav',
             ])
         )
-        expect(flags).toHaveLength(38)
+        expect(flags).toHaveLength(39)
     })
 
     it('every loops tool is gated on the loops flag', () => {

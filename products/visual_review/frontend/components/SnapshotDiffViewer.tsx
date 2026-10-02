@@ -248,6 +248,11 @@ export function SnapshotDiffViewer({
                                 size="small"
                                 onClick={onApprove}
                                 loading={isApproving}
+                                disabledReason={
+                                    snapshot.result === 'removed'
+                                        ? 'A removed snapshot has no new image to accept. Finalize the run to remove it from the baseline.'
+                                        : undefined
+                                }
                                 data-attr="visual-review-snapshot-accept"
                             >
                                 Accept change
@@ -559,7 +564,11 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                        <QuarantineAction
+                            identifier={snapshot.identifier}
+                            onQuarantine={onQuarantine}
+                            runType={runType}
+                        />
                     )}
                     {nudgedIdentifier && onQuarantine && (
                         <QuarantineModal
@@ -568,6 +577,7 @@ export function SnapshotDiffViewer({
                             identifier={nudgedIdentifier}
                             onQuarantine={onQuarantine}
                             initialReason="Keeps changing in unrelated PRs"
+                            runType={runType}
                         />
                     )}
                     {isQuarantined && onUnquarantine && (

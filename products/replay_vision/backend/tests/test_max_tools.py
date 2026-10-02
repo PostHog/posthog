@@ -898,6 +898,35 @@ class TestUpdateReplayVisionScannerTool(BaseTest):
         scanner = await sync_to_async(ReplayScanner.objects.get)(id=created["scanner_id"])
         assert scanner.enabled is True
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_denied_experiment_refuses_config_edits_through_max(self):
+        # Without an access control in the serializer context the experiment-scope write guard
+        # treats the caller as unrestricted, so Max would bypass the refusal the API enforces.
+        from products.experiments.backend.models.experiment import Experiment
+        from products.replay_vision.backend.tests.helpers import create_experiment
+
+        experiment = await sync_to_async(create_experiment)(self.team, "restricted-flag")
+        scanner = await sync_to_async(self._scanner)(
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": experiment.id},
+        )
+
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is Experiment else qs,
+        ):
+            _, result = await self._tool()._arun_impl(scanner_id=str(scanner.id), prompt="rewritten")
+
+        assert result == {"error": "invalid_config"}
+        await sync_to_async(scanner.refresh_from_db)()
+        assert scanner.scanner_config["prompt"] == "p"
+
+        # The same edit from a caller the experiment allows still lands.
+        with patch(_REFRESH_ESTIMATE_PATH):
+            _, allowed = await self._tool()._arun_impl(scanner_id=str(scanner.id), prompt="rewritten")
+        assert "error" not in allowed, allowed
+
     @parameterized.expand(
         [
             # Only starting a schedule or widening a running one commits the project to spend.

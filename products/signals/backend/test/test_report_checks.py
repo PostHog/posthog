@@ -1,7 +1,8 @@
 import json
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -19,7 +20,7 @@ from posthog.models import PropertyDefinition, Team
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.artefact_schemas import CheckResult, Dismissal
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
@@ -53,7 +54,9 @@ from products.signals.backend.report_check_execution import (
     resolve_check_query,
     run_due_report_checks,
 )
+from products.signals.backend.report_check_timing import metric_check_ready_at, metric_check_window_start
 from products.signals.backend.report_checks import (
+    AWAITING_DATA_RETRY_WAITS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
     DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
@@ -73,6 +76,7 @@ from products.signals.backend.report_checks import (
     CheckSpec,
     MetricThresholdConfig,
     parse_check_config,
+    validate_metric_check_for_write,
 )
 from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.scout_harness.tools.checks import (
@@ -189,6 +193,142 @@ class TestCheckComparison(SimpleTestCase):
     def test_unknown_kind_is_refused(self) -> None:
         with self.assertRaises(CheckConfigValidationError):
             parse_check_config("vibes", {"instructions": "look again"})
+
+    @parameterized.expand(
+        [
+            ("count_query_with_percentage_format", _threshold_config(value_format="percentage_scaled")),
+            ("affected_users_with_event_count", _threshold_config(metric_kind="affected_users", value_format="count")),
+            ("duration_without_unit", _threshold_config(metric_kind="duration", value_format="duration")),
+            (
+                "negative_count_goal",
+                _threshold_config(value_format="count", comparison={"operator": "lte", "value": -1}),
+            ),
+            ("fractional_count_baseline", _threshold_config(value_format="count", baseline_value=1.5)),
+            (
+                "fractional_count_bound",
+                _threshold_config(
+                    value_format="count", comparison={"operator": "between", "bounds": {"lower": 1, "upper": 2.5}}
+                ),
+            ),
+            (
+                "negative_duration_baseline",
+                _threshold_config(metric_kind="duration", value_format="duration", unit="s", baseline_value=-1),
+            ),
+            ("nonfinite_goal", _threshold_config(comparison={"operator": "lte", "value": float("inf")})),
+            (
+                "nonfinite_bound",
+                _threshold_config(comparison={"operator": "between", "bounds": {"lower": 0, "upper": float("inf")}}),
+            ),
+            (
+                "scaled_rate_over_one",
+                _threshold_config(
+                    metric_kind="error_rate",
+                    value_format="percentage_scaled",
+                    query={
+                        **_PAGEVIEWS,
+                        "source": {
+                            **_PAGEVIEWS["source"],
+                            "trendsFilter": {"formula": "A / B", "aggregationAxisFormat": "percentage_scaled"},
+                            "series": _PAGEVIEWS["source"]["series"] * 2,
+                        },
+                    },
+                    comparison={"operator": "lte", "value": 1.1},
+                ),
+            ),
+            (
+                "rate_baseline_over_100",
+                _threshold_config(
+                    metric_kind="conversion_rate",
+                    value_format="percentage",
+                    query={
+                        **_PAGEVIEWS,
+                        "source": {
+                            **_PAGEVIEWS["source"],
+                            "trendsFilter": {"formula": "A / B * 100", "aggregationAxisFormat": "percentage"},
+                            "series": _PAGEVIEWS["source"]["series"] * 2,
+                        },
+                    },
+                    baseline_value=101,
+                ),
+            ),
+        ]
+    )
+    def test_new_numeric_and_display_rules_do_not_reject_legacy_reads(self, _name: str, config: dict) -> None:
+        parsed = parse_check_config("metric_threshold", config)
+        assert isinstance(parsed, MetricThresholdConfig)
+        with self.assertRaises(CheckConfigValidationError):
+            validate_metric_check_for_write(parsed)
+
+    @parameterized.expand(
+        [
+            ("whole_count", "custom", "count", None, 10.0, {}),
+            ("nonnegative_duration", "duration", "duration", "ms", 1.5, {}),
+            ("negative_custom", "custom", "number", None, -1.5, {}),
+            ("negative_revenue", "revenue", "currency", "USD", -1.5, {}),
+            (
+                "scaled_rate",
+                "error_rate",
+                "percentage_scaled",
+                None,
+                1.0,
+                {"aggregationAxisFormat": "percentage_scaled"},
+            ),
+            (
+                "percentage_points",
+                "conversion_rate",
+                "percentage",
+                None,
+                100.0,
+                {"aggregationAxisFormat": "percentage"},
+            ),
+        ]
+    )
+    def test_valid_numeric_formats_remain_writable(
+        self, _name: str, kind: str, value_format: str, unit: str | None, value: float, trends_filter: dict
+    ) -> None:
+        query = {**_PAGEVIEWS, "source": {**_PAGEVIEWS["source"], "trendsFilter": trends_filter}}
+        config = MetricThresholdConfig.model_validate(
+            _threshold_config(
+                query=query,
+                metric_kind=kind,
+                value_format=value_format,
+                unit=unit,
+                baseline_value=value,
+                comparison={"operator": "lte", "value": value},
+            )
+        )
+        validate_metric_check_for_write(config)
+
+
+class TestMetricCheckTiming(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("daily_rounding", "UTC", "2026-10-01T12:30:00+00:00", "-13d", False, "2026-10-15T00:00:00+00:00"),
+            ("hourly_rounding", "UTC", "2026-10-01T12:30:00+00:00", "-2h", False, "2026-10-01T15:00:00+00:00"),
+            ("explicit_time", "UTC", "2026-10-01T12:30:00+00:00", "-13d", True, "2026-10-14T12:30:00+00:00"),
+            ("month_end", "UTC", "2026-01-31T00:00:00+00:00", "-1m", False, "2026-03-01T00:00:00+00:00"),
+            (
+                "spring_dst",
+                "America/Los_Angeles",
+                "2026-03-07T20:30:00+00:00",
+                "-1d",
+                False,
+                "2026-03-09T07:00:00+00:00",
+            ),
+            ("fall_dst", "America/Los_Angeles", "2026-10-31T19:30:00+00:00", "-1d", False, "2026-11-02T08:00:00+00:00"),
+        ]
+    )
+    def test_full_query_window_starts_after_resolution(
+        self, _name: str, zone: str, start: str, date_from: str, explicit: bool, ready: str
+    ) -> None:
+        team = Team(timezone=zone)
+        anchor = datetime.fromisoformat(start)
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from)
+        query["source"]["dateRange"]["explicitDate"] = explicit
+        ready_at = metric_check_ready_at(query, team, anchor)
+        assert ready_at == datetime.fromisoformat(ready)
+        assert metric_check_window_start(query, team, ready_at) >= anchor
+        assert metric_check_window_start(query, team, ready_at - timedelta(seconds=1)) < anchor
 
 
 class TestAgentCheckConfig(SimpleTestCase):
@@ -321,6 +461,7 @@ class TestReportCheckExecution(APIBaseTest):
             "title": "Checkout errors stay low",
             "kind": SignalReportCheck.Kind.METRIC_THRESHOLD,
             "config": _threshold_config(),
+            "measurement_start_at": now - timedelta(days=32),
             "next_run_at": now - timedelta(minutes=1),
             "expires_at": now + timedelta(days=30),
         }
@@ -333,6 +474,80 @@ class TestReportCheckExecution(APIBaseTest):
                 report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
             ).order_by("created_at")
         )
+
+    @parameterized.expand(
+        [
+            ("legacy_without_anchor", None, None, 1),
+            ("legacy_recurring_near_expiry", None, 24 * 60, 3),
+            ("legacy_recurring_horizon", None, 30 * 24 * 60, 3),
+            ("prematurely_due", datetime(2026, 10, 1, 12, tzinfo=UTC), None, 1),
+        ]
+    )
+    def test_incomplete_window_defers_without_a_verdict(
+        self, _name: str, anchor: datetime | None, interval: int | None, runs: int
+    ) -> None:
+        now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+        with time_machine.travel(now, tick=False):
+            check = self._check(measurement_start_at=anchor, run_interval_minutes=interval, runs_remaining=runs)
+            original_expiry = check.expires_at
+            with patch(_MEASURE) as measure:
+                summary = run_due_report_checks()
+            check.refresh_from_db()
+            assert not measure.called
+            assert summary.passed == summary.failed == summary.inconclusive == summary.errored == 0
+            assert self._results() == []
+            assert check.measurement_start_at == (anchor or now)
+            assert check.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, anchor or now)
+            assert check.next_run_at < check.expires_at <= now + MAX_CHECK_HORIZON
+            if anchor is None:
+                last_run_at = check.next_run_at + timedelta(minutes=(interval or 0) * (runs - 1))
+                assert check.expires_at == min(
+                    last_run_at + DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN, now + MAX_CHECK_HORIZON
+                )
+                assert check.expires_at > original_expiry
+            else:
+                assert check.expires_at == original_expiry
+            assert check.consecutive_errors == 0
+            assert check.runs_remaining == runs
+
+        with time_machine.travel(check.next_run_at, tick=False):
+            with patch(_MEASURE, return_value=MetricMeasurement(value=3, measured_at=check.next_run_at, series=None)):
+                summary = run_due_report_checks()
+        check.refresh_from_db()
+        assert summary.expired == 0
+        assert summary.passed == 1
+        assert check.runs_remaining == runs - 1
+        assert len(self._results()) == 1
+
+    @parameterized.expand(
+        [
+            ("legacy_window_exceeds_horizon", None, "-90d"),
+            ("anchored_deadline_before_window", datetime(2026, 10, 2, 12, tzinfo=UTC), "-30d"),
+        ]
+    )
+    def test_unreachable_window_records_inconclusive(self, _name: str, anchor: datetime | None, date_from: str) -> None:
+        now = datetime(2026, 10, 2, 12, tzinfo=UTC)
+        with time_machine.travel(now, tick=False):
+            check = self._check(
+                measurement_start_at=anchor,
+                config=_threshold_config(
+                    query=trends_metric_query(
+                        series=[{"kind": "EventsNode", "event": "$pageview"}], date_from=date_from
+                    )
+                ),
+            )
+            original_expiry = check.expires_at
+            with patch(_MEASURE) as measure:
+                summary = run_due_report_checks()
+        check.refresh_from_db()
+        assert not measure.called
+        assert summary.inconclusive == 1
+        assert summary.expired == 0
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.last_outcome_reason == "unmeasurable"
+        assert check.expires_at == original_expiry
+        assert check.next_run_at < now
+        assert len(self._results()) == 1
 
     def test_a_one_shot_check_that_holds_retires_as_passed_with_a_result(self) -> None:
         check = self._check()
@@ -498,15 +713,19 @@ class TestReportCheckExecution(APIBaseTest):
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.PENDING
         assert check.consecutive_errors == 0
+        assert check.measurement_start_at is None
 
         before = timezone.now()
         with self.captureOnCommitCallbacks(execute=True):
             self.report.status = SignalReport.Status.RESOLVED
             self.report.save(update_fields=["status"])
 
-        check.refresh_from_db()
-        assert check.status == SignalReportCheck.Status.ACTIVE
-        assert check.next_run_at >= before + timedelta(hours=MIN_CHECK_SOAK_HOURS)
+        armed = SignalReportCheck.objects.for_team(self.team.id).get(id=check.id)
+        assert armed.status == SignalReportCheck.Status.ACTIVE
+        assert armed.measurement_start_at is not None
+        assert before <= armed.measurement_start_at <= timezone.now()
+        assert armed.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, armed.measurement_start_at)
+        assert armed.next_run_at >= before + timedelta(hours=MIN_CHECK_SOAK_HOURS)
         assert collect_due_checks(timezone.now()) == []
 
     def test_an_active_check_on_an_unresolved_report_is_never_due(self) -> None:
@@ -534,6 +753,65 @@ class TestReportCheckExecution(APIBaseTest):
         )
         assert check.last_run_at is None
         assert self._results() == []
+
+    def test_awaiting_data_backs_off_without_spending_the_error_budget_then_ends_inconclusive(self) -> None:
+        check = self._check(
+            consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1, expires_at=timezone.now() + MAX_CHECK_HORIZON
+        )
+        verdict = CheckVerdict(outcome="inconclusive", reason="awaiting_data", explanation="No deploy since the fix.")
+        now = timezone.now()
+        for expected_wait in (timedelta(hours=24), timedelta(hours=72), timedelta(days=7)):
+            record_check_verdict(check, verdict, now=now)
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.next_run_at == now + expected_wait
+            assert check.consecutive_errors == MAX_CONSECUTIVE_CHECK_ERRORS - 1
+            assert check.runs_remaining == 1
+            now = check.next_run_at
+
+        with patch(_CAPTURE) as capture, self.captureOnCommitCallbacks(execute=True):
+            record_check_verdict(check, verdict, now=now)
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.consecutive_inconclusive == len(AWAITING_DATA_RETRY_WAITS) + 1
+        assert check.last_outcome_reason == SignalReportCheck.InconclusiveReason.AWAITING_DATA
+        results = self._results()
+        assert len(results) == len(AWAITING_DATA_RETRY_WAITS) + 1
+        assert json.loads(results[-1].content)["reason"] == "awaiting_data"
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == "inconclusive"
+        assert properties["inconclusive_reason"] == "awaiting_data"
+        assert properties["check_status"] == SignalReportCheck.Status.INCONCLUSIVE
+
+    @parameterized.expand(
+        [
+            ("unmeasurable", "unmeasurable", timedelta(days=30)),
+            ("needs_manual_verification", "needs_manual_verification", timedelta(days=30)),
+            ("no_fix_to_measure", "no_fix_to_measure", timedelta(days=30)),
+            ("awaiting_data_past_the_horizon", "awaiting_data", timedelta(hours=12)),
+        ]
+    )
+    def test_an_inconclusive_verdict_that_waiting_cannot_settle_retires_the_check(
+        self, _name, reason, expires_in
+    ) -> None:
+        check = self._check(expires_at=timezone.now() + expires_in)
+        record_check_verdict(
+            check, CheckVerdict(outcome="inconclusive", reason=reason, explanation="No denominator event.")
+        )
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+
+    def test_a_verdict_and_its_result_refuse_a_reason_that_does_not_match_the_outcome(self) -> None:
+        with self.assertRaises(ValueError):
+            CheckVerdict(outcome="inconclusive", explanation="Too few samples.")
+        with self.assertRaises(ValueError):
+            CheckVerdict(outcome="errored", reason="awaiting_data", explanation="The query failed.")
+        with self.assertRaises(PydanticValidationError):
+            CheckResult(check_id="c", kind="agent", title="t", outcome="inconclusive", explanation="Too few samples.")
 
     def test_an_unrun_check_past_its_horizon_expires(self) -> None:
         check = self._check(
@@ -705,25 +983,41 @@ class TestReportCheckAPI(APIBaseTest):
         assert not SignalReportCheck.objects.for_team(self.team.id).filter(report_id=self.report.id).exists()
 
         self.report.metrics = [
-            {"metric_id": "checkout-errors", "title": "Checkout errors", "kind": "occurrences", "query": _PAGEVIEWS}
+            {
+                "metric_id": "checkout-errors",
+                "title": "Checkout errors",
+                "kind": "occurrences",
+                "value_format": "count",
+                "query": _PAGEVIEWS,
+            }
         ]
         self.report.save(update_fields=["metrics"])
-        stored = self._create(config=config)
+        stored = self._create(config={**config, "value_format": "percentage", "unit": "failure"})
         assert stored.config["metric_id"] == "checkout-errors"
         assert stored.config["query"] == _PAGEVIEWS
+        assert not {"metric_kind", "value_format", "unit"}.intersection(stored.config)
+        overridden = self._create(config={**config, "metric_kind": "custom", "value_format": "number", "unit": "USD"})
+        assert not {"metric_kind", "value_format", "unit"}.intersection(overridden.config)
 
         # Rewriting the metric under the same id must not move the check's target.
         rewritten = trends_metric_query(series=[{"kind": "EventsNode", "event": "$autocapture"}])
         self.report.metrics = [{**self.report.metrics[0], "query": rewritten}]
         self.report.save(update_fields=["metrics"])
         SignalReportCheck.objects.for_team(self.team.id).filter(id=stored.id).update(
-            next_run_at=timezone.now() - timedelta(minutes=1)
+            next_run_at=timezone.now() - timedelta(minutes=1), measurement_start_at=timezone.now() - timedelta(days=32)
         )
         with patch(
             _MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)
         ) as measure:
             run_due_report_checks()
-        assert measure.call_args.args[0] == _PAGEVIEWS
+        measured_query = measure.call_args.args[0]
+        assert {key: value for key, value in measured_query["source"].items() if key != "dateRange"} == {
+            key: value for key, value in _PAGEVIEWS["source"].items() if key != "dateRange"
+        }
+        assert measured_query["source"]["dateRange"]["explicitDate"] is True
+        assert datetime.fromisoformat(measured_query["source"]["dateRange"]["date_from"]) >= timezone.now() - timedelta(
+            days=32
+        )
 
     def test_a_check_created_in_a_child_environment_stays_on_that_environment(self) -> None:
         child = Team.objects.create(organization=self.organization, name="Child", parent_team=self.team)
@@ -735,7 +1029,9 @@ class TestReportCheckAPI(APIBaseTest):
         assert [row["id"] for row in self.client.get(url).json()["results"]] == [check_id]
         assert SignalReportCheck.all_teams.get(id=check_id).team_id == child.id
 
-        SignalReportCheck.all_teams.filter(id=check_id).update(next_run_at=timezone.now() - timedelta(minutes=1))
+        SignalReportCheck.all_teams.filter(id=check_id).update(
+            next_run_at=timezone.now() - timedelta(minutes=1), measurement_start_at=timezone.now() - timedelta(days=32)
+        )
         with patch(_MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)):
             run_due_report_checks()
         result = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT)
@@ -760,7 +1056,7 @@ class TestReportCheckAPI(APIBaseTest):
             ).id
         )
         SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
-            next_run_at=timezone.now() - timedelta(minutes=1)
+            next_run_at=timezone.now() - timedelta(minutes=1), measurement_start_at=timezone.now() - timedelta(days=32)
         )
         with patch(_MEASURE, return_value=MetricMeasurement(value=4.0, measured_at=timezone.now(), series=None)):
             run_due_report_checks()
@@ -1296,7 +1592,36 @@ class TestCheckResultTool(APIBaseTest):
         with self.assertRaises(InvalidCheckResultError):
             self._record(other_check)
 
-    @parameterized.expand([("blank_explanation", {"explanation": "  "}), ("unknown_outcome", {"outcome": "maybe"})])
+    @parameterized.expand(
+        [
+            ("awaiting_data_looks_again", "awaiting_data", SignalReportCheck.Status.ACTIVE),
+            ("unmeasurable_ends_the_check", "unmeasurable", SignalReportCheck.Status.INCONCLUSIVE),
+        ]
+    )
+    def test_an_inconclusive_verdict_records_its_reason(self, _name: str, reason: str, expected_status: str) -> None:
+        check = self._check()
+
+        result = self._record(check, outcome="inconclusive", reason=reason, explanation="No traffic since the fix.")
+
+        assert result.check_status == expected_status
+        check.refresh_from_db()
+        assert check.last_outcome == SignalReportCheck.Outcome.INCONCLUSIVE
+        assert check.last_outcome_reason == reason
+        assert check.consecutive_errors == 0
+        artefact = SignalReportArtefact.objects.get(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        )
+        assert f'"reason":"{reason}"' in artefact.content
+
+    @parameterized.expand(
+        [
+            ("blank_explanation", {"explanation": "  "}),
+            ("unknown_outcome", {"outcome": "maybe"}),
+            ("inconclusive_without_a_reason", {"outcome": "inconclusive"}),
+            ("inconclusive_with_an_unknown_reason", {"outcome": "inconclusive", "reason": "tired"}),
+            ("a_reason_on_another_outcome", {"outcome": "errored", "reason": "awaiting_data"}),
+        ]
+    )
     def test_a_malformed_verdict_is_refused(self, _name, overrides) -> None:
         check = self._check()
 
@@ -1333,7 +1658,7 @@ class TestPendingChecks(APIBaseTest):
         # Well past the soak, but the clock has not started: the report is still open.
         assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
 
-    def test_resolving_the_report_arms_the_check_for_resolve_plus_soak(self) -> None:
+    def test_resolving_the_report_waits_for_a_full_query_window_after_the_soak(self) -> None:
         check = self._pending()
         before = timezone.now()
 
@@ -1341,8 +1666,10 @@ class TestPendingChecks(APIBaseTest):
 
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
-        soak = timedelta(hours=DEFAULT_CHECK_SOAK_HOURS)
-        assert before + soak <= check.next_run_at <= timezone.now() + soak
+        assert check.measurement_start_at is not None
+        assert before <= check.measurement_start_at <= timezone.now()
+        assert check.soak_minutes == DEFAULT_CHECK_SOAK_HOURS * 60
+        assert check.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, check.measurement_start_at)
         assert collect_due_checks(check.next_run_at + timedelta(minutes=1)) == [check]
 
     @parameterized.expand(
@@ -1379,6 +1706,57 @@ class TestPendingChecks(APIBaseTest):
 
         check.refresh_from_db()
         assert check.next_run_at == armed_at
+
+    def test_longer_soak_and_agent_timing_are_preserved(self) -> None:
+        metric = create_check(
+            report=self.report,
+            title="Short metric",
+            kind="metric_threshold",
+            config=_threshold_config(
+                query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-1d")
+            ),
+            attribution=ArtefactAttribution.system(),
+            soak_minutes=3 * 24 * 60,
+        )
+        agent = create_check(
+            report=self.report,
+            title="Investigate",
+            kind="agent",
+            config={"instructions": "Look for the exception."},
+            attribution=ArtefactAttribution.system(),
+            soak_minutes=24 * 60,
+        )
+        resolved_at = timezone.now()
+        arm_pending_checks(team_id=self.team.id, report_id=self.report.id, resolved_at=resolved_at)
+        metric.refresh_from_db()
+        agent.refresh_from_db()
+        assert metric.next_run_at == resolved_at + timedelta(days=3)
+        assert agent.next_run_at == resolved_at + timedelta(days=1)
+        assert agent.measurement_start_at is None
+
+    def test_query_window_longer_than_the_horizon_is_rejected_before_resolution(self) -> None:
+        with self.assertRaisesRegex(CheckCreationError, "90-day horizon"):
+            create_check(
+                report=self.report,
+                title="Yearly metric",
+                kind="metric_threshold",
+                config=_threshold_config(
+                    query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-365d")
+                ),
+                attribution=ArtefactAttribution.system(),
+                soak_minutes=60,
+            )
+
+    def test_invalid_legacy_config_does_not_prevent_other_checks_from_arming(self) -> None:
+        invalid = self._pending()
+        valid = self._pending()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=invalid.id).update(config={})
+        self._resolve()
+        invalid.refresh_from_db()
+        valid.refresh_from_db()
+        assert invalid.status == valid.status == SignalReportCheck.Status.ACTIVE
+        assert valid.measurement_start_at is not None
+        assert valid.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, valid.measurement_start_at)
 
     def test_a_pending_check_retires_when_its_report_never_resolves(self) -> None:
         check = self._pending()
@@ -1424,6 +1802,7 @@ class TestFailedCheckResurfaces(APIBaseTest):
             "title": "Checkout errors stay low",
             "kind": SignalReportCheck.Kind.METRIC_THRESHOLD,
             "config": _threshold_config(baseline_value=40.0),
+            "measurement_start_at": now - timedelta(days=32),
             "next_run_at": now - timedelta(minutes=1),
             "expires_at": now + timedelta(days=30),
         }
@@ -1541,7 +1920,7 @@ class TestScoutCheckTools(APIBaseTest):
             "kind": SignalReportCheck.Kind.METRIC_THRESHOLD,
             "config": _threshold_config(baseline_value=40.0),
             "next_run_at": now + timedelta(days=3),
-            "expires_at": now + timedelta(days=30),
+            "expires_at": now + timedelta(days=60),
         }
         payload.update(overrides)
         return create_report_check(team=self.team, run=self.scout_run, **payload)
@@ -1574,9 +1953,11 @@ class TestScoutCheckTools(APIBaseTest):
             self.report.save(update_fields=["status"])
 
         check.refresh_from_db()
-        soak = timedelta(days=3)
         assert check.status == SignalReportCheck.Status.ACTIVE
-        assert before + soak <= check.next_run_at <= timezone.now() + soak
+        assert check.measurement_start_at is not None
+        assert before <= check.measurement_start_at <= timezone.now()
+        assert check.soak_minutes == 3 * 24 * 60
+        assert check.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, check.measurement_start_at)
 
     def test_a_recurring_check_keeps_its_initial_soak_after_reopening(self) -> None:
         self.report.status = SignalReport.Status.RESOLVED
@@ -1588,7 +1969,8 @@ class TestScoutCheckTools(APIBaseTest):
         )
 
         assert check.status == SignalReportCheck.Status.ACTIVE
-        assert check.next_run_at == first_run
+        assert check.measurement_start_at is not None
+        assert check.next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, check.measurement_start_at)
         assert check.soak_minutes == 3 * 24 * 60
         record_check_verdict(check, CheckVerdict(outcome="passed", explanation="held"), now=first_run)
         self.report.status = SignalReport.Status.READY
@@ -1728,10 +2110,11 @@ class TestResearchAuthoredChecks(APIBaseTest):
             report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
         )
 
-        # Nothing left to wait for, so the check is armed rather than held for a resolve that already happened.
-        soak = timedelta(hours=DEFAULT_CHECK_SOAK_HOURS)
         assert written[0].status == SignalReportCheck.Status.ACTIVE
-        assert before + soak <= written[0].next_run_at <= timezone.now() + soak
+        assert written[0].measurement_start_at is not None
+        assert before <= written[0].measurement_start_at <= timezone.now()
+        assert written[0].soak_minutes == DEFAULT_CHECK_SOAK_HOURS * 60
+        assert written[0].next_run_at == metric_check_ready_at(_PAGEVIEWS, self.team, written[0].measurement_start_at)
 
     def test_a_longer_soak_is_honoured_for_a_fix_that_reaches_users_slowly(self) -> None:
         written = create_checks_from_specs(

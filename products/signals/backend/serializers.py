@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore, priority_from_judgment
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -1363,14 +1363,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             )
         if art is None:
             return None
-        try:
-            data = json.loads(art.content)
-        except (json.JSONDecodeError, TypeError, ValueError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        p = data.get("priority")
-        return p if isinstance(p, str) else None
+        return priority_from_judgment(art.content)
 
     def get_actionability(self, obj: SignalReport) -> str | None:
         data = self._get_actionability_artefact_data(obj)
@@ -1646,6 +1639,95 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
 
 
+class SignalReportListQuerySerializer(serializers.Serializer):
+    count_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return the filtered total with an empty results page. Skips report ordering, "
+            "serialization, and decorative metadata lookups. Defaults to false."
+        ),
+    )
+    include_source_metadata = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass "
+            "false to skip that lookup and get the page from Postgres only: rows then carry an empty "
+            "`source_products` and a null `scout_name`. Load them after with `source_metadata`. "
+            "Defaults to true."
+        ),
+    )
+
+
+MAX_FOR_YOU_REPORTS = 20
+
+
+class SignalReportsForYouQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=MAX_FOR_YOU_REPORTS,
+        help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
+    )
+
+
+class SignalReportsForYouResponseSerializer(serializers.Serializer):
+    results = SignalReportListSerializer(
+        many=True,
+        help_text=(
+            "The open, actionable reports that matter most to the current user, best first: reports "
+            "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
+            "reports that nobody owns. The Today briefing ranks reports the same way."
+        ),
+    )
+    count = serializers.IntegerField(
+        help_text=(
+            "How many open reports are for the current user: the reports in `results`, plus the other "
+            "open, actionable reports that name them as a reviewer."
+        ),
+    )
+
+
+# One list page, with room for a next page's ids that have not loaded yet.
+MAX_SOURCE_METADATA_REPORTS = 100
+
+
+class SignalReportSourceMetadataRequestSerializer(serializers.Serializer):
+    report_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=MAX_SOURCE_METADATA_REPORTS,
+        help_text=f"Reports to describe. At most {MAX_SOURCE_METADATA_REPORTS} ids per call.",
+    )
+
+
+class SignalReportSourceMetadataSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Report id.")
+    source_products = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Distinct source products contributing signals to this report. Empty when it has none yet.",
+    )
+    scout_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="skill_name slug of the scout that authored this report, when scout-authored; null otherwise.",
+    )
+
+
+class SignalReportSourceMetadataResponseSerializer(serializers.Serializer):
+    reports = SignalReportSourceMetadataSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "One entry per requested id, in request order, duplicates removed. An id with no signals in "
+            "this project, including one that is not a report here, gets empty values."
+        ),
+    )
+
+
 class SignalReportMetricRefreshRequestSerializer(serializers.Serializer):
     report_ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -1873,8 +1955,8 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             },
             "soak_minutes": {
                 "help_text": (
-                    "How long after the report resolves a `pending` check waits before its first run. "
-                    "Null on a check that named its own `next_run_at`."
+                    "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution "
+                    "query window. Null on legacy checks that did not record a soak."
                 )
             },
             "run_interval_minutes": {"help_text": "Gap between runs for a recurring check; null for a one-shot."},
