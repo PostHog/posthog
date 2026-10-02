@@ -172,6 +172,10 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
 
+    # Sources with stable upstream resource ids need unfiltered discovery when a stored schema name
+    # may no longer match after an upstream rename.
+    uses_stable_schema_resource_ids: bool = False
+
     # Vendor API versions this source implements, as opaque vendor labels (Stripe date
     # versions, semver, names) — never parsed or ordered by the framework. Sources whose
     # vendor has no meaningful API versioning keep the `UNVERSIONED_API_VERSION` default.
@@ -499,7 +503,12 @@ class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
     """Base class for sources that support resumable full-refresh imports."""
 
-    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
         """Whether this source's resume mechanism covers a run of this shape.
 
         Only the retry budget reads this. A run it covers gets the resumable allowance, which is much
@@ -508,8 +517,9 @@ class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData
         ordinary budgets, because extra attempts would each redo the whole read.
 
         Default True: a REST source paginates the same way whichever sync type it runs. A source
-        whose mechanism is narrower than its class — keyset seeking is a full-load path, and a seek
-        gated behind a retry fallback covers almost nothing — narrows it here.
+        whose mechanism is narrower than its class — keyset seeking is a full-load path, a specific
+        endpoint cannot checkpoint, or a seek gated behind a retry fallback covers almost nothing —
+        narrows it here. ``schema_name`` identifies the endpoint when that distinction matters.
         """
         return True
 

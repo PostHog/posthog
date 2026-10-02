@@ -928,6 +928,7 @@ class SessionRecordingViewSet(
                         # show explicitly selected sessions (e.g. a funnel drop-off handoff)
                         # even outside the date range
                         bypass_date_window_for_session_ids=True,
+                        allow_combined_event_filters=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -1132,6 +1133,13 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
+        report_user_action(
+            user=cast(User, request.user),
+            event="recording deleted",
+            properties={"recording_id": recording.session_id},
+            team=self.team,
+            request=request,
+        )
         return Response(status=204)
 
     @extend_schema(
@@ -1196,6 +1204,13 @@ class SessionRecordingViewSet(
             team_id=self.team.id,
             deleted_count=deleted_count,
             total_requested=len(session_recording_ids),
+        )
+        report_user_action(
+            user=cast(User, request.user),
+            event="recordings bulk deleted",
+            properties={"deleted_count": deleted_count, "total_requested": len(session_recording_ids)},
+            team=self.team,
+            request=request,
         )
 
         if deleted_count > 0:
@@ -1801,6 +1816,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
+    allow_combined_event_filters: bool = False,
 ) -> RecordingsListingResult:
     """
     Loads the listing from ClickHouse, then overlays any Postgres row (pins, shares) onto each result.
@@ -1862,6 +1878,7 @@ def list_recordings_from_query(
             allow_event_property_expansion=allow_event_property_expansion,
             session_ids_to_exclude=session_ids_to_exclude,
             bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+            allow_combined_event_filters=allow_combined_event_filters,
         ).run()
         ch_session_recordings = query_result.results
 

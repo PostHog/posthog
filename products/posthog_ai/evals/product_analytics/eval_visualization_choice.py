@@ -1,10 +1,12 @@
 """Does the sandboxed agent pick the preferred chart type for a question?
 
-Two preferences the tool descriptions steer toward: a single number over a period
-gets the ``Metric`` display rather than ``BoldNumber``, and a question about how
+Preferences the tool descriptions steer toward: a single number over a period
+gets the ``Metric`` display rather than ``BoldNumber``, a question about how
 conversion changes over time gets a funnel with ``funnelVizType: trends`` rather
-than ``steps``. ``InsightShape`` checks the answer query's tool, display,
-comparison, funnel view, and events.
+than ``steps``, and totals per category get ``ActionsBarValue`` rather than the
+time-series ``ActionsBar``. ``InsightShape`` checks the answer query's tool, display,
+comparison, funnel view, and events. ``eval_saved_insight_display`` checks the
+same choices on the query the agent saves with ``insight-create``.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; hogli evals eval_visualization_choice --max-sandboxes 1"
@@ -17,8 +19,11 @@ from typing import Any
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.scorers import NoToolCall
+from products.posthog_ai.eval_harness.scorers import NoToolCall, RequiredToolCall
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS, InsightShape
+
+TIME_SERIES_DISPLAYS = ["ActionsLineGraph", "ActionsBar", "ActionsAreaGraph", "ActionsUnstackedBar"]
+CATEGORY_TOTAL_DISPLAYS = ["ActionsBarValue", "ActionsPie", "ActionsTable"]
 
 
 def _case(name: str, prompt: str, **shape: Any) -> SandboxedEvalCase:
@@ -51,6 +56,30 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
             events=["signed_up"],
         ),
         _case(
+            "totals_uploads_by_file_type",
+            "Which file types do people upload the most? Compare the totals for the last 30 days.",
+            tool="query-trends",
+            display=CATEGORY_TOTAL_DISPLAYS,
+            breakdown="file_type",
+            events=["uploaded_file"],
+        ),
+        _case(
+            "bar_chart_upgrades_by_new_plan",
+            "Show me a bar chart of plan upgrades by new plan over the last 90 days.",
+            tool="query-trends",
+            display="ActionsBarValue",
+            breakdown="new_plan",
+            events=["upgraded_plan"],
+        ),
+        _case(
+            "trend_uploads_by_file_type_weekly",
+            "How have weekly uploads changed over the last 8 weeks for each file type?",
+            tool="query-trends",
+            display=TIME_SERIES_DISPLAYS,
+            breakdown="file_type",
+            events=["uploaded_file"],
+        ),
+        _case(
             "funnel_steps_signup_to_upload",
             "What's the conversion rate from signing up to uploading a first file?",
             tool="query-funnel",
@@ -80,5 +109,49 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
             InsightShape(),
         ],
+        ctx=ctx,
+    )
+
+
+async def eval_saved_insight_display(ctx: EvalContext) -> None:
+    cases = [
+        _case(
+            "saved_totals_uploads_by_file_type",
+            "Save an insight that compares how many files of each file type were uploaded in the last 30 days.",
+            tool="query-trends",
+            display=CATEGORY_TOTAL_DISPLAYS,
+            breakdown="file_type",
+            events=["uploaded_file"],
+        ),
+        _case(
+            "saved_bar_chart_upgrades_by_new_plan",
+            "Save a bar chart of plan upgrades by new plan for the last 90 days.",
+            tool="query-trends",
+            display="ActionsBarValue",
+            breakdown="new_plan",
+            events=["upgraded_plan"],
+        ),
+        _case(
+            "saved_trend_uploads_by_file_type_weekly",
+            "Save an insight of weekly uploads for each file type over the last 8 weeks.",
+            tool="query-trends",
+            display=TIME_SERIES_DISPLAYS,
+            breakdown="file_type",
+            events=["uploaded_file"],
+        ),
+        _case(
+            "saved_metric_signups_vs_previous",
+            "Save an insight with the number of signups in the last 30 days compared with the 30 days before.",
+            tool="query-trends",
+            display="Metric",
+            compare=True,
+            events=["signed_up"],
+        ),
+    ]
+
+    await SandboxedPublicEval(
+        experiment_name="sandboxed-saved-insight-display-cli",
+        cases=cases,
+        scorers=[RequiredToolCall(["insight-create"], name="saved_insight"), InsightShape()],
         ctx=ctx,
     )

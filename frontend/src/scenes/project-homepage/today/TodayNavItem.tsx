@@ -1,14 +1,19 @@
 import { Link } from 'lib/lemon-ui/Link'
 
+import type { BriefingItemStateEnumApi } from 'products/today/frontend/generated/api.schemas'
+
 interface TodayNavItemProps {
     title: string
     meta: string
     color: string
     icon: JSX.Element
     to: string
+    target?: string
     /** Highlighted because the matching report is hovered elsewhere on the page. */
     active?: boolean
     current?: boolean
+    /** Crossed out when the item was resolved after the briefing was written, faded when it was dismissed. */
+    state?: BriefingItemStateEnumApi
     onClick?: () => void
     onHoverChange?: (hovered: boolean) => void
     dataAttr?: string
@@ -20,8 +25,10 @@ export function TodayNavItem({
     color,
     icon,
     to,
+    target,
     active = false,
     current = false,
+    state = 'open',
     onClick,
     onHoverChange,
     dataAttr,
@@ -29,10 +36,12 @@ export function TodayNavItem({
     return (
         <Link
             to={to}
+            target={target}
             subtle
             className="TodayNavItem"
             data-active={active || current}
             aria-current={current ? 'page' : undefined}
+            data-state={state}
             data-attr={dataAttr}
             onClick={onClick}
             onMouseEnter={() => onHoverChange?.(true)}

@@ -330,6 +330,8 @@ Grouped fields with fieldset:
 </div>
 ```
 
+For a select-all over a partly selected list, pass `indeterminate`: the box fills like a checked one and shows a minus instead of a check.
+
 Switch has sizes: `<Switch size="sm" />` or `<Switch size="default" />`
 
 ### Select
@@ -942,6 +944,7 @@ Skipped items don't appear at all.
 
 - **`QuestionnaireChoice` assembles its own row** — the overlaid native radio/checkbox, the indicator, the label, and the shortcut key. Write only the answer's text; add `QuestionnaireChoiceDescription` for a muted second line. `multiple` on the item swaps radios for checkboxes and the indicator's dot for a check.
 - **`QuestionnaireInput` always needs an accessible name.** A placeholder is not a label — pass `aria-label` or point `aria-labelledby` at a visible one. It shares the item's `name`, so typing in it replaces whatever choice was picked. It renders as an `InputGroup` wearing a choice's indicator, filled once there's text and tinted like a picked row — the indicator takes its shape from the choices beside it, round for radios and square for checkboxes. Pass `render` to replace the whole row.
+- **Next and Submit stay disabled until the active question has an answer.** The engine refuses an unanswered question on submit, optional ones included, so the buttons match it; Skip is the way past an optional one. A keyboard submit still runs validation and shows `QuestionnaireError`.
 - **`QuestionnaireActions` is layout only** — a three-column row that pins Previous to the start and hugs Skip and Next/Submit to the end, so buttons don't move as they appear and disappear. It holds no state.
 - **Branching is the app's.** A question that no longer applies gets `disabled`, which drops it out of the order, the progress count, and the validation pass. Same for controlled navigation: pass `item`/`onItemChange` to send the user back to a question that failed the app's own checks, and `invalid` plus `QuestionnaireError` children to say why.
 - Only the active item is visible — the engine hides and inerts the rest, so every question stays mounted and keeps its answer. Don't unmount them yourself.
@@ -1166,7 +1169,8 @@ Quill spacing uses a 4px base (`gap-1` = 4px, `gap-2` = 8px, `gap-4` = 16px). Th
 
 ### Text sizes
 
-- `--text-ui` (13px) is the primary UI text: controls, list rows, chat, and the body text of cards, dialogs, drawers, popovers and tooltips.
+- `--text-ui` (13px) is the primary UI text: controls, list rows, chat rows, and the body text of cards, dialogs, drawers, popovers and tooltips.
+- `--text-sm` (14px) is chat message text: `ChatMessage` and `ChatBubble` content, so a conversation reads at body size beside its 13px rows.
 - `--text-xs` (12px) is secondary text: descriptions, labels, field errors, tables, and `sm` controls. Chat is the exception, and uses `--text-ui` for its help, error and meta text too.
 - In component CSS, write `var(--text-ui, 0.8125rem)`. Set `--text-ui` on an ancestor to rescale the primary text together.
 

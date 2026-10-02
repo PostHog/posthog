@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 import pytest
@@ -9,6 +10,7 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.models import User
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import api, contracts, testing
@@ -284,6 +286,53 @@ def test_deleting_team_batch_exports_continues_past_a_missing_schedule(team):
 
     assert not BatchExport.objects.filter(id__in=[first, second]).exists()
     assert not BatchExportDestination.objects.filter(id__in=destination_ids).exists()
+
+
+def test_workflows_backfill_export_is_a_paused_hourly_events_export_for_the_hog_function(team, organization):
+    user = User.objects.create_and_join(organization=organization, email="backfiller@example.com", password=None)
+    hog_function_id = uuid.uuid4()
+    event_filters: list[dict[str, object]] = [
+        {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}
+    ]
+
+    with mock.patch("products.batch_exports.backend.service.sync_batch_export") as sync_batch_export:
+        ref = api.create_workflows_backfill_export(
+            team.pk,
+            hog_function_id=hog_function_id,
+            name="My destination",
+            event_filters=event_filters,
+            last_modified_by_id=user.pk,
+        )
+
+    sync_batch_export.assert_called_once()
+    batch_export = BatchExport.objects.select_related("destination").get(id=ref.id, team_id=team.pk)
+    assert ref.name == "My destination"
+    assert (
+        batch_export.paused,
+        batch_export.interval,
+        batch_export.model,
+        batch_export.filters,
+        batch_export.last_modified_by_id,
+    ) == (True, "hour", BatchExport.Model.EVENTS, event_filters, user.pk)
+    assert batch_export.destination.type == WORKFLOWS
+    assert batch_export.destination.config == {"hog_function_id": str(hog_function_id)}
+
+
+def test_workflows_backfill_export_rejects_bad_filters_before_it_schedules_anything(team):
+    with (
+        mock.patch("products.batch_exports.backend.service.sync_batch_export") as sync_batch_export,
+        pytest.raises(contracts.InvalidBatchExportFilters),
+    ):
+        api.create_workflows_backfill_export(
+            team.pk,
+            hog_function_id=uuid.uuid4(),
+            name="My destination",
+            event_filters=[{"id": "$pageview", "type": "events"}],
+            last_modified_by_id=1,
+        )
+
+    sync_batch_export.assert_not_called()
+    assert not BatchExport.objects.filter(team_id=team.pk).exists()
 
 
 @pytest.fixture

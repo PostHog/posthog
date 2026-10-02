@@ -1,5 +1,8 @@
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
@@ -23,6 +26,11 @@ describe('todayShellLogic', () => {
         ['/project/1/feature_flags', 'library'],
         ['/project/1/data-management/destinations', 'tools'],
         ['/project/1/sql', 'tools'],
+        ['/project/1/views', 'views'],
+        ['/project/1/canvases/abc', 'views'],
+        ['/project/1/canvases/new', 'views'],
+        ['/project/1/notebooks/abc', 'views'],
+        ['/project/1/dashboard/12', 'views'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
@@ -61,5 +69,32 @@ describe('todayShellLogic', () => {
 
         logic.actions.setSidebarOpen(false)
         expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+    })
+    it('keeps the rail on narrow windows and opens the sidebar as a drawer that closes on navigation', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 800 })
+        try {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            const logic = todayShellLogic()
+            logic.mount()
+
+            expect(logic.values.todayRailEnabled).toBe(true)
+            expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+            expect(logic.values.sidebarVisible).toBe(false)
+
+            logic.actions.setSidebarOpen(false)
+            logic.actions.pickPane('library')
+            expect(logic.values.sidebarVisible).toBe(true)
+            expect(logic.values.sidebarOpen).toBe(false)
+            expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
+
+            router.actions.push('/project/1/insights/abc')
+            expect(logic.values.sidebarVisible).toBe(false)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
     })
 })

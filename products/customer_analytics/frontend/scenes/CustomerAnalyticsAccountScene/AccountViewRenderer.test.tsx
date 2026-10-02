@@ -14,9 +14,13 @@ jest.mock('./AccountViewTile', () => {
     const React = jest.requireActual<typeof import('react')>('react')
 
     return {
-        AccountViewTile: ({ component }: { component: { config?: { searchTerm?: string } } }) => {
+        AccountViewTile: ({ component }: { component: { nodeId: string; config?: { searchTerm?: string } } }) => {
             const [mountedSearchTerm] = React.useState(component.config?.searchTerm)
-            return React.createElement('span', { 'data-attr': 'mounted-search-term' }, mountedSearchTerm)
+            return React.createElement(
+                'span',
+                { 'data-attr': `account-view-tile-${component.nodeId}` },
+                React.createElement('span', { 'data-attr': 'mounted-search-term' }, mountedSearchTerm)
+            )
         },
     }
 })
@@ -30,6 +34,7 @@ function createView(searchTerm: string): AccountViewApi {
             {
                 nodeId: 'tile-1',
                 kind: 'notes',
+                span: 12,
                 config: { searchTerm },
             },
         ]),
@@ -39,6 +44,9 @@ function createView(searchTerm: string): AccountViewApi {
         last_modified_by: 1,
         created_at: '2026-01-01T00:00:00Z',
         updated_at: '2026-01-01T00:00:00Z',
+        can_edit: true,
+        can_delete: true,
+        can_change_visibility: true,
     }
 }
 
