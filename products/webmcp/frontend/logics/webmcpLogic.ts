@@ -56,8 +56,8 @@ export interface webmcpLogicActions {
         preflight: PreflightStatus,
         payload?: any
     ) => {
-        preflight: PreflightStatus
         payload?: any
+        preflight: PreflightStatus
     } // preflightLogic
     loadCurrentTeamSuccess: (
         currentTeam: null | import('~/types').TeamPublicType,
