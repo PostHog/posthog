@@ -49,7 +49,7 @@ export interface TodayMenuParts {
     Sub: (props: TodayMenuSubProps) => JSX.Element
 }
 
-const SUB_CONTENT_CLASS = 'max-h-80 w-64'
+const SUB_CONTENT_CLASS = 'w-64 [&>div]:max-h-[min(20rem,var(--available-height))]'
 
 export const DROPDOWN_PARTS: TodayMenuParts = {
     Item: ({ children, dataAttr, onClick, to, disabled, variant }) => (

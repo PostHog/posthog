@@ -11,14 +11,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.settings import (
     ENDPOINTS,
+    EVAL_SCORES_ENDPOINT,
     PROMPTS_ENDPOINT,
+    PROPERTIES_ENDPOINT,
     REQUESTS_ENDPOINT,
     SESSIONS_ENDPOINT,
     USERS_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.helicone.source import HeliconeSource
 
-FULL_REFRESH_ENDPOINTS = [SESSIONS_ENDPOINT, USERS_ENDPOINT, PROMPTS_ENDPOINT]
+FULL_REFRESH_ENDPOINTS = [
+    SESSIONS_ENDPOINT,
+    USERS_ENDPOINT,
+    PROMPTS_ENDPOINT,
+    PROPERTIES_ENDPOINT,
+    EVAL_SCORES_ENDPOINT,
+]
 
 
 class TestHeliconeSource:

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import {
     Button,
@@ -29,23 +29,12 @@ export interface QuillModePickerProps {
 
 export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillModePickerProps): JSX.Element {
     const [open, setOpen] = useState(false)
-    // Applied once the menu has closed, so the toolbar doesn't relayout under the closing menu.
-    const pendingModeRef = useRef<PermissionMode | null>(null)
     const options = modes.flatMap((mode) => MODE_OPTIONS.filter((option) => option.value === mode))
     const selectedLabel = getModeOption(selectedMode)?.label ?? 'Mode'
     const unsupervised = UNSUPERVISED_MODES.includes(selectedMode)
 
     return (
-        <DropdownMenu
-            open={open}
-            onOpenChange={setOpen}
-            onOpenChangeComplete={(isOpen) => {
-                if (!isOpen && pendingModeRef.current !== null) {
-                    onModeChange(pendingModeRef.current)
-                    pendingModeRef.current = null
-                }
-            }}
-        >
+        <DropdownMenu open={open} onOpenChange={setOpen}>
             <DropdownMenuTrigger
                 render={
                     <Button
@@ -63,8 +52,10 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                 <MenuLabel>Mode</MenuLabel>
                 <DropdownMenuRadioGroup
                     value={selectedMode}
+                    // Applied on pick, not after the menu closes: a message sent during the close would
+                    // otherwise still run in the old mode, which may skip the approval just chosen.
                     onValueChange={(value) => {
-                        pendingModeRef.current = value as PermissionMode
+                        onModeChange(value as PermissionMode)
                         setOpen(false)
                     }}
                 >

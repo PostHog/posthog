@@ -120,22 +120,51 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
-    @parameterized.expand([("boolean", True), ("categorical", True), ("numeric", False)])
-    def test_system_one_supports_boolean_and_categorical_outputs(self, output_type: str, supported: bool) -> None:
+    @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
+    def test_system_one_supports_evaluation_output_types(
+        self, output_type: str, output_config: dict[str, float]
+    ) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "Score quality"},
             output_type=output_type,
-            output_config={},
+            output_config=output_config,
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
         data = {"model_configuration": {"provider": "system_one", "model": "custom-model"}}
-        if supported:
-            with patch.object(serializer, "_validate_chat_model"):
-                self.assertEqual(serializer.validate(data), data)
+        with patch.object(serializer, "_validate_chat_model"):
+            self.assertEqual(serializer.validate(data), data)
+
+    @parameterized.expand([({},), ({"min": 0},), ({"max": 10},), ({"min": 1, "max": 1},)])
+    def test_system_one_requires_numeric_bounds_on_model_change(self, output_config: dict[str, float]) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type="numeric",
+            output_config=output_config,
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with (
+            patch.object(serializer, "_validate_chat_model"),
+            self.assertRaisesMessage(ValidationError, "minimum score below the maximum"),
+        ):
+            serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
+
+    @parameterized.expand([("system_one", False), ("openai", True)])
+    def test_clearing_numeric_bounds_depends_on_provider(self, provider: str, valid: bool) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type="numeric",
+            output_config={"min": 0, "max": 10},
+            model_configuration=LLMModelConfiguration(provider=provider, model="custom-model"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            self.assertEqual(serializer.validated_data["output_config"]["min"], 0)
         else:
-            with self.assertRaisesMessage(ValidationError, "Select a model that supports this evaluation output type"):
-                serializer.validate(data)
+            self.assertIn("output_config", serializer.errors)
 
     @parameterized.expand(
         [

@@ -618,6 +618,146 @@ mod tests {
         assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
     }
 
+    /// `match_property` cannot evaluate a cohort filter, so a winning condition used to claim its
+    /// own properties did not match. The cohort is dynamic on purpose, because the evaluation state
+    /// caches static and realtime memberships only.
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_cohort_filters_against_cohort_membership() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
+                        "type": "OR",
+                        "values": [{
+                            "type": "OR",
+                            "values": [{
+                                "key": "plan",
+                                "type": "person",
+                                "value": "enterprise",
+                                "negation": false,
+                                "operator": "exact"
+                            }]
+                        }]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        context
+            .insert_person(
+                team.id,
+                "cohort_member".to_string(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "non_member".to_string(),
+                Some(json!({"plan": "free"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort_row.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                non_v1: None,
+                extra: Default::default(),
+            }
+        );
+
+        for (distinct_id, is_member) in [("cohort_member", true), ("non_member", false)] {
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.to_string(),
+                None, // device_id
+                team.id,
+                context.create_postgres_router(),
+                cohort_cache.clone(),
+                empty_group_type_cache(),
+                None,
+            )
+            .with_detailed_analysis(true);
+
+            let flags = flag_list_with_metadata(vec![flag.clone()]);
+            let result = matcher
+                .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+                .await
+                .unwrap();
+
+            assert!(!result.errors_while_computing_flags);
+            let flag_details = result.flags.get("test_flag").unwrap();
+            assert_eq!(flag_details.to_value(), FlagValue::Boolean(is_member));
+
+            let conditions = flag_details
+                .conditions
+                .as_ref()
+                .expect("detailed_analysis(true) should populate conditions");
+            assert_eq!(conditions.len(), 1);
+
+            assert_eq!(conditions[0].matched, is_member, "user {distinct_id}");
+            assert_eq!(
+                conditions[0].properties_matched, is_member,
+                "user {distinct_id}"
+            );
+
+            // A member's condition explanation must agree with the MATCHED badge.
+            let expected_condition = if is_member {
+                "Condition 1 matched and passed 100% rollout"
+            } else {
+                "Condition 1 did not match properties"
+            };
+            assert_eq!(
+                conditions[0].explanation, expected_condition,
+                "user {distinct_id}"
+            );
+
+            let properties = &conditions[0].properties;
+            assert_eq!(properties.len(), 1);
+            assert_eq!(properties[0].matched, is_member, "user {distinct_id}");
+            let expected = if is_member {
+                format!("Person is in cohort {}", cohort_row.id)
+            } else {
+                format!("Person is not in cohort {}", cohort_row.id)
+            };
+            assert_eq!(properties[0].explanation, expected, "user {distinct_id}");
+        }
+    }
+
     /// Helper to create a dependency filter for flag-depends-on-flag patterns.
     fn dep_filter(flag_id: i32, value: FlagValue) -> PropertyFilter {
         mock!(crate::properties::property_models::PropertyFilter,
@@ -3771,6 +3911,102 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_static_cohort_filters_against_cohort_membership() {
+        // A static member's membership reaches condition analysis only through the cache that
+        // `prepare_flag_evaluation_state` seeds, because the dynamic path scores every static
+        // cohort as a non-match. Without that seed the condition shows MATCHED above a line
+        // saying the person is not in the cohort.
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort(team.id, Some("Static Cohort".to_string()), json!({}), true)
+            .await
+            .unwrap();
+
+        let distinct_id = "static_analysis_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({})))
+            .await
+            .unwrap();
+        let person_id = context
+            .get_person_id_by_distinct_id(team.id, &distinct_id)
+            .await
+            .unwrap();
+        context
+            .add_person_to_cohort(cohort.id, person_id)
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                non_v1: None,
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        );
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id,
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_detailed_analysis(true);
+
+        let flags = flag_list_with_metadata(vec![flag.clone()]);
+        let result = matcher
+            .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+            .await
+            .unwrap();
+
+        assert!(!result.errors_while_computing_flags);
+        let flag_details = result.flags.get("test_flag").unwrap();
+        assert_eq!(flag_details.to_value(), FlagValue::Boolean(true));
+
+        let conditions = flag_details
+            .conditions
+            .as_ref()
+            .expect("detailed_analysis(true) should populate conditions");
+        assert_eq!(conditions.len(), 1);
+        assert!(conditions[0].matched);
+        assert_eq!(
+            conditions[0].properties[0].explanation,
+            format!("Person is in cohort {}", cohort.id)
+        );
+        assert!(conditions[0].properties[0].matched);
+    }
+
     fn flag_with_group(
         team_id: TeamId,
         group: FlagPropertyGroup,
@@ -6057,6 +6293,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6080,6 +6317,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
 
@@ -6103,6 +6341,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::ConditionMatch,
                 condition_index: Some(0),
                 payload: None,
+                evaluation_v2: None,
             }
         );
     }
