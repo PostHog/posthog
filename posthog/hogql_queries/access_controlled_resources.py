@@ -259,10 +259,10 @@ def queried_access_controlled_resources(
         # cache key by AnalyticsQueryRunner._get_object_access_restrictions.
         non_system_names = table_names - set(system_scopes)
         if non_system_names:
-            if catalog.has_table(non_system_names):
-                scopes.add("warehouse_table")
-
             views = catalog.get_views(non_system_names)
+            # Inside a view walk the parent view already added warehouse_table, so skip the table lookup.
+            if not views and _catalog is None and catalog.has_table(non_system_names):
+                scopes.add("warehouse_table")
             if views:
                 scopes.add("warehouse_view")
                 # A non-materialized view re-resolves to its underlying warehouse tables at execution.
