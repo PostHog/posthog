@@ -609,6 +609,10 @@ export const todayLogic = kea<todayLogicType>([
                 stopWaitingForBriefing: () => 0,
             },
         ],
+        // A refreshed briefing names other reports, so the list the sidebar loaded past the old one goes.
+        moreReports: {
+            refreshBriefing: () => null,
+        },
         // The refresh call returns before the page reloads the briefing. Until that reload returns
         // the `writing` briefing, the page still waits, so the badge does not flip back to the button.
         // A verdict shows at once in the text, the left bar and the hover card. The next briefing load

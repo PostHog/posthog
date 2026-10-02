@@ -309,6 +309,15 @@ describe('todayLogic', () => {
                     canLoadMoreReports: false,
                 })
             expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
+
+            // A refresh writes a briefing over other reports, so the loaded list folds back up.
+            await expectLogic(logic, () => {
+                logic.actions.refreshBriefing()
+            })
+                .toDispatchActions(['refreshBriefing'])
+                .toMatchValues({ moreReports: null, sidebarMoreReports: [], canLoadMoreReports: true })
+                // Let the reload the refresh triggers finish, so it cannot land in the next test.
+                .toDispatchActions(['refreshBriefingSuccess', 'loadPersonalBriefingSuccess'])
         }
     )
 
