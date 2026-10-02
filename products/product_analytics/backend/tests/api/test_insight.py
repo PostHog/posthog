@@ -898,6 +898,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         [
             ("with tags", 'tags=["app"]&tags_match=either'),
             ("without tags", "tags_match=either"),
+            ("tags not an array", "tags=1&tags_match=all"),
+            ("nested tag array", 'tags=[["app"]]&tags_match=all'),
             ("too many tags for all", f"tags={json.dumps([f'tag-{i}' for i in range(21)])}&tags_match=all"),
         ]
     )

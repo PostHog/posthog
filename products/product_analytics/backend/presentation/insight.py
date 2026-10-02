@@ -2148,6 +2148,8 @@ class InsightViewSet(
                 tags_filter = request.GET["tags"]
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
+                    if not isinstance(tags_list, list) or not all(isinstance(tag, str) for tag in tags_list):
+                        raise ValidationError({"tags": "Must be a JSON array of strings."})
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
