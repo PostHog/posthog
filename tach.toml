@@ -235,6 +235,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.feature_flags",
+    "products.notebooks",
     "products.tasks",
 ]
 layer = "modules"
