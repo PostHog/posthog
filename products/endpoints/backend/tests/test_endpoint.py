@@ -1347,6 +1347,42 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["execution_query"] is not None
         assert data["display_execution_query"] is not None
 
+    def test_preview_of_materialized_version_returns_execution_query(self):
+        endpoint = create_endpoint_with_version(
+            name="orders_summary",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() AS total FROM events"},
+            created_by=self.user,
+        )
+        version = endpoint.get_version()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name=version.materialized_view_name,
+            query=version.query,
+            is_materialized=True,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+            table=DataWarehouseTable.objects.create(
+                team=self.team,
+                name="orders_summary_backing_table",
+                columns={"total": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+                format=DataWarehouseTable.TableFormat.Parquet,
+                url_pattern="s3://test-bucket/orders_summary/*.parquet",
+            ),
+        )
+        endpoint.versions.update(saved_query=saved_query)
+
+        with mock.patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/orders_summary/materialization_preview/",
+                {},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        execution_query = response.json()["execution_query"]
+        assert execution_query is not None
+        assert "orders_summary_v1" in execution_query
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
