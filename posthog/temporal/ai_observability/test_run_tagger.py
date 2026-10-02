@@ -554,18 +554,38 @@ class TestRunTaggerWorkflow:
         assert seen_events == [reference, reference, reference]
 
     @pytest.mark.asyncio
-    async def test_the_hog_tagger_activity_hydrates_a_reference(self):
-        full_event = create_mock_event_data(team_id=1, uuid="g1")
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event", return_value=full_event
-        ) as mock_fetch:
-            result = await execute_hog_tagger_activity(
-                make_hog_tagger_dict(team_id=1, source="return ['billing']"),
-                {"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00", "awaiting_ingestion": True},
-            )
+    @pytest.mark.parametrize("activity_name", ["execute_hog_tagger_activity", "emit_tagger_event_activity"])
+    async def test_tagger_activities_read_a_reference_off_the_event_loop(self, activity_name: str):
+        full_event = create_mock_event_data(team_id=1, uuid="g1", properties={"$ai_trace_id": "t1"})
+        reference = {"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00", "awaiting_ingestion": True}
+        read_on_event_loop: list[bool] = []
 
-        assert mock_fetch.call_count == 1
-        assert result["tags"] == ["billing"]
+        def fetch(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            try:
+                asyncio.get_running_loop()
+                read_on_event_loop.append(True)
+            except RuntimeError:
+                read_on_event_loop.append(False)
+            return full_event
+
+        tagger = make_hog_tagger_dict(team_id=1, source="return ['billing']")
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event", side_effect=fetch),
+            patch("posthog.temporal.ai_observability.run_tagger.capture_ai_internal_for_team") as mock_capture,
+        ):
+            if activity_name == "execute_hog_tagger_activity":
+                result = await execute_hog_tagger_activity(tagger, reference)
+                assert result["tags"] == ["billing"]
+            else:
+                result = {"tags": ["billing"], "reasoning": "", "is_hog": True}
+                await emit_tagger_event_activity(
+                    EmitTaggerEventInputs(
+                        tagger=tagger, event_data=reference, result=result, start_time=datetime(2024, 1, 1)
+                    )
+                )
+                assert mock_capture.call_args.kwargs["properties"]["$ai_trace_id"] == "t1"
+
+        assert read_on_event_loop == [False]
 
     def test_parse_inputs(self):
         event_data = create_mock_event_data(team_id=1)

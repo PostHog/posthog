@@ -511,11 +511,12 @@ class EmitTaggerEventInputs:
 async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     """Emit $ai_tag event via capture_internal."""
     tagger = inputs.tagger
-    event_data = hydrate_event_reference(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
     def _emit():
+        # A reference costs a ClickHouse read, so it happens here in the thread, off the event loop.
+        event_data = hydrate_event_reference(inputs.event_data)
         properties_raw = (
             json.loads(event_data["properties"])
             if isinstance(event_data["properties"], str)
@@ -565,7 +566,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
         await database_sync_to_async(_emit, thread_sensitive=False)()
     except CaptureInternalError as e:
         if e.is_billing_limit_exceeded:
-            logger.info("Skipping tag event emission; team over billing quota", team_id=event_data["team_id"])
+            logger.info("Skipping tag event emission; team over billing quota", team_id=inputs.event_data["team_id"])
             return
         raise
 
