@@ -58,10 +58,7 @@ export const engagementEventsLogic = kea<engagementEventsLogicType>([
     listeners(({ values }) => {
         const saveEngagementEventsCapture = async (enabled: boolean): Promise<boolean> => {
             await teamLogic.asyncActions.updateCurrentTeam({
-                workflows_config: {
-                    ...values.currentTeam?.workflows_config,
-                    capture_workflows_engagement_events: enabled,
-                },
+                workflows_config: { capture_workflows_engagement_events: enabled },
             })
             return values.engagementEventsCaptured === enabled
         }
