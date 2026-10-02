@@ -205,9 +205,9 @@ export interface todayLogicValues {
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    askingAi: boolean
     briefing: TodayBriefingSegment[][]
     briefingItems: BriefingItemApi[]
-    askingAi: boolean
     briefingPolls: number
     briefingProgress: TodayBriefingProgress | null
     briefingWaiting: boolean
