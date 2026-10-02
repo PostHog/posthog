@@ -17,6 +17,7 @@ const OPEN_TAG_PATTERN =
 const CLOSE_TAG_PATTERN = /<\/([a-z][\w-]*)\s*>/g;
 const URL_PATTERN = /<(https?:\/\/[^>\n]+)>|https?:\/\/[^\s<>"'`[\]]+/g;
 const LINK_LABEL_PATTERN = /(?<!!)\[([^[\]\n]*)\]\($/;
+const LIST_MARKER_PATTERN = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
 const MAX_REFERENCES = 50;
 const MAX_OBJECT_ID_LENGTH = 16_384;
 const MAX_LABEL_LENGTH = 255;
@@ -79,10 +80,22 @@ function stripInlineCode(line: string): string {
 // renderer shows as code. Mirrors the fence rules react-markdown applies:
 // backtick or tilde fences of three or more, up to three leading spaces, closed
 // only by a same-character run at least as long as the opener. Indented code
-// blocks are left alone on purpose — a line-based strip would also drop real
-// tags nested under list items; full parsing lives in the AST plugin instead.
+// blocks are blanked only outside lists, because list items indent real tags.
+function indentWidth(line: string): number {
+  let width = 0;
+  for (const char of line) {
+    if (char === " ") width++;
+    else if (char === "\t") width += 4 - (width % 4);
+    else break;
+  }
+  return width;
+}
+
 function stripCode(markdown: string): string {
   let fence: { char: string; length: number } | null = null;
+  let inList = false;
+  let inIndentedCode = false;
+  let afterBlank = true;
   return markdown
     .split("\n")
     .map((line) => {
@@ -95,6 +108,23 @@ function stripCode(markdown: string): string {
           line.slice(fenceMatch[0].length).trim() === "";
         if (closes) fence = null;
         return "";
+      }
+      if (line.trim() === "") {
+        afterBlank = true;
+        return "";
+      }
+      const indent = indentWidth(line);
+      const followsBlank = afterBlank;
+      afterBlank = false;
+      if (indent >= 4 && (inIndentedCode || (followsBlank && !inList))) {
+        inIndentedCode = true;
+        return "";
+      }
+      inIndentedCode = false;
+      if (LIST_MARKER_PATTERN.test(line)) {
+        inList = true;
+      } else if (indent === 0 && followsBlank) {
+        inList = false;
       }
       if (fenceMatch) {
         fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };

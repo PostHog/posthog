@@ -32,7 +32,10 @@ import {
   toAcpMcpServers,
 } from "@posthog/agent-contracts";
 import { prependProductEngineerPrompt } from "@posthog/agent-contracts/product-engineer-prompt";
-import { appendRichOutputPrompt, getProjectWebUrl } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  appendRichOutputPrompt,
+  getProjectWebUrl,
+} from "@posthog/agent-contracts/rich-output-prompt";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";

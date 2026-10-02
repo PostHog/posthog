@@ -99,12 +99,28 @@ describe("extractPostHogObjectReferences", () => {
       "multi-backtick inline span",
       ['``<insight id="9pQx3">Checkout funnel</insight>``'],
     ],
+    [
+      "indented code block",
+      ["Example:", "", '    <insight id="9pQx3">Checkout funnel</insight>'],
+    ],
   ] as const)(
     "ignores tags the renderer shows as code inside a %s",
     (_label, lines) => {
       expect(extractPostHogObjectReferences(lines.join("\n"))).toEqual([]);
     },
   );
+
+  it("keeps tags indented under a list item", () => {
+    expect(
+      extractPostHogObjectReferences(
+        [
+          "1. Signups",
+          "",
+          '    <insight id="9pQx3">Checkout funnel</insight>',
+        ].join("\n"),
+      ),
+    ).toEqual([{ kind: "insight", id: "9pQx3", label: "Checkout funnel" }]);
+  });
 
   it("stays fast on many unmatched opening tags", () => {
     const hostile = `${'<insight id="x">'.repeat(20_000)}\n<flag id="real" />`;
