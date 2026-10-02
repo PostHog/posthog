@@ -586,6 +586,19 @@ def test_backfill_fails_without_copying_when_a_safety_check_fails(
     assert stored_rows(cluster) == Counter()
 
 
+def test_consumer_lag_check_sets_the_cutoff_before_the_lag_limit_and_the_delivery_timeout() -> None:
+    cluster = MagicMock()
+    cluster.map_any_host_in_shards_by_role.return_value.result.return_value = {1: (2, 30)}
+    backfill = shard_backfill(
+        FlagEvaluationsBackfillConfig(max_consumer_lag_seconds=600, max_unmerged_parts=0), cluster=cluster
+    )
+
+    with time_machine.travel(datetime(2026, 3, 10, 12, tzinfo=UTC), tick=False):
+        delivered_before = backfill.check_consumer_lag()
+
+    assert delivered_before == datetime(2026, 3, 10, 11, 45, tzinfo=UTC)
+
+
 BELOW_MOVE_LINE = [
     PolicyDisk(volume_priority=1, move_factor=0.1, free_bytes=50, total_bytes=1000),
     PolicyDisk(volume_priority=2, move_factor=0.1, free_bytes=5000, total_bytes=8000),
