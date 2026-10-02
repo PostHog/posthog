@@ -1,4 +1,7 @@
+import math
 import logging
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 
 from products.ai_observability.backend.llm.types import StreamChunk
 
@@ -31,6 +34,22 @@ class RateLimitError(LLMError):
     """Raised when rate limit is exceeded"""
 
 
+class RetryableRateLimitError(RateLimitError):
+    def __init__(self, message: str, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.retry_after: float | None = None
+        if retry_after:
+            try:
+                delay = float(retry_after)
+            except ValueError:
+                try:
+                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
+                except (ValueError, TypeError, OverflowError):
+                    return
+            if math.isfinite(delay):
+                self.retry_after = max(1, min(delay, 60))
+
+
 class QuotaExceededError(LLMError):
     """Raised when API quota is exceeded"""
 
@@ -39,6 +58,23 @@ class ProviderConnectionError(LLMError):
     """Raised on a transient network/transport error talking to the provider — connection reset,
     read timeout, DNS failure. Retryable: callers should retry rather than treat it as a hard error,
     and should not log it as an exception since it's usually resolved on the next attempt."""
+
+
+class ProviderTimeoutError(ProviderConnectionError):
+    def __init__(self, timeout: float) -> None:
+        super().__init__(
+            f"The endpoint did not finish within {timeout:g} seconds. Check the endpoint's response time before trying again."
+        )
+
+
+RESPONSE_LIMIT_MESSAGE = (
+    "The endpoint returned a compressed or oversized response. "
+    "Configure it to return uncompressed responses no larger than 1 MiB."
+)
+
+
+class ProviderRequestRejectedError(LLMError):
+    """A non-retryable request rejection with a message safe to show to the user."""
 
 
 class ProviderConfigurationError(LLMError):
@@ -167,6 +203,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "This conversation is too long for the model's context window. Shorten it, then try again."
     if isinstance(error, OutputTokenLimitError):
         return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, (ProviderTimeoutError, ProviderRequestRejectedError)):
+        return str(error)
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):

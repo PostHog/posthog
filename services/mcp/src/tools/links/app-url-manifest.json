@@ -1684,6 +1684,11 @@
         "params": [],
         "scope": "project"
     },
+    "taskNewSession": {
+        "template": "/spaces/new",
+        "params": [],
+        "scope": "project"
+    },
     "taskSpace": {
         "template": "/spaces/{id}",
         "params": ["id"],
@@ -1691,6 +1696,11 @@
     },
     "taskSpaceCanvases": {
         "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceNewSession": {
+        "template": "/spaces/{id}/new",
         "params": ["id"],
         "scope": "project"
     },

@@ -235,6 +235,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.feature_flags",
+    "products.notebooks",
     "products.tasks",
 ]
 layer = "modules"
@@ -1167,10 +1168,13 @@ expose = [
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
+    "backend\\.temporal\\.schedule\\.create_experiment_scheduled_recalculation_schedules",
 ]
 from = [
     "products.experiments",
