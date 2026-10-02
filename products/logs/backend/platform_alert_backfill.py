@@ -1,7 +1,7 @@
 """One-way copy of logs alert configurations into the skeleton shared tables.
 
-The control plane stays with the logs product: this reads, never writes back, and nothing
-keeps the copy in sync afterwards. Run it again to pick up changes.
+The control plane stays with the logs product: this reads, never writes back. After the first
+copy, `platform_alert_sync` carries each edit across. Run it again to repair a copy.
 
 `legacy_configuration_id` carries the row each copy came from, so a second run updates
 rather than duplicates, and a later comparison can line the two stacks up per alert.
@@ -24,6 +24,28 @@ class BackfillCounts:
     updated: int
 
 
+def platform_upsert_for(configuration: LogsAlertConfiguration) -> PlatformAlertUpsert:
+    """The platform copy of one logs alert configuration."""
+    return PlatformAlertUpsert(
+        legacy_configuration_id=configuration.id,
+        team_id=configuration.team_id,
+        name=configuration.name,
+        enabled=configuration.enabled,
+        source_kind=SourceKind.LOGS,
+        source_config=configuration.filters,
+        threshold_count=configuration.threshold_count,
+        threshold_operator=configuration.threshold_operator,
+        window_minutes=configuration.window_minutes,
+        check_interval_minutes=configuration.check_interval_minutes,
+        evaluation_periods=configuration.evaluation_periods,
+        datapoints_to_alarm=configuration.datapoints_to_alarm,
+        cooldown_minutes=configuration.cooldown_minutes,
+        schedule_restriction=configuration.schedule_restriction,
+        next_check_at=configuration.next_check_at,
+        snooze_until=configuration.snooze_until,
+    )
+
+
 def backfill_platform_alert_configurations(*, team_id: int | None = None) -> BackfillCounts:
     """Copies every logs alert configuration, or one team's."""
     source = LogsAlertConfiguration.objects.all()
@@ -33,26 +55,7 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None) -> Bac
     created = 0
     updated = 0
     for configuration in source.iterator():
-        was_created = upsert_configuration(
-            PlatformAlertUpsert(
-                legacy_configuration_id=configuration.id,
-                team_id=configuration.team_id,
-                name=configuration.name,
-                enabled=configuration.enabled,
-                source_kind=SourceKind.LOGS,
-                source_config=configuration.filters,
-                threshold_count=configuration.threshold_count,
-                threshold_operator=configuration.threshold_operator,
-                window_minutes=configuration.window_minutes,
-                check_interval_minutes=configuration.check_interval_minutes,
-                evaluation_periods=configuration.evaluation_periods,
-                datapoints_to_alarm=configuration.datapoints_to_alarm,
-                cooldown_minutes=configuration.cooldown_minutes,
-                schedule_restriction=configuration.schedule_restriction,
-                next_check_at=configuration.next_check_at,
-                snooze_until=configuration.snooze_until,
-            )
-        )
+        was_created = upsert_configuration(platform_upsert_for(configuration))
         if was_created:
             created += 1
         else:
