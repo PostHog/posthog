@@ -24614,6 +24614,55 @@ export namespace Schemas {
       has_misconfigured: boolean;
     }
 
+    export interface ConversionPeopleRequest {
+      /** The table query whose conversion cell was selected. */
+      source: MarketingAnalyticsTableQuery;
+      /** The selected conversion goal ID. */
+      goal_id: string;
+      /** The displayed row grouping value. */
+      group: string;
+      /** The displayed row source. */
+      source_name?: string;
+      /**
+         * The displayed campaign ID, omitted for comparison rows.
+         * @nullable
+         */
+      campaign_id?: string | null;
+      /**
+         * Search by person name, email, or ID.
+         * @maxLength 200
+         */
+      search?: string;
+      /**
+         * The number of people to skip.
+         * @minimum 0
+         * @maximum 10000
+         */
+      offset?: number;
+      /**
+         * The maximum number of people to return.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+    }
+
+    export interface ConversionPerson {
+      /** The person's ID. */
+      id: string;
+      /** The person's display name. */
+      name: string;
+    }
+
+    export interface ConversionPeopleResponse {
+      /** The people attributed to this conversion cell. */
+      results: ConversionPerson[];
+      /** Whether another page of people is available. */
+      has_more: boolean;
+      /** Whether the conversion data is still being prepared. */
+      preparing: boolean;
+    }
+
     export type ConversionRateInputType = typeof ConversionRateInputType[keyof typeof ConversionRateInputType];
 
 

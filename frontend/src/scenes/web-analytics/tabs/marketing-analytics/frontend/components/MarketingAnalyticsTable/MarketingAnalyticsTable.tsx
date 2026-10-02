@@ -8,6 +8,7 @@ import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import {
@@ -16,6 +17,7 @@ import {
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsConstants,
     MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsItem,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
@@ -24,6 +26,10 @@ import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/Marketi
 import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
+
+import { ConversionPeopleModal } from 'products/marketing_analytics/frontend/ConversionPeopleModal'
+import { conversionPeopleRequest } from 'products/marketing_analytics/frontend/conversionPeopleRequest'
+import { ConversionPeopleRequestApi } from 'products/marketing_analytics/frontend/generated/api.schemas'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -52,10 +58,12 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
+    const hasConversionPeople = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_PEOPLE')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(query.source, insightProps)
 
     const [searchTerm, setSearchTerm] = useState('')
+    const [people, setPeople] = useState<{ request: ConversionPeopleRequestApi; goalName: string } | null>(null)
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -97,15 +105,43 @@ export const MarketingAnalyticsTable = ({
                 return Array.from(allKnownColumns).reduce(
                     (acc, column) => {
                         const isGroupingColumn = allGroupingAliases.includes(column)
+                        const goal = conversion_goals.find((goal) => goal.conversion_goal_name === column)
                         acc[column] = {
-                            render: (props) => (
-                                <MarketingAnalyticsCell
-                                    {...props}
-                                    style={{
-                                        maxWidth: isGroupingColumn ? '200px' : undefined,
-                                    }}
-                                />
-                            ),
+                            render: (props) => {
+                                const cell = (
+                                    <MarketingAnalyticsCell
+                                        {...props}
+                                        style={{
+                                            maxWidth: isGroupingColumn ? '200px' : undefined,
+                                        }}
+                                    />
+                                )
+                                const value = (props.value as MarketingAnalyticsItem | null)?.value
+                                const request =
+                                    hasConversionPeople &&
+                                    !isSharedView() &&
+                                    goal &&
+                                    typeof value === 'number' &&
+                                    value > 0
+                                        ? conversionPeopleRequest(
+                                              (props.query as DataTableNode).source as MarketingAnalyticsTableQuery,
+                                              props.record,
+                                              goal.conversion_goal_id
+                                          )
+                                        : null
+                                return request && goal ? (
+                                    <LemonButton
+                                        type="tertiary"
+                                        fullWidth
+                                        tooltip="View people attributed to these conversions"
+                                        onClick={() => setPeople({ request, goalName: goal.conversion_goal_name })}
+                                    >
+                                        {cell}
+                                    </LemonButton>
+                                ) : (
+                                    cell
+                                )
+                            },
                         }
                         return acc
                     },
@@ -113,11 +149,12 @@ export const MarketingAnalyticsTable = ({
                 )
             })(),
         }),
-        [insightProps, query.source, searchTerm, conversion_goals]
+        [insightProps, query.source, searchTerm, conversion_goals, hasConversionPeople]
     )
 
     return (
         <div className="bg-surface-primary">
+            {people && <ConversionPeopleModal {...people} onClose={() => setPeople(null)} />}
             <div className="p-4 border-b border-border bg-bg-light">
                 <div className="flex flex-wrap gap-4 justify-between items-center">
                     <div className="flex items-center gap-2">

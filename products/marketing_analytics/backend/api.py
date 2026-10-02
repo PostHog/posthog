@@ -26,7 +26,14 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, DateRange, SourceMap
+from posthog.schema import (
+    ConversionGoalFilter1,
+    ConversionGoalFilter2,
+    ConversionGoalFilter3,
+    DateRange,
+    MarketingAnalyticsTableQuery,
+    SourceMap,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -51,6 +58,7 @@ from products.marketing_analytics.backend.services.conversion_goals_inspector im
     explain_conversion_goal,
     list_conversion_goals,
 )
+from products.marketing_analytics.backend.services.conversion_people import ConversionPeopleQuery
 from products.marketing_analytics.backend.services.data_source_health import get_data_source_health
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
@@ -1094,6 +1102,50 @@ class ApplySetupOpsResponseSerializer(serializers.Serializer):
     marketing_analytics_config = serializers.JSONField(help_text="The config as it now stands")
 
 
+@extend_schema_field(MarketingAnalyticsTableQuery)  # type: ignore[arg-type]  # Supported by the Pydantic schema extension.
+class ConversionPeopleSourceField(serializers.JSONField):
+    def to_internal_value(self, data: object) -> dict[str, Any]:
+        try:
+            return MarketingAnalyticsTableQuery.model_validate(data).model_dump(mode="json")
+        except PydanticValidationError:
+            raise serializers.ValidationError("Provide a valid Marketing analytics table query.")
+
+
+class ConversionPeopleRequestSerializer(serializers.Serializer):
+    source = ConversionPeopleSourceField(  # type: ignore[assignment]
+        help_text="The table query whose conversion cell was selected."
+    )
+    goal_id = serializers.CharField(help_text="The selected conversion goal ID.")
+    group = serializers.CharField(allow_blank=True, help_text="The displayed row grouping value.")
+    source_name = serializers.CharField(default="", allow_blank=True, help_text="The displayed row source.")
+    campaign_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="The displayed campaign ID, omitted for comparison rows.",
+    )
+    search = serializers.CharField(
+        default="", allow_blank=True, max_length=200, help_text="Search by person name, email, or ID."
+    )
+    offset = serializers.IntegerField(
+        default=0, min_value=0, max_value=10000, help_text="The number of people to skip."
+    )
+    limit = serializers.IntegerField(
+        default=50, min_value=1, max_value=100, help_text="The maximum number of people to return."
+    )
+
+
+class ConversionPersonSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The person's ID.")
+    name = serializers.CharField(help_text="The person's display name.")
+
+
+class ConversionPeopleResponseSerializer(serializers.Serializer):
+    results = ConversionPersonSerializer(many=True, help_text="The people attributed to this conversion cell.")
+    has_more = serializers.BooleanField(help_text="Whether another page of people is available.")
+    preparing = serializers.BooleanField(help_text="Whether the conversion data is still being prepared.")
+
+
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # `marketing_analytics` is gated by the API scope of the same name and inherits
     # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
@@ -1102,6 +1154,28 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "marketing_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
+
+    @validated_request(
+        request_serializer=ConversionPeopleRequestSerializer,
+        responses={200: ConversionPeopleResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["marketing_analytics:read", "person:read"])
+    def conversion_people(self, request: Request, *args: object, **kwargs: object) -> Response:
+        data = request.validated_data
+        result = ConversionPeopleQuery(
+            query=MarketingAnalyticsTableQuery.model_validate(data["source"]),
+            team=self.team,
+            user=cast(User, request.user),
+        ).people(
+            goal_id=data["goal_id"],
+            group=data["group"],
+            source=data["source_name"],
+            campaign_id=data.get("campaign_id"),
+            search=data["search"],
+            offset=data["offset"],
+            limit=data["limit"],
+        )
+        return Response(ConversionPeopleResponseSerializer(result).data)
 
     @validated_request(
         query_serializer=UtmAuditQuerySerializer,

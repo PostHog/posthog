@@ -14,6 +14,8 @@ import type {
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
+    ConversionPeopleRequestApi,
+    ConversionPeopleResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
     GoalExplanationApi,
@@ -139,6 +141,23 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(conversionGoalWriteApi),
+    })
+}
+
+export const getMarketingAnalyticsConversionPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_people/`
+}
+
+export const marketingAnalyticsConversionPeopleCreate = async (
+    projectId: string,
+    conversionPeopleRequestApi: ConversionPeopleRequestApi,
+    options?: RequestInit
+): Promise<ConversionPeopleResponseApi> => {
+    return apiMutator<ConversionPeopleResponseApi>(getMarketingAnalyticsConversionPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversionPeopleRequestApi),
     })
 }
 

@@ -195,6 +195,16 @@ Explicit column options in a shared URL take precedence over saved preferences, 
 Changing tabs or dashboard filters preserves those column options in the URL.
 Reset to defaults clears the custom selection, sorting, and pins for later visits.
 
+### Conversion people
+
+Behind `marketing-analytics-conversion-people`, positive custom conversion cells open a Marketing analytics-owned people list in Ad performance and the legacy dashboard.
+The product endpoint reuses the table's attribution query and campaign mappings to resolve the selected row, then searches and paginates distinct people in ClickHouse.
+It preserves the current period, filters, and conversion goal; a person with multiple conversions appears once.
+Ad and ad group rows and shared dashboards do not expose the action.
+Missing attribution precomputes return a retryable preparing state, not an empty cached result.
+The recordings action opens the existing person's Recordings tab; it does not restrict recordings to the exact conversion session or table date range.
+This flow does not change the shared persons modal, query registry, or query cache.
+
 ## Marketing metric chart
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.
