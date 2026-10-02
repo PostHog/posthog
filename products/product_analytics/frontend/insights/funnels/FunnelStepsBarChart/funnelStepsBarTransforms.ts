@@ -154,7 +154,7 @@ export function resolveFunnelStepClick(
 export type FunnelStepBarLabels = NonNullable<FunnelsFilter['stepBarLabels']>
 
 export function formatFunnelStepBarLabel(mode: FunnelStepBarLabels, ratePercent: number, count: number): string {
-    const rate = percentage(ratePercent / RATE_TO_PERCENT, 2)
+    const rate = percentage(ratePercent / RATE_TO_PERCENT, 0)
     if (mode === 'percentage') {
         return rate
     }
