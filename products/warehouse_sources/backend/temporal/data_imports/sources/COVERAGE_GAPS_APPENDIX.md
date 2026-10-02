@@ -3971,14 +3971,14 @@ Note: Helicone's API is POST-query shaped rather than REST-collection shaped, so
 
 ## Hellobaton — gaps
 
-Today (11): `activity`, `companies`, `milestones`, `phases`, `project_attachments`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
+Today (15): `activity`, `companies`, `custom_field_values`, `custom_fields`, `milestones`, `phases`, `project_attachments`, `project_phases`, `project_users`, `projects`, `task_attachments`, `tasks`, `templates`, `time_entries`, `users`
 
 Diffed against: <https://app.hellobaton.com/api/swagger.json>
 
-- [ ] `project_users` — project membership join table — who is on which project, missing entirely today (high)
-- [ ] `custom_field_values` — the actual custom field data on projects and tasks; without it custom fields are invisible (high)
-- [ ] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
-- [ ] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
+- [x] `project_users` — project membership join table — who is on which project, missing entirely today (high)
+- [x] `custom_field_values` — the actual custom field data on projects and tasks; without it custom fields are invisible (high)
+- [x] `custom_fields` — lookup table naming and typing the custom field ids carried by custom_field_values (high)
+- [x] `project_phases` — per-project phase instances with dates — the state/transition history behind project progress (high)
 - [ ] `comments` — collaboration events on projects and tasks, the main activity signal alongside activity (high)
 - [ ] `custom_field_options` — lookup resolving picklist option ids stored in custom_field_values (medium)
 - [ ] `departments` — lookup table resolving the department ids on users and projects (medium)
