@@ -952,6 +952,30 @@ describe('sqlEditorLogic', () => {
             })
         })
 
+        it('opens the insight when Monaco loads after the URL handler stops waiting for it', async () => {
+            jest.useFakeTimers()
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
+
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                await jest.advanceTimersByTimeAsync(11_000)
+                await expectLogic(logic).toNotHaveDispatchedActions(['editInsight'])
+            } finally {
+                jest.useRealTimers()
+            }
+
+            sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+
+            await expectLogic(logic)
+                .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                .toMatchValues({
+                    editingInsight: partial({
+                        short_id: MOCK_INSIGHT_SHORT_ID,
+                    }),
+                })
+        })
+
         it('preserves editingInsight when reopening after starting from a new SQL tab', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,

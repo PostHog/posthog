@@ -1478,6 +1478,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         ) {
             actions.initialize()
 
+            const pendingUrlOpen = cache.pendingUrlOpen
+            if (pendingUrlOpen) {
+                cache.pendingUrlOpen = null
+                void pendingUrlOpen()
+            }
+
             // Listen for cursor position changes to update the active query highlight.
             // Debounced because each run can fire a HogQLMetadata request for the current
             // subquery, which is too expensive to do on every arrow key.
@@ -3508,7 +3514,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
-    urlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props, cache }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return
@@ -3863,6 +3869,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             if (props.monaco) {
                 await createQueryTab()
             } else {
+                // The newest URL wins, so drop an older URL target that still waits for Monaco
+                cache.pendingUrlOpen = null
                 const waitUntilMonaco = async (): Promise<void> => {
                     return await new Promise((resolve, reject) => {
                         let intervalCount = 0
@@ -3887,6 +3895,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     // Monaco timed out - still try to create tab if monaco loaded late
                     if (props.monaco) {
                         await createQueryTab()
+                    } else {
+                        // A hidden browser tab can delay Monaco past the wait, and nothing runs this handler
+                        // again when Monaco loads. propsChanged opens the URL target when Monaco arrives.
+                        cache.pendingUrlOpen = createQueryTab
                     }
                 }
             }
