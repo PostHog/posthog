@@ -1668,6 +1668,10 @@ class MeetingSerializer(DataclassSerializer):
 
     id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
     title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    is_recurring = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the meeting is an occurrence of a recurring series. Only the next upcoming occurrence of a series is listed.",
+    )
     gong_url = serializers.URLField(
         read_only=True,
         allow_null=True,
@@ -1686,7 +1690,17 @@ class MeetingSerializer(DataclassSerializer):
     class Meta:
         dataclass = MeetingView
         ref_name = "Meeting"
-        fields = ["id", "title", "gong_url", "start_time", "end_time", "organizer_email", "status", "participants"]
+        fields = [
+            "id",
+            "title",
+            "is_recurring",
+            "gong_url",
+            "start_time",
+            "end_time",
+            "organizer_email",
+            "status",
+            "participants",
+        ]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):

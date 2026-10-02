@@ -1178,6 +1178,8 @@ export interface MeetingApi {
     readonly id: string
     /** Meeting title; may be empty. */
     readonly title: string
+    /** Whether the meeting is an occurrence of a recurring series. Only the next upcoming occurrence of a series is listed. */
+    readonly is_recurring: boolean
     /**
      * Gong call URL matched through the calendar event id; null when no Gong call is available.
      * @nullable
