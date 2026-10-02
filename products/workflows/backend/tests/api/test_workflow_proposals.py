@@ -310,6 +310,72 @@ class TestWorkflowProposals(APIBaseTest):
         assert "api_key" not in stored.content["actions"][0]["config"]["inputs"]
         assert "sk-live-not-a-real-key" not in json.dumps(proposal)
 
+    def test_a_secret_on_a_step_the_suggestion_adds_is_not_returned(self, _mock_flag):
+        secret_template = {
+            **webhook_template,
+            "id": "template-webhook-secret",
+            "inputs_schema": [
+                *(webhook_template.get("inputs_schema") or []),
+                {"key": "api_key", "type": "string", "secret": True},
+            ],
+        }
+        sync_template_to_db(secret_template)
+        flow_id = self._create_active_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        draft_step = {
+            "id": "action_draft",
+            "name": "action_draft",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook-secret",
+                "inputs": {"url": {"value": "https://example.com"}},
+            },
+        }
+        flow.draft = {"actions": [_trigger_action(), _webhook_action(), draft_step]}
+        flow.draft_encrypted_inputs = {"action_draft": {"api_key": {"value": "sk-live-not-a-real-key"}}}
+        flow.save(update_fields=["draft", "draft_encrypted_inputs"])
+
+        live = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}").json()
+        edges = [*(live.get("edges") or []), {"from": "action_1", "to": "action_draft", "type": "continue"}]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Point the webhook somewhere that answers",
+                "rationale": "Every call to the current URL failed over the last week.",
+                "base_version": flow.version,
+                "content": {
+                    "actions": [
+                        {
+                            **draft_step,
+                            "config": {
+                                "template_id": "template-webhook-secret",
+                                "inputs": {
+                                    "url": {"value": "https://example.com"},
+                                    "api_key": {"secret": True},
+                                },
+                            },
+                        }
+                    ],
+                    "edges": edges,
+                },
+                "evidence": {
+                    "metric": "failure rate",
+                    "current_value": 1.0,
+                    "n": 240,
+                    "unit": "rate",
+                    "guardrails": [{"metric": "complaint rate", "value": 0.0, "n": 240, "unit": "rate"}],
+                },
+            },
+            format="json",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+
+        assert response.status_code == 201, response.json()
+        assert "sk-live-not-a-real-key" not in json.dumps(response.json())
+        stored = WorkflowProposal.objects.for_team(self.team.id).get(id=response.json()["id"])
+        assert "sk-live-not-a-real-key" not in json.dumps(stored.content)
+
     def test_a_field_the_merge_replaces_is_compared_whole(self, _mock_flag):
         flow_id = self._create_active_flow()
         proposal = self._propose(
@@ -739,6 +805,29 @@ class TestWorkflowProposals(APIBaseTest):
         ).json()
         assert outcome["after"]["versions"] == [2, 3]
         assert outcome["change_ended_at_version"] == 4
+
+    @patch("products.workflows.backend.presentation.views.hog_flow.OUTCOME_VERSION_LIMIT", 2)
+    def test_the_after_side_charts_every_version_it_sums(self, _mock_flag):
+        # Enough publishes after the applied one that the recent range no longer reaches it.
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        for name in ("renamed_once", "renamed_twice", "renamed_thrice"):
+            self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+                {"operations": [{"op": "update_action", "id": "trigger_node", "patch": {"name": name}}]},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+            self._publish(flow_id)
+
+        outcome = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/outcome"
+        ).json()
+
+        charted = {version["version"] for version in outcome["versions"]}
+        assert set(outcome["after"]["versions"]) <= charted, outcome
+        assert [version["version"] for version in outcome["versions"] if version["applied"]] == [2]
 
     def test_the_outcome_reads_the_metric_the_suggestion_aimed_at(self, _mock_flag):
         flow_id = self._create_active_flow()
