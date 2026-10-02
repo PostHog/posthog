@@ -69,8 +69,8 @@ export interface TopicVocabulary {
     }
 }
 
-function forTopic(topicName: string | undefined, prefix: string, fallback = ''): string {
-    return topicName ? `${prefix}${topicName}` : fallback
+function forTopic(topicName: string | undefined, prefix: string): string {
+    return topicName ? `${prefix}${topicName}` : ''
 }
 
 export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
