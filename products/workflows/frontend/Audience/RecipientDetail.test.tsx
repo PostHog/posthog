@@ -91,11 +91,14 @@ describe('recipient detail', () => {
         })
     }
 
-    function openRecipient(team: TeamType = MOCK_DEFAULT_TEAM): void {
+    function openRecipient(
+        team: TeamType = MOCK_DEFAULT_TEAM,
+        path = '/audience/recipients/Jamie%40example.com'
+    ): void {
         initKeaTests(true, team)
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
-        router.actions.push('/audience/recipients/Jamie%40example.com')
+        router.actions.push(path)
         render(<AudienceScene />)
     }
 
@@ -128,6 +131,20 @@ describe('recipient detail', () => {
         expect(lookups).toEqual(['Jamie@example.com'])
         expect(capturedEvents('audience recipient opened')).toHaveLength(1)
         expect(JSON.stringify(capturedEvents('audience recipient opened'))).not.toContain('example.com')
+    })
+
+    it.each([
+        'a+b@example.com',
+        'a%2Bb@example.com',
+        '100%@example.com',
+        'jamie@bücher.example',
+        "o'brien^x@example.com",
+    ])('looks up exactly %s from its recipient link', async (email) => {
+        useRecipientLookup([200, { results: [{ ...SUPPRESSED_JAMIE, email }], next_cursor: null }])
+        openRecipient(MOCK_DEFAULT_TEAM, urls.audienceRecipient(email))
+
+        expect(await screen.findByText(email)).toBeInTheDocument()
+        expect(lookups).toEqual([email])
     })
 
     it('shows a way back to the list when the address is unknown', async () => {
