@@ -699,8 +699,11 @@ OAuth scopes, current actor permissions, and shared-context access checks constr
 System One reranks candidates concurrently. Sources are checked again before rendering in case definitions or access changed during scoring.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
-The agent is instructed to use these references silently, including during progress updates.
-It can verify and cite the underlying sources, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+Skill references contain descriptions, so the prompt requires `skill-get` with the referenced name and version before the agent relies on or follows a skill.
+A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
+This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
+The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
+It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
 
 Control skips retrieval. Shadow records the selected bundle without injecting it. Treatment injects the bundle.
 Selection has a three-second budget by default. Saturation, timeout, and selection failures leave the ordinary prompt flow available.
