@@ -108,7 +108,12 @@ from products.signals.dags.inbox_ranking.training.examples import (
     holdout_mask,
     reports_missing_birth_snapshot,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head, dismissed_as_wrong
+from products.signals.dags.inbox_ranking.training.heads import (
+    ACTION_LABEL_COLUMNS,
+    HEADS_BY_NAME,
+    Head,
+    dismissed_as_wrong,
+)
 from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
@@ -383,6 +388,21 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, True],
         ),
+        # action: cohort is everyone, so a never-impressed report an agent claimed is a positive.
+        # A server-side action and a UI action are the same label.
+        (
+            "action",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [0, 1, 1, 1],
+                    "claim_count": [1, 0, 0, 0],
+                    "reasoned_resolution_count": [0, 1, 0, 0],
+                    "view_diff_count": [0, 0, 2, 0],
+                }
+            ),
+            [True, True, True, True],
+            [True, True, True, False],
+        ),
         # discuss: cohort is impressed reports, label is a discuss action.
         (
             "discuss",
@@ -443,34 +463,35 @@ class _ParquetS3:
         return {"Body": io.BytesIO(self._objects[Key])}
 
 
-@pytest.mark.parametrize("head_name", ["pr_merged", "refund", "thumbs_up", "reviewer_fix"])
-def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name):
+@pytest.mark.parametrize(
+    "head_name,positive_column",
+    [
+        ("pr_merged", "pr_merged_count"),
+        ("refund", "refund_count"),
+        ("thumbs_up", "feedback_positive_count"),
+        ("reviewer_fix", "reviewer_add_count"),
+        *(("action", column) for column in ACTION_LABEL_COLUMNS),
+    ],
+)
+def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name, positive_column):
     # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
     # head whose label column is missing from that list trains on all-zero labels. The cohort/label
     # unit test hand-builds frames that already carry the columns, so it never crosses the projection.
     # Drive the real parquet -> projection -> build_examples path and assert a positive label survives.
     head = HEADS_BY_NAME[head_name]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    labels_now = _labels(
-        ["a"],
-        open_count=[1],
-        pr_created_count=[0],
-        pr_merged_count=[0],
-        refund_count=[0],
-        feedback_positive_count=[0],
-        reviewer_add_count=[0],
-        reviewer_remove_count=[0],
-    )
-    labels_later = _labels(
-        ["a"],
-        open_count=[1],
-        pr_created_count=[1],
-        pr_merged_count=[1],
-        refund_count=[1],
-        feedback_positive_count=[1],
-        reviewer_add_count=[1],
-        reviewer_remove_count=[0],
-    )
+    zeros = {
+        column: [0]
+        for column in (
+            "pr_merged_count",
+            "refund_count",
+            "feedback_positive_count",
+            "reviewer_add_count",
+            *ACTION_LABEL_COLUMNS,
+        )
+    }
+    labels_now = _labels(["a"], open_count=[1], **zeros)
+    labels_later = _labels(["a"], open_count=[1], **{**zeros, positive_column: [1]})
     objects: dict[str, bytes] = {}
     for date, labels in ((D0, labels_now), (later, labels_later)):
         key = date.isoformat()
@@ -1047,7 +1068,7 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
 
 @pytest.mark.parametrize("impressions", [0, 1])
 def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(impressions):
-    head = HEADS_BY_NAME["action"]
+    head = HEADS_BY_NAME["discuss"]
     graded = graded_rows(
         _scores(["pending"], head_readable=[False], classification_threshold=[0.2]),
         _labels(["pending"], impression_unit_count=[impressions]),
