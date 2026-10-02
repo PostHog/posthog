@@ -14,6 +14,7 @@ from posthog.api.secret_revocation import (
     CANONICAL_OAUTH_REFRESH_TOKEN,
     CANONICAL_PERSONAL_API_KEY,
     CANONICAL_PROJECT_SECRET_API_KEY,
+    CANONICAL_TEAM_SECRET_TOKEN,
     revoke_leaked_secret,
 )
 from posthog.rate_limit import LeakedKeyReportThrottle
@@ -27,7 +28,7 @@ class LeakedKeyReportSerializer(serializers.Serializer):
         # The longest key we issue is 51 characters. The cap rejects an oversized body
         # before any hashing or lookup work happens.
         max_length=200,
-        help_text="The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.",
+        help_text="The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.",
     )
 
 
@@ -39,11 +40,12 @@ class LeakedKeyReportResponseSerializer(serializers.Serializer):
         choices=[
             CANONICAL_PERSONAL_API_KEY,
             CANONICAL_PROJECT_SECRET_API_KEY,
+            CANONICAL_TEAM_SECRET_TOKEN,
             CANONICAL_OAUTH_ACCESS_TOKEN,
             CANONICAL_OAUTH_REFRESH_TOKEN,
         ],
         allow_null=True,
-        help_text="The type of key that was found and revoked, or null if no match was found.",
+        help_text="The type of key that was found and revoked, or null if no match was found. team_secret_token means the string is a legacy feature flags secure API key: its migrated project secret API key row was removed, but the legacy key itself cannot be auto-rotated, so project admins are emailed to rotate it.",
     )
 
 
@@ -79,10 +81,10 @@ class PublicLeakedKeyReport(APIView):
         summary="Report and revoke a leaked PostHog API key or token",
         description=(
             "Public, unauthenticated endpoint for self-service revocation of a leaked PostHog "
-            "personal API key, project secret API key, or OAuth access/refresh token. If the "
-            "token matches a real credential, it is revoked immediately and the owner is "
-            "notified by email. This includes an expired OAuth access token: the paired "
-            "refresh token it protects may still be live.\n\n"
+            "personal API key, project secret API key, legacy feature flags secure API key, or "
+            "OAuth access/refresh token. If the token matches a real credential, it is revoked "
+            "immediately and the owner is notified by email. This includes an expired OAuth "
+            "access token: the paired refresh token it protects may still be live.\n\n"
             'This endpoint only checks the region it is running on. `"found": false` does not '
             "guarantee the token is safe. If you're not sure which region issued it, check "
             "both: https://app.posthog.com/api/revoke_leaked_key and "

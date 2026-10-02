@@ -767,6 +767,8 @@ def team_api_test_factory():
                 create_project_secret_api_key(team=self.team, label=label, value=token)
 
             # Rotation drops the old backup; its PSAK row must stop authenticating with it.
+            # (No cross-team case: secure_value is globally unique, so another team can
+            # never hold a row with this hash.)
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertFalse(ProjectSecretAPIKey.objects.filter(secure_value=hash_key_value(backup)).exists())
