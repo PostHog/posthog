@@ -3726,7 +3726,7 @@ Note: The swagger-ui URL recorded in the source (https://customapi.goldcast.io/s
 
 ## Gong — gaps
 
-Today (10): `answered_scorecards`, `calls`, `calls_content`, `calls_extensive`, `interaction_stats`, `scorecards`, `trackers`, `transcripts`, `users`, `workspaces`
+Today (15): `answered_scorecards`, `call_outcomes`, `calls`, `calls_content`, `calls_extensive`, `daily_activity`, `flows`, `interaction_stats`, `library_folder_calls`, `library_folders`, `scorecards`, `trackers`, `transcripts`, `users`, `workspaces`
 
 Diffed against: <https://help.gong.io/llms.txt>
 
@@ -3734,13 +3734,13 @@ Diffed against: <https://help.gong.io/llms.txt>
 - [x] `stats/activity/scorecards` — answered scorecard responses; we currently only sync scorecard definitions, not the reviews (high)
 - [x] `settings/trackers` — lookup resolving the tracker IDs that appear on calls_extensive (high)
 - [x] `stats/interaction` — talk ratio, patience, longest monologue - Gong's signature conversation metrics per user (high)
-- [ ] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
-- [ ] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
+- [x] `stats/activity/day-by-day` — daily per-rep activity fact table for coaching and adoption reporting (high)
+- [x] `call-outcomes` — lookup resolving call outcome values used to segment calls (medium)
 - [ ] `stats/activity/aggregate-by-period` — pre-aggregated activity by period, cheaper than deriving from raw calls (medium)
 - [ ] `coaching` — coaching metrics per manager/rep (medium)
 - [ ] `logs` — audit log of access and data events, used for security and usage reporting (medium)
-- [ ] `library/folders + library/folder-content` — curated call collections and their membership (medium)
-- [ ] `flows + flows/prospects` — Gong Engage sequences and prospect assignments for outbound analysis (medium)
+- [x] `library/folders + library/folder-content` — curated call collections and their membership (medium)
+- [x] `flows + flows/prospects` — Gong Engage sequences and prospect assignments for outbound analysis (medium). `flows` only: `POST /v2/flows/prospects` looks up the flows of CRM prospect ids the caller already has, with no way to list them
 - [ ] `users/{id}/settings-history` — state-transition history of user recording settings, explains gaps in call coverage (low)
 
 Note: Gong's OpenAPI at https://api.gong.io/v2/api-docs is auth-gated (401), and the settings/api/documentation UI requires login. The resource list above was read from Gong's own docs index at help.gong.io/llms.txt, which enumerates every API-reference page with its /v2 path.
@@ -3771,14 +3771,14 @@ Today (9): `customers`, `macros`, `messages`, `satisfaction_surveys`, `tags`, `t
 
 Diffed against: <https://developers.gorgias.com/llms.txt>
 
-- [ ] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
+- [x] `events (/api/events)` — the account-wide event stream, including ticket state transitions and assignment changes - the only way to do time-in-status or SLA analysis (high)
 - [x] `ticket_tags (/api/tickets/{id}/tags)` — the ticket-to-tag join; we sync tags and tickets but not the mapping between them (high)
 - [x] `voice_calls` — phone channel fact table, entirely absent today (high)
 - [x] `custom_fields` — lookup resolving the custom field IDs used on tickets and customers (high)
 - [x] `ticket_field_values (/api/tickets/{id}/custom-fields)` — per-ticket custom field values, including system fields like AI Intent and AI Agent Outcome (high)
-- [ ] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
-- [ ] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
-- [ ] `voice_call_recordings` — recording metadata joined to voice calls (medium)
+- [x] `customer_field_values (/api/customers/{id}/custom-fields)` — per-customer custom field values (medium)
+- [x] `voice_call_events` — per-call state transitions (ringing, answered, transferred) for phone queue analysis (medium)
+- [x] `voice_call_recordings` — recording metadata joined to voice calls (medium)
 - [ ] `statistics (/api/statistics/{slug} and metric cards)` — Gorgias' own precomputed support metrics, useful as a benchmark against derived numbers (medium)
 - [ ] `view_items (/api/views/{id}/items)` — the ticket membership of each saved view; we sync views but not their contents (low)
 

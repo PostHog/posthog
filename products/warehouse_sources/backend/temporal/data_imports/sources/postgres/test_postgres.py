@@ -4183,7 +4183,6 @@ class TestChunkedRereadAfterRecoveryConflict:
         is_xmin: bool = False,
         activity_attempt: int = 1,
         resumable_source_manager: Any = None,
-        keyset_full_load_enabled: bool = True,
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
@@ -4247,7 +4246,6 @@ class TestChunkedRereadAfterRecoveryConflict:
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
                 resumable_source_manager=resumable_source_manager,
-                keyset_full_load_enabled=keyset_full_load_enabled,
             )
             self.last_response = response
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
@@ -4467,22 +4465,6 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         assert self.last_response.supports_resume is True
         assert manager.save_state.call_count > 0
-
-    def test_an_old_flag_off_activity_keeps_the_server_cursor(self):
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        self._read_ids(
-            should_use_incremental_field=False,
-            rows_before_conflict=0,
-            primary_keys=["id"],
-            activity_attempt=1,
-            resumable_source_manager=manager,
-            keyset_full_load_enabled=False,
-        )
-
-        assert self.last_response.supports_resume is False
-        manager.save_state.assert_not_called()
 
     def test_an_incremental_run_does_not_seek(self):
         # Seeking is the full-load path only. An incremental run already resumes from its watermark,
