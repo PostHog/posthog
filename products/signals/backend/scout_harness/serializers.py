@@ -3738,6 +3738,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         ),
     )
 
+    suggestion_id = serializers.CharField(
+        required=False,
+        write_only=True,
+        max_length=64,
+        help_text=(
+            "Optional id of the canonical scout suggestion this request turns on. It records that the "
+            "scout came from that suggestion. An id this project's batch does not hold is ignored."
+        ),
+    )
+
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
 
@@ -3842,6 +3852,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
+            "suggestion_id",
         ]
 
 

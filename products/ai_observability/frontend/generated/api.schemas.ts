@@ -1967,12 +1967,12 @@ export type EvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2288,12 +2288,12 @@ export type PatchedEvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2467,12 +2467,12 @@ export type TestHogRequestApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -3199,12 +3199,12 @@ export type EvaluationReportMetricsApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null

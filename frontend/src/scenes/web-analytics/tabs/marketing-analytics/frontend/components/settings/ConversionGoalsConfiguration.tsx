@@ -9,7 +9,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { uuid } from 'lib/utils/dom'
-import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ConversionGoalFilter, NodeKind } from '~/queries/schema/schema-general'

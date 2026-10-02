@@ -9,6 +9,9 @@ _PROPOSERS: dict[str, ConfigProposer] = {
     ClassifierProposer.scanner_type: ClassifierProposer(),
     ScorerProposer.scanner_type: ScorerProposer(),
     SummarizerProposer.scanner_type: SummarizerProposer(),
+    # The experiment type is a summarizer with experiment context, so "Improve scanner"
+    # tunes its prompt the summarizer way.
+    "experiment": SummarizerProposer(),
 }
 
 
