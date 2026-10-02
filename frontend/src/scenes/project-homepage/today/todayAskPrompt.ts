@@ -21,7 +21,6 @@ function briefingContext(briefing: BriefingApi): string[] {
     })
     return [
         `- Briefing id: \`${briefing.id}\`, for ${briefing.local_day}`,
-        `- Headline: ${briefing.headline}`,
         ...(items.length ? ['- Items, most urgent first:', ...items.map((line) => `  ${line}`)] : []),
         ...(briefing.more_reports_count > 0
             ? [`- ${briefing.more_reports_count} more open reports for me are in the Inbox.`]
