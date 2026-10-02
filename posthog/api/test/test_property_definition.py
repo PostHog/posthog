@@ -280,19 +280,25 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert body["count_is_capped"] is True
         assert body["next"] is not None
 
-    def test_capped_count_appends_virtual_properties_after_the_last_row(self) -> None:
+    def test_capped_pages_return_each_row_once_and_virtual_properties_last(self) -> None:
         cache.clear()
+        pages = []
         with (
             patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
             patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
         ):
-            first_page = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?limit=3").json()
-            last_page = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?limit=100").json()
+            url: Optional[str] = f"/api/projects/{self.team.pk}/property_definitions/?limit=3"
+            while url is not None and len(pages) <= len(self.EXPECTED_PROPERTY_DEFINITIONS):
+                page = self.client.get(url).json()
+                pages.append(page)
+                url = page["next"]
 
-        assert first_page["count_is_capped"] is True
-        assert not any(r["name"].startswith("$virt_") for r in first_page["results"])
-        assert len(self._exclude_virtual(last_page["results"])) == len(self.EXPECTED_PROPERTY_DEFINITIONS)
-        assert any(r["name"].startswith("$virt_") for r in last_page["results"])
+        assert url is None
+        assert pages[0]["count_is_capped"] is True
+        assert not any(r["name"].startswith("$virt_") for page in pages[:-1] for r in page["results"])
+        assert any(r["name"].startswith("$virt_") for r in pages[-1]["results"])
+        db_names = [r["name"] for page in pages for r in self._exclude_virtual(page["results"])]
+        assert db_names == sorted(str(p["name"]) for p in self.EXPECTED_PROPERTY_DEFINITIONS)
 
     @parameterized.expand(
         [
