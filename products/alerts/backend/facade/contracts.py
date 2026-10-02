@@ -281,20 +281,26 @@ class EvaluationAnnouncement:
 
 
 @frozen
-class AlertDeliveryPreview:
-    """What delivery would send. The PoC records it instead of contacting a destination.
+class AlertDeliveryRequest:
+    """Where to find what one evaluation decided, rather than a copy of it.
 
-    A delivery addresses its history rows by `configuration_id`, the transition's `grouping_key`
-    and `evaluation_key` together. The rows also carry an `alert_id`, which is the
-    `PlatformAlert` instance rather than the configuration, so nothing here is joined to it.
+    A delivery addresses its history rows by `configuration_id` and `evaluation_key`, and reads
+    the facts back from there. So a retry announces what was recorded rather than what one
+    attempt happened to carry, and a batch's payload does not grow with what its alerts say.
+
+    The two destination fields are supplied by the source because only the source knows them.
+    `destination_alert_id` is the id its destinations are matched on, which is the legacy
+    configuration while the platform runs beside a source's own stack. `event_ids_by_kind` maps
+    each kind the source can announce onto the event id its destinations filter on. The platform
+    imports no source, so it cannot derive either.
     """
 
     source: SourceKind
+    team_id: int
     configuration_id: str
-    alert_name: str
     evaluation_key: str
-    destination_names: tuple[str, ...]
-    transitions: tuple[GroupTransition, ...]
+    destination_alert_id: str
+    event_ids_by_kind: dict[str, str]
 
 
 @frozen
@@ -306,7 +312,7 @@ class SourceBatchEvaluation:
     """
 
     outcomes: tuple[PlatformAlertOutcome, ...]
-    previews: tuple[AlertDeliveryPreview, ...]
+    deliveries: tuple[AlertDeliveryRequest, ...]
     # Pairs the payload bound left out. They keep their due time and a later tick re-evaluates
     # them, the way a truncated cohort already behaves.
     omitted: int = 0
