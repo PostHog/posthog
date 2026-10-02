@@ -332,6 +332,7 @@ export class LazyLoader<T> {
                 lazyLoaderBufferUsage.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
+            // The values land in the cache via setValues, so callers read them from there.
             this.buffer.keys.add(key)
             pendingLoad = this.buffer.promise.finally(() => {
                 delete this.pendingLoads[key]
@@ -418,6 +419,7 @@ export class LazyLoader<T> {
             } catch (error) {
                 attempt++
                 if (error?.isRetriable !== true) {
+                    // Surface non-transient errors instead of masking them with retries.
                     throw error
                 }
                 if (performance.now() >= deadline) {
@@ -445,6 +447,7 @@ export class LazyLoader<T> {
         }
 
         // Evict extra headroom so we don't re-sort on every subsequent insert.
+        // Apply headroom only to caches large enough to benefit from fewer sorts.
         const headroom = this.maxSize > 100 ? Math.ceil(this.maxSize * 0.1) : 0
         const toEvict = this.cacheSize - this.maxSize + headroom
 
