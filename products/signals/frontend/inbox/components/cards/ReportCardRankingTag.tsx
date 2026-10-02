@@ -37,14 +37,14 @@ function RankingTooltip({
                         <span className="w-10 shrink-0 text-right tabular-nums">
                             {lift !== null ? formatRankingLift(lift) : null}
                         </span>
-                        <span className="w-10 shrink-0 text-right font-normal tabular-nums text-muted">
+                        <span className="w-10 shrink-0 text-right font-normal tabular-nums opacity-70">
                             {formatRankingProbability(probability)}
                         </span>
                     </div>
                 )
             })}
-            <div className="text-muted">Compared with the average report</div>
-            <div className="mt-1 border-t border-primary pt-1 font-mono text-muted">
+            <div className="opacity-70">Compared with the average report</div>
+            <div className="mt-1 border-t border-primary pt-1 font-mono opacity-70">
                 {ranking.model_name}@{ranking.model_version}
             </div>
         </div>
