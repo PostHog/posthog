@@ -62,6 +62,34 @@ describe('playerMetaLogic', () => {
         })
     })
 
+    describe('allOverviewItems', () => {
+        const metaId = recordingMetaJson.id
+        const countryItem = (): any =>
+            logic.values.allOverviewItems.find(
+                (item) => item.type === 'property' && item.property === '$geoip_country_code'
+            )
+
+        it.each([
+            ['session properties over person properties', { $geoip_country_code: 'DE' }, 'DE'],
+            ['person properties when the session has none loaded', {}, 'US'],
+        ])('shows %s', async (_, sessionProperties, expected) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings/:id': {
+                        ...recordingMetaJson,
+                        person: { ...recordingMetaJson.person, properties: { $geoip_country_code: 'US' } },
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                sessionRecordingDataCoordinatorLogic(playerProps).actions.loadRecordingMeta()
+            }).toDispatchActions(['loadRecordingMetaSuccess'])
+            logic.actions.loadPropertiesForSessionsSuccess([{ id: metaId, properties: sessionProperties }])
+
+            expect(countryItem()?.value).toBe(expected)
+        })
+    })
+
     describe('loading state', () => {
         it('stops loading after meta load is successful', async () => {
             const session: SessionRecordingType = {
