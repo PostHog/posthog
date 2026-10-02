@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -14,6 +15,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { SidePanelTab } from '~/types'
 
 import {
@@ -57,6 +59,11 @@ import { aiConsentDisabledReason } from './utils/aiConsent'
 import { reportPullRequests } from './utils/reportPullRequests'
 
 export const REPORT_AI_PANEL = 'inbox-report'
+
+/** Files a report discussion in a space and opens it on its own session page, not in the side panel. */
+export interface ReportSessionTarget {
+    channelId: string | null
+}
 export const REPORT_AI_PANEL_ID = 'max-side-panel'
 
 const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'
@@ -257,7 +264,8 @@ async function createReportTask(
     fallbackTitle: string,
     runtimeSelection: ReportRuntimeSelection,
     discussionQuestion?: string,
-    warmLease: ReportWarmLease | null = null
+    warmLease: ReportWarmLease | null = null,
+    channelId: string | null = null
 ): Promise<{ taskId: string; runId: string }> {
     const isDiscussion = relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP
     // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
@@ -267,6 +275,7 @@ async function createReportTask(
         origin_product: TaskOriginProductEnumApi.SignalReport,
         signal_report: report.id,
         signal_report_task_relationship: relationship,
+        ...(channelId ? { channel: channelId } : {}),
         ...(isDiscussion
             ? {
                   signal_report_discussion_question: discussionQuestion?.trim() ?? '',
@@ -396,13 +405,15 @@ export interface inboxTaskKickoffLogicActions {
         reportUrl: string,
         question: string,
         agentQuestion?: string,
-        intent?: 'measurement_plan'
+        intent?: 'measurement_plan',
+        target?: ReportSessionTarget
     ) => {
         agentQuestion: string | undefined
         intent: 'measurement_plan' | undefined
         question: string
         report: SignalReport
         reportUrl: string
+        target: ReportSessionTarget | undefined
     }
     discussReportFailure: () => {
         value: true
@@ -505,13 +516,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             reportUrl: string,
             question: string,
             agentQuestion?: string,
-            intent?: 'measurement_plan'
+            intent?: 'measurement_plan',
+            target?: ReportSessionTarget
         ) => ({
             report,
             reportUrl,
             question,
             agentQuestion,
             intent,
+            target,
         }),
         createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
@@ -695,7 +708,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.setActiveCreation({ streamKey: resolvedStreamKey ?? runId, taskId, runId })
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
-        discussReport: async ({ report, reportUrl, question, agentQuestion, intent }) => {
+        discussReport: async ({ report, reportUrl, question, agentQuestion, intent, target }) => {
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
@@ -740,10 +753,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     intent
                 )
                 const prompt = wrapWithPosthogContext(discussPrompt, contextItems)
-                const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
+                // The side panel owns the warm sandbox, and a warm run has no space, so a session for a space starts cold.
+                const warmLease =
+                    !target && values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
                     actions.setReportWarmLease(null)
-                } else if (cache.warmingReportId === report.id) {
+                } else if (!target && cache.warmingReportId === report.id) {
                     cache.warmReleaseRequested = true
                 }
                 const { taskId, runId } = await createReportTask(
@@ -755,13 +770,17 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Ask AI about report',
                     await launchSelection(values),
                     question,
-                    warmLease
+                    warmLease,
+                    target?.channelId ?? null
                 )
                 const sentContextKeys = contextItems.filter((item) => item.type !== 'text').map(attachedContextItemKey)
                 if (sentContextKeys.length > 0) {
                     actions.markContextSent(taskId, sentContextKeys)
                 }
-                if (panelStillOnReport(values.reportChatContext, report.id)) {
+                if (target) {
+                    todaySpacesLogic.findMounted()?.actions.loadRecentTasks()
+                    router.actions.push(urls.aiTask(taskId))
+                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
                     const stream = runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {

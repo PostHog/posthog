@@ -4,6 +4,8 @@ import { useRef, useState } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
+
 import { Composer } from 'products/posthog_ai/frontend/api/primitives'
 import {
     InboxQuestionSource,
@@ -15,14 +17,17 @@ import {
     inboxTaskKickoffLogic,
 } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { newSessionSpace } from 'products/tasks/frontend/spaces/newSessionSceneLogic'
 
 import { isSampleReportId } from './todaySampleReports'
 import { reportPrompts } from './todaySignalReports'
 
-/** Prompts that fill the composer, which starts a PostHog AI session about the report. */
+/** Prompts that fill the composer, which starts a session about the report in the default space, like New session. */
 export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const { isDiscussing, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
+    const { discussReport } = useActions(inboxTaskKickoffLogic)
+    const { sortedSpaces, lastSpaceId } = useValues(todaySpacesLogic)
+    const space = newSessionSpace(sortedSpaces, null, lastSpaceId).space
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const [draft, setDraft] = useState('')
     const [pickedPrompt, setPickedPrompt] = useState<string | null>(null)
@@ -54,10 +59,7 @@ export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport
             surface: 'today',
             extra: discussQuestionProperties({ source, suggestionCount: prompts.length }),
         })
-        // Pointing the side panel at this report first makes the new session open there, even when the
-        // panel still shows a discussion about another report.
-        openReportDiscussion(report, reportUrl)
-        discussReport(report, reportUrl, question)
+        discussReport(report, reportUrl, question, undefined, undefined, { channelId: space?.id ?? null })
         setDraft('')
         setPickedPrompt(null)
     }
@@ -103,7 +105,9 @@ export function TodayReportPrompts({ report, reportUrl }: { report: SignalReport
                 <Composer.Submit data-attr="today-report-prompt-submit" />
             </Composer.Root>
             <p className="TodayPrompts__hint">
-                Starts a PostHog AI session with this report attached. It opens in the side panel.
+                {space
+                    ? `Starts a new session in the ${space.name} space with this report attached.`
+                    : 'Starts a new session with this report attached.'}
             </p>
         </section>
     )

@@ -5,7 +5,7 @@ import { IconArrowRight } from '@posthog/icons'
 
 import { todayLogic } from './todayLogic'
 
-/** Sends the question to PostHog AI with the briefing as context. PostHog AI answers in a new chat under Spaces. */
+/** Sends the question to PostHog AI with the briefing as context. PostHog AI answers in a new session in the default space. */
 export function TodayAskBox(): JSX.Element {
     const { askAi } = useActions(todayLogic)
     const [question, setQuestion] = useState('')

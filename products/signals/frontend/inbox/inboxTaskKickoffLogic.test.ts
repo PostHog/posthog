@@ -206,6 +206,28 @@ describe('inboxTaskKickoffLogic', () => {
             })
         })
 
+        it('files a session for a space in that space and opens its session page, not the side panel', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(
+                    report,
+                    'https://example.com/report',
+                    'Explain the recommendation',
+                    undefined,
+                    undefined,
+                    { channelId: 'space-personal' }
+                )
+            ).toFinishAllListeners()
+
+            expect(createdTasks[0]).toMatchObject({
+                channel: 'space-personal',
+                signal_report: report.id,
+                signal_report_task_relationship: 'discussion',
+            })
+            expect(router.values.searchParams).toEqual({ task: 'report-task' })
+            expect(sidePanelStateLogic.values.selectedTabOptions).not.toBe(REPORT_AI_PANEL)
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toBeNull()
+        })
+
         it('shows the prompt it sent, so the message pairs with the agent echo', async () => {
             logic.actions.openReportDiscussion(report, 'https://example.com/report')
 

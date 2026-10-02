@@ -696,7 +696,7 @@ export const todayLogic = kea<todayLogicType>([
                     : values.showPersonalBriefing && values.personalBriefing
                       ? { kind: 'briefing', briefing: values.personalBriefing }
                       : { kind: 'reports', reports: values.reports }
-                router.actions.push(urls.ai(undefined, todayAskPrompt(prompt, context)))
+                router.actions.push(urls.taskNewSession(), { ask: todayAskPrompt(prompt, context) })
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today ai asked', {
                     source,

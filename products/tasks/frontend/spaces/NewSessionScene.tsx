@@ -17,7 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { newSessionSceneLogic } from './newSessionSceneLogic'
+import { newSessionComposerPanelId, newSessionSceneLogic } from './newSessionSceneLogic'
 import { NewSessionSpaceSelect } from './NewSessionSpaceSelect'
 import { SpaceTaskComposer } from './SpaceTaskComposer'
 import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
@@ -90,7 +90,7 @@ export function NewSessionScene(): JSX.Element {
                                     <div data-attr="today-new-session-composer">
                                         <SpaceTaskComposer
                                             space={space}
-                                            panelId={`new-session-${space.id}`}
+                                            panelId={newSessionComposerPanelId(space.id)}
                                             repositoryConfig={composerRepositoryConfig}
                                             onTaskCreated={sessionStarted}
                                         />
