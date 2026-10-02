@@ -129,7 +129,18 @@ class EmailBrandSerializer(serializers.ModelSerializer):
         unknown = sorted(set(sources) - set(EmailBrand.SOURCED_FIELDS))
         if unknown:
             raise serializers.ValidationError(f"Unknown fields: {', '.join(unknown)}.")
-        return {field: self._normalized_source(field, source) for field, source in sources.items()}
+        return {
+            field: self._normalized_source(field, self._complete_source(field, source))
+            for field, source in sources.items()
+        }
+
+    def _complete_source(self, field: str, source: dict) -> dict:
+        # A partial PATCH makes DRF skip missing required fields in nested serializers too, so a source
+        # record without its path would save and then break every read. Validate each record whole.
+        record = EmailBrandSourceSerializer(data=source)
+        if not record.is_valid():
+            raise serializers.ValidationError({field: record.errors})
+        return record.validated_data
 
     def _normalized_source(self, field: str, source: dict) -> dict:
         if field in EmailBrand.COLOR_FIELDS:

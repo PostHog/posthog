@@ -65,6 +65,12 @@ class TestEmailBrandAPI(APIBaseTest):
             ("non hex digit", {"text_color": "#12345g"}, "text_color"),
             ("missing hash", {"background_color": "ffffff"}, "background_color"),
             ("source for an unknown field", {"sources": {"slogan": {"path": "a", "detected_value": "b"}}}, "sources"),
+            ("source without a path", {"sources": {"name": {"detected_value": "Acme"}}}, "sources__name__path"),
+            (
+                "color source without a detected value",
+                {"sources": {"primary_color": {"path": "app/globals.css"}}},
+                "sources__primary_color__detected_value",
+            ),
         ]
     )
     def test_rejects_invalid_values_with_a_field_error_and_creates_nothing(self, _flag, _name, payload, attr):
