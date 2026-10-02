@@ -458,48 +458,9 @@ The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the s
 
 ## The hourly master lane
 
-The merge queue's `trunk-merge/**` run tests every commit before it lands, so re-running a heavy suite on the master push tests a commit that CI already covered.
-Those suites skip `push` and take their master coverage — and their Trunk flaky-test baseline — from an hourly `schedule:` instead.
-
-Crons are offset so the runs do not all fire at once, and the offsets live here rather than in the workflows:
-
-| Workflow                            | Minute |
-| ----------------------------------- | ------ |
-| `ci-frontend.yml`                   | 7      |
-| `ci-nodejs.yml`                     | 13     |
-| `ci-backend.yml`                    | 23     |
-| `ci-dagster.yml`                    | 33     |
-| `ci-python.yml`                     | 43     |
-| `ci-mcp.yml`                        | 53     |
-| `ci-backend-update-test-timing.yml` | 17     |
-
-Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
-
-`ci-backend-update-test-timing.yml` sits in the table too.
-It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
-
-**Give the cron its own concurrency group.**
-`cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.
-An hourly run that shares the ref group with master pushes therefore holds the group for its whole duration while pushes queue behind it, and each new push discards the previous pending one along with whatever per-commit checks it carried.
-
-```yaml
-group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
-```
-
-That keeps hourly runs queueing behind each other rather than stacking, and leaves push behavior untouched.
-`ci-backend.yml` reaches the same place from the other side: its push arm is already keyed per SHA, so pushes never share a group with the cron.
-Prefer the `'scheduled'` key when the push lane still runs real per-commit work, because a per-SHA push arm also gives up the deduplication that collapses a burst of master pushes into one run.
-
-**The paths filter must be skipped on `schedule`, and every output it feeds must default to `true`.**
-On a cron the action has nothing to diff against: it gets no `base` input, so base resolves to the default branch and equals head, and `before` is set only on push events.
-It falls back to the last commit alone, so one docs-only commit narrows the hourly run to nothing and reports green having tested almost nothing — a silent failure, not a red one.
-Guard the step with `if: github.event_name != 'push' && github.event_name != 'schedule'`, and give each consumed output a `|| 'true'` default.
-
-Any _step_ that reads a filter output needs the same `schedule` arm.
-`ci-dagster.yml`'s `build-matrix` is the cautionary case: without it the matrix is `[]` and the hourly run passes having run no tests.
-
-A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
-Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
+Read [hourly master lanes and Backend engine ownership](references/hourly-master.md) before changing a master or schedule lane.
+It covers cron offsets, pending-run concurrency, paths-filter defaults, alerting, and the receipt-bound `CI_BACKEND_DEPOT_MASTER_LANES` switch.
+GitHub remains the canonical event owner; enabling Depot requires separate, approved live parity checks.
 
 ## Backwards-compat with unrebased PRs
 

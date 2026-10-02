@@ -24,6 +24,7 @@ export interface Scenario {
     name: string
     github: Context
     vars?: Record<string, string>
+    inputs?: Record<string, string>
     /** Stubbed step results by job id, then step id (or name). Steps the plan skips lose their stubbed outputs. */
     steps?: Record<string, Record<string, StepStub>>
     /** Overrides a job's evaluated outputs, for reusable-workflow calls and script-driven outputs. */
@@ -245,7 +246,7 @@ export function planWorkflow(workflow: Workflow, scenario: Scenario): WorkflowPl
     const baseContext: Context = {
         github: scenario.github,
         vars: scenario.vars ?? {},
-        inputs: {},
+        inputs: scenario.inputs ?? {},
         secrets: { GITHUB_TOKEN: 'stub-token' },
         matrix: {},
         runner: { os: 'Linux', arch: 'X64', name: 'workflow-plan' },

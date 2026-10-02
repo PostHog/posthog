@@ -187,7 +187,7 @@ jobs:
         expect(plan.jobs['a']?.result).toBe('failure')
     })
 
-    it.each<{ condition: string; expected: Outcome }>([
+    it.each<{ condition: string; expected: Outcome; inputs?: Record<string, string> }>([
         { condition: '${{ github.event.pull_request.draft != true }}', expected: 'success' },
         { condition: "contains(github.event.pull_request.labels.*.name, 'no-ci')", expected: 'success' },
         { condition: "contains(github.event.pull_request.labels.*.name, 'run-ci-backend')", expected: 'skipped' },
@@ -197,7 +197,9 @@ jobs:
         },
         { condition: 'false', expected: 'skipped' },
         { condition: "env.INTERNAL == 'true'", expected: 'success' },
-    ])('evaluates the condition forms workflows use: $condition', ({ condition, expected }) => {
+        { condition: "inputs.master_event == 'schedule'", expected: 'skipped' },
+        { condition: "inputs.master_event == 'schedule'", expected: 'success', inputs: { master_event: 'schedule' } },
+    ])('evaluates the condition forms workflows use: $condition', ({ condition, expected, inputs }) => {
         const source = `
 on: pull_request
 jobs:
@@ -208,7 +210,10 @@ jobs:
       INTERNAL: \${{ github.event.pull_request.head.repo.full_name == github.repository }}
     steps: [{ run: echo }]
 `
-        const plan = planWorkflow(parseWorkflow(source), scenario({}, pullRequest({ labels: ['no-ci'] })))
+        const plan = planWorkflow(
+            parseWorkflow(source),
+            scenario({ inputs: inputs ?? {} }, pullRequest({ labels: ['no-ci'] }))
+        )
         expect(plan.errors).toEqual([])
         expect(plan.jobs['a']?.result).toBe(expected)
     })

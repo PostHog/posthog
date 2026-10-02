@@ -1,0 +1,8 @@
+{
+    "name": "backend-master-artifact-relay",
+    "version": "1.0.0",
+    "private": true,
+    "dependencies": {
+        "@actions/artifact": "6.2.1"
+    }
+}

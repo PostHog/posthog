@@ -15,7 +15,7 @@ A cell reads `▶` for a job that runs, `✗` for one that fails, `⊘` for one 
 In a terminal the header row is bold and every second row has a shaded background; set `NO_COLOR` to turn that off.
 Every paths filter is stubbed as if all of its filters matched.
 Outputs that scripts produce at runtime are empty, so a job gated on `needs.x.outputs.matrix != ''` shows as skipped and a matrix built from such an output has no cell count.
-Where a workflow cannot be planned without such a value, `SCRIPT_STUBS` in `src/scenarios.ts` supplies it per workflow path: the release plan output, and the Depot shadow's sampling variable and dice roll so `.depot/workflows/ci-backend.yml` plans as sampled in.
+Where a workflow cannot be planned without such a value, `SCRIPT_STUBS` in `src/scenarios.ts` supplies it per workflow path, including release outputs and the Depot hand-off decision.
 
 ## Pin the intended behavior in a test
 
@@ -42,6 +42,7 @@ backend(
 ```
 
 - `github`: the event, from `pullRequest()`, `mergeQueue()`, `push()`, `schedule()`, or `workflowDispatch()` in `src/scenarios.ts`.
+- `inputs`: dispatch inputs, such as the canonical event and SHA supplied to the master Backend CI worker. Omitted inputs default to an empty object.
 - `steps`: stubbed step outputs by job id and step id (or step name), for the paths filter and selector scripts. `allFiltersChanged(workflow)` stubs every filter as matched; `pathsFilter({ backend: false })` narrows one.
 - `runs`, `skipped`, `results`: the jobs to assert on. `results` takes the exact outcome, which is how a gate is checked for `cancelled` on a superseded run.
 
