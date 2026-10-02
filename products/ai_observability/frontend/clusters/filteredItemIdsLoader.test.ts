@@ -47,14 +47,28 @@ describe('loadFilterMatchedItemIds', () => {
         expect(query).toContain('$ai_embedding')
         expect(query).toContain('$ai_trace')
         expect(query).toContain("properties.$ai_trace_id IN ['aaaaaaaa-0000-0000-0000-000000000001']")
+        // The run window bounds when embeddings were written, and a trace's events come before that.
+        expect(query).toContain("parseDateTimeBestEffort('2026-09-01T00:00:00Z') - INTERVAL 7 DAY")
+    })
+
+    it('keeps trace ids of any shape and escapes them in the query', async () => {
+        await callLoader({ itemIds: ['trace_1', 'conv:abc', "o'brien\\x"] })
+
+        const [query] = mockApi.queryHogQL.mock.calls[0]
+        expect(query).toContain("properties.$ai_trace_id IN ['trace_1', 'conv:abc', 'o\\'brien\\\\x']")
     })
 
     it('matches generation items on the event uuid, which is the id clustering stores', async () => {
-        await callLoader({ level: 'generation' as ClusteringLevel })
+        await callLoader({
+            level: 'generation' as ClusteringLevel,
+            itemIds: ['aaaaaaaa-0000-0000-0000-000000000001', 'not-a-uuid'],
+        })
 
         const [query] = mockApi.queryHogQL.mock.calls[0]
         expect(query).toContain("event = '$ai_generation'")
+        // A value that is not a UUID in a comparison with the uuid column fails the whole query.
         expect(query).toContain("uuid IN ['aaaaaaaa-0000-0000-0000-000000000001']")
+        expect(query).toContain("parseDateTimeBestEffort('2026-09-01T00:00:00Z') - INTERVAL 7 DAY")
         // The SDK never sets this property on the event, so matching on it finds nothing.
         expect(query).not.toContain('$ai_generation_id')
     })

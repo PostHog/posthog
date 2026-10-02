@@ -179,7 +179,11 @@ export interface clusterDetailLogicMeta {
         windowEnd: (clusterData: ClusterData | null) => string
         clusteringLevel: (clusterData: ClusterData | null) => ClusteringLevel
         isOutlierCluster: (cluster: Cluster | null) => boolean
-        scatterPlotSeries: (cluster: Cluster | null, isOutlierCluster: boolean) => ClusterScatterSeries[]
+        scatterPlotSeries: (
+            cluster: Cluster | null,
+            isOutlierCluster: boolean,
+            filteredItemIds: Set<string> | null
+        ) => ClusterScatterSeries[]
         sortedTraceIds: (cluster: Cluster | null, filteredItemIds: Set<string> | null) => string[]
         totalTraces: (sortedTraceIds: string[]) => number
         unfilteredTotalTraces: (cluster: Cluster | null) => number
@@ -409,12 +413,19 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
         ],
 
         scatterPlotSeries: [
-            (s) => [s.cluster, s.isOutlierCluster],
-            (cluster: Cluster | null, isOutlier: boolean): ClusterScatterSeries[] => {
+            (s) => [s.cluster, s.isOutlierCluster, s.filteredItemIds],
+            (
+                cluster: Cluster | null,
+                isOutlier: boolean,
+                filteredItemIds: Set<string> | null
+            ): ClusterScatterSeries[] => {
                 if (!cluster) {
                     return []
                 }
 
+                // Same membership rule as sortedTraceIds, so the plot and the list show the same items
+                const entries = Object.entries(cluster.traces)
+                const visibleEntries = filteredItemIds ? entries.filter(([id]) => filteredItemIds.has(id)) : entries
                 const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
 
                 const result: ClusterScatterSeries[] = [
@@ -424,7 +435,7 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                         color,
                         pointRadius: 5,
                         shape: isOutlier ? 'cross' : 'circle',
-                        points: Object.entries(cluster.traces).map(([itemKey, traceInfo]) => ({
+                        points: visibleEntries.map(([itemKey, traceInfo]) => ({
                             x: traceInfo.x,
                             y: traceInfo.y,
                             meta: {
@@ -436,8 +447,8 @@ export const clusterDetailLogic = kea<clusterDetailLogicType>([
                     },
                 ]
 
-                // Add centroid marker for non-outlier clusters
-                if (!isOutlier) {
+                // Add centroid marker for non-outlier clusters that still show items
+                if (!isOutlier && visibleEntries.length > 0) {
                     result.push({
                         key: 'centroid',
                         label: 'Centroid',

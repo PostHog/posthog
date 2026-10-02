@@ -28,9 +28,10 @@ export const AI_OBSERVABILITY_CLUSTER_URL_PATTERN = '/ai-observability/clusters/
 export const AI_OBSERVABILITY_CLUSTERS_SCENE_TAG = 'AIObservabilityClusters'
 export const AI_OBSERVABILITY_CLUSTER_SCENE_TAG = 'AIObservabilityCluster'
 
-// Cluster items are keyed by UUIDs from precomputed clustering events. Restrict to
-// hex / dashes before interpolating into a HogQL `IN` literal so a malformed key
-// can't break out of the string. UUIDs already match this character set.
+// Generation-level cluster items are event UUIDs. A value with characters a UUID never
+// has (anything but hex / dashes) fails the whole `uuid IN (...)` comparison, so filter
+// those out first. This is a character check, not a full UUID check. Trace ids are
+// free-form strings and do not use it.
 export const SAFE_ID_RE = /^[a-f0-9-]+$/i
 
 // Mirrors `MAX_SELECT_RETURNED_ROWS` in `posthog/hogql/constants.py`. EventsQuery rows above

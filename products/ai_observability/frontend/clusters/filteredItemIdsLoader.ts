@@ -23,6 +23,10 @@ export interface FilterMatchedItemIdsParams {
  * Reading only `$ai_generation` dropped every clustered trace with no generation in the window.
  * Generation items are `$ai_generation` event UUIDs — the SDK does not set `$ai_generation_id` on
  * the event, so match the `uuid` column the way cluster metrics do.
+ *
+ * The run window bounds when the summary embeddings were written, and a trace's events come before
+ * its embedding, so the lower bound reaches back further than the window start. Seven days also
+ * covers a manual summarization run over an older window, where that gap is much larger.
  */
 function buildFilterQuery(
     level: ClusteringLevel,
@@ -35,7 +39,7 @@ function buildFilterQuery(
             SELECT DISTINCT toString(uuid) AS item_id
             FROM events
             WHERE event = '$ai_generation'
-                AND timestamp >= parseDateTimeBestEffort(${windowStart})
+                AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
                 AND timestamp <= parseDateTimeBestEffort(${windowEnd})
                 AND uuid IN ${ids}
                 AND {filters}
@@ -46,7 +50,7 @@ function buildFilterQuery(
         SELECT DISTINCT properties.$ai_trace_id AS item_id
         FROM events
         WHERE event IN ${TRACE_MEMBER_EVENTS}
-            AND timestamp >= parseDateTimeBestEffort(${windowStart})
+            AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
             AND timestamp <= parseDateTimeBestEffort(${windowEnd})
             AND properties.$ai_trace_id IN ${ids}
             AND {filters}
@@ -90,7 +94,9 @@ export async function loadFilterMatchedItemIds({
         return null
     }
 
-    const safeIds = itemIds.filter((id) => SAFE_ID_RE.test(id))
+    // Trace ids are free-form strings, and the `hogql` tag escapes them. Generation ids go into a
+    // comparison with the uuid column, so drop values with characters a UUID never has.
+    const safeIds = level === 'generation' ? itemIds.filter((id) => SAFE_ID_RE.test(id)) : itemIds.filter(Boolean)
     if (safeIds.length === 0) {
         return new Set<string>()
     }
