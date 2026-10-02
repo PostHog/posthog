@@ -17,13 +17,18 @@ import { userLogic } from 'scenes/userLogic'
 import type { TodayReportCard, TodayReportPreview } from '~/layout/today/todayPreviewCards'
 import { TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve, signalsReportsStateCreate } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsForYouRetrieve,
+    signalsReportsRetrieve,
+    signalsReportsStateCreate,
+} from 'products/signals/frontend/generated/api'
 import type {
     SignalReportStateEnumApi,
     SignalReportStateRequestApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import { openDismissReportDialog } from 'products/signals/frontend/inbox/components/shell/DismissReportDialog'
 import { openResolveReportDialog } from 'products/signals/frontend/inbox/components/shell/ResolveReportDialog'
+import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { suppressDismissalPayload } from 'products/signals/frontend/inbox/utils/dismissalReasons'
 import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/today/frontend/generated/api'
@@ -45,7 +50,7 @@ import {
     itemHref,
     itemReportId,
 } from './todayBriefingItems'
-import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
+import { SAMPLE_BRIEFING, isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { TodayBriefingSegment, briefingForReports, teamReportCard } from './todaySignalReports'
 
 export const TOP_REPORT_COUNT = 5
@@ -58,7 +63,7 @@ const MAX_BRIEFING_POLLS = 132
 export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'ask_box' | 'walk_through'
+export type TodayAskSource = 'ask_box' | 'walk_through' | 'report_page'
 
 /** What a person decides about a report from Today. */
 export type TodayReportVerdict = 'resolve' | 'dismiss'
@@ -168,6 +173,27 @@ export function reportSummaryForHour(hour: number, count: number): string {
     return `${reports} still ${verb} your attention`
 }
 
+/**
+ * The page shows the report as it was when it loaded, but the action-or-answer framing must follow its current
+ * state: somebody can resolve the report or open a PR on it meanwhile. A failed refetch fails closed to answering.
+ */
+async function currentReportContext(
+    report: SignalReport,
+    projectId: number | string
+): Promise<{ report: SignalReport; canAct: boolean }> {
+    let current: SignalReport | null = null
+    try {
+        // The generated type is wider than the handwritten SignalReport the Inbox helpers take. See loadTopReports.
+        current = (await signalsReportsRetrieve(String(projectId), report.id)) as unknown as SignalReport
+    } catch {
+        current = null
+    }
+    if (current && isActionCapableReport(report) && !isActionCapableReport(current)) {
+        lemonToast.info('This report can no longer take actions, so PostHog AI will answer instead.')
+    }
+    return { report: current ?? report, canAct: !!current && isActionCapableReport(current) }
+}
+
 /** How many of the briefing's items were resolved or dismissed since it was written. */
 export interface TodayBriefingProgress {
     done: number
@@ -179,6 +205,7 @@ export interface todayLogicValues {
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     user: UserType | null // userLogic
+    askingAi: boolean
     briefing: TodayBriefingSegment[][]
     briefingItems: BriefingItemApi[]
     briefingPolls: number
@@ -243,10 +270,15 @@ export interface todayLogicActions {
     }
     askAi: (
         prompt: string,
-        source: TodayAskSource
+        source: TodayAskSource,
+        report?: SignalReport
     ) => {
         prompt: string
+        report: SignalReport | undefined
         source: TodayAskSource
+    }
+    askAiFinished: () => {
+        value: true
     }
     itemOpened: (
         item: BriefingItemApi,
@@ -420,7 +452,9 @@ export const todayLogic = kea<todayLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
-        askAi: (prompt: string, source: TodayAskSource) => ({ prompt, source }),
+        // `report` is the report the person reads. Without it, the context is the briefing or the report list.
+        askAi: (prompt: string, source: TodayAskSource, report?: SignalReport) => ({ prompt, source, report }),
+        askAiFinished: true,
         setHoveredReportId: (reportId: string | null) => ({ reportId }),
         openReport: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
@@ -500,6 +534,8 @@ export const todayLogic = kea<todayLogicType>([
     reducers({
         // Turned on with `?sample=1` and kept until `?sample=0`, so the sample survives moving between pages.
         useSampleData: [false, { persist: true }, { setUseSampleData: (_, { useSampleData }) => useSampleData }],
+        // A question about a report waits for the report's current state before PostHog AI opens.
+        askingAi: [false, { askAi: (_, { report }) => !!report, askAiFinished: () => false }],
         hoveredReportId: [
             null as string | null,
             {
@@ -689,19 +725,30 @@ export const todayLogic = kea<todayLogicType>([
             }, 'briefingPoll')
         }
         return {
-            askAi: ({ prompt, source }) => {
-                // Sample reports have ids that do not exist, so PostHog AI gets no context to look up.
-                const context: TodayAskContext = values.useSampleData
-                    ? { kind: 'none' }
-                    : values.showPersonalBriefing && values.personalBriefing
-                      ? { kind: 'briefing', briefing: values.personalBriefing }
-                      : { kind: 'reports', reports: values.reports }
+            askAi: async ({ prompt, source, report }, breakpoint) => {
+                let context: TodayAskContext
+                // Sample reports have ids that do not exist, so PostHog AI gets no context to look up. A real
+                // report can still open while sample mode is on, so a report decides by its own id.
+                if (report) {
+                    context = isSampleReportId(report.id)
+                        ? { kind: 'none' }
+                        : { kind: 'report', ...(await currentReportContext(report, values.currentProjectId)) }
+                    breakpoint()
+                } else {
+                    context = values.useSampleData
+                        ? { kind: 'none' }
+                        : values.showPersonalBriefing && values.personalBriefing
+                          ? { kind: 'briefing', briefing: values.personalBriefing }
+                          : { kind: 'reports', reports: values.reports }
+                }
+                actions.askAiFinished()
                 router.actions.push(urls.ai(undefined, todayAskPrompt(prompt, context)))
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today ai asked', {
                     source,
                     context: context.kind,
                     briefing_id: context.kind === 'briefing' ? context.briefing.id : null,
+                    report_id: context.kind === 'report' ? context.report.id : null,
                 })
             },
             tick: () => {

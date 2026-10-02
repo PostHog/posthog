@@ -113,9 +113,6 @@ export interface sessionRecordingEventUsageLogicActions {
     reportRecordingPlayerSeekbarEventHovered: () => {
         value: true
     }
-    reportRecordingPlaylistCreated: (source: 'duplicate' | 'filters' | 'new' | 'pin') => {
-        source: 'duplicate' | 'filters' | 'new' | 'pin'
-    }
     reportRecordingsListFetched: (
         loadTime: number,
         filters: RecordingUniversalFilters,
@@ -192,7 +189,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
         reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
-        reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportRecordingOpenedFromRecentRecordingList: true,
     }),
     listeners(() => ({
@@ -290,9 +286,6 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         },
         reportRecordingPinnedToList: (properties) => {
             posthog.capture('recording pinned to list', properties)
-        },
-        reportRecordingPlaylistCreated: (properties) => {
-            posthog.capture('recording playlist created', properties)
         },
     })),
 ])
