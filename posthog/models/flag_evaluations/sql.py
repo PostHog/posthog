@@ -99,7 +99,8 @@ _FLAG_EVALUATIONS_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default
 # DEFAULT at read time and stores the result at its next merge. A now64() default would therefore
 # stamp rows written before the column existed with a merge time, and readers would take them for
 # new rows. The backfill omits written_at too, so a now64() default would also stamp its history
-# rows with the backfill's write time.
+# rows with the backfill's write time. Do not change this DEFAULT while system.parts_columns shows
+# any active part, on any replica, without written_at.
 _FLAG_EVALUATIONS_WRITTEN_AT_COLUMN = """
     , written_at DateTime64(6, 'UTC') DEFAULT inserted_at
 """
@@ -167,7 +168,7 @@ _FLAG_EVALUATIONS_PROXY_TYPED_COLUMNS = """
 
 # The bloom filters cover point lookups the sort key can't serve (a specific user,
 # person, session, or flags-service request). The minmax indexes on inserted_at and
-# written_at serve incremental consumers that checkpoint on them: partitioning is on
+# written_at serve incremental readers that checkpoint on them: partitioning is on
 # timestamp, so a range predicate on either column prunes no partitions on its own
 # and would otherwise read all 90 days. A skip index only covers parts written after
 # it exists, so retrofitting one means a full MATERIALIZE INDEX mutation — much
