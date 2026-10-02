@@ -114,11 +114,11 @@ export interface playerMetaLogicValues {
     currentWindowIndex: number
     displayOverviewItems: OverviewItem[]
     endTime: Dayjs | null
-    overviewItemsByTab: Record<OverviewTab, OverviewItem[]>
     isPropertyPopoverOpen: boolean
     lastPageviewEvent: RecordingEventType | null | undefined
     loading: boolean
     locationDisplay: string
+    overviewItemsByTab: Record<OverviewTab, OverviewItem[]>
     resolutionDisplay: string
     scaleDisplay: string
     sessionPerson: PersonType | null
@@ -209,7 +209,7 @@ export interface playerMetaLogicMeta {
         overviewItemsByTab: (displayOverviewItems: OverviewItem[]) => Record<OverviewTab, OverviewItem[]>
         locationDisplay: (
             sessionPlayerMetaData: SessionRecordingType | null,
-            recordingPropertiesById: Record<string, Record<string, any>>
+            recordingPropertiesById: Record<string, SessionRecordingPropertiesType[]>
         ) => string
     }
 }
