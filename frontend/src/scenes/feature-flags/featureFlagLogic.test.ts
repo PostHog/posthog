@@ -2912,7 +2912,7 @@ describe('featureFlagLogic', () => {
                     .toFinishAllListeners()
 
                 // A `name` in the body overwrites the flag's description.
-                expect(updateSpy.mock.calls[0][1]).toEqual({ id: MOCK_FEATURE_FLAG.id, deleted: true })
+                expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: true })
                 const [message, options] = toastSpy.mock.calls[0]
                 expect(render(message as JSX.Element).container.textContent).toBe(
                     `${MOCK_FEATURE_FLAG.key} has been deleted`
@@ -4149,6 +4149,51 @@ describe('a flag in config version 2', () => {
             .toFinishAllListeners()
 
         expect(logic.values.rowVersionToken).toEqual({ version: 5 })
+    })
+
+    it.each([
+        ['deleting', () => logic.actions.deleteFeatureFlag(V2_FLAG), { deleted: true, version: 3 }],
+        [
+            'restoring',
+            () => logic.actions.restoreFeatureFlag({ ...V2_FLAG, deleted: true }),
+            { deleted: false, version: 3 },
+        ],
+    ])('sends only deleted and the row version when %s', async (_, act, body) => {
+        const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, ...body, version: 4 })
+
+        await expectLogic(logic, act).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledWith(`api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7`, body)
+    })
+
+    it('offers no undo after a delete, because the server refuses to restore this flag', async () => {
+        jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, deleted: true, version: 4 })
+        // deleteWithUndo toasts through @posthog/lemon-ui, which the LemonToast module mock does not replace.
+        const info = jest.spyOn(sharedLemonToast, 'info')
+
+        await expectLogic(logic, () => logic.actions.deleteFeatureFlag(V2_FLAG)).toFinishAllListeners()
+
+        expect(info).toHaveBeenCalledTimes(1)
+        expect(info.mock.calls[0][1]?.button).toBeUndefined()
+    })
+
+    it('reloads the flag when a delete hits a stale row version', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, { ...V2_FLAG, version: 5 }],
+            },
+        })
+        jest.spyOn(api, 'update').mockRejectedValue({ status: 409, detail: 'This feature flag has changed.' })
+        const genericError = jest.spyOn(sharedLemonToast, 'error')
+
+        logic.actions.deleteFeatureFlag(V2_FLAG)
+        await expectLogic(logic)
+            .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.rowVersionToken).toEqual({ version: 5 })
+        expect(lemonToast.error).toHaveBeenCalledWith('This feature flag has changed.')
+        expect(genericError).not.toHaveBeenCalled()
     })
 
     it.each([

@@ -64,6 +64,8 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
+    reloadIfStaleRowVersion,
+    rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagRequestUsage } from 'products/feature_flags/frontend/requestUsage/FeatureFlagRequestUsage'
 
@@ -321,7 +323,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </AccessControlAction>
                         )}
 
-                        {featureFlag.id && isV1Config && (
+                        {featureFlag.id && configFormat !== 'unsupported' && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -331,10 +333,15 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     status="danger"
                                     onClick={() => {
                                         openFeatureFlagDeleteDialog(featureFlag, () => {
+                                            const versioned = rowVersionToken(featureFlag)
                                             void deleteWithUndo({
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { id: featureFlag.id },
                                                 label: featureFlag.key,
+                                                payload: versioned,
+                                                undoable: isV1Config,
+                                                onError: (error) =>
+                                                    reloadIfStaleRowVersion(versioned, error, loadFeatureFlags),
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
