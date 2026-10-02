@@ -5,14 +5,14 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from django.conf import settings
-
 import redis
 import structlog
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
+
+from products.warehouse_sources.backend.temporal.data_imports.redis_url import data_warehouse_redis_url
 
 logger = structlog.get_logger(__name__)
 
@@ -74,12 +74,7 @@ def _get_redis_client() -> Generator[redis.Redis | None]:
     # falling back to the fail-closed/fail-silent behavior callers rely on.
     redis_client = None
     try:
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for warehouse pipelines: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
-
-        redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        redis_client = get_client(data_warehouse_redis_url())
         _connect_and_ping(redis_client)
     except Exception as e:
         if _is_cancellation(e):

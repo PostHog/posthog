@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import redis
 import temporalio.exceptions
 
@@ -192,4 +194,19 @@ class TestGetRedisClient:
         with pytest.raises(temporalio.exceptions.CancelledError):
             with _get_redis_client():
                 pass
+        mock_capture.assert_not_called()
+
+    @override_settings(DATA_WAREHOUSE_REDIS_HOST=None, DATA_WAREHOUSE_REDIS_PORT=None, REDIS_URL="redis://shared:6379/")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.get_client")
+    def test_falls_back_to_shared_redis_when_dedicated_instance_unconfigured(
+        self, mock_get_client: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        # An install with no dedicated warehouse Redis used to hit a "missing env vars"
+        # exception on every lock acquire/release instead of using the shared instance.
+        mock_get_client.return_value = MagicMock()
+
+        with _get_redis_client() as client:
+            assert client is not None
+        mock_get_client.assert_called_once_with("redis://shared:6379/")
         mock_capture.assert_not_called()

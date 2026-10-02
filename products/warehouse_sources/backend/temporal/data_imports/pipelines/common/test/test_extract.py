@@ -6,6 +6,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from redis import exceptions as redis_exceptions
@@ -738,17 +740,31 @@ class TestGetRedis:
         broken_client = AsyncMock(ping=AsyncMock(side_effect=ConnectionError("Connect call failed")))
 
         with (
-            patch(f"{_EXTRACT_MODULE}.settings") as mock_settings,
+            patch(f"{_EXTRACT_MODULE}.data_warehouse_redis_url", return_value="redis://localhost:6379/"),
             patch(f"{_EXTRACT_MODULE}.get_async_client", return_value=broken_client),
             patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
         ):
-            mock_settings.DATA_WAREHOUSE_REDIS_HOST = "localhost"
-            mock_settings.DATA_WAREHOUSE_REDIS_PORT = 6379
-
             async with _get_redis() as redis_client:
                 assert redis_client is None
 
         mock_capture.assert_called_once()
+
+    @pytest.mark.asyncio
+    @override_settings(DATA_WAREHOUSE_REDIS_HOST=None, DATA_WAREHOUSE_REDIS_PORT=None, REDIS_URL="redis://shared:6379/")
+    async def test_falls_back_to_shared_redis_when_dedicated_instance_unconfigured(self):
+        # An install with no dedicated warehouse Redis used to hit a "missing env vars"
+        # exception on every row-tracking call instead of using the shared instance.
+        working_client = AsyncMock(ping=AsyncMock(return_value=True))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.get_async_client", return_value=working_client) as mock_get_async_client,
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            async with _get_redis() as redis_client:
+                assert redis_client is working_client
+
+        mock_get_async_client.assert_called_once_with("redis://shared:6379/")
+        mock_capture.assert_not_called()
 
 
 class TestHandleNonRetryableError:

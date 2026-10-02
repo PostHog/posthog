@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import redis
 from parameterized import parameterized
 
@@ -225,3 +227,18 @@ class TestGetRedisClient:
         with get_redis_client() as client:
             assert client is None
         assert mock_redis.ping.call_count == 3
+
+    @override_settings(DATA_WAREHOUSE_REDIS_HOST=None, DATA_WAREHOUSE_REDIS_PORT=None, REDIS_URL="redis://shared:6379/")
+    @patch(f"{_IDEMPOTENCY_MODULE}.capture_exception")
+    @patch(f"{_IDEMPOTENCY_MODULE}.get_client")
+    def test_falls_back_to_shared_redis_when_dedicated_instance_unconfigured(
+        self, mock_get_client: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        # An install with no dedicated warehouse Redis used to hit a "missing env vars"
+        # exception on every idempotency check instead of using the shared instance.
+        mock_get_client.return_value = MagicMock()
+
+        with get_redis_client() as client:
+            assert client is not None
+        mock_get_client.assert_called_once_with("redis://shared:6379/")
+        mock_capture.assert_not_called()

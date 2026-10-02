@@ -3,6 +3,8 @@ import typing
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import redis.exceptions as redis_exceptions
 
 from posthog.dataclasses import frozen
@@ -48,6 +50,19 @@ class TestResolveResumeManager:
         resource = SourceResponse(name="t", items=lambda: iter(()), primary_keys=None, supports_resume=True)
 
         assert resolve_resume_manager(None, resource) is None
+
+
+class TestGetRedis:
+    @override_settings(DATA_WAREHOUSE_REDIS_HOST=None, DATA_WAREHOUSE_REDIS_PORT=None, REDIS_URL="redis://shared:6379/")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable.get_client")
+    def test_falls_back_to_shared_redis_when_dedicated_instance_unconfigured(self, mock_get_client: MagicMock) -> None:
+        # An install with no dedicated warehouse Redis used to raise a "missing env vars"
+        # exception uncaught on every resumable-source read/write instead of using the shared instance.
+        mock_get_client.return_value = MagicMock()
+
+        with _manager()._get_redis() as client:
+            assert client is not None
+        mock_get_client.assert_called_once_with("redis://shared:6379/")
 
 
 class TestResumableSourceManager:

@@ -2,8 +2,6 @@ import json
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, NoReturn
 
-from django.conf import settings
-
 import pyarrow as pa
 import posthoganalytics
 from redis import exceptions as redis_exceptions
@@ -28,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+from products.warehouse_sources.backend.temporal.data_imports.redis_url import data_warehouse_redis_url
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
@@ -56,12 +55,7 @@ async def _get_redis():
     """Returns an async Redis client for row tracking operations."""
     redis = None
     try:
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
-
-        redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        redis = get_async_client(data_warehouse_redis_url())
         await redis.ping()
     except Exception as e:
         capture_exception(e)

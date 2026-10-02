@@ -5,8 +5,6 @@ import collections.abc
 from contextlib import contextmanager
 from typing import Generic
 
-from django.conf import settings
-
 import redis
 import orjson
 import redis.exceptions as redis_exceptions
@@ -14,6 +12,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.temporal.data_imports.redis_url import data_warehouse_redis_url
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
@@ -56,12 +55,7 @@ class ResumableSourceManager(Generic[ResumableData]):
 
     @contextmanager
     def _get_redis(self):
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
-
-        redis = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+        redis = get_client(data_warehouse_redis_url())
         redis.ping()
 
         yield redis
