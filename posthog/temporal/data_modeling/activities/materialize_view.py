@@ -36,6 +36,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -874,7 +875,8 @@ async def _build_person_property_sink(
         return sink if await sink.should_run() else None
     except Exception as e:
         await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return None
 
 
@@ -891,7 +893,8 @@ async def _account_property_sync_enabled(
         return await sink.should_run()
     except Exception as error:
         await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
-        capture_exception(error)
+        if not is_transient_db_error(error):
+            capture_exception(error)
         return False
 
 

@@ -7,9 +7,11 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 
 import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
+import { createAccountViewContent } from './accountViewDocument'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
-const EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
+const EXTERNAL_ACCOUNT_ID = '0190f3a2-6b7c-7d8e-9f01-23456789abcd'
+const URL_UNSAFE_EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_BY_EXTERNAL_ID_ENDPOINT = 'api/projects/:team_id/accounts/by_external_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
@@ -27,24 +29,19 @@ const accountView = {
     id: ACCOUNT_VIEW_ID,
     name: 'Account workspace',
     visibility: 'private',
-    content: {
-        type: 'doc',
-        content: [
-            {
-                type: 'ph-markdown-notebook',
-                attrs: {
-                    nodeId: 'markdown-notebook-v2',
-                    markdown: '<Notes nodeId="notes" />\n\n<Relationships nodeId="relationships" />',
-                },
-            },
-        ],
-    },
+    content: createAccountViewContent([
+        { nodeId: 'notes', kind: 'notes', span: 7 },
+        { nodeId: 'relationships', kind: 'relationships', span: 5 },
+    ]),
     text_content: 'Notes\nRelationships',
     version: 1,
     created_by: 1,
     last_modified_by: 1,
     created_at: '2026-05-10T10:00:00Z',
     updated_at: '2026-05-20T14:30:00Z',
+    can_edit: true,
+    can_delete: true,
+    can_change_visibility: true,
 }
 
 const account = {
@@ -120,8 +117,8 @@ const meta: Meta = {
             get: {
                 [ACCOUNT_RETRIEVE_ENDPOINT]: account,
                 [ACCOUNT_BY_EXTERNAL_ID_ENDPOINT]: ({ request }) =>
-                    new URL(request.url).searchParams.get('external_id') === EXTERNAL_ACCOUNT_ID
-                        ? account
+                    new URL(request.url).searchParams.get('external_id') === URL_UNSAFE_EXTERNAL_ACCOUNT_ID
+                        ? { ...account, external_id: URL_UNSAFE_EXTERNAL_ACCOUNT_ID }
                         : [400, null],
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: notebooks,
                 [ACCOUNT_ICON_ENDPOINT]: () =>
@@ -129,7 +126,15 @@ const meta: Meta = {
                         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#8f68d4"/></svg>',
                         { headers: { 'Content-Type': 'image/svg+xml' } }
                     ),
-                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: { pinned_properties: [] },
+                [ACCOUNT_SIDEBAR_CONFIG_ENDPOINT]: {
+                    pinned_properties: [],
+                    task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
+                    account_detail_tabs: {
+                        ordered_tab_ids: [`view:${ACCOUNT_VIEW_ID}`, 'system:notes', 'system:relationships'],
+                        hidden_tab_ids: [],
+                        default_tab_id: `view:${ACCOUNT_VIEW_ID}`,
+                    },
+                },
                 [ACCOUNT_VIEWS_ENDPOINT]: [accountView],
                 [VALUES_ENDPOINT]: [],
                 [ASSIGNMENTS_ENDPOINT]: [],
@@ -193,7 +198,7 @@ export const Default: Story = {
 export const ExternalId: Story = {
     render: () => <App />,
     parameters: {
-        pageUrl: urls.customerAnalyticsAccountByExternalId(EXTERNAL_ACCOUNT_ID, 'usage'),
+        pageUrl: urls.customerAnalyticsAccountByExternalId(URL_UNSAFE_EXTERNAL_ACCOUNT_ID, 'usage'),
         testOptions: {
             waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
             viewport: { width: 1280, height: 900 },

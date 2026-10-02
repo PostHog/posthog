@@ -480,16 +480,16 @@ async fn handle_batch_flag_evaluation(
     // The Django caller already returns [] for group-aggregated and inactive flags
     // without calling us; those two guards are defensive. The format check is not: nothing
     // upstream filters a non-v1 stored config.
+    target
+        .filters
+        .require_v1()
+        .map_err(|_| BatchFlagEvaluationError::UnsupportedConfigFormat)?;
     if target.get_group_type_index().is_some() {
         return Err(BatchFlagEvaluationError::GroupAggregatedFlag);
     }
     if !target.active {
         return Err(BatchFlagEvaluationError::FlagInactive);
     }
-    target
-        .filters
-        .require_v1()
-        .map_err(|_| BatchFlagEvaluationError::UnsupportedConfigFormat)?;
     let target_key = target.key.clone();
 
     let expected_property_matching_version = request
@@ -717,6 +717,7 @@ mod tests {
                 reason: FeatureFlagMatchReason::NoConditionMatch,
                 condition_index: None,
                 payload: None,
+                evaluation_v2: None,
             },
         ))
     }

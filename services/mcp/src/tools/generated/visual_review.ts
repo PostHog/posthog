@@ -175,6 +175,99 @@ const visualReviewReposPartialUpdate = (): ToolBase<
     },
 })
 
+const VisualReviewReposQuarantineCreateSchema = () => {
+    const VisualReviewReposQuarantineCreateBody = orvalSchemas.VisualReviewReposQuarantineCreateBody()
+    const VisualReviewReposQuarantineCreateParams = orvalSchemas.VisualReviewReposQuarantineCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['repo_id'] }),
+        VisualReviewReposQuarantineCreateParams.omit({ project_id: true })
+            .extend(VisualReviewReposQuarantineCreateBody.shape)
+            .extend({
+                id: VisualReviewReposQuarantineCreateParams.shape['id'].describe(
+                    "The repo's UUID, the run's `repo_id`."
+                ),
+                run_type: VisualReviewReposQuarantineCreateParams.shape['run_type'].describe(
+                    "The failing run's `run_type`, `storybook` or `playwright`. The quarantine covers only this run type."
+                ),
+            })
+    )
+}
+
+const visualReviewReposQuarantineCreate = (): ToolBase<
+    ReturnType<typeof VisualReviewReposQuarantineCreateSchema>,
+    Schemas.QuarantinedIdentifierEntry
+> => ({
+    name: 'visual-review-repos-quarantine-create',
+    schema: VisualReviewReposQuarantineCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewReposQuarantineCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        if (params.expires_at !== undefined) {
+            body['expires_at'] = params.expires_at
+        }
+        if (params.source_run_id !== undefined) {
+            body['source_run_id'] = params.source_run_id
+        }
+        if (params.notify_owners !== undefined) {
+            body['notify_owners'] = params.notify_owners
+        }
+        const result = await context.api.request<Schemas.QuarantinedIdentifierEntry>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/quarantine/${encodeURIComponent(String(params.run_type))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisualReviewReposQuarantineExpireCreateSchema = () => {
+    const VisualReviewReposQuarantineExpireCreateBody = orvalSchemas.VisualReviewReposQuarantineExpireCreateBody()
+    const VisualReviewReposQuarantineExpireCreateParams = orvalSchemas.VisualReviewReposQuarantineExpireCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['repo_id'] }),
+        VisualReviewReposQuarantineExpireCreateParams.omit({ project_id: true })
+            .extend(VisualReviewReposQuarantineExpireCreateBody.shape)
+            .extend({
+                id: VisualReviewReposQuarantineExpireCreateParams.shape['id'].describe(
+                    "The repo's UUID, from `visual-review-repos-list`."
+                ),
+                run_type: VisualReviewReposQuarantineExpireCreateParams.shape['run_type'].describe(
+                    'The run type of the quarantine to lift (`storybook` or `playwright`).'
+                ),
+            })
+    )
+}
+
+const visualReviewReposQuarantineExpireCreate = (): ToolBase<
+    ReturnType<typeof VisualReviewReposQuarantineExpireCreateSchema>,
+    unknown
+> => ({
+    name: 'visual-review-repos-quarantine-expire-create',
+    schema: VisualReviewReposQuarantineExpireCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof VisualReviewReposQuarantineExpireCreateSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/repos/${encodeURIComponent(String(params.id))}/quarantine/${encodeURIComponent(String(params.run_type))}/expire/`,
+            body,
+        })
+        return result
+    },
+})
+
 const VisualReviewReposQuarantineListSchema = () => {
     const VisualReviewReposQuarantineListParams = orvalSchemas.VisualReviewReposQuarantineListParams()
     const VisualReviewReposQuarantineListQueryParams = orvalSchemas.VisualReviewReposQuarantineListQueryParams()
@@ -480,6 +573,27 @@ const visualReviewRunsList = (): ToolBase<
     },
 })
 
+const VisualReviewRunsRecomputeCreateSchema = () => {
+    const VisualReviewRunsRecomputeCreateParams = orvalSchemas.VisualReviewRunsRecomputeCreateParams()
+    return VisualReviewRunsRecomputeCreateParams.omit({ project_id: true })
+}
+
+const visualReviewRunsRecomputeCreate = (): ToolBase<
+    ReturnType<typeof VisualReviewRunsRecomputeCreateSchema>,
+    Schemas.RecomputeResult
+> => ({
+    name: 'visual-review-runs-recompute-create',
+    schema: VisualReviewRunsRecomputeCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisualReviewRunsRecomputeCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.RecomputeResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/recompute/`,
+        })
+        return result
+    },
+})
+
 const VisualReviewRunsRetrieveSchema = () => {
     const VisualReviewRunsRetrieveParams = orvalSchemas.VisualReviewRunsRetrieveParams()
     return VisualReviewRunsRetrieveParams.omit({ project_id: true })
@@ -510,10 +624,10 @@ const VisualReviewRunsSnapshotHistoryListSchema = () => {
             .extend(VisualReviewRunsSnapshotHistoryListQueryParams.shape)
             .extend({
                 id: VisualReviewRunsSnapshotHistoryListParams.shape['id'].describe(
-                    "UUID of the visual review run to look the snapshot up from — a run id, not the `id` of a snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required, and `identifier` is required alongside it."
+                    "A run UUID, such as the snapshot's `run_id`. Not a snapshot `id`."
                 ),
                 identifier: VisualReviewRunsSnapshotHistoryListQueryParams.shape['identifier'].describe(
-                    'Identifier of the snapshot to trace, for example a Storybook story id plus theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to `id`; without it the call is rejected rather than returning history for the whole run.'
+                    "The snapshot's `identifier`, a name such as a story id plus theme. Required."
                 ),
             })
     )
@@ -564,9 +678,11 @@ const visualReviewRunsSnapshotsList = (): ToolBase<
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/visual_review/runs/${encodeURIComponent(String(params.id))}/snapshots/`,
                 query: {
+                    exclude_unchanged: params.exclude_unchanged,
                     include_quarantined: params.include_quarantined,
                     limit: params.limit,
                     offset: params.offset,
+                    snapshot_id: params.snapshot_id,
                 },
             })
             return await withPostHogUrl(context, result, '/visual_review')
@@ -611,10 +727,10 @@ const VisualReviewRunsToleratedHashesListSchema = () => {
             .extend(VisualReviewRunsToleratedHashesListQueryParams.shape)
             .extend({
                 id: VisualReviewRunsToleratedHashesListParams.shape['id'].describe(
-                    "UUID of the visual review run whose repo holds the tolerated hashes — a run id, not the `id` of a snapshot inside the run. Use the snapshot's `run_id`, or a run id from `visual-review-runs-list`. Required, and `identifier` is required alongside it."
+                    "A run UUID, such as the snapshot's `run_id`. Not a snapshot `id`."
                 ),
                 identifier: VisualReviewRunsToleratedHashesListQueryParams.shape['identifier'].describe(
-                    'Identifier of the snapshot whose tolerated hashes you want, for example a Storybook story id plus theme. Copy the `identifier` field of a snapshot in the run — it is a name, not a UUID. Required in addition to `id`; there is no way to list every tolerated hash in the repo from this tool.'
+                    "The snapshot's `identifier`, a name such as a story id plus theme. Required."
                 ),
             })
     )
@@ -648,6 +764,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-repos-flakiness-retrieve': visualReviewReposFlakinessRetrieve,
     'visual-review-repos-list': visualReviewReposList,
     'visual-review-repos-partial-update': visualReviewReposPartialUpdate,
+    'visual-review-repos-quarantine-create': visualReviewReposQuarantineCreate,
+    'visual-review-repos-quarantine-expire-create': visualReviewReposQuarantineExpireCreate,
     'visual-review-repos-quarantine-list': visualReviewReposQuarantineList,
     'visual-review-repos-retrieve': visualReviewReposRetrieve,
     'visual-review-repos-runs-counts-retrieve': visualReviewReposRunsCountsRetrieve,
@@ -657,6 +775,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'visual-review-runs-counts-retrieve': visualReviewRunsCountsRetrieve,
     'visual-review-runs-finalize-create': visualReviewRunsFinalizeCreate,
     'visual-review-runs-list': visualReviewRunsList,
+    'visual-review-runs-recompute-create': visualReviewRunsRecomputeCreate,
     'visual-review-runs-retrieve': visualReviewRunsRetrieve,
     'visual-review-runs-snapshot-history-list': visualReviewRunsSnapshotHistoryList,
     'visual-review-runs-snapshots-list': visualReviewRunsSnapshotsList,

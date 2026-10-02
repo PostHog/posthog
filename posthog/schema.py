@@ -110,6 +110,7 @@ from posthog.schema_enums import (
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
+    EventMatchScope as EventMatchScope,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -4671,27 +4672,31 @@ class AssistantTrendsFilter(BaseModel):
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time."
-            " `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series"
-            " area chart. `ActionsLineGraphCumulative` - cumulative time-series line"
-            " chart; good for cumulative metrics. `Metric` - single large number with a"
-            " change pill and a sparkline. Use for a period summary or an explicit"
-            ' current-versus-previous-period comparison ("how many X in the last 30'
-            ' days", "what\'s our conversion rate this month", "how does this month'
-            ' compare to last"). Do not use for a question about change over time, a'
-            " cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect"
-            " each interval. Set `compareFilter.compare` to `true` to compare the"
-            " current period with the previous period. Without it, the pill compares"
-            " the first interval with the last interval. Configure the display with the"
-            " `metric*` fields below. Single series, no breakdown. `BoldNumber` -"
-            " single large number with no change or sparkline. Use instead of `Metric`"
-            " only when a trend is meaningless, such as an all-time total or a fixed"
-            " ratio. You CANNOT use this with breakdown or if the insight has more than"
-            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart;"
-            " good for categorical data. `ActionsPie` - total value pie chart; good for"
-            " visualizing proportions. `ActionsTable` - total value table; good when"
-            " using breakdown to list users or other entities. `WorldMap` - total value"
-            " world map; use when breaking down by country name using property"
-            " `$geoip_country_name`, and only then."
+            " `ActionsBar` - time-series bar chart with one bar per interval and"
+            " breakdown values stacked in each bar. Do not use it to compare breakdown"
+            " values or series as totals. Use `ActionsBarValue` for that."
+            " `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative`"
+            " - cumulative time-series line chart; good for cumulative metrics."
+            " `Metric` - single large number with a change pill and a sparkline. Use"
+            " for a period summary or an explicit current-versus-previous-period"
+            ' comparison ("how many X in the last 30 days", "what\'s our conversion'
+            ' rate this month", "how does this month compare to last"). Do not use for'
+            " a question about change over time, a cadence, or a pattern. Use"
+            " `ActionsLineGraph` so the person can inspect each interval. Set"
+            " `compareFilter.compare` to `true` to compare the current period with the"
+            " previous period. Without it, the pill compares the first interval with"
+            " the last interval. Configure the display with the `metric*` fields below."
+            " Single series, no breakdown. `BoldNumber` - single large number with no"
+            " change or sparkline. Use instead of `Metric` only when a trend is"
+            " meaningless, such as an all-time total or a fixed ratio. You CANNOT use"
+            " this with breakdown or if the insight has more than one series."
+            " `ActionsBarValue` - total value (NOT time-series) bar chart with one bar"
+            ' per breakdown value or series; good for categorical data such as "top'
+            ' pages" or "failures by reason". `ActionsPie` - total value pie chart;'
+            " good for visualizing proportions. `ActionsTable` - total value table;"
+            " good when using breakdown to list users or other entities. `WorldMap` -"
+            " total value world map; use when breaking down by country name using"
+            " property `$geoip_country_name`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -28526,6 +28531,14 @@ class MetricsHistogramQuery(BaseModel):
     interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
     kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
     metricName: str
+    metricType: MetricsOtelType | None = Field(
+        default=None,
+        description=(
+            "Pins the OTel type, as on a MetricsQuery clause: one name can exist as"
+            " more than one type, and the heatmap must grid only the distribution"
+            " series."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsHistogramQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -28918,6 +28931,18 @@ class RecordingsQuery(BaseModel):
     date_from: str | None = "-3d"
     date_to: str | None = None
     distinct_ids: list[str] | None = None
+    event_match_scope: EventMatchScope | None = Field(
+        default=EventMatchScope.SESSION,
+        description=(
+            "Where a filter that is evaluated against events must match. 'session'"
+            " (default) matches an event anywhere in the session, including before the"
+            " recording started or after it ended. 'recording' only matches events from"
+            " one minute before the recording starts until one minute after it ends."
+            " This applies to every filter the events table answers: events, actions,"
+            " event properties, and, when the project resolves them on events, person,"
+            " group, and cohort properties."
+        ),
+    )
     events: list[dict[str, Any]] | None = None
     experiment_exposure: RecordingsQueryExperimentExposureFilter | None = Field(
         default=None,

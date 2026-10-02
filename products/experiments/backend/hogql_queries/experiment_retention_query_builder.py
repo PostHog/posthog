@@ -1,7 +1,5 @@
 from typing import TYPE_CHECKING, Optional
 
-from django.utils import timezone
-
 from posthog.schema import (
     ActionsNode,
     EventsNode,
@@ -22,6 +20,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
 )
+from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 
 if TYPE_CHECKING:
     from products.experiments.backend.hogql_queries.experiment_query_builder import ExperimentQueryBuilder
@@ -38,8 +37,9 @@ class RetentionQueryBuilder:
     through it.
     """
 
-    def __init__(self, builder: "ExperimentQueryBuilder"):
+    def __init__(self, builder: "ExperimentQueryBuilder", maturity: MaturityGate | None = None):
         self._b = builder
+        self._maturity = maturity
 
     def get_retention_maturity_seconds(self) -> int:
         """
@@ -130,21 +130,12 @@ class RetentionQueryBuilder:
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
 
-        if not self._b.only_count_matured_users:
+        if self._maturity is None:
             return ast.Constant(value=True)
-
-        maturity_seconds = self.get_retention_maturity_seconds()
-        if maturity_seconds == 0:
-            return ast.Constant(value=True)
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        return parse_expr(
-            "exposures.first_exposure_time + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-            placeholders={
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
+        condition = self._maturity.condition(
+            parse_expr("exposures.first_exposure_time"), self.get_retention_maturity_seconds()
         )
+        return condition if condition is not None else ast.Constant(value=True)
 
     def build_retention_maturity_having_clause(self) -> Optional[ast.Expr]:
         """
@@ -157,24 +148,9 @@ class RetentionQueryBuilder:
         """
         if not isinstance(self._b.metric, ExperimentRetentionMetric):
             return None
-        if not self._b.only_count_matured_users:
+        if self._maturity is None:
             return None
-
-        maturity_seconds = self.get_retention_maturity_seconds()
-        if maturity_seconds == 0:
-            return None
-
-        now = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-        start_timestamp_expr = self.build_start_event_timestamp_expr()
-
-        return parse_expr(
-            "{start_ts} + toIntervalSecond({maturity_seconds}) <= toDateTime({now}, 'UTC')",
-            placeholders={
-                "start_ts": start_timestamp_expr,
-                "maturity_seconds": ast.Constant(value=maturity_seconds),
-                "now": ast.Constant(value=now),
-            },
-        )
+        return self._maturity.condition(self.build_start_event_timestamp_expr(), self.get_retention_maturity_seconds())
 
     def build_retention_query(self) -> ast.SelectQuery:
         """
@@ -326,7 +302,7 @@ class RetentionQueryBuilder:
         )
 
         placeholders = {
-            "exposure_select_query": self._b._get_exposure_query(),
+            "exposure_select_query": self._b._get_exposure_query(self._maturity),
             "entity_key": parse_expr(self._b.entity_key),
             "completion_event_predicate": self.build_completion_event_predicate(),
             "retention_window_start_interval": self.build_retention_window_interval(

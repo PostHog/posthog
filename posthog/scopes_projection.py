@@ -32,6 +32,7 @@ Registered in `tools/hogli-commands/hogli_commands/projections.py`; run
 
 from __future__ import annotations
 
+import json
 import runpy
 from pathlib import Path
 from typing import Any
@@ -39,9 +40,6 @@ from typing import Any
 SCOPES_PY = Path(__file__).resolve().parent / "scopes.py"
 MCP_OUTPUT = "services/mcp/src/lib/oauth-scopes.generated.ts"
 FRONTEND_OUTPUT = "frontend/src/lib/scopes.generated.ts"
-# printWidth in .oxfmtrc.json. oxfmt collapses an array that fits on one line, and
-# lint-staged formats every staged .ts file, so the renderer has to write that shape.
-TS_PRINT_WIDTH = 120
 
 
 def _load_scopes() -> dict[str, Any]:
@@ -52,25 +50,11 @@ def _load_scopes() -> dict[str, Any]:
     return runpy.run_path(str(SCOPES_PY))
 
 
-def _ts_strings(values: list[str]) -> list[str]:
-    # oxfmt enforces single quotes; format manually rather than json.dumps so
-    # the generator output is byte-stable regardless of formatter rules. Scope
-    # names are simple snake_case identifiers + colons and never need escaping,
-    # but assert that to fail loudly if a scope ever does.
-    for s in values:
-        if "'" in s or "\\" in s:
-            raise RuntimeError(f"unexpected character in scope name: {s!r}")
-    return [f"'{s}'" for s in values]
-
-
 def _ts_string_array(values: list[str]) -> str:
-    return ",\n".join(f"    {s}" for s in _ts_strings(values))
+    return ",\n".join(f"    {json.dumps(s)}" for s in values)
 
 
 def _ts_const_string_array(name: str, values: list[str]) -> str:
-    one_line = f"export const {name} = [{', '.join(_ts_strings(values))}] as const"
-    if len(one_line) <= TS_PRINT_WIDTH:
-        return one_line + "\n"
     return f"export const {name} = [\n{_ts_string_array(values)},\n] as const\n"
 
 
