@@ -79,6 +79,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .register("kafka_producer".to_string(), Duration::from_secs(30))
         .await;
     let producer = create_kafka_producer(&kafka_config, producer_liveness).await?;
+    let consumer_liveness = if config.transport_mode == TransportMode::Grpc {
+        None
+    } else {
+        Some(
+            health
+                .register("kafka_consumer".to_string(), Duration::from_secs(30))
+                .await,
+        )
+    };
     let grpc_max_connection_age = config.grpc_max_connection_age();
     let redis_counter_config = config.redis_counter_config();
     let counters = (!config.redis_url.is_empty()).then(|| Arc::new(CounterAccumulator::default()));
@@ -173,6 +182,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             service,
             kafka_batch_config,
             Duration::from_millis(config.kafka_consumer_retry_backoff_max_ms.into()),
+            consumer_liveness.expect("Kafka modes register consumer health"),
         )
         .await;
     };

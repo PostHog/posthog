@@ -2,14 +2,15 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common_liveness::SyncLivenessReporter;
 use futures::{stream, StreamExt, TryStreamExt};
 use prost::Message;
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders, OwnedMessage};
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
-use rdkafka::{ClientConfig, Message as KafkaMessage, Offset, TopicPartitionList};
+use rdkafka::{ClientConfig, ClientContext, Message as KafkaMessage, Offset, TopicPartitionList};
 use usage_ingestion_proto::usage_ingestion::v1::IngestBillingUsageRequest;
 
 use crate::service::{ProcessingError, UsageIngestionService};
@@ -22,12 +23,36 @@ pub struct KafkaBatchConfig {
 }
 
 pub struct KafkaUsageIngestion {
-    consumer: StreamConsumer,
+    consumer: StreamConsumer<KafkaConsumerContext>,
     dead_letter_producer: FutureProducer,
     dead_letter_topic: String,
     service: Arc<UsageIngestionService>,
     batch: KafkaBatchConfig,
 }
+
+struct KafkaConsumerContext {
+    liveness: Arc<dyn SyncLivenessReporter>,
+}
+
+impl KafkaConsumerContext {
+    fn new(liveness: impl SyncLivenessReporter + Clone + 'static) -> Self {
+        Self {
+            liveness: Arc::new(liveness),
+        }
+    }
+}
+
+impl ClientContext for KafkaConsumerContext {
+    fn stats(&self, stats: rdkafka::Statistics) {
+        if stats.brokers.values().any(|broker| broker.state == "UP") {
+            self.liveness.report_healthy();
+        } else {
+            self.liveness.report_unhealthy();
+        }
+    }
+}
+
+impl ConsumerContext for KafkaConsumerContext {}
 
 impl KafkaUsageIngestion {
     pub fn new(
@@ -36,10 +61,14 @@ impl KafkaUsageIngestion {
         dead_letter_topic: String,
         service: Arc<UsageIngestionService>,
         batch: KafkaBatchConfig,
-    ) -> Result<Self, KafkaError> {
-        let consumer: StreamConsumer = config.create()?;
+        liveness: impl SyncLivenessReporter + Clone + 'static,
+    ) -> Result<Self, KafkaUsageIngestionError> {
+        let consumer: StreamConsumer<KafkaConsumerContext> =
+            config.create_with_context(KafkaConsumerContext::new(liveness.clone()))?;
+        verify_input_topic(&consumer, input_topic)?;
         consumer.subscribe(&[input_topic])?;
         let dead_letter_producer = config.create()?;
+        liveness.report_healthy();
         Ok(Self {
             consumer,
             dead_letter_producer,
@@ -191,6 +220,7 @@ pub async fn run_supervised(
     service: Arc<UsageIngestionService>,
     batch: KafkaBatchConfig,
     max_backoff: Duration,
+    liveness: impl SyncLivenessReporter + Clone + 'static,
 ) {
     let mut backoff = Duration::from_secs(1).min(max_backoff);
     loop {
@@ -201,10 +231,13 @@ pub async fn run_supervised(
             dead_letter_topic.to_string(),
             Arc::clone(&service),
             batch,
+            liveness.clone(),
         ) {
             Ok(transport) => transport.run().await,
-            Err(error) => Err(error.into()),
+            Err(error) => Err(error),
         };
+
+        liveness.report_unhealthy();
 
         tracing::error!(
             error = %result.expect_err("the Kafka consumer only exits on failure"),
@@ -219,6 +252,29 @@ pub async fn run_supervised(
         tokio::time::sleep(backoff).await;
         backoff = backoff.saturating_mul(2).min(max_backoff);
     }
+}
+
+fn verify_input_topic(
+    consumer: &StreamConsumer<KafkaConsumerContext>,
+    topic: &str,
+) -> Result<(), KafkaUsageIngestionError> {
+    let metadata = consumer.fetch_metadata(Some(topic), Duration::from_secs(10))?;
+    let topic_metadata = metadata
+        .topics()
+        .iter()
+        .find(|candidate| candidate.name() == topic)
+        .ok_or_else(|| KafkaUsageIngestionError::InputTopic(format!("{topic} is missing")))?;
+    if let Some(error) = topic_metadata.error() {
+        return Err(KafkaUsageIngestionError::InputTopic(format!(
+            "broker returned {error:?} for {topic}"
+        )));
+    }
+    if topic_metadata.partitions().is_empty() {
+        return Err(KafkaUsageIngestionError::InputTopic(format!(
+            "{topic} has no partitions"
+        )));
+    }
+    Ok(())
 }
 
 fn batch_offsets(messages: &[OwnedMessage]) -> Result<TopicPartitionList, KafkaError> {
@@ -243,14 +299,32 @@ pub enum KafkaUsageIngestionError {
     Kafka(#[from] KafkaError),
     #[error("usage processing failed before the input offsets were committed: {0}")]
     Processing(#[from] ProcessingError),
+    #[error("Kafka input topic is unavailable: {0}")]
+    InputTopic(String),
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use rdkafka::message::OwnedMessage;
+    use rdkafka::statistics::Broker;
     use rdkafka::Timestamp;
 
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct TestLiveness(Arc<AtomicBool>);
+
+    impl SyncLivenessReporter for TestLiveness {
+        fn report_healthy(&self) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+
+        fn report_unhealthy(&self) {
+            self.0.store(false, Ordering::Relaxed);
+        }
+    }
 
     fn message(topic: &str, partition: i32, offset: i64) -> OwnedMessage {
         OwnedMessage::new(
@@ -282,5 +356,25 @@ mod tests {
             offsets.find_partition("usage", 1).unwrap().offset(),
             Offset::Offset(9)
         );
+    }
+
+    #[test]
+    fn consumer_health_follows_broker_connectivity() {
+        let liveness = TestLiveness::default();
+        let context = KafkaConsumerContext::new(liveness.clone());
+
+        context.stats(rdkafka::Statistics::default());
+        assert!(!liveness.0.load(Ordering::Relaxed));
+
+        let mut stats = rdkafka::Statistics::default();
+        stats.brokers.insert(
+            "broker".to_string(),
+            Broker {
+                state: "UP".to_string(),
+                ..Default::default()
+            },
+        );
+        context.stats(stats);
+        assert!(liveness.0.load(Ordering::Relaxed));
     }
 }
