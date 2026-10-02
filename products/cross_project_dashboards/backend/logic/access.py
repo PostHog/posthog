@@ -5,20 +5,24 @@ from uuid import UUID
 
 from rest_framework import serializers
 
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.product_analytics.backend.facade.api import user_can_view_insight
 
 NOT_AVAILABLE = "That insight is not available to you."
 
 
 def visible_project_ids(user: User, organization_id: UUID | str) -> list[int]:
-    """Projects in the organization the user may open, by the rule the project endpoints apply."""
-    user_permissions = UserPermissions(user=user)
-    teams = Team.objects.filter(organization_id=organization_id).only("pk", "organization_id", "project_id")
-    return [team.pk for team in teams if user_permissions.team(team).effective_membership_level is not None]
+    """Projects in the organization the user may open, by both access-control systems, as the project list applies them."""
+    organization = Organization.objects.get(id=organization_id)
+    teams = visible_teams_for_user(
+        organization,
+        UserAccessControl(user=user, organization_id=str(organization_id)),
+        UserPermissions(user=user),
+    )
+    return list(teams.values_list("id", flat=True))
 
 
 def assert_can_reference_insight(user: User, organization_id: UUID | str, project_id: int, insight_id: int) -> None:

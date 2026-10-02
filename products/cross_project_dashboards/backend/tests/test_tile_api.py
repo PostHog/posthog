@@ -2,12 +2,13 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team
 
-from products.access_control.backend.facade.api import AccessControl
+from products.access_control.backend.facade.api import AccessControl, Role, RoleMembership
 from products.cross_project_dashboards.backend.models import CrossProjectDashboard, CrossProjectDashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
@@ -159,15 +160,39 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         assert first["count"] == 3
         assert sorted(paged) == sorted(created)
 
-    def test_a_project_the_reader_is_denied_hides_its_tiles(self, _flag):
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    @parameterized.expand(
+        [
+            ("everyone_denied", False),
+            # Most-specific resolution lets the member's own denial beat the role's grant, while
+            # the legacy resolver takes the highest of the two and would show the project.
+            ("member_denied_role_allowed", True),
         ]
+    )
+    def test_a_project_the_reader_is_denied_hides_its_tiles(self, _name: str, member_denied: bool, _flag):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.uses_most_specific_access_resolution = True
         self.organization.save()
         denied_team = Team.objects.create(organization=self.organization, name="Denied project")
-        AccessControl.objects.create(
-            team=denied_team, resource="project", resource_id=str(denied_team.id), access_level="none"
-        )
+        if member_denied:
+            role = Role.objects.create(name="Analysts", organization=self.organization)
+            RoleMembership.objects.create(user=self.user, role=role)
+            AccessControl.objects.create(
+                team=denied_team, resource="project", resource_id=str(denied_team.id), role=role, access_level="admin"
+            )
+            AccessControl.objects.create(
+                team=denied_team,
+                resource="project",
+                resource_id=str(denied_team.id),
+                organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+                access_level="none",
+            )
+        else:
+            AccessControl.objects.create(
+                team=denied_team, resource="project", resource_id=str(denied_team.id), access_level="none"
+            )
         visible = CrossProjectDashboardTile.objects.create(
             dashboard=self.dashboard, organization=self.organization, project_id=self.team.pk, insight_id=1
         )

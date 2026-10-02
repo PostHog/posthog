@@ -48,6 +48,18 @@ class CrossProjectDashboard:
 
 
 @dataclass(frozen=True)
+class DashboardPage:
+    results: list[CrossProjectDashboard]
+    count: int
+
+
+@dataclass(frozen=True)
+class TilePage:
+    results: list[CrossProjectTile]
+    count: int
+
+
+@dataclass(frozen=True)
 class NewDashboard:
     name: str
     description: str

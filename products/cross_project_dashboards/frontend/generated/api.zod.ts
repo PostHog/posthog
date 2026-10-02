@@ -15,6 +15,7 @@ import * as zod from 'zod'
 export const crossProjectDashboardsCreateBodyNameMax = 400
 
 export const crossProjectDashboardsCreateBodyDescriptionDefault = ``
+export const crossProjectDashboardsCreateBodyDescriptionMax = 4000
 
 export const CrossProjectDashboardsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -24,6 +25,7 @@ export const CrossProjectDashboardsCreateBody = /* @__PURE__ */ zod
             .describe('Name shown in the dashboard list and page header.'),
         description: zod
             .string()
+            .max(crossProjectDashboardsCreateBodyDescriptionMax)
             .default(crossProjectDashboardsCreateBodyDescriptionDefault)
             .describe('Optional longer description.'),
         filters: zod
@@ -93,6 +95,7 @@ export const CrossProjectDashboardsTilesPartialUpdateBody = /* @__PURE__ */ zod
 export const crossProjectDashboardsPartialUpdateBodyNameMax = 400
 
 export const crossProjectDashboardsPartialUpdateBodyDescriptionDefault = ``
+export const crossProjectDashboardsPartialUpdateBodyDescriptionMax = 4000
 
 export const CrossProjectDashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -103,6 +106,7 @@ export const CrossProjectDashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Name shown in the dashboard list and page header.'),
         description: zod
             .string()
+            .max(crossProjectDashboardsPartialUpdateBodyDescriptionMax)
             .default(crossProjectDashboardsPartialUpdateBodyDescriptionDefault)
             .describe('Optional longer description.'),
         filters: zod

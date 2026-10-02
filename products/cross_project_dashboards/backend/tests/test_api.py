@@ -5,6 +5,8 @@ from unittest.mock import patch
 from rest_framework import status
 
 from posthog.models import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cross_project_dashboards.backend.models import CrossProjectDashboard
 
@@ -55,6 +57,21 @@ class TestCrossProjectDashboardAPI(APIBaseTest):
         paged = [dashboard["id"] for dashboard in first["results"] + second["results"]]
         assert first["count"] == 3
         assert sorted(paged) == sorted(created)
+
+    def test_rejects_a_project_scoped_key_even_with_a_capture_token(self, _flag):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Project only",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["cross_project_dashboard:read"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+
+        response = self.client.get(self._url(f"?token={self.team.api_token}"), HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_delete_is_a_soft_delete(self, _flag):
         dashboard = self._dashboard()
