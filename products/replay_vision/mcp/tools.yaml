@@ -1172,6 +1172,9 @@ tools:
     vision-scanners-variants-list:
         operation: vision_scanners_variants_list
         enabled: false
+    vision-scanners-variants-refresh-create:
+        operation: vision_scanners_variants_refresh_create
+        enabled: false
     vision-scanners-watch-feed:
         operation: vision_scanners_watch_feed_retrieve
         enabled: true
