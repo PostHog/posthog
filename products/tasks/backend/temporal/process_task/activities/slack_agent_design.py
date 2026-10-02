@@ -5,8 +5,8 @@ answer and the turn's attachments all flow as chunks into one streamed message.
 Best-effort: a Slack outage must never escalate to a task failure.
 """
 
-from dataclasses import field
-from typing import Any, Optional
+from dataclasses import field, replace
+from typing import TYPE_CHECKING, Any, Optional
 
 from temporalio import activity
 
@@ -15,7 +15,16 @@ from posthog.object_tags.slack import rewrite_object_tags_for_slack
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadHandler
+    from products.tasks.backend.models import TaskRun
+
 logger = get_logger(__name__)
+
+# The closing reply waits on the turn's accounting, so it takes the last few unpriced requests
+# and gives up quickly. The run's own reconciler settles whatever is left, for the task page.
+_SPEND_SETTLE_SECONDS = 2.0
+_SPEND_SETTLE_MAX_REQUESTS = 6
 
 
 @frozen
@@ -148,6 +157,35 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
         return True
 
 
+def _settle_turn_spend(handler: "SlackThreadHandler", task_run: "TaskRun", plan_title: Optional[str]) -> Optional[str]:
+    """The plan title again, now that the turn's spend is known.
+
+    A turn the gateway has not finished pricing reports no figure at all: a partial sum would
+    read as the whole bill, and nothing updates this reply later to correct it. The thread's
+    total goes to the footer, and only once it has more in it than this turn, so a thread's
+    first reply does not say the same number twice.
+
+    Model spend only. The sandbox is still running when the reply closes, so its compute cost
+    is a figure that keeps moving, and it is cents beside a turn's model spend.
+    """
+    from products.slack_app.backend.facade.api import plan_title_with_spend
+    from products.tasks.backend.logic.services.gateway_usage import get_task_cost, process_pending_gateway_usage
+
+    turn = process_pending_gateway_usage(
+        run_id=task_run.id,
+        team_id=task_run.team_id,
+        limit=_SPEND_SETTLE_MAX_REQUESTS,
+        deadline_seconds=_SPEND_SETTLE_SECONDS,
+    )
+    if turn.token_cost is None:
+        logger.info("slack_app_turn_spend_unavailable", run_id=str(task_run.id))
+        return None
+    thread = get_task_cost(team_id=task_run.team_id, task_id=task_run.task_id)
+    if thread.token_cost is not None and thread.token_cost != turn.token_cost:
+        handler.run_footer = replace(handler.run_footer, thread_spend_cents=thread.token_cost)
+    return plan_title_with_spend(plan_title, turn.token_cost)
+
+
 @activity.defn
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
@@ -181,6 +219,9 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
                 )
             )
 
+        def _settle_spend() -> Optional[str]:
+            return _settle_turn_spend(handler, task_run, input.plan_title) if task_run else None
+
         handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
@@ -189,6 +230,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             plan_title=input.plan_title,
             append_attachments=_append_attachments,
             mention_sent=input.mention_sent,
+            settle_spend=_settle_spend,
         )
         for delivery in deliveries:
             if task_run is not None:
