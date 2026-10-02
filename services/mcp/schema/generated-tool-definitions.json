@@ -6714,7 +6714,7 @@
         }
     },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report, open checks first and newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -6726,6 +6726,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "inbox-report-checks-replace": {
+        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace a metric follow-up check",
+        "title": "Replace a metric follow-up check",
+        "required_scopes": ["task:write", "query:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-report-checks-replace",
+        "feature_flag_behavior": "enable"
     },
     "inbox-report-checks-retrieve": {
         "description": "Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts themselves are `check_result` artefacts on the report, so read those through the artefact list.",
@@ -8086,7 +8102,7 @@
         }
     },
     "llma-score-definition-create": {
-        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived) and at version 1.",
+        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`, and an optional `passing_rule` with `operator` (`gte`/`lte`) and a finite `threshold` within those bounds. Boolean scorers can override `true_label`/`false_label` and set `true_is_failure` (`false`: true passes; `true`: false passes). Omitted or null boolean polarity defaults to true passing in offline evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not archived) and at version 1.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create scorer",
@@ -8128,7 +8144,7 @@
         }
     },
     "llma-score-definition-new-version": {
-        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
+        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds or passing rules, change boolean polarity or labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are saved atomically with the version.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Bump scorer to a new version",

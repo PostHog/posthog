@@ -1649,6 +1649,38 @@ from = [
     "products.today",
 ]
 
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.ai_observability",
+]
+
+# Legacy leaks: modules other code imports from ai_observability today. Drain them into the facade over time.
+[[interfaces]]
+expose = [
+    "backend\\.activity_logging.*",
+    "backend\\.ai_event_lookup.*",
+    "backend\\.api.*",
+    "backend\\.backfill_candidates.*",
+    "backend\\.dashboard_templates.*",
+    "backend\\.dataset_queries.*",
+    "backend\\.dataset_service.*",
+    "backend\\.hog.*",
+    "backend\\.llm.*",
+    "backend\\.markdown_outline.*",
+    "backend\\.models.*",
+    "backend\\.prompt_references.*",
+    "backend\\.queries.*",
+    "backend\\.summarization.*",
+    "backend\\.text_repr.*",
+    "backend\\.tools.*",
+]
+from = [
+    "products.ai_observability",
+]
+
 [[modules]]
 path = "products.webmcp"
 depends_on = ["posthog"]

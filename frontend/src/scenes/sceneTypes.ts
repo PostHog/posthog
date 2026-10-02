@@ -233,6 +233,7 @@ export enum Scene {
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
     AIObservabilityScorers = 'AIObservabilityScorers',
+    AIObservabilityScorer = 'AIObservabilityScorer',
     AIObservabilityOfflineExperiments = 'AIObservabilityOfflineExperiments',
     AIObservabilityOfflineExperiment = 'AIObservabilityOfflineExperiment',
     AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
@@ -438,6 +439,12 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
+    // Business knowledge
+    [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
@@ -475,6 +482,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
     [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,

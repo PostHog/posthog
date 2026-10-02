@@ -5182,6 +5182,26 @@ class TasksTeamConfigResponseSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
+class TasksTaskDefaultsSerializer(serializers.Serializer):
+    """The requesting user's per-project task defaults, shared by PostHog Desktop and the web app."""
+
+    start_in_plan_mode = serializers.BooleanField(
+        help_text="When true, new tasks start in plan mode: the agent makes a plan and waits for approval.",
+    )
+    auto_publish_cloud_runs = serializers.BooleanField(
+        help_text="When true, a cloud run that changes code always opens a draft pull request.",
+    )
+
+
+class TasksTaskDefaultsUpdateSerializer(TasksTaskDefaultsSerializer):
+    """A partial update of the requesting user's task defaults. Fields left out keep their stored value."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.required = False
+
+
 class TasksUserConfigResponseSerializer(serializers.Serializer):
     """The requesting user's per-project tasks configuration."""
 
@@ -5196,6 +5216,9 @@ class TasksUserConfigResponseSerializer(serializers.Serializer):
             "Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project "
             "instructions. Anyone who continues a task you started can see them. Empty when unset."
         )
+    )
+    task_defaults = TasksTaskDefaultsSerializer(
+        help_text="Your per-project defaults for new tasks. Unset defaults are false."
     )
 
 
