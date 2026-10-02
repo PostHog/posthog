@@ -487,7 +487,10 @@ function sortRecordings(
         const incomparable = orderA === undefined || orderB === undefined
         const left_greater = order_direction === 'DESC' ? -1 : 1
         const right_greater = order_direction === 'DESC' ? 1 : -1
-        return incomparable ? 0 : orderA > orderB ? left_greater : right_greater
+        if (incomparable || orderA === orderB) {
+            return 0
+        }
+        return orderA > orderB ? left_greater : right_greater
     })
 }
 

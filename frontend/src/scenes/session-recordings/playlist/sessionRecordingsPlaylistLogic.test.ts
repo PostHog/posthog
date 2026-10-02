@@ -395,6 +395,24 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 expect(logic.values.visiblePinnedRecordings.map((r) => r.console_error_count)).toEqual(expected)
             })
 
+            it('keeps the input order of pinned recordings with equal sort values', async () => {
+                logic = sessionRecordingsPlaylistLogic({
+                    logicKey: 'pinned-ties',
+                    pinnedRecordings: [
+                        aRecording,
+                        { ...bRecording, console_error_count: aRecording.console_error_count },
+                    ],
+                    onlyPinned: true,
+                })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ order: 'console_error_count', order_direction: 'ASC' })
+                }).toDispatchActions(['loadPinnedRecordingsSuccess'])
+
+                expect(logic.values.visiblePinnedRecordings.map((r) => r.id)).toEqual([aRecording.id, bRecording.id])
+            })
+
             it('adds an offset', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadSessionRecordings()
