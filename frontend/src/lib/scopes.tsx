@@ -4,6 +4,16 @@ import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
+
+export const countScopeRowsByLevel = (rows: { value: ScopeAccessLevel }[]): Record<ScopeAccessLevel, number> => {
+    const counts: Record<ScopeAccessLevel, number> = { none: 0, read: 0, write: 0 }
+    for (const row of rows) {
+        counts[row.value] += 1
+    }
+    return counts
+}
+
 export type APIScope = {
     key: APIScopeObject
     objectName: string
