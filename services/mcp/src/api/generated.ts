@@ -30306,6 +30306,7 @@ export namespace Schemas {
      * * `Donorbox` - Donorbox
      * * `Doorloop` - Doorloop
      * * `Dovetail` - Dovetail
+     * * `Dragonboat` - Dragonboat
      * * `Drchrono` - Drchrono
      * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
      * * `EcbDataPortal` - EcbDataPortal
@@ -31665,6 +31666,7 @@ export namespace Schemas {
       Donorbox: 'Donorbox',
       Doorloop: 'Doorloop',
       Dovetail: 'Dovetail',
+      Dragonboat: 'Dragonboat',
       Drchrono: 'Drchrono',
       Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
       EcbDataPortal: 'EcbDataPortal',
@@ -33038,6 +33040,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -35623,6 +35626,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -46470,6 +46474,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -47863,6 +47868,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -96793,6 +96799,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -98202,6 +98209,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
@@ -99593,6 +99601,7 @@ export namespace Schemas {
        * * `Donorbox` - Donorbox
        * * `Doorloop` - Doorloop
        * * `Dovetail` - Dovetail
+       * * `Dragonboat` - Dragonboat
        * * `Drchrono` - Drchrono
        * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
        * * `EcbDataPortal` - EcbDataPortal
