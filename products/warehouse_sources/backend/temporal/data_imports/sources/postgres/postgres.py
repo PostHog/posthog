@@ -2915,7 +2915,7 @@ def _size_sample_percent(row_estimate: int | None) -> float | None:
 
 
 def _get_table_chunk_size(
-    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger, *, byte_bounded: bool = False
+    cursor: psycopg.Cursor, inner_query: sql.Composed, logger: FilteringBoundLogger
 ) -> _TableChunking:
     # Under autocommit each statement is its own transaction — a failure can't poison
     # subsequent commands, so no SAVEPOINT is needed. When called inside a shared
@@ -2961,8 +2961,7 @@ def _get_table_chunk_size(
         # of pages that a small table usually misses entirely. Reading that as a one-byte row
         # derives a chunk of 150 million, and a chunk is what sizes the `FETCH` when no page cap
         # applies — so the read asks for the whole table in one page on exactly the tables whose
-        # row size is unknown. This stays off the gate: it is a defect in the arithmetic, not
-        # behavior worth preserving, and every other SQL source already floors this case.
+        # row size is unknown. Every other SQL source floors this case the same way.
         row_size_bytes = row[0]
         if not row_size_bytes:
             logger.debug(f"_get_table_chunk_size: Nothing measured. Using DEFAULT_CHUNK_SIZE={DEFAULT_CHUNK_SIZE}")
@@ -2983,9 +2982,8 @@ def _get_table_chunk_size(
         # The page cap sits fractionally below the chunk on any table whose p99 exceeds its p95,
         # which is most of them, so a bare comparison would report nearly every sync. An order of
         # magnitude is the point where the cap starts to matter: the read issues about ten times
-        # the `FETCH` calls per batch. Off the byte bound the caller ignores the cap and fetches the
-        # whole chunk, so reporting there would claim a cap that the read never applied.
-        if byte_bounded and chunking.fetch_rows * 10 <= chunking.batch_rows:
+        # the `FETCH` calls per batch.
+        if chunking.fetch_rows * 10 <= chunking.batch_rows:
             logger.info(measurements)
         else:
             logger.debug(measurements)
@@ -3562,7 +3560,6 @@ def postgres_source(
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     is_xmin: bool = False,
     xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
-    byte_bounded_extraction: bool = False,
     activity_attempt: int = 1,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
 ) -> SourceResponse:
@@ -3781,16 +3778,9 @@ def postgres_source(
                                 )
                                 logger.debug(f"Using chunk_size_override: {chunk_size_override}")
                             else:
-                                chunking = _get_table_chunk_size(
-                                    cursor, inner_query_with_limit, logger, byte_bounded=byte_bounded_extraction
-                                )
+                                chunking = _get_table_chunk_size(cursor, inner_query_with_limit, logger)
                             chunk_size = chunking.batch_rows
-                            # The page cap only exists to bound what one `FETCH` materialises, so
-                            # it belongs behind the same gate as the byte bound it serves. Applied
-                            # with the gate off it shrinks the fetch without ever flushing a batch:
-                            # the read pays a round trip per page and still accumulates the whole
-                            # table, which is worse than the single full-size fetch it replaced.
-                            fetch_page_rows = chunking.fetch_rows if byte_bounded_extraction else None
+                            fetch_page_rows = chunking.fetch_rows
 
                             logger.debug("Getting rows to sync...")
                             # For partitioned tables without an incremental cursor (initial
@@ -4391,7 +4381,6 @@ def postgres_source(
                     table_name=table_name,
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
-                    byte_bounded=byte_bounded_extraction,
                     fetch_rows=fetch_page_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
@@ -4430,7 +4419,6 @@ def postgres_source(
                     db_incremental_field_last_value=db_incremental_field_last_value,
                     child_partitions=child_partitions,
                     chunk_size=chunk_size,
-                    byte_bounded=byte_bounded_extraction,
                     fetch_rows=fetch_page_rows,
                     arrow_schema=arrow_schema,
                     logger=logger,
@@ -4500,7 +4488,6 @@ def postgres_source(
                             for rows in fetch_row_batches(
                                 cursor.fetchmany,
                                 max_rows=chunk_size,
-                                byte_bounded=byte_bounded_extraction,
                                 max_page_rows=fetch_page_rows,
                             ):
                                 dicts = [dict(zip(column_names, row)) for row in rows]
