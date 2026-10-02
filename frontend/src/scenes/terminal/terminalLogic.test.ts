@@ -68,32 +68,20 @@ describe('terminal lifecycle', () => {
 
     afterEach(() => jest.restoreAllMocks())
 
-    it.each([false, true])('opens folders with the simple side panel enabled: %s', (enabled) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled,
-        })
+    it('opens folders in the Files tab', () => {
         const push = jest.spyOn(router.actions, 'push')
         const url = urls.projectFiles('Research & notes/Reports')
         terminalLogic.actions.openUrl(url)
-        if (enabled) {
-            expect(push).not.toHaveBeenCalled()
-            expect(panelLayoutLogic.values.navExperimentActiveTab).toBe('files')
-            expect(projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).values.expandedFolders).toContain(
-                'project://Research & notes/Reports'
-            )
-        } else {
-            expect(push).toHaveBeenCalledWith(url)
-        }
+        expect(push).not.toHaveBeenCalled()
+        expect(panelLayoutLogic.values.navExperimentActiveTab).toBe('files')
+        expect(projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' }).values.expandedFolders).toContain(
+            'project://Research & notes/Reports'
+        )
         terminalLogic.actions.openUrl('/insights/example')
         expect(push).toHaveBeenCalledWith('/insights/example')
     })
 
     it.each([true, false])('keeps project-qualified folder links in their own project: %s', (sameProject) => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.POSTHOG_TERMINAL]: true,
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-        })
         const push = jest.spyOn(router.actions, 'push')
         const projectId = MOCK_DEFAULT_TEAM.id + (sameProject ? 0 : 1)
         const url = `/project/${projectId}/files?folder=Reports`

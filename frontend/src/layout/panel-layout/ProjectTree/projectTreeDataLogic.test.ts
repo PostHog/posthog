@@ -3,9 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
@@ -30,11 +28,14 @@ describe('projectTreeDataLogic', () => {
         jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValue({ count: 0, results: [] })
 
         initKeaTests()
+        useMocks({
+            post: { '/api/projects/:team_id/file_system/home_folder/': [200, { id: 'home', path: 'Users/Alex' }] },
+        })
         panelLayoutLogic.mount()
         panelLayoutLogic.actions.clearActivePanelIdentifier()
         logic = projectTreeDataLogic()
         unmount = logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadFolderSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
         jest.clearAllMocks()
     })
 
@@ -43,22 +44,7 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('initializes the home folder once when the sidebar flag arrives after mount', async () => {
-        const initialize = jest.fn(() => [200, { id: 'home', path: 'Users/Alex' }])
-        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': initialize } })
-        expect(logic.values.homeFolder).toBeNull()
-        await expectLogic(logic, () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-                [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-            })
-        }).toDispatchActions(['loadHomeFolderSuccess'])
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIMPLE_SIDEPANEL], {
-            [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: true,
-        })
-        expect(initialize).toHaveBeenCalledTimes(1)
+    it('initializes the home folder on mount and follows folder renames', () => {
         expect(logic.values.currentHomeFolder).toEqual({ id: 'home', path: 'Users/Alex' })
         logic.actions.loadFolderSuccess(
             'Research',

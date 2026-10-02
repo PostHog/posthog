@@ -207,10 +207,6 @@ export const SettingsUserCustomization: Story = {
     args: { sectionId: 'user-customization' },
 }
 
-export const SettingsUserNavigation: Story = {
-    args: { sectionId: 'user-navigation' },
-}
-
 export const SettingsUserDangerZone: Story = {
     args: { sectionId: 'user-danger-zone' },
 }

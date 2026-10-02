@@ -40,7 +40,7 @@ export interface SidebarCustomizableSection {
 /**
  * The exhaustive list of customizable sidebar elements, used to render the settings UI.
  * Keys must match the UserUIConfiguration schema and labels/icons must match what the
- * navbar renders (NavTabBrowse and NavBarFooter), so keep the three in sync.
+ * navbar renders (NavTabProducts and NavBarFooter), so keep the three in sync.
  * Activity and Settings have no key: they always stay visible.
  */
 export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [

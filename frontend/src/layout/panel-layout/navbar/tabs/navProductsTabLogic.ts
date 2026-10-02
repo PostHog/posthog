@@ -733,9 +733,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             // A product intent can add custom products, and the backend stars them for simple sidebar
             // users in the same request. Custom products reload after that write, so shortcuts follow.
             loadCustomProductsSuccess: () => {
-                if (values.featureFlags[FEATURE_FLAGS.SIMPLE_SIDEPANEL]) {
-                    actions.loadShortcuts()
-                }
+                actions.loadShortcuts()
             },
             revealAllProductsForFind: () => {
                 posthog.capture('sidebar all products revealed by find')

@@ -202,13 +202,6 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
-import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import {
-    HomepageSetting,
-    SidebarItemsSetting,
-    SidebarLayoutSetting,
-    SidebarMyProductsSetting,
-} from './user/SidebarSettings'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -2619,16 +2612,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['impersonation', 'support login', 'debug'],
             },
             {
-                id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new products',
-                description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
-                component: <SidebarAutoSuggestSetting />,
-                // Suggestions land in custom products, which the simple sidebar does not show.
-                flag: '!SIMPLE_SIDEPANEL',
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
-            },
-            {
                 id: 'mcp-hints',
                 title: 'MCP hints',
                 description:
@@ -2664,46 +2647,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
-            },
-        ],
-    },
-    {
-        level: 'user',
-        id: 'user-navigation',
-        title: 'Navigation',
-        // The simple sidebar edits these inline, from its own customize dialog.
-        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
-        settings: [
-            {
-                id: 'homepage',
-                title: 'Homepage',
-                description:
-                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
-                component: <HomepageSetting />,
-                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
-            },
-            {
-                id: 'sidebar-layout',
-                title: 'Layout',
-                description: 'Control how dense the sidebar rows are.',
-                component: <SidebarLayoutSetting />,
-                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
-            },
-            {
-                id: 'sidebar-items',
-                title: 'Navigation items',
-                description:
-                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
-                component: <SidebarItemsSetting />,
-                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
-            },
-            {
-                id: 'sidebar-my-tools',
-                title: 'My products',
-                description:
-                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyProductsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },

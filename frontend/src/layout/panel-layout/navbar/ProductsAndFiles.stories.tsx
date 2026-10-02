@@ -122,7 +122,6 @@ const meta: Meta<typeof SidebarStory> = {
                 )
             ),
             FEATURE_FLAGS.PRODUCT_AUTONOMY,
-            FEATURE_FLAGS.SIMPLE_SIDEPANEL,
             FEATURE_FLAGS.ML_INFERENCE_DECISIONS,
         ],
     },
@@ -438,15 +437,4 @@ export const FilesLongTree: Story = {
             },
         }),
     ],
-}
-
-export const FlagOff: Story = { parameters: { featureFlags: [] } }
-export const FlagOffAfterFiles: Story = {
-    args: { tab: 'files', recentsCollapsed: true },
-    parameters: { featureFlags: [] },
-}
-export const FlagOffCollapsed: Story = { args: { collapsed: true }, parameters: { featureFlags: [] } }
-export const FlagOffFlatNav: Story = {
-    args: { tab: 'files', recentsCollapsed: true },
-    parameters: { featureFlags: [FEATURE_FLAGS.FLAT_NAV] },
 }

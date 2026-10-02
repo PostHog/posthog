@@ -137,13 +137,9 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: true })
     })
 
-    it.each([
-        [true, 1],
-        [false, 0],
-    ])('reloads stars after custom products reload with the simple sidebar %s', async (enabled, expectedLoads) => {
+    it('reloads stars after custom products reload', async () => {
         const list = jest.fn(() => [200, { results: [] }])
         useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': list } })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         list.mockClear()
 
@@ -152,7 +148,7 @@ describe('navProductsTabLogic', () => {
         ).toFinishAllListeners()
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
-        expect(list).toHaveBeenCalledTimes(expectedLoads)
+        expect(list).toHaveBeenCalledTimes(1)
     })
 
     it('fills in the link of product stars the backend created without one', async () => {
@@ -243,12 +239,13 @@ describe('navProductsTabLogic', () => {
             patch: { '/api/users/@me/': updateUser },
         })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        projectTreeDataLogic.actions.loadShortcutsSuccess([
-            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
-        ])
         customProductsLogic.actions.loadCustomProductsSuccess([
             { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
             { id: '2', product_path: 'Removed product', enabled: true, created_at: '', updated_at: '' },
+        ])
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
         ])
 
         navProductsTabLogic.actions.openStarredSetup()
