@@ -291,7 +291,7 @@ def test_error_header_takes_precedence_and_handles_non_json() -> None:
 
 def test_throttle_retries_then_succeeds(session: Mock) -> None:
     session.post.side_effect = [response({"__type": "ThrottlingException"}, 400), response({"Events": []})]
-    with patch.object(AwsCloudTrailClient.request.retry, "sleep"):
+    with patch.object(cast(Any, AwsCloudTrailClient.request).retry, "sleep"):
         assert client().request("LookupEvents", {"MaxResults": 50}) == {"Events": []}
     assert session.post.call_count == 2
 
