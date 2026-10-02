@@ -816,14 +816,19 @@ class TestProjectFanOutRows:
         assert first["sort_by"] == "uploaded_at"
         assert first["sort_order"] == "asc"
 
-    def test_project_files_reject_repeated_cursor(self) -> None:
-        with pytest.raises(HarveyRetryableError, match="same Vault project files cursor"):
+    @parameterized.expand(
+        [
+            ("consecutive_repeat", ["cursor-a", "cursor-a"]),
+            ("cycle", ["cursor-a", "cursor-b", "cursor-a"]),
+        ]
+    )
+    def test_project_files_reject_cursor_cycles(self, _name: str, cursors: list[str]) -> None:
+        with pytest.raises(HarveyRetryableError, match="repeated Vault project files cursor"):
             self._get_batches(
                 "vault_project_files",
                 [
                     _vault_page(["proj-1"]),
-                    self._files_page(["file-1"], next_cursor="cursor-abc"),
-                    self._files_page(["file-1"], next_cursor="cursor-abc"),
+                    *(self._files_page([f"file-{index}"], next_cursor=cursor) for index, cursor in enumerate(cursors)),
                 ],
             )
 

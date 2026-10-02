@@ -472,6 +472,7 @@ def _get_project_file_rows(
     project_id: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     cursor: str | None = None
+    seen_cursors: set[str] = set()
     while True:
         url = _project_files_url(base_url, project_id, cursor, VAULT_PROJECT_FILES_PAGE_SIZE)
         data = _fetch_json_or_none(session, url, headers, logger)
@@ -492,8 +493,9 @@ def _get_project_file_rows(
         next_cursor = pagination.get("next_cursor")
         if not files or not pagination.get("has_more") or not next_cursor:
             return
-        if next_cursor == cursor:
-            raise HarveyRetryableError("Harvey returned the same Vault project files cursor twice")
+        if next_cursor in seen_cursors:
+            raise HarveyRetryableError("Harvey returned a repeated Vault project files cursor")
+        seen_cursors.add(next_cursor)
         cursor = next_cursor
 
 
