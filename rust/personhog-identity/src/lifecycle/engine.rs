@@ -46,9 +46,9 @@ const LEASES_LOST_TOTAL: &str = "personhog_lifecycle_leases_lost_total";
 /// How many abandoned ops one sweep pass will pick up.
 const SWEEP_BATCH_SIZE: i64 = 100;
 
-/// Pause before re-driving a step that lost a database conflict. Long
-/// enough for the competing statement (typically a writer flush) to finish;
-/// the execute deadline still bounds the total retry time.
+/// Pause before re-driving a step that lost a database conflict or its
+/// connection. Long enough for the competing statement (typically a writer
+/// flush) to finish; the execute deadline still bounds the total retry time.
 const DB_CONFLICT_BACKOFF: Duration = Duration::from_millis(50);
 
 pub type Tx<'a> = sqlx::Transaction<'a, sqlx::Postgres>;
@@ -106,6 +106,22 @@ impl SagaError {
         matches!(db.code().as_deref(), Some("40P01" | "40001" | "57014"))
     }
 
+    /// The connection under the statement broke: a pgbouncer pod shutting
+    /// down, a network reset, or a server-side disconnect (SQLSTATE class
+    /// 08). The pool discards the connection, so a re-drive runs on a fresh
+    /// one. Even when the break hid a commit, the reloaded row shows the
+    /// advanced step, so re-driving is as safe as after a conflict.
+    pub fn is_db_connection_lost(&self) -> bool {
+        let SagaError::Db(err) = self else {
+            return false;
+        };
+        match err {
+            sqlx::Error::Io(_) | sqlx::Error::Tls(_) => true,
+            sqlx::Error::Database(db) => db.code().is_some_and(|code| code.starts_with("08")),
+            _ => false,
+        }
+    }
+
     /// The Postgres error detail for a database conflict. For a deadlock it
     /// names the processes, lock targets, and relations in the cycle — the
     /// only place that evidence surfaces when server-side error logging is
@@ -121,6 +137,9 @@ impl SagaError {
 
 impl From<SagaError> for Status {
     fn from(err: SagaError) -> Status {
+        if err.is_db_connection_lost() {
+            return Status::unavailable(format!("{err}; retry with the same op_id"));
+        }
         match err {
             SagaError::Db(e) => Status::internal(format!("database error: {e}")),
             // A definitive refusal (the op_id belongs to a different
@@ -496,6 +515,7 @@ impl Engine {
                 // retry noise. Alert on it — a wedged op can hold fences.
                 let kind = match &err {
                     SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
+                    SagaError::Db(_) if err.is_db_connection_lost() => "db_connection",
                     SagaError::Db(_) => "db",
                     SagaError::Leader(_) => "leader",
                     SagaError::LeaderRefused(_) => "leader_refused",
@@ -527,6 +547,17 @@ impl Engine {
                         error = %err,
                         detail = %err.db_detail().unwrap_or(""),
                         "lifecycle step lost a database conflict; retrying"
+                    );
+                    tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
+                    continue;
+                }
+                if err.is_db_connection_lost() {
+                    tracing::warn!(
+                        op_id = %op_id,
+                        op_type = %row.op_type,
+                        step = %row.step,
+                        error = %err,
+                        "lifecycle step lost its database connection; retrying"
                     );
                     tokio::time::sleep(DB_CONFLICT_BACKOFF).await;
                     continue;
