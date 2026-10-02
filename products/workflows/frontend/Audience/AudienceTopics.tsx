@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDownload, IconExternal } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconDownload, IconEllipsis, IconExternal } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { userLogic } from 'scenes/userLogic'
 
 import { customerIOImportLogic } from '../OptOuts/customerIOImportLogic'
@@ -24,8 +23,8 @@ export function AudienceTopics(): JSX.Element {
                     <div className="max-w-2xl">
                         <h2 className="text-xl font-semibold m-0">{words.topics.heading}</h2>
                         <p className="text-muted m-0">
-                            The kinds of email a recipient can subscribe to or unsubscribe from. Recipients see topics
-                            on their preferences page, and your app sets preferences by topic key.
+                            The kinds of messages a recipient can subscribe to or unsubscribe from. Recipients see
+                            topics on their preferences page, and your app sets preferences by topic key.
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -56,31 +55,31 @@ function TopicsMoreMenu(): JSX.Element {
     const { openImportModal } = useActions(customerIOImportLogic)
 
     return (
-        <More
-            data-attr="audience-topics-more"
-            aria-label="More topic actions"
-            overlay={
-                <>
-                    <LemonButton
-                        fullWidth
-                        icon={<IconDownload />}
-                        onClick={() => openImportModal()}
-                        tooltip="Import topics and preferences from Customer.io"
-                    >
-                        Import from Customer.io
-                    </LemonButton>
-                    <LemonButton
-                        fullWidth
-                        icon={<IconExternal />}
-                        onClick={() => openPreferencesPage()}
-                        loading={preferencesUrlLoading}
-                        disabledReason={!user?.email ? 'Your account has no email address' : undefined}
-                        tooltip="Open the preferences page your own address sees, in a new tab"
-                    >
-                        Preview preferences page
-                    </LemonButton>
-                </>
-            }
-        />
+        <LemonMenu
+            items={[
+                {
+                    label: 'Import from Customer.io',
+                    icon: <IconDownload />,
+                    tooltip: 'Import topics and preferences from Customer.io',
+                    onClick: () => openImportModal(),
+                },
+                {
+                    label: 'Preview preferences page',
+                    icon: <IconExternal />,
+                    tooltip: 'Open the preferences page your own address sees, in a new tab',
+                    disabledReason: !user?.email ? 'Your account has no email address' : undefined,
+                    onClick: () => openPreferencesPage(),
+                },
+            ]}
+            placement="bottom-end"
+        >
+            <LemonButton
+                data-attr="audience-topics-more"
+                aria-label="More topic actions"
+                icon={<IconEllipsis />}
+                size="small"
+                loading={preferencesUrlLoading}
+            />
+        </LemonMenu>
     )
 }
