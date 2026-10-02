@@ -206,8 +206,7 @@ describe('logsViewerLogic', () => {
 
         it('pages by offset alone, without introducing a timestamp cursor', () => {
             // A batch fires every instance within the same millisecond, so successive pages must differ ONLY by
-            // the offset (and the row slice sized from it) — never by a `timestamp < cursor` boundary, which
-            // would hide the remaining groups.
+            // the offset — never by a `timestamp < cursor` boundary, which would hide the remaining groups.
             const firstPage = buildGroupedLogsQuery(makeParams(), 10, 0)
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 

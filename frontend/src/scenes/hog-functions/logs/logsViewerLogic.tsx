@@ -29,8 +29,7 @@ export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
 export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
-// Size of the newest-rows slice that newest-first pages group from. These bound cost only, because a short
-// page falls back to the full GROUP BY (see loadGroupedLogs).
+// Bounds cost only: a short sliced page falls back to the full GROUP BY in loadGroupedLogs.
 export const LOG_GROUP_ROWS_PER_GROUP = 10000
 export const LOG_GROUP_MAX_SLICE_ROWS = 1_000_000
 
@@ -131,16 +130,7 @@ const buildSearchFilters = ({ searchGroups, levels, instanceId }: LogEntryParams
     return query
 }
 
-const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
-    const query = hogql`
-        SELECT instance_id, timestamp, level, message
-        FROM log_entries
-        WHERE 1=1
-        ${hogql.raw(buildBoundaryFilters(request))}
-        ${hogql.raw(buildSearchFilters(request))}
-        ORDER BY timestamp ${hogql.raw(request.order)}
-        LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
-
+const queryLogEntries = async (query: HogQLQueryString, request: LogEntryParams): Promise<LogEntry[]> => {
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
@@ -164,9 +154,21 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
     )
 }
 
-// The full GROUP BY keeps a state for every instance in the range, which exhausts memory on wide ranges.
-// An instance with a row in the newest-rows slice has its latest row there too, so the slice gives the same
-// order. Oldest-first can't use it, because a slice of the oldest rows can understate max(timestamp).
+const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
+    const query = hogql`
+        SELECT instance_id, timestamp, level, message
+        FROM log_entries
+        WHERE 1=1
+        ${hogql.raw(buildBoundaryFilters(request))}
+        ${hogql.raw(buildSearchFilters(request))}
+        ORDER BY timestamp ${hogql.raw(request.order)}
+        LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
+
+    return await queryLogEntries(query, request)
+}
+
+// An instance in the newest-rows slice has its latest row there too, so the order matches the full GROUP BY
+// without its per-instance state. A slice of the oldest rows can understate max(timestamp), so ASC can't.
 export const groupedLogsSliceRows = (
     request: LogEntryParams,
     groupLimit: number,
@@ -179,8 +181,7 @@ export const groupedLogsSliceRows = (
     return rows <= LOG_GROUP_MAX_SLICE_ROWS ? rows : null
 }
 
-// A short page may mean the slice held too few instances. A page that hit the line cap is not retried,
-// because the full GROUP BY drops the same groups.
+// A page cut by the line cap loses the same groups under the full GROUP BY, so only short pages retry.
 export const shouldRetryGroupedLogsWithoutSlice = (entries: LogEntry[], groupLimit: number): boolean => {
     if (entries.length >= LOG_GROUP_TOTAL_LOGS_LIMIT) {
         return false
@@ -237,29 +238,8 @@ const loadGroupedLogs = async (
     groupLimit: number = LOG_GROUP_LIMIT,
     groupOffset: number = 0
 ): Promise<LogEntry[]> => {
-    const run = async (sliceRows: number | null): Promise<LogEntry[]> => {
-        const response = await api.queryHogQL(
-            buildGroupedLogsQuery(request, groupLimit, groupOffset, sliceRows),
-            { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-            {
-                refresh: 'force_blocking',
-                filtersOverride: {
-                    date_from: request.dateFrom ?? '-7d',
-                    date_to: request.dateTo,
-                },
-            }
-        )
-
-        return response.results.map(
-            (result): LogEntry => ({
-                instanceId: result[0],
-                timestamp: dayjs(result[1]),
-                rawTimestamp: result[1],
-                level: result[2].toUpperCase(),
-                message: result[3],
-            })
-        )
-    }
+    const run = (sliceRows: number | null): Promise<LogEntry[]> =>
+        queryLogEntries(buildGroupedLogsQuery(request, groupLimit, groupOffset, sliceRows), request)
 
     const sliceRows = groupedLogsSliceRows(request, groupLimit, groupOffset)
     const entries = await run(sliceRows)
