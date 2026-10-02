@@ -92,7 +92,11 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
         selectedEmail: [null as string | null, { setCurrentTab: () => null, openRecipient: (_, { email }) => email }],
     }),
     selectors({
-        breadcrumbs: [(s) => [s.currentTab, s.selectedEmail], audienceBreadcrumbs],
+        breadcrumbs: [
+            (s) => [s.currentTab, s.selectedEmail],
+            (currentTab: AudienceTab, selectedEmail: string | null): Breadcrumb[] =>
+                audienceBreadcrumbs(currentTab, selectedEmail),
+        ],
     }),
     urlToAction(({ actions }) => ({
         [urls.audience()]: () => actions.setCurrentTab(DEFAULT_AUDIENCE_TAB),
