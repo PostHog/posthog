@@ -309,7 +309,7 @@ def test_error_parsing_and_disjoint_retry_policies(
 
 def test_body_throttle_retries_and_non_json_errors(config: AwsBatchSourceConfig, session: MagicMock) -> None:
     session.post.side_effect = [response({"code": "ThrottlingException"}, 400), response({"jobQueues": []})]
-    with patch.object(AwsBatchClient.request.retry, "wait", wait_none()):
+    with patch.object(cast(Any, AwsBatchClient.request).retry, "wait", wait_none()):
         assert AwsBatchClient(config).request("DescribeJobQueues", {"maxResults": 1}) == {"jobQueues": []}
     assert session.post.call_count == 2
     invalid = response({}, 503)
