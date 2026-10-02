@@ -55,7 +55,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Views of each Gridly grid. A view displays all data of a grid or a subset of it, and is what the records and columns tables read from.",
         "docs_url": "https://www.gridly.com/docs/api/#list-views",
         "columns": {
-            "id": "Unique identifier of the view. Matches the View ID the source is configured with.",
+            "id": "Unique identifier of the view.",
             "name": "Name of the view.",
             "gridId": "ID of the grid the view belongs to.",
         },
