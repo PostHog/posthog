@@ -270,6 +270,7 @@ from posthog.schema_enums import (
     SpanPropertyFilterType as SpanPropertyFilterType,
     StartHandling as StartHandling,
     Status as Status,
+    StepBarLabels as StepBarLabels,
     StepOrderValue as StepOrderValue,
     StickinessComputationMode as StickinessComputationMode,
     StickinessOperator as StickinessOperator,
@@ -29920,6 +29921,10 @@ class FunnelsFilter(BaseModel):
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
     )
     showValuesOnSeries: bool | None = False
+    stepBarLabels: StepBarLabels | None = Field(
+        default=StepBarLabels.PERCENTAGE,
+        description=("What the bar labels show. Only applies to the left-to-right steps funnel."),
+    )
     useUdf: bool | None = None
 
 

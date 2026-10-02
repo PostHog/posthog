@@ -28135,6 +28135,12 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "stepBarLabels": {
+                    "default": "percentage",
+                    "description": "What the bar labels show. Only applies to the left-to-right steps funnel.",
+                    "enum": ["percentage", "count", "both"],
+                    "type": "string"
+                },
                 "useUdf": {
                     "type": "boolean"
                 }

@@ -3,7 +3,8 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { PIE_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, FunnelLayout, PIE_DISPLAY_TYPES } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -45,6 +46,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const {
         querySource,
         isTrends,
+        isFunnels,
         isRetention,
         isStickiness,
         isLifecycle,
@@ -68,7 +70,8 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         usesInChartLegend,
         insightFilter,
     } = useValues(insightVizDataLogic(insightProps))
-    const { isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { isTrendsFunnel, isStepsFunnel, funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         showValuesOnSeries,
         showPercentagesOnSeries,
@@ -102,6 +105,11 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const isBarDisplay = displayMatches(display, BAR_DISPLAYS)
     const showAxisLabelsConfig = isTrends && (isLineDisplay || isBarDisplay)
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
+    const showFunnelStepBarLabelsConfig =
+        !!featureFlags[FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] &&
+        isFunnels &&
+        !!isStepsFunnel &&
+        (funnelsFilter?.layout ?? FunnelLayout.vertical) === FunnelLayout.vertical
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     const isPie = !!display && PIE_DISPLAY_TYPES.includes(display)
     // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
@@ -190,6 +198,13 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
     const displayItems = getDisplayItems()
     if (showDisplaySection && displayItems.length > 0) {
         displaySections.push({ key: 'display', dataAttr: 'options-display-section', items: displayItems })
+    }
+    if (showFunnelStepBarLabelsConfig) {
+        displaySections.push({
+            key: 'funnel-step-bar-labels',
+            title: 'Bar labels',
+            items: [DisplayOptions.FunnelStepBarLabels],
+        })
     }
     if (showAnnotationsConfig) {
         displaySections.push({
@@ -313,6 +328,7 @@ export function useInsightDisplayOptions(): { tabs: DisplayOptionTab[]; count: n
         isPie && trendsFilter?.showLabelsOnSeries,
         unitIsSet,
         (hasLegend || showFunnelLegendConfig) && showLegend,
+        showFunnelStepBarLabelsConfig && !!funnelsFilter?.stepBarLabels && funnelsFilter.stepBarLabels !== 'percentage',
         showAnnotationsConfig && (showAnnotations === false || !!annotationsScope),
         isMetric && trendsFilter?.metricShowChange === false,
         isMetric && trendsFilter?.metricColorByDirection,

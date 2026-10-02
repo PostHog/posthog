@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
     expandFirstPropertyFilter,
@@ -97,9 +98,15 @@ const manyStepsFixture = {
     },
 }
 
-// Steps shrink to fit the width and switch to the compact legend instead of scrolling.
-export const ManySteps: Story = {
+// Steps shrink to fit the width instead of scrolling, with the rate on each bar.
+export const BarLabelsManySteps: Story = {
     render: () => <StoryRender insightFixture={manyStepsFixture} width={1520} />,
+    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
+}
+
+export const BarLabelsBreakdown: Story = {
+    render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} />,
+    parameters: { featureFlags: [FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS] },
 }
 
 export const Breakdown: Story = {

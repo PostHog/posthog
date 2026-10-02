@@ -11,8 +11,6 @@ import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +19,9 @@ import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import {
+    formatConvertedCount,
     formatConvertedPercentage,
+    formatDroppedOffCount,
     formatDroppedOffPercentage,
     formatMedianConversionTime,
     getTooltipTitleForConverted,
@@ -53,11 +53,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
 
     const convertedCountPresentationWithPercentage = (
         <>
-            {humanFriendlyNumber(step.count ?? 0)}
-            <span className="StepLegend__noun">
-                {' '}
-                {pluralize(step.count ?? 0, aggregationTargetLabel.singular, aggregationTargetLabel.plural, false)}
-            </span>
+            {formatConvertedCount(step, aggregationTargetLabel)}
             {!isFirstStep && (
                 <>
                     {' '}
@@ -70,16 +66,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
     )
     const droppedOffCountPresentationWithPercentage = (
         <>
-            {humanFriendlyNumber(step.droppedOffFromPrevious ?? 0)}
-            <span className="StepLegend__noun">
-                {' '}
-                {pluralize(
-                    step.droppedOffFromPrevious ?? 0,
-                    aggregationTargetLabel.singular,
-                    aggregationTargetLabel.plural,
-                    false
-                )}
-            </span>{' '}
+            {formatDroppedOffCount(step, aggregationTargetLabel)}{' '}
             <span className="text-secondary">({formatDroppedOffPercentage(step)})</span>
         </>
     )

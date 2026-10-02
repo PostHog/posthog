@@ -38,6 +38,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { FunnelStepBarLabelsPicker } from 'products/product_analytics/frontend/insights/funnels/filters/FunnelStepBarLabelsPicker'
 import { LifecyclePercentagesFilter } from 'products/product_analytics/frontend/insights/lifecycle/filters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'products/product_analytics/frontend/insights/lifecycle/filters/LifecycleStackingFilter'
 import { RetentionCohortLabelStartIndexPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionCohortLabelStartIndexPicker'
@@ -235,6 +236,7 @@ export const DisplayOptions = {
     MultipleYAxes: ShowMultipleYAxesFilter,
     TrendLines: ShowTrendLinesFilter,
     HideIncompleteFunnelPeriods: HideIncompleteConversionWindowPeriodsFilter,
+    FunnelStepBarLabels: FunnelStepBarLabelsPicker,
     Annotations: AnnotationsPicker,
     ResultCustomizationBy: ResultCustomizationByPicker,
     Unit: UnitPicker,

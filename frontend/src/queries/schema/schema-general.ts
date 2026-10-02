@@ -2137,6 +2137,9 @@ export type FunnelsFilter = {
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
+    /** What the bar labels show. Only applies to the left-to-right steps funnel.
+     * @default percentage */
+    stepBarLabels?: 'percentage' | 'count' | 'both'
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
     /**

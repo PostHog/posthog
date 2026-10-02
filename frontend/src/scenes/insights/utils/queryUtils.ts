@@ -350,6 +350,7 @@ export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOp
             showFullUrls: undefined,
             selectedInterval: undefined,
             funnelStepReference: undefined,
+            stepBarLabels: undefined,
             breakdownSorting: undefined,
             dataColorTheme: undefined,
             legendPosition: undefined,

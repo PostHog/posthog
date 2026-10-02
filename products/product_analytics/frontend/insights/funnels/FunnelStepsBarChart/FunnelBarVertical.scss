@@ -173,8 +173,8 @@
 }
 
 .StepLegend {
-    container-type: inline-size;
     height: 100%;
+    white-space: nowrap;
     border-left: 1px solid var(--color-border-primary);
 
     > .LemonRow {
@@ -188,6 +188,7 @@
             max-width: 100%;
             margin-top: 0;
             font-weight: 600;
+            white-space: normal;
 
             .EntityFilterInfo {
                 display: -webkit-box;
@@ -198,10 +199,6 @@
                 // `anywhere` (unlike `break-word`) shrinks the intrinsic min-content width, so an
                 // unbroken event name wraps instead of blowing the row past its step column.
                 overflow-wrap: anywhere;
-
-                @container (width < 210px) {
-                    -webkit-line-clamp: 3;
-                }
             }
         }
 
@@ -214,15 +211,22 @@
         font-weight: inherit;
         line-height: 1.5rem;
     }
+}
 
-    @container (width < 210px) {
-        > .LemonRow {
-            padding: 0 0.25rem;
-        }
+.StepNameLabel {
+    container-type: inline-size;
+    height: 100%;
+    border-left: 1px solid var(--color-border-primary);
 
-        .StepLegend__noun {
-            display: none;
-        }
+    .StepNameLabel__name {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+
+        // `anywhere` (unlike `break-word`) shrinks the intrinsic min-content width, so an
+        // unbroken event name wraps instead of blowing the row past its step column.
+        overflow-wrap: anywhere;
     }
 }
 

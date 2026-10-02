@@ -1,5 +1,8 @@
 import type { PointClickData, TooltipConfig } from '@posthog/quill-charts'
 
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+
+import type { FunnelsFilter } from '~/queries/schema/schema-general'
 import type { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
 
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
@@ -146,4 +149,15 @@ export function resolveFunnelStepClick(
     const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0
     const variant = step.nested_breakdown?.[breakdownIndex] ?? step
     return { step, series: variant, converted: !clickData.inTrackArea }
+}
+
+export type FunnelStepBarLabels = NonNullable<FunnelsFilter['stepBarLabels']>
+
+export function formatFunnelStepBarLabel(mode: FunnelStepBarLabels, ratePercent: number, count: number): string {
+    const rate = percentage(ratePercent / RATE_TO_PERCENT, 2)
+    if (mode === 'percentage') {
+        return rate
+    }
+    const formattedCount = humanFriendlyNumber(count)
+    return mode === 'count' ? formattedCount : `${formattedCount} (${rate})`
 }
