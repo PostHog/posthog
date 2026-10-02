@@ -30,8 +30,8 @@ class TestLivestreamAuthorization(APIBaseTest):
         self.organization_membership.save()
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save()
-        headers = {"HTTP_AUTHORIZATION": f"Bearer {self._token()}"}
-        initial = self.client.get("/api/livestream/authorize/", **headers)
+        authorization = f"Bearer {self._token()}"
+        initial = self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization)
         self.assertEqual(initial.status_code, 204)
         self.assertEqual(initial["Cache-Control"], "no-store")
 
@@ -48,9 +48,13 @@ class TestLivestreamAuthorization(APIBaseTest):
             self.team.api_token = "test-rotated-project-token"
             self.team.save(update_fields=["api_token"])
 
-        self.assertEqual(self.client.get("/api/livestream/authorize/", **headers).status_code, expected_status)
+        self.assertEqual(
+            self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, expected_status
+        )
 
     @parameterized.expand([(None,), (PosthogJwtAudience.IMPERSONATED_USER,)])
     def test_rejects_other_authentication(self, audience: PosthogJwtAudience | None) -> None:
-        headers = {"HTTP_AUTHORIZATION": f"Bearer {self._token(audience)}"} if audience else {}
-        self.assertEqual(self.client.get("/api/livestream/authorize/", **headers).status_code, 401)
+        authorization = f"Bearer {self._token(audience)}" if audience else ""
+        self.assertEqual(
+            self.client.get("/api/livestream/authorize/", HTTP_AUTHORIZATION=authorization).status_code, 401
+        )
