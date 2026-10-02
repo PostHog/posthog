@@ -409,6 +409,7 @@ jobs:
 
                       batchExports:
                         - 'products/batch_exports/backend/**'
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
@@ -423,6 +424,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       tasksAgent:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/ai/posthog_code_slack_*'
                         - 'posthog/temporal/ai/slack_app/**'
                         - 'products/slack_app/backend/**'
@@ -439,6 +441,7 @@ jobs:
                       # An edit that adds a path here also deploys once, through
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
+                        - 'posthog/temporal/registry.py'
                         - 'products/notebooks/backend/**'
                         - 'products/autoresearch/backend/**'
                         - 'products/exports/backend/temporal/subscriptions/**'
@@ -466,6 +469,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       experimentsRecalculation:
+                        - 'posthog/temporal/registry.py'
                         - 'products/experiments/backend/temporal/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -474,6 +478,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       signupEnrichment:
+                        - 'posthog/temporal/registry.py'
                         - 'products/growth/backend/**'
                         - 'ee/billing/salesforce_enrichment/**'
                         - 'posthog/temporal/common/**'
@@ -483,6 +488,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       billing:
+                        - 'posthog/temporal/registry.py'
                         - 'ee/billing/**'
                         - 'products/billing_alerts/**'
                         - 'posthog/temporal/quota_limiting/**'
@@ -495,6 +501,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       videoExport:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/exports_video/**'
                         - 'posthog/tasks/exports/video_exporter.py'
                         - 'products/signals/backend/**'
@@ -513,6 +520,7 @@ jobs:
                         - 'nodejs/src/scripts/record-replay*/**'
 
                       selfDriving:
+                        - 'posthog/temporal/registry.py'
                         - 'products/signals/backend/**'
                         - 'products/signals/skills/**'
                         - 'posthog/settings/temporal.py'
@@ -523,6 +531,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       sessionReplay:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/session_replay/**'
                         - 'products/signals/backend/**'
                         - 'posthog/temporal/common/**'
@@ -532,6 +541,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       replayVision:
+                        - 'posthog/temporal/registry.py'
                         - 'products/replay_vision/backend/**'
                         - '.github/workflows/container-images-cd.yml'
                         - 'posthog/temporal/common/**'
@@ -541,6 +551,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       errorTracking:
+                        - 'posthog/temporal/registry.py'
                         - 'products/error_tracking/backend/temporal/**'
                         - 'products/error_tracking/backend/logic/**'
                         - 'products/error_tracking/backend/models.py'
@@ -558,6 +569,7 @@ jobs:
                         - bin/temporal-django-worker
 
                       weeklyDigest:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/weekly_digest/**'
                         - 'products/data_catalog/backend/**'
                         - 'posthog/tasks/email.py'
@@ -569,6 +581,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       messaging:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/messaging/**'
                         - 'products/web_analytics/backend/temporal/**'
                         - 'posthog/temporal/common/**'
@@ -577,9 +590,10 @@ jobs:
                         - bin/temporal-django-worker
                         - 'posthog/clickhouse/migrations/**'
 
-                      # Non-Python paths only. Python changes reach this worker through the
-                      # import analysis in check_python_changes_analytics_platform_temporal_worker.
+                      # Registration uses dynamic imports, so the import analysis in
+                      # check_python_changes_analytics_platform_temporal_worker needs these explicit paths.
                       analyticsPlatform:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml
                         - bin/temporal-django-worker
@@ -589,6 +603,7 @@ jobs:
                         - 'packages/personhog-proto/**'
 
                       llmAnalyticsEvals:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/ai_observability/**'
                         - 'posthog/temporal/llm_analytics/**'
                         - 'products/ai_observability/**'
@@ -601,6 +616,7 @@ jobs:
 
                       # Tests do not ship in the worker, so they must not deploy it.
                       ducklake:
+                        - 'posthog/temporal/registry.py'
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/tests/**'
                         - 'posthog/temporal/common/**'
@@ -612,6 +628,7 @@ jobs:
                       # posthog/hogql* covers hogql and hogql_queries, which the shell gate
                       # this replaces matched as one prefix.
                       dataWarehouse:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/hogql*/**'
                         - 'products/warehouse_sources_queue/**'
                         - 'posthog/temporal/data_modeling/**'
@@ -634,6 +651,7 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       healthCheck:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/health_checks/**'
                         - 'products/*/backend/temporal/health_checks/**'
                         # `.dockerignore` keeps test files out of every image, so a
@@ -645,6 +663,7 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       logsAlerting:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/logs_alerting/**'
                         - 'products/alerts/backend/facade/**'
                         - 'products/alerts/backend/logic/**'
@@ -655,6 +674,7 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       logsVolumeTick:
+                        - 'posthog/temporal/registry.py'
                         - 'products/logs/backend/**'
                         - 'products/apm/backend/logic/grid.py'
                         - 'products/apm/backend/facade/constants.py'
@@ -664,6 +684,7 @@ jobs:
                         - pyproject.toml
                         - bin/temporal-django-worker
                       dataModeling:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/hogql/**'
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/temporal/**'
@@ -684,6 +705,7 @@ jobs:
                       # summarize_session_intents run on GENERAL_PURPOSE_TASK_QUEUE, not
                       # MCPA_TASK_QUEUE, so changes there don't need to redeploy this worker.
                       mcpAnalytics:
+                        - 'posthog/temporal/registry.py'
                         - 'posthog/temporal/mcp_analytics/intent_clustering/**'
                         - 'products/mcp_analytics/backend/**'
                         - 'posthog/temporal/common/**'
@@ -694,6 +716,7 @@ jobs:
                       # posthog/egress is included because the stamphog worker routes its
                       # GitHub calls through the egress transport.
                       stamphog:
+                        - 'posthog/temporal/registry.py'
                         - 'products/stamphog/backend/**'
                         - 'posthog/egress/**'
                         - 'posthog/temporal/common/**'

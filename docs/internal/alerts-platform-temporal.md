@@ -1,6 +1,7 @@
 # Alerts noop workers
 
-The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The Alerts product exposes its workflow and activity collections through `products/alerts/backend/facade/temporal.py`.
+The shared `start_temporal_worker` command collects registrations for the selected queue from `posthog/temporal/registry.py`:
 
 | Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
 | ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |

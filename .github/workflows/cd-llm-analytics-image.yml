@@ -11,6 +11,7 @@ on:
         branches:
             - master
         paths:
+            - 'posthog/temporal/registry.py'
             - 'posthog/temporal/ai_observability/**'
             - 'posthog/temporal/llm_analytics/**'
             - 'products/ai_observability/**'
@@ -27,6 +28,7 @@ on:
     pull_request:
         types: [opened, synchronize, reopened, labeled]
         paths:
+            - 'posthog/temporal/registry.py'
             - 'posthog/temporal/ai_observability/**'
             - 'posthog/temporal/llm_analytics/**'
             - 'products/ai_observability/**'
