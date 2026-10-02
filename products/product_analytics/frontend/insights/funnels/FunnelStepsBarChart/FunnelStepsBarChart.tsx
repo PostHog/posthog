@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { DEFAULT_MARGINS, FunnelChart, ValueLabels } from '@posthog/quill-charts'
-import type { FunnelChartConfig, FunnelStepClickData, TooltipContext, ValueLabelFormatter } from '@posthog/quill-charts'
+import type { FunnelChartConfig, FunnelStepClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -57,14 +57,9 @@ export function FunnelStepsBarChart({
     const { featureFlags } = useValues(featureFlagLogic)
     const hasBarLabels = !!featureFlags[FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS]
     const { insightProps } = useValues(insightLogic)
-    const {
-        visibleStepsWithConversionMetrics,
-        getFunnelsColor,
-        breakdownFilter,
-        querySource,
-        insightData,
-        funnelsFilter,
-    } = useValues(funnelDataLogic(insightProps))
+    const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource, insightData } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
@@ -102,17 +97,6 @@ export function FunnelStepsBarChart({
             openPersonsModalForSeries(target)
         },
         [steps, openPersonsModalForSeries]
-    )
-
-    const stepBarLabels = funnelsFilter?.stepBarLabels ?? 'percentage'
-    const formatValueLabel = useCallback<ValueLabelFormatter>(
-        (value, seriesIndex, dataIndex) => {
-            const step = steps[dataIndex]
-            const breakdownIndex = series[seriesIndex]?.meta?.breakdownIndex ?? 0
-            const variant = step?.nested_breakdown?.[breakdownIndex] ?? step
-            return formatFunnelStepBarLabel(stepBarLabels, value, variant?.count ?? 0)
-        },
-        [steps, series, stepBarLabels]
     )
 
     const renderTooltip = useCallback(
@@ -178,7 +162,7 @@ export function FunnelStepsBarChart({
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
                 >
-                    {hasBarLabels && <ValueLabels valueFormatter={formatValueLabel} offset={4} />}
+                    {hasBarLabels && <ValueLabels valueFormatter={formatFunnelStepBarLabel} offset={4} />}
                 </FunnelChart>
             </div>
         </ScrollableShadows>

@@ -5598,15 +5598,6 @@ export namespace Schemas {
       Vertical: 'vertical',
     } as const;
 
-    export type StepBarLabels = typeof StepBarLabels[keyof typeof StepBarLabels];
-
-
-    export const StepBarLabels = {
-      Percentage: 'percentage',
-      Count: 'count',
-      Both: 'both',
-    } as const;
-
     /**
      * Customizations for the appearance of result datasets.
      */
@@ -5651,8 +5642,6 @@ export namespace Schemas {
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
-      /** What the bar labels show. Only applies to the left-to-right steps funnel. */
-      stepBarLabels?: StepBarLabels | null;
       useUdf?: boolean | null;
     }
 

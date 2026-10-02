@@ -1523,12 +1523,6 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
-class StepBarLabels(StrEnum):
-    PERCENTAGE = "percentage"
-    COUNT = "count"
-    BOTH = "both"
-
-
 class Position(StrEnum):
     START = "start"
     END = "end"

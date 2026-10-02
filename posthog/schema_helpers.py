@@ -123,7 +123,6 @@ def to_dict(query: BaseModel) -> dict:
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",
-                        "stepBarLabels",
                         "breakdownSorting",
                         "legendPosition",
                         "chartStyle",
