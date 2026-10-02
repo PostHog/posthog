@@ -649,7 +649,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/harvey/harvey.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/harvey/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hatchet/hatchet.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/hatchet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/healthchecks/healthchecks.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/healthchecks/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/height/settings.py
