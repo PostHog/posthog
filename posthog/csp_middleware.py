@@ -307,7 +307,10 @@ class CSPMiddleware:
             # Enforced for every viewer, flag or not, because this directive is what admits these
             # origins: a frame-ancestors directive makes browsers ignore X-Frame-Options, which
             # names only our own origin.
-            frame_ancestors = f"frame-ancestors {' '.join(app_frame_ancestor_sources())}"
+            # `'self'` lets the app show one of its own pages in a frame, such as a PostHog object
+            # cited in a task's Artifacts tab. It stays out of app_frame_ancestor_sources(), because
+            # the canvas sandbox document on the user-content origin shares that list.
+            frame_ancestors = f"frame-ancestors 'self' {' '.join(app_frame_ancestor_sources())}"
             js_url = urlsplit(settings.JS_URL)
             bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             if settings.DEBUG or settings.TEST:
