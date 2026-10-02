@@ -361,7 +361,8 @@ function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunA
     }
     const url = objectPageUrl(ref, currentProjectId)
     if (url) {
-        return <ArtifactObjectEmbed key={artifact.id} url={url} title={artifact.name} />
+        // Keyed by the page, so the loading state starts over whenever the frame shows a different page.
+        return <ArtifactObjectEmbed key={url} url={url} title={artifact.name} />
     }
     const { kind } = objectKindLink(ref.objectKind, ref.objectId, `/project/${currentProjectId}`)
     return (
