@@ -4,7 +4,6 @@ import { HttpResponse } from 'msw'
 import { ReactNode, useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import FEATURE_FLAGS_FIXTURE from 'scenes/feature-flags/__mocks__/feature_flags.json'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,7 +13,6 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
 import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
 
 import type {
     TaskRunArtifactResponseApi,
@@ -237,69 +235,14 @@ const OBJECT_REFERENCES = [
 
 const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
 
-const CITED_FLAG = {
-    ...FEATURE_FLAGS_FIXTURE.results[0],
-    id: 7,
-    key: 'new-plan-picker',
-    name: 'Pin the start trial button to the top of the plan table',
-    active: true,
-    filters: {
-        groups: [
-            {
-                properties: [{ key: 'email', type: 'person', value: 'example.com', operator: 'icontains' }],
-                rollout_percentage: 100,
-                description: 'Internal testers',
-            },
-            { properties: [], rollout_percentage: 50 },
-        ],
-        multivariate: null,
-        payloads: {},
-    },
-}
-
-const CITED_COHORT = {
-    id: 3,
-    name: 'Trial starters on laptops',
-    count: 1009,
-    is_static: false,
-    is_calculating: false,
-    last_calculation: '2026-09-28T17:00:00Z',
-    created_at: '2026-09-21T10:00:00Z',
-    deleted: false,
-    filters: { properties: { type: 'AND', values: [] } },
-}
-
-const COHORT_PEOPLE = ['ada@example.com', 'grace@example.com', 'linus@example.com', 'margaret@example.com']
-
-/** The insight and cohort embeds each run their own query through the same endpoint. */
-async function queryByKind({ request }: { request: Request }): Promise<Record<string, unknown>> {
-    const { query } = (await request.json()) as { query: { kind: string; source?: { kind: string } } }
-    if (query.kind === NodeKind.ActorsQuery || query.source?.kind === NodeKind.ActorsQuery) {
-        return {
-            columns: ['person_display_name -- Person', 'id', 'created_at'],
-            results: COHORT_PEOPLE.map((email, index) => [
-                { display_name: email, id: `person-${index}` },
-                `person-${index}`,
-                '2026-09-21T10:00:00Z',
-            ]),
-            hasMore: false,
-        }
-    }
-    return { results: CITED_INSIGHT.result }
-}
-
-// Each live embed loads its object, then runs the queries its own page runs.
+// The live insight embed loads the saved insight, then runs its query.
 const OBJECT_MOCKS = {
     get: {
         '/api/environments/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
         '/api/projects/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
-        '/api/projects/:team_id/feature_flags/7/': CITED_FLAG,
-        '/api/projects/:team_id/feature_flags/7/status': { status: 'active', reason: 'Feature flag is active' },
-        '/api/projects/:team_id/cohorts/3/': CITED_COHORT,
     },
     post: {
-        '/api/environments/:team_id/query/': queryByKind,
-        '/api/environments/:team_id/query/:kind': queryByKind,
+        '/api/environments/:team_id/query/': { results: CITED_INSIGHT.result },
     },
 }
 
@@ -550,16 +493,6 @@ function objectMocks(): ReturnType<typeof taskMocks> {
 export const PostHogObjects: Story = {
     parameters: { msw: { mocks: objectMocks() } },
     render: () => <StoryPage fileName="phref_trial_funnel" />,
-}
-
-export const PostHogObjectFlag: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_flag" />,
-}
-
-export const PostHogObjectCohort: Story = {
-    parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_cohort" />,
 }
 
 export const PostHogObjectWithoutEmbed: Story = {
