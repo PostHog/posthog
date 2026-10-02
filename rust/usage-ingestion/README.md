@@ -31,9 +31,11 @@ organization lookups in its process-local cache for five minutes.
 
 `USAGE_INGESTION_MODE` selects `grpc`, `kafka`, or `both` and defaults to `grpc`.
 Kafka mode consumes protobuf-encoded `IngestBillingUsageRequest` messages from
-`USAGE_INGESTION_KAFKA_INPUT_TOPIC` (`usage_ingestion` by default). It commits
-an input offset only after the output Kafka cluster confirms every accepted
-record, so an interrupted message is replayed safely.
+`USAGE_INGESTION_KAFKA_INPUT_TOPIC` (`usage_ingestion` by default). It processes
+bounded batches concurrently and commits their high-water offsets only after
+every message succeeds. Malformed or rejected messages must first reach
+`USAGE_INGESTION_KAFKA_DEAD_LETTER_TOPIC`, so an interrupted batch is replayed
+safely.
 
 The input topic can live on a different cluster from the ClickHouse output:
 
@@ -42,6 +44,7 @@ The input topic can live on a different cluster from the ClickHouse output:
 | `USAGE_INGESTION_KAFKA_INPUT_HOSTS` | `KAFKA_HOSTS` |
 | `USAGE_INGESTION_KAFKA_INPUT_TLS` | `KAFKA_TLS` |
 | `USAGE_INGESTION_KAFKA_INPUT_TOPIC` | `usage_ingestion` |
+| `USAGE_INGESTION_KAFKA_DEAD_LETTER_TOPIC` | `usage_ingestion_dlq` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_GROUP` | `usage-ingestion` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_CLIENT_ID` | `usage-ingestion-consumer` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_TOPIC_METADATA_REFRESH_INTERVAL_MS` | `60000` |
@@ -51,6 +54,9 @@ The input topic can live on a different cluster from the ClickHouse output:
 | `USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_SEND_BUFFER_BYTES` | `0` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_SOCKET_RECEIVE_BUFFER_BYTES` | `0` |
 | `USAGE_INGESTION_KAFKA_CONSUMER_RETRY_BACKOFF_MAX_MS` | `60000` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_BATCH_SIZE` | `100` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_BATCH_TIMEOUT_MS` | `10` |
+| `USAGE_INGESTION_KAFKA_CONSUMER_CONCURRENCY` | `16` |
 
 The consumer defaults follow [WarpStream's librdkafka recommendations](https://docs.warpstream.com/warpstream/kafka/configure-kafka-client/tuning-for-performance).
 The 10-second fetch wait only bounds idle long polls because `fetch.min.bytes`
@@ -100,7 +106,8 @@ still rejects an intentionally cross-slot transaction.
 
 | Resource | Placement |
 | --- | --- |
-| Kafka input | `warpstream-ingestion` / `usage_ingestion`, 8 partitions, 7-day retention |
+| Kafka input | `warpstream-ingestion` / `usage_ingestion`, 16 partitions, 7-day retention |
+| Kafka dead letter | `warpstream-ingestion` / `usage_ingestion_dlq`, 16 partitions, 7-day retention |
 | Kafka output | `warpstream-shared` / `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
 | ClickHouse storage table | `NodeRole.AUX` |
