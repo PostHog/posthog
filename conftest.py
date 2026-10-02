@@ -195,21 +195,21 @@ def _cache_url_resolution() -> None:
 
 
 def _cache_fixture_parent_nodeids() -> None:
-    # FixtureManager._matchfactories rebuilds a node's parent-nodeid set for every fixture-name
+    # FixtureManager._matchfactories rebuilds a node's parent sets for every fixture-name
     # lookup, and collection resolves many fixture names per item. A node's parents are fixed at
-    # construction, so the set can be reused. Node uses __slots__, so key by id() and keep a strong
-    # reference to prevent id() reuse for the node's session lifetime.
+    # construction, so the sets can be reused. Node uses __slots__, so key by id(). The cached
+    # parent set includes the node itself, which prevents id() reuse.
     from _pytest import fixtures, nodes  # noqa: PLC0415 — deferred until pytest_configure
 
     orig_matchfactories = fixtures.FixtureManager._matchfactories
-    parents: dict[int, tuple[nodes.Node, set[nodes.Node], set[str]]] = {}
+    parents: dict[int, tuple[set[nodes.Node], set[str]]] = {}
 
     def _matchfactories(self, fixturedefs, node):
         entry = parents.get(id(node))
         if entry is None:
             parent_nodes = set(node.iter_parents())
-            entry = parents[id(node)] = (node, parent_nodes, {n.nodeid for n in parent_nodes})
-        _, parent_nodes, parentnodeids = entry
+            entry = parents[id(node)] = (parent_nodes, {n.nodeid for n in parent_nodes})
+        parent_nodes, parentnodeids = entry
         for fixturedef in fixturedefs:
             if fixturedef.node is not None:
                 if fixturedef.node in parent_nodes:
