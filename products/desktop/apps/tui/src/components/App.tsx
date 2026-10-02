@@ -2,6 +2,7 @@ import type { CloudRegion, Task } from "@posthog/shared";
 import { Box, type DOMElement, useBoxMetrics } from "ink";
 import { type ReactElement, useEffect, useMemo, useRef, useState } from "react";
 import { currentRepository, type PiChats } from "../chats";
+import { dividerGlyphs } from "../dividers";
 import { useChatPlace } from "../hooks/useChatPlace";
 import { useKeys } from "../hooks/useKeys";
 import { useLocalChats } from "../hooks/useLocalChats";
@@ -31,7 +32,7 @@ import type { CloudRuns } from "../runs";
 import { statusChips } from "../status";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
-import { PaneTree } from "./PaneTree";
+import { DividerColumn, PaneTree } from "./PaneTree";
 import { Sidebar } from "./Sidebar";
 
 export interface Session {
@@ -284,6 +285,8 @@ export function App({
     />
   );
 
+  const glyph = dividerGlyphs(workspace.root, area.width, area.height);
+
   // A spare row under everything keeps bottom composers off the window's edge.
   return (
     <Box flexGrow={1} paddingBottom={1}>
@@ -295,12 +298,21 @@ export function App({
         selectedIndex={sidebar.selectedIndex}
         activePaneId={workspace.focusedPaneId}
       />
+      {area.hasMeasured && (
+        <DividerColumn x={-1} y={0} height={area.height} glyph={glyph} />
+      )}
       <Box ref={chatArea} flexGrow={1}>
         {area.hasMeasured && (
           <PaneTree
-            node={workspace.root}
-            width={area.width}
-            height={area.height}
+            cell={{
+              node: workspace.root,
+              divider: null,
+              x: 0,
+              y: 0,
+              width: area.width,
+              height: area.height,
+            }}
+            glyph={glyph}
             renderPane={renderPane}
             onPaneBox={boxes.setPane}
           />
