@@ -1,4 +1,4 @@
-import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogConfig, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
@@ -43,7 +43,10 @@ export function withLastSeenFeatureFlags(
     bootstrap: UserIdentityWithFlags,
     lastSeen: LastSeenFeatureFlags | null,
     distinctId: string | undefined
-): UserIdentityWithFlags {
+): NonNullable<PostHogConfig['bootstrap']> {
+    if (!bootstrap.featureFlags) {
+        return { ...bootstrap, featureFlags: undefined }
+    }
     // An empty bootstrap makes posthog-js use its own persisted flags, which are already complete.
     if (!lastSeen || !distinctId || lastSeen.distinctId !== distinctId || !Object.keys(bootstrap.featureFlags).length) {
         return bootstrap
