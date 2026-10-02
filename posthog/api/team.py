@@ -1363,6 +1363,11 @@ def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team:
     )
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class ConversationsSettingsField(serializers.JSONField):
+    pass
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1386,6 +1391,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
