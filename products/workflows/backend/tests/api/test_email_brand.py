@@ -125,7 +125,9 @@ class TestEmailBrandAPI(APIBaseTest):
         assert edited["name"] is False
         assert response.json()["sources"]["primary_color"]["path"] == "app/globals.css"
 
-    @parameterized.expand([("GET", "current/"), ("PATCH", "current/"), ("GET", "suggest_repository/")])
+    @parameterized.expand(
+        [("GET", "current/"), ("PATCH", "current/"), ("GET", "suggest_repository/"), ("POST", "detect/")]
+    )
     def test_every_route_is_hidden_while_the_flag_is_off(self, flag, method, route):
         self._patch({"name": "Acme"})
         flag.side_effect = None
@@ -181,12 +183,16 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("an app url host", {"app_urls": ["https://app.acme-cloud.example"]}),
-            ("the project name", {"project_name": "Acme Cloud"}),
-            ("the organization name", {"organization_name": "Acme Cloud Inc."}),
+            ("an app url host", {"app_urls": ["https://app.acme-cloud.example"]}, "acme-web"),
+            ("the project name", {"project_name": "Acme Cloud"}, "acme-web"),
+            ("the organization name", {"organization_name": "Acme Cloud Inc."}, "acme-web"),
+            ("a camel case repository name", {"project_name": "Acme"}, "AcmeWeb"),
+            ("a run together repository name", {"organization_name": "Acme Cloud Inc."}, "acmecloud"),
+            ("a separated repository name", {"app_urls": ["https://acmecloud.example"]}, "acme-cloud-site"),
+            ("a camel case repository name of a one word brand", {"project_name": "AcmeCloud"}, "AcmeCloudSite"),
         ]
     )
-    def test_puts_the_repository_whose_name_matches_the_brand_first(self, _flag, _name, brand):
+    def test_puts_the_repository_whose_name_matches_the_brand_first(self, _flag, _name, brand, repository_name):
         if "app_urls" in brand:
             self.team.app_urls = brand["app_urls"]
             self.team.save()
@@ -199,7 +205,7 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
         self._connect_github(
             [
                 _repository("infra-scripts", pushed_days_ago=1),
-                _repository("acme-web", pushed_days_ago=90, language="TypeScript"),
+                _repository(repository_name, pushed_days_ago=90, language="TypeScript"),
                 _repository("acme-legacy-site", pushed_days_ago=0, language="TypeScript", archived=True),
             ]
         )
@@ -207,7 +213,7 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
         suggestions = self._suggest()
 
         assert [(s["full_name"], s["reasons"]) for s in suggestions] == [
-            ("acme-labs/acme-web", ["name_match", "web_language"]),
+            (f"acme-labs/{repository_name}", ["name_match", "web_language"]),
             ("acme-labs/infra-scripts", ["recent_push"]),
         ]
 
@@ -220,6 +226,10 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
             "[::1",
         ]
         self.team.save()
+        self.team.project.name = "Local Host"
+        self.team.project.save()
+        self.organization.name = "DataDog"
+        self.organization.save()
         self._connect_github(
             [
                 _repository("billing-service", pushed_days_ago=40),
@@ -229,6 +239,8 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
                 _repository("vercel-templates", pushed_days_ago=70),
                 _repository("project-192", pushed_days_ago=80),
                 _repository("abcd-infra", pushed_days_ago=90),
+                _repository("localhost", pushed_days_ago=100),
+                _repository("data-pipeline", pushed_days_ago=110),
             ]
         )
 
@@ -240,6 +252,33 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
             ("acme-labs/billing-service", []),
             ("acme-labs/default-project-app", []),
             ("acme-labs/vercel-templates", []),
+        ]
+
+    @parameterized.expand(
+        [
+            ("a separated brand name", "Default project", "acme-cloud-legacy", "acmecloud"),
+            ("both spellings in the brand", "AcmeCloud", "acmecloud", "acme-cloud"),
+        ]
+    )
+    def test_a_run_together_name_ranks_like_its_separated_spelling(
+        self, _flag, _name, project_name, older_repository, newer_repository
+    ):
+        self.team.project.name = project_name
+        self.team.project.save()
+        self.organization.name = "Acme Cloud Inc."
+        self.organization.save()
+        self._connect_github(
+            [
+                _repository(older_repository, pushed_days_ago=120),
+                _repository(newer_repository, pushed_days_ago=3),
+            ]
+        )
+
+        suggestions = self._suggest()
+
+        assert [s["full_name"] for s in suggestions] == [
+            f"acme-labs/{newer_repository}",
+            f"acme-labs/{older_repository}",
         ]
 
     def test_ties_keep_one_order_by_full_name_on_every_call(self, _flag):
