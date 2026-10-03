@@ -94,6 +94,8 @@ class InferenceRunError(Exception):
 _RESERVED_COLS = frozenset({"distinct_id", _LABEL_COL, _FOLD_COL})
 # The score columns scoring adds to a feature row, kept out of the features hash.
 _SCORE_KEYS = frozenset({"p_y", "p_y_raw"})
+# A capture error description can hold a URL and an exception repr, so the run error clips it.
+_MAX_EMIT_ERROR_DESCRIPTION_CHARS = 200
 
 
 # Namespace for deterministic prediction event UUIDs, so a retried scoring activity
@@ -526,11 +528,16 @@ def _emit_predictions(
             error=result.error,
         )
         sample = [result.results.get(uid) for uid in result.warnings[:3]]
+        error_detail = ""
+        if result.error:
+            error_detail = f", {result.error.get('error')}"
+            if description := result.error.get("error_description"):
+                error_detail += f": {str(description)[:_MAX_EMIT_ERROR_DESCRIPTION_CHARS]}"
         raise InferenceRunError(
             f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
             f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted, "
             f"{len(result.warnings)} stored with a warning{f' e.g. {sample!r}' if sample else ''}"
-            f"{', ' + str(result.error.get('error')) if result.error else ''}); failing the run so it is retried"
+            f"{error_detail}); failing the run so it is retried"
         )
 
     return _EmitResult(
