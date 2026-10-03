@@ -2014,7 +2014,7 @@ export interface BlastRadiusApi {
     /** Total number of users */
     total: number
     /**
-     * How many of 'affected' are persons with no email property, who cannot receive an email. Only counted when dedupe_key is 'email'; null otherwise.
+     * How many of 'affected' are persons with a missing or blank email property, who cannot receive an email. Only counted when dedupe_key is 'email'; null otherwise.
      * @nullable
      */
     without_email: number | null
