@@ -158,7 +158,6 @@ class FeatureQueryCost:
 
     elapsed_ms: int = 0
     rows_read: int = 0
-    bytes_read: int = 0
 
 
 @frozen
@@ -416,12 +415,11 @@ def materialize_training_data(
     )
     # Read the difference, not the totals: an enclosing scope also holds the queries that ran before this one.
     with query_stats_scope() as stats:
-        rows_before, bytes_before, ms_before = stats.rows_read, stats.bytes_read, stats.duration_ms
+        rows_before, ms_before = stats.rows_read, stats.duration_ms
         training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
         feature_query_cost = FeatureQueryCost(
             elapsed_ms=round(stats.duration_ms - ms_before),
             rows_read=stats.rows_read - rows_before,
-            bytes_read=stats.bytes_read - bytes_before,
         )
     expected = count_training_anchors(
         team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user, negative_sample_rate=sample.negative_sample_rate
@@ -447,7 +445,6 @@ def materialize_training_data(
         negative_sample_rate=sample.negative_sample_rate,
         feature_query_elapsed_ms=feature_query_cost.elapsed_ms,
         feature_query_rows_read=feature_query_cost.rows_read,
-        feature_query_bytes_read=feature_query_cost.bytes_read,
     )
     return MaterializedData(
         feature_cols=feature_cols,

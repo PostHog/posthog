@@ -62757,8 +62757,6 @@ export namespace Schemas {
       feature_query_elapsed_ms: number;
       /** Rows ClickHouse read to run the feature query. Compare it across iterations as well as AUC. */
       feature_query_rows_read: number;
-      /** Bytes ClickHouse read to run the feature query. Compare it across iterations as well as AUC. */
-      feature_query_bytes_read: number;
     }
 
     /**

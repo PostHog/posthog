@@ -451,7 +451,7 @@ def build_agent_description(
 
         Call materialize ONCE per `features_sql` and run many model iterations in Python on the same
         parquet; re-call it only after you edit `features_sql`. The response also gives the feature query's
-        cost: `feature_query_elapsed_ms`, `feature_query_rows_read` and `feature_query_bytes_read`. Record
+        cost: `feature_query_elapsed_ms` and `feature_query_rows_read`. Record
         them in the iteration's `agent_description`. The backend promotes the kept iteration with the
         highest holdout AUC, whatever it costs, and your uploaded `features.sql` must be that iteration's
         query, so never upload a cheaper query that scored lower. Each call rebuilds the population, T0s

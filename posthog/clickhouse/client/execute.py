@@ -263,7 +263,6 @@ def _query_stats_summary(client: Any, query_info_before: Any) -> Optional[QueryS
     progress = query_info.progress
     return QuerySummary(
         rows=int(progress.rows or 0),
-        bytes=int(progress.bytes or 0),
         elapsed_ns=int(progress.elapsed_ns or 0),
     )
 
@@ -282,7 +281,6 @@ def _record_query_stats(client: Any, query_info_before: Any, execute_start_time:
         duration_ms = summary.elapsed_ns / 1e6 if summary.elapsed_ns else (perf_counter() - execute_start_time) * 1000
         query_stats.record(
             rows_read=summary.rows,
-            bytes_read=summary.bytes,
             duration_ms=duration_ms,
             lookup=get_query_tags().lookup is not None,
             workload=workload.value,

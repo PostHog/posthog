@@ -1488,9 +1488,6 @@ class MaterializeFeaturesResponseSerializer(serializers.Serializer):
     feature_query_rows_read = serializers.IntegerField(
         help_text="Rows ClickHouse read to run the feature query. Compare it across iterations as well as AUC."
     )
-    feature_query_bytes_read = serializers.IntegerField(
-        help_text="Bytes ClickHouse read to run the feature query. Compare it across iterations as well as AUC."
-    )
 
 
 # ── Artifact bundle serializers ─────────────────────────────────────────────

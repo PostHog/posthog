@@ -263,7 +263,6 @@ class QuerySummary:
     """What one ClickHouse query read."""
 
     rows: int = 0
-    bytes: int = 0
     elapsed_ns: int = 0
 
 
@@ -318,7 +317,6 @@ class ProxyClient:
         result = self._client.query(query=query, parameters=params, settings=settings, column_oriented=columnar)
         self.last_query_summary = QuerySummary(
             rows=int(result.summary.get("read_rows", 0)),
-            bytes=int(result.summary.get("read_bytes", 0)),
             elapsed_ns=int(result.summary.get("elapsed_ns", 0)),
         )
 
