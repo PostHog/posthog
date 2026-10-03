@@ -49,8 +49,13 @@ from products.replay_vision.backend.temporal.types import CreateObservationInput
 _SCAN_BLOCKED_DEDUP_TTL_SECONDS = 60 * 60
 
 
-def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
-    return ScannerSnapshot.from_scanner(scanner).model_dump(mode="json")
+def _build_scanner_snapshot(
+    scanner: ReplayScanner, *, variant_sampling_rates: dict[str, float] | None = None
+) -> dict[str, Any]:
+    snapshot = ScannerSnapshot.from_scanner(scanner)
+    if variant_sampling_rates is not None:
+        snapshot = snapshot.model_copy(update={"variant_sampling_rates": variant_sampling_rates})
+    return snapshot.model_dump(mode="json")
 
 
 def _capture_scan_blocked(
@@ -265,10 +270,17 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # Backfill applies run the frozen config, not the scanner's current one.
     if backfill is not None:
         frozen = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
-        snapshot_dict = frozen.to_observation_snapshot().model_dump(mode="json")
+        observation_snapshot = frozen.to_observation_snapshot()
+        if inputs.variant_sampling_rates is not None:
+            # The rates are the dispatching tick's, computed from live rollout shares, so they
+            # ride in on the inputs rather than living in the frozen config.
+            observation_snapshot = observation_snapshot.model_copy(
+                update={"variant_sampling_rates": inputs.variant_sampling_rates}
+            )
+        snapshot_dict = observation_snapshot.model_dump(mode="json")
         priced_model = frozen.model
     else:
-        snapshot_dict = _build_scanner_snapshot(scanner)
+        snapshot_dict = _build_scanner_snapshot(scanner, variant_sampling_rates=inputs.variant_sampling_rates)
         priced_model = scanner.model
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
