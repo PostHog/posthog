@@ -114,8 +114,8 @@ Expect test/abandoned scanners in the tail — judge by `obs_7d`, and write a `n
 Do this before any monitor, scorer, classifier, or summarizer aggregate (footgun #6).
 Do it once per run, and again for a scanner that you add to the run later.
 
-1. Run `read-data-schema` with `{"query": {"kind": "event_properties", "event_name": "$recording_observed"}}`. Note which `scanner_output_*` properties the project has.
-2. Measure field coverage per scanner and per week. Use only the properties from step 1:
+1. Run `read-data-schema` with `{"query": {"kind": "event_properties", "event_name": "$recording_observed"}}`. Note which `scanner_output_*` properties it shows. It reads only the newest events, so it can miss a field that a less frequent scanner writes. Use this list as a hint, not as proof that a field is absent.
+2. Measure field coverage per scanner and per week. Keep every field column below, also for a field that step 1 did not show. An absent field reads as `NULL`, so its coverage is `0.0` and the query does not fail:
 
 ```sql
 SELECT properties.scanner_id AS scanner_id,
@@ -295,7 +295,7 @@ Direct calls (read-only):
   Fall back to this list when you have only a session id, or to pick one scanner's observation out of a session several scanners observed.
 - `vision-quota-get` — the org's credit budget for the billing period: `remaining` / `exhausted`.
 - `query-session-recordings-list` / `session-recording-get` — resolve `session_id`s to watchable recordings for a finding's example links.
-- `read-data-schema` — confirm `$recording_observed` and its `scanner_output_*` properties exist before each scanner-specific aggregate (footgun #6).
+- `read-data-schema` — confirm `$recording_observed` exists and sample its `scanner_output_*` properties before each scanner-specific aggregate (footgun #6). The coverage query, not this sample, decides which fields a scanner writes.
 - `inbox-reports-list` — pre-author dedupe; the push path (source `replay_vision`) and the session-replay scout land findings here too. Back the source filter with an unfiltered recent scan, since an overlapping finding can sit under a neighboring source.
 
 Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
