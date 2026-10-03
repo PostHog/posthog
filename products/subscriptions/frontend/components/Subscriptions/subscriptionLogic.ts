@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -1031,7 +1043,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 if (asset.has_content) {
                     actions.setPreviewAsset(asset)
-                    await fetchPreviewImage(asset, actions)
+                    await fetchPreviewImage(asset, actions, breakpoint)
                 } else if (asset.exception) {
                     actions.setPreviewError(asset.exception)
                 } else {
@@ -1043,7 +1055,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         const updated = await api.exports.get(asset.id)
                         if (updated.has_content) {
                             actions.setPreviewAsset(updated)
-                            await fetchPreviewImage(updated, actions)
+                            await fetchPreviewImage(updated, actions, breakpoint)
                             return
                         }
                         if (updated.exception) {
@@ -1203,15 +1215,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
 async function fetchPreviewImage(
     asset: ExportedAssetType,
-    actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void }
+    actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void },
+    breakpoint: BreakPointFunction
 ): Promise<void> {
     const url = api.exports.determineExportFetchUrl(asset.id)
     const response = await fetch(url, { credentials: 'include' })
+    breakpoint()
     if (!response.ok) {
         reportPreviewImageFailure(actions, asset, { reason: 'http_error', status: response.status })
         return
     }
     const blob = await response.blob()
+    breakpoint()
     // An empty or non-image body still returns 200, and the <img> then shows only its alt text.
     if (blob.size === 0 || !blob.type.startsWith('image/')) {
         reportPreviewImageFailure(actions, asset, {
