@@ -6,6 +6,8 @@ import pytest
 
 from parameterized import parameterized
 
+from posthog.models.uploaded_media import MAX_IMAGE_BYTES
+
 from products.workflows.backend.services.brand_detection.detector import (
     BrandDetection,
     TreeEntry,
@@ -430,6 +432,83 @@ class TestAppRoot:
         }
 
         assert len(detect(files).files_read) == 15
+
+
+class TestLogoCandidates:
+    @parameterized.expand(
+        [
+            (
+                "own logos, manifest icon and touch icon as raster, then svg, cut at five before the ico",
+                {
+                    "public/favicon.ico": "x",
+                    "public/logo.svg": "<svg/>",
+                    "public/apple-touch-icon.png": "x",
+                    "public/icons/icon-512.png": "x",
+                    "public/manifest.json": json.dumps({"icons": [{"src": "/icons/icon-512.png"}]}),
+                    "public/brand/logo.webp": "x",
+                    "public/logo.png": "x",
+                },
+                [
+                    "public/brand/logo.webp",
+                    "public/logo.png",
+                    "public/icons/icon-512.png",
+                    "public/apple-touch-icon.png",
+                    "public/logo.svg",
+                ],
+            ),
+            (
+                "manifest icon relative to the manifest, missing icons skipped",
+                {
+                    "static/site.webmanifest": json.dumps(
+                        {"icons": [{"src": "android-chrome-192x192.png"}, {"src": "/missing.png"}, {"src": 7}]}
+                    ),
+                    "static/android-chrome-192x192.png": "x",
+                },
+                ["static/android-chrome-192x192.png"],
+            ),
+            (
+                "nested manifest: root-relative icons from the served root, relative ones from the manifest",
+                {
+                    "public/pwa/manifest.json": json.dumps(
+                        {"icons": [{"src": "/icons/app.png"}, {"src": "maskable.png"}]}
+                    ),
+                    "public/icons/app.png": "x",
+                    "public/pwa/maskable.png": "x",
+                },
+                ["public/icons/app.png", "public/pwa/maskable.png"],
+            ),
+            (
+                "app files first, files over the media library limit and empty files skipped",
+                {
+                    "apps/web/package.json": "{}",
+                    "apps/web/public/logo.png": "x",
+                    "assets/logo.png": "x" * 100,
+                    "apps/web/public/logo-hires.png": "x" * (MAX_IMAGE_BYTES + 1),
+                    "apps/web/public/brand.png": "",
+                    "public/manifest.json": json.dumps({"icons": [{"src": "/icon.png?v=2"}]}),
+                    "public/icon.png": "x",
+                },
+                ["apps/web/public/logo.png", "assets/logo.png", "public/icon.png"],
+            ),
+            (
+                "color variants and third-party directories skipped",
+                {
+                    "public/logo-dark.png": "x",
+                    "public/logo_inverse.svg": "<svg/>",
+                    "assets/logo-mono.png": "x",
+                    "assets/brand-white.png": "x",
+                    "public/providers/github/logo.png": "x",
+                    "public/Integrations/logo.png": "x",
+                    "public/partners/logo.png": "x",
+                    "src/components/logo.png": "x",
+                    "public/logo.png": "x",
+                },
+                ["public/logo.png"],
+            ),
+        ]
+    )
+    def test_ranks_logo_candidates(self, _name, files, expected_paths):
+        assert [candidate.path for candidate in detect(files).logo_candidates] == expected_paths
 
 
 class TestHostileContent:

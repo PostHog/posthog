@@ -71,7 +71,9 @@ STYLE_NAME = re.compile(
 )
 THEME_MODULE = re.compile(r"(?:^|/)(?:theme|colors|palette|tokens)(?:/index)?\.(?:ts|tsx|js|jsx)$", re.IGNORECASE)
 OWN_LOGO_SVG = re.compile(r"(?:^|/)(?:public|static|assets)/(?:.+/)?(?:logo|logomark|brand)(?:[-_.][^/]*)?\.svg$")
-THIRD_PARTY_DIRECTORY = re.compile(r"/(?:integrations?|providers?|partners?|customers?|sponsors?|vendors?)/")
+THIRD_PARTY_DIRECTORY = re.compile(
+    r"/(?:integrations?|providers?|partners?|customers?|sponsors?|vendors?)/", re.IGNORECASE
+)
 LOGO_VARIANT = re.compile(r"(?:white|dark|inverse|mono)", re.IGNORECASE)
 
 READS_PER_KIND = (
@@ -115,13 +117,13 @@ def choose_app_root(tree: list[TreeEntry], requested: str | None) -> AppRootChoi
 
 
 def select_files(tree: list[TreeEntry], app_root: str) -> list[str]:
-    in_scope = sorted(
-        (entry.path for entry in tree if entry.size <= MAX_FILE_BYTES and _in_scope(entry.path, app_root)),
+    candidates = sorted(
+        (entry.path for entry in tree if entry.size <= MAX_FILE_BYTES and in_scope(entry.path, app_root)),
         key=lambda path: (not path.startswith(app_root), _depth_below(path, app_root), path),
     )
     selected: list[str] = []
     for kind, limit in READS_PER_KIND:
-        selected += [path for path in in_scope if file_kind(path) is kind][:limit]
+        selected += [path for path in candidates if file_kind(path) is kind][:limit]
     return selected[:MAX_FILE_READS]
 
 
@@ -137,7 +139,7 @@ def _app_root_score(root: str, tree: list[TreeEntry]) -> int:
     return brand_files + (PREFERRED_APP_BONUS if name in PREFERRED_APP_NAMES else 0)
 
 
-def _in_scope(path: str, app_root: str) -> bool:
+def in_scope(path: str, app_root: str) -> bool:
     if _is_excluded(path):
         return False
     if SHARED_THEME_PACKAGE.match(path):

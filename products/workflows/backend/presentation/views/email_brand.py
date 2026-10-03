@@ -16,7 +16,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import report_user_action
 from posthog.models import UploadedMedia, User
 from posthog.models.integration import Integration
-from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL
+from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL, ObjectStorageUnavailable, RejectedImage
 
 from products.messaging.backend.api.message_templates import UnlayerDesignField
 from products.messaging.backend.models import MessageTemplate
@@ -25,8 +25,11 @@ from products.workflows.backend.models.email_brand import EmailBrand
 from products.workflows.backend.presentation.views.email_brand_detection import (
     EmailBrandDetectionSerializer,
     EmailBrandDetectRequestSerializer,
+    EmailBrandImportLogoRequestSerializer,
+    EmailBrandLogoImportSerializer,
     GitHubBusyError,
     GitHubDisconnectedError,
+    LogoImportOutcome,
     RepositoryUnreadableError,
 )
 from products.workflows.backend.presentation.views.feature_gates import require_team_feature_flag
@@ -36,6 +39,13 @@ from products.workflows.backend.services.email_brand_detection import (
     GitHubDisconnected,
     RepositoryUnreadable,
     detect_repository_brand,
+)
+from products.workflows.backend.services.email_brand_logo import (
+    ImportedLogo,
+    LogoNotFound,
+    LogoStorageFailed,
+    SvgLogo,
+    import_repository_logo,
 )
 from products.workflows.backend.services.email_brand_repository_suggestion import (
     RepositorySuggestionReason,
@@ -234,7 +244,7 @@ class RepositorySuggestionsSerializer(serializers.Serializer):
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["current", "starter_design", "suggest_repository"]
-    scope_object_write_actions = ["update_current", "detect", "create_starter_template"]
+    scope_object_write_actions = ["update_current", "detect", "import_logo", "create_starter_template"]
     # The brand styles every workflow in the project, so access to one workflow must not reach it.
     requires_resource_level_access = True
     queryset = EmailBrand.objects.unscoped()
@@ -310,6 +320,50 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except UnknownAppRoot as error:
             raise exceptions.ValidationError({"app_root": str(error)})
         return Response(EmailBrandDetectionSerializer(detection).data)
+
+    @validated_request(
+        request_serializer=EmailBrandImportLogoRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=EmailBrandLogoImportSerializer),
+            400: OpenApiResponse(
+                description="Invalid input, a file that is missing, too large or not an image, "
+                "or a repository the GitHub App cannot read."
+            ),
+            429: OpenApiResponse(description="GitHub is busy. Try again in a minute."),
+        },
+        summary="Import a logo from a GitHub repository into the email media library",
+        description="Stores a PNG, JPEG, GIF or WebP file as it is, and an ICO file as a PNG of its largest frame. "
+        "For an SVG file it stores nothing and returns the markup, so the browser can draw it as a PNG and upload "
+        "that through the media upload.",
+    )
+    @action(detail=False, methods=["POST"])
+    def import_logo(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            logo = import_repository_logo(
+                team=self.team,
+                user=cast(User, request.user),
+                integration=self._github_integration(data["integration_id"]),
+                repository=data["repository"],
+                path=data["path"],
+            )
+        except LogoNotFound:
+            raise exceptions.ValidationError({"path": "No file at this path in the repository."}, code="logo_not_found")
+        except RejectedImage as rejected:
+            raise exceptions.ValidationError({"path": rejected.detail}, code=rejected.code)
+        except GitHubBusy:
+            raise GitHubBusyError()
+        except GitHubDisconnected:
+            raise GitHubDisconnectedError()
+        except RepositoryUnreadable:
+            raise RepositoryUnreadableError()
+        except ObjectStorageUnavailable:
+            raise exceptions.ValidationError(
+                "Object storage must be available to import a logo.", code="object_storage_required"
+            )
+        except LogoStorageFailed:
+            raise exceptions.APIException("Could not store the logo. Try again.")
+        return Response(EmailBrandLogoImportSerializer(_logo_import_result(logo)).data)
 
     def _github_integration(self, integration_id: int) -> Integration:
         integration = Integration.objects.filter(team_id=self.team.id, kind="github", id=integration_id).first()
@@ -415,3 +469,14 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _project_team_id(self) -> int:
         return self.team.parent_team_id or self.team.id
+
+
+def _logo_import_result(logo: ImportedLogo | SvgLogo) -> dict[str, Any]:
+    if isinstance(logo, SvgLogo):
+        return {"outcome": LogoImportOutcome.SVG_NEEDS_RASTERIZING, "media_id": None, "url": None, "svg": logo.markup}
+    return {
+        "outcome": LogoImportOutcome.IMPORTED,
+        "media_id": logo.media.id,
+        "url": logo.media.get_absolute_url(),
+        "svg": None,
+    }

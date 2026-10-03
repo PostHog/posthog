@@ -8,6 +8,7 @@ from products.workflows.backend.services.brand_detection.files import (
     choose_app_root,
     select_files,
 )
+from products.workflows.backend.services.brand_detection.logos import LogoCandidate, rank_logo_candidates
 from products.workflows.backend.services.brand_detection.proposal import BrandCandidates, BrandProposal, rank_signals
 from products.workflows.backend.services.brand_detection.signals import (
     Signal,
@@ -63,6 +64,7 @@ class BrandDetection:
     app_root_alternatives: tuple[str, ...]
     proposal: BrandProposal
     candidates: BrandCandidates
+    logo_candidates: tuple[LogoCandidate, ...]
     files_read: tuple[FileRead, ...]
 
 
@@ -87,6 +89,7 @@ def detect_brand(
         app_root_alternatives=choice.alternatives,
         proposal=proposal,
         candidates=candidates,
+        logo_candidates=rank_logo_candidates(tree, choice.root, texts),
         files_read=tuple(
             FileRead(path=path, found=_found_values(signals)) for path, signals in signals_by_path.items()
         ),
