@@ -36,7 +36,7 @@ SELECT
 FROM (
     SELECT
         'preference' AS source_kind,
-        lowerUTF8(trim(identifier, {whitespace})) AS address,
+        lowerUTF8(replaceRegexpAll(identifier, {surrounding_whitespace}, '')) AS address,
         preferences,
         updated_at AS changed_at,
         '' AS suppression_source,
@@ -48,7 +48,7 @@ FROM (
     UNION ALL
     SELECT
         'suppression' AS source_kind,
-        lowerUTF8(trim(identifier, {whitespace})) AS address,
+        lowerUTF8(replaceRegexpAll(identifier, {surrounding_whitespace}, '')) AS address,
         '' AS preferences,
         suppressed_at AS changed_at,
         source AS suppression_source,
@@ -60,7 +60,7 @@ FROM (
     UNION ALL
     SELECT
         'person' AS source_kind,
-        coalesce(lowerUTF8(trim(persons.properties.email, {whitespace})), '') AS address,
+        coalesce(lowerUTF8(replaceRegexpAll(persons.properties.email, {surrounding_whitespace}, '')), '') AS address,
         '' AS preferences,
         NULL AS changed_at,
         '' AS suppression_source,
@@ -77,7 +77,7 @@ LIMIT {limit}
 """
 
 _LAST_SENT_QUERY = """
-SELECT lowerUTF8(trim(BOTH %(whitespace)s FROM latest_recipient)) AS address, max(latest_sent_at)
+SELECT lowerUTF8(replaceRegexpAll(latest_recipient, %(surrounding_whitespace)s, '')) AS address, max(latest_sent_at)
 FROM (
     SELECT
         argMax(recipient, version) AS latest_recipient,
@@ -87,7 +87,7 @@ FROM (
     WHERE team_id = %(team_id)s
       AND kind = 'email'
       AND sent_at >= %(sent_after)s
-      AND lowerUTF8(trim(BOTH %(whitespace)s FROM recipient)) IN %(addresses)s
+      AND lowerUTF8(replaceRegexpAll(recipient, %(surrounding_whitespace)s, '')) IN %(addresses)s
     GROUP BY invocation_id, action_id
 )
 WHERE latest_is_deleted = 0
@@ -107,14 +107,21 @@ GROUP BY person_id
 LIMIT {person_count}
 """
 
-_PERSONS_WITHOUT_EMAIL_QUERY = (
-    "SELECT count() FROM persons WHERE coalesce(trim(persons.properties.email, {whitespace}), '') = ''"
-)
+_PERSONS_WITHOUT_EMAIL_QUERY = """
+SELECT count()
+FROM persons
+WHERE coalesce(replaceRegexpAll(persons.properties.email, {surrounding_whitespace}, ''), '') = ''
+"""
 
 
 LAST_SENT_WINDOW_DAYS = MESSAGE_ASSETS_TTL_DAYS
 
-_ADDRESS_WHITESPACE = " \t\n\r"
+_JAVASCRIPT_TRIM_WHITESPACE = (
+    "\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+_WHITESPACE_CLASS = "[" + "".join(f"\\x{{{ord(char):X}}}" for char in _JAVASCRIPT_TRIM_WHITESPACE) + "]"
+_SURROUNDING_WHITESPACE_PATTERN = f"^{_WHITESPACE_CLASS}+|{_WHITESPACE_CLASS}+$"
 
 
 class RecipientFacet(StrEnum):
@@ -230,7 +237,7 @@ def parse_recipient_filter(raw: str) -> RecipientFilter:
 
 
 def _normalize_address(email: str) -> str:
-    return email.strip(_ADDRESS_WHITESPACE).lower()
+    return email.strip(_JAVASCRIPT_TRIM_WHITESPACE).lower()
 
 
 def _team_topics(team_id: int) -> _Topics:
@@ -289,7 +296,7 @@ def _query_recipient_rows(team: "Team", user: "User", query: RecipientQuery, top
         _RECIPIENTS_QUERY,
         placeholders={
             "address_filter": _address_filter(query),
-            "whitespace": ast.Constant(value=_ADDRESS_WHITESPACE),
+            "surrounding_whitespace": ast.Constant(value=_SURROUNDING_WHITESPACE_PATTERN),
             "facet_filter": _facet_filter(query.filters, topics),
             "limit": ast.Constant(value=query.limit + 1),
         },
@@ -304,7 +311,12 @@ def _last_sent_at_by_address(team_id: int, addresses: list[str]) -> dict[str, da
     sent_after = timezone.now() - timedelta(days=LAST_SENT_WINDOW_DAYS)
     rows = sync_execute(
         _LAST_SENT_QUERY,
-        {"team_id": team_id, "addresses": addresses, "sent_after": sent_after, "whitespace": _ADDRESS_WHITESPACE},
+        {
+            "team_id": team_id,
+            "addresses": addresses,
+            "sent_after": sent_after,
+            "surrounding_whitespace": _SURROUNDING_WHITESPACE_PATTERN,
+        },
         team_id=team_id,
     )
     return dict(rows)
@@ -403,7 +415,7 @@ def count_persons_without_email(team: "Team", user: "User") -> int:
         _PERSONS_WITHOUT_EMAIL_QUERY,
         team=team,
         user=user,
-        placeholders={"whitespace": ast.Constant(value=_ADDRESS_WHITESPACE)},
+        placeholders={"surrounding_whitespace": ast.Constant(value=_SURROUNDING_WHITESPACE_PATTERN)},
         query_type="MessagingRecipientsCoverageQuery",
     )
     return response.results[0][0]
