@@ -575,7 +575,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, params, from, trackingEnabled, integration, isTest)
                     break
 
                 case 'unsupported':
@@ -900,6 +900,18 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
+    private sesRouteFor(
+        _integration: IntegrationType,
+        teamId: number,
+        trackingEnabled: boolean,
+        invocation: CyclotronJobInvocationHogFunction
+    ): { tenantName: string; configurationSetName: string } {
+        return {
+            tenantName: `team-${teamId}`,
+            configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
+        }
+    }
+
     private resolveFromSender(
         integration: IntegrationType,
         from: CyclotronInvocationQueueParametersEmailType['from'],
@@ -1012,6 +1024,7 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
+        integration: IntegrationType,
         isTest = false
     ): Promise<void> {
         if (!this.sesV2Client) {
@@ -1027,6 +1040,7 @@ export class EmailService {
             isTest
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
+        const route = this.sesRouteFor(integration, result.invocation.teamId, trackingEnabled, result.invocation)
 
         const htmlBody = params.html
             ? {
@@ -1065,7 +1079,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: route.configurationSetName,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
@@ -1082,7 +1096,7 @@ export class EmailService {
         // this class only shield our internal metrics, a separate concern from SES-side
         // attribution; test volume is far below the representative volume AWS needs for a
         // reputation finding.
-        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
+        sendEmailParams.TenantName = route.tenantName
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code
