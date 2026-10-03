@@ -19,6 +19,13 @@ import { footerRevealClass } from './footerReveal'
 import { QuillCopyButton } from './QuillFooterButton'
 import { QuillFooterTimestamp } from './QuillFooterTimestamp'
 
+// A wide table scrolls sideways under a frozen first column. Cells keep a readable width and break between words.
+const ASSISTANT_TABLE_CLASS = cn(
+    '[&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto',
+    '[&_:is(th,td)]:min-w-32 [&_:is(th,td)]:[overflow-wrap:normal]',
+    '[&_:is(th,td):first-child]:sticky [&_:is(th,td):first-child]:left-0 [&_:is(th,td):first-child]:z-1 [&_:is(th,td):first-child]:bg-(--background)'
+)
+
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
  * is measured against the clamped height and re-measured on resize, and the toggle only appears when the
@@ -100,12 +107,7 @@ export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item 
             <ChatMessageContent className="gap-1">
                 <ChatBubble variant="ghost">
                     <ChatBubbleContent>
-                        <MarkdownMessage
-                            content={item.text ?? ''}
-                            id={item.id}
-                            // A wide table scrolls sideways, so its cells break between words, not inside them.
-                            className="[&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto [&_:is(th,td)]:[overflow-wrap:normal]"
-                        />
+                        <MarkdownMessage content={item.text ?? ''} id={item.id} className={ASSISTANT_TABLE_CLASS} />
                     </ChatBubbleContent>
                 </ChatBubble>
             </ChatMessageContent>
