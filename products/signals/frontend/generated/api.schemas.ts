@@ -583,6 +583,11 @@ export const SignalReportBillingExemptReasonEnumApi = {
  */
 export type ReportRankingApiScores = { [key: string]: number }
 
+/**
+ * Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.
+ */
+export type ReportRankingApiLifts = { [key: string]: number }
+
 export interface ReportRankingApi {
     /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
     served_key: string
@@ -596,6 +601,8 @@ export interface ReportRankingApi {
     scored_at: string
     /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
     scores: ReportRankingApiScores
+    /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
+    lifts: ReportRankingApiLifts
     /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
     readable_heads: string[]
 }
@@ -606,6 +613,8 @@ export interface SignalReportListApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -823,6 +832,8 @@ export interface SignalReportApi {
     readonly title: string | null
     /** @nullable */
     readonly summary: string | null
+    /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
+    readonly summary_lead: string
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -2681,7 +2692,7 @@ export interface PaginatedSignalReportArtefactListApi {
 export interface SignalReportArtefactLogCreateApi {
     /** Active claim to attribute this work to. Must belong to the caller and report. */
     claim_id?: string
-    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+    /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
     artefact_type: string
     /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
     content: unknown
@@ -2947,6 +2958,8 @@ export interface SignalReportCheckApi {
     readonly status: SignalReportCheckStatusEnumApi
     /** What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe. */
     config: SignalReportCheckConfigApi
+    /** @nullable */
+    readonly approved_at: string | null
     /** When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it. */
     readonly next_run_at: string
     /**
@@ -2993,6 +3006,21 @@ export interface PaginatedSignalReportCheckListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportCheckApi[]
+}
+
+export interface SignalReportCheckReplacementApi {
+    /**
+     * Label for the new metric check.
+     * @maxLength 200
+     */
+    title: string
+    /**
+     * Why this check is better.
+     * @maxLength 2000
+     */
+    rationale?: string
+    /** Metric threshold configuration, including a bounded query and comparison. */
+    config: MetricThresholdConfigApi
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -5349,35 +5377,6 @@ export interface ReportMetricWriteApi {
      * @nullable
      */
     caption?: string | null
-    /**
-     * Proposed threshold after release. Informational only; does not schedule a check.
-     * @nullable
-     */
-    goal_value?: number | null
-    /** Whether success means at most or at least goal_value.
-     *
-     * * `at_most` - at_most
-     * * `at_least` - at_least */
-    goal_direction?: GoalDirectionEnumApi | null
-    /** Whether the goal compares with the whole query window or each chart bucket.
-     *
-     * * `whole_window` - whole_window
-     * * `per_interval` - per_interval */
-    goal_grain?: GoalGrainEnumApi
-    /**
-     * Suggested days after release before assessing impact, not a monitoring schedule.
-     * @minimum 1
-     * @maximum 30
-     * @nullable
-     */
-    decision_window_days?: number | null
-    /**
-     * Optional number of qualifying observations before assessing impact.
-     * @minimum 1
-     * @maximum 1000
-     * @nullable
-     */
-    minimum_data_points?: number | null
     /** Legacy optional comparison. New report metrics must omit it. */
     comparison?: ReportMetricComparisonApi | null
 }

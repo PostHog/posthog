@@ -6,6 +6,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.models import OAuthAccessToken
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -28,7 +29,12 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN, TASK_OWNERSHIP_VERSION_STATE_KEY, Task
+from products.tasks.backend.models import (
+    INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
+    TASK_OWNERSHIP_VERSION_STATE_KEY,
+    Task,
+    TaskRun,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -245,6 +251,7 @@ def create_oauth_access_token_for_run(
     state: dict[str, Any] | None,
     *,
     scopes: PosthogMcpScopes | None = None,
+    run_id: str | UUID | None = None,
 ) -> str:
     """Mint the sandbox OAuth token for a run, resolving the acting user from run state.
 
@@ -256,6 +263,8 @@ def create_oauth_access_token_for_run(
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     ``scopes`` defaults to what the run was dispatched with (``dispatched_run_scopes``), so
     a caller without the value on its activity input still mints the run's own grant.
+    Tokens recorded on ``run_id`` may read that run's protected agent context, even when the
+    sandbox's query scopes are withheld. The binding never grants access to other runs.
     """
     if scopes is None:
         scopes = dispatched_run_scopes(task, state)
@@ -298,7 +307,7 @@ def create_oauth_access_token_for_run(
                     cause=RuntimeError(f"{credential_owner_kind} credential owner is not an active team member"),
                 )
 
-        return create_oauth_access_token(
+        access_token = create_oauth_access_token(
             locked_task,
             scopes=effective_scopes,
             user=actor_user,
@@ -306,6 +315,17 @@ def create_oauth_access_token_for_run(
             loop_id=loop_id if isinstance(loop_id, str) else None,
             run_state=state,
         )
+        if run_id is not None:
+            run = TaskRun.objects.select_for_update().get(
+                id=run_id, task_id=locked_task.id, team_id=locked_task.team_id
+            )
+            token_id = str(OAuthAccessToken.objects.get(token=access_token).id)
+            run.state = {
+                **(run.state or {}),
+                "sandbox_oauth_token_ids": [*(run.state or {}).get("sandbox_oauth_token_ids", []), token_id],
+            }
+            run.save(update_fields=["state"])
+        return access_token
 
 
 def create_wizard_oauth_access_token(task: Task) -> str:

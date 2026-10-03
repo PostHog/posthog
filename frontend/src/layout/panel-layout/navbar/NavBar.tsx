@@ -35,6 +35,8 @@ import { NavSearchBar, NavSearchButton } from '../../../lib/components/NavSearch
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
+import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
+import { postHogTeamCohortBannerLogic } from './postHogTeamCohortBannerLogic'
 import { FlatNavBrowse } from './tabs/flat-nav/FlatNavBrowse'
 import { navProductsTabLogic } from './tabs/navProductsTabLogic'
 import { NavTabBrowse } from './tabs/NavTabBrowse'
@@ -134,6 +136,7 @@ export function NavBar(): JSX.Element {
     const { toggleCommand } = useActions(commandLogic)
     const { sidebarDensity } = useValues(uiCustomizationLogic)
     const isSimpleSidepanelEnabled = useFeatureFlag('SIMPLE_SIDEPANEL')
+    const { bannerVisible: isCohortBannerVisible } = useValues(postHogTeamCohortBannerLogic)
     const isOverlayOpen = isSimpleSidepanelEnabled && isNavCollapsed && isNavOverlayOpen
     const isLayoutNavCollapsed = isNavCollapsed && !isOverlayOpen
     const isFlatNavEnabled = useFeatureFlag('FLAT_NAV', 'test')
@@ -421,6 +424,12 @@ export function NavBar(): JSX.Element {
                     <div className={cn('p-1', !isSimpleSidepanelEnabled && isLayoutNavCollapsed && 'hidden')}>
                         <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
                     </div>
+                    {/* The collapsed nav hides the footer without the simple side panel, so the reminder renders here instead. */}
+                    {!isSimpleSidepanelEnabled && isLayoutNavCollapsed && isCohortBannerVisible && (
+                        <div className="flex justify-center p-1">
+                            <PostHogTeamCohortBanner isCollapsed />
+                        </div>
+                    )}
                 </Tabs.Root>
                 {!isMobileLayout && !isOverlayOpen && (
                     <Resizer

@@ -152,7 +152,7 @@ class BatchExportEventPropertyFilter:
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str] | None]] | None = None
+    filters: list[dict[str, str | bool | list[str] | None]] | None = None
     hogql_query: str | None = None
     # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
     user_id: int | None = None
@@ -1168,6 +1168,7 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
+            # nosemgrep: schedule-must-avoid-minute-zero -- each run exports the interval that just closed, and batch_export.jitter already spreads the start
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=batch_export.jitter,
             time_zone_name=timezone,

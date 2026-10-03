@@ -371,8 +371,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
         MAX_RECALCULATION_TIMES,
         MIN_RECALCULATION_GAP_HOURS,
         TeamExperimentsConfig,
-        legacy_from_recalculation_times,
-        recalculation_times_from_legacy,
         validate_recalculation_times,
     )
 
@@ -389,15 +387,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             help_text=(
                 "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
                 f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
-                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC). "
-                "Takes precedence over experiment_recalculation_time."
+                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
             ),
         )
 
         class Meta:
             model = TeamExperimentsConfig
             fields = [
-                "experiment_recalculation_time",
                 "experiment_recalculation_times",
                 "default_experiment_confidence_level",
                 "default_experiment_stats_method",
@@ -423,16 +419,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
                 instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-            # The two recalculation fields must stay coherent while both exist: writing one
-            # syncs the other, so old clients and the workflow reader never disagree.
-            if "experiment_recalculation_times" in validated_data:
-                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
-                    validated_data["experiment_recalculation_times"]
-                )
-            elif "experiment_recalculation_time" in validated_data:
-                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
-                    validated_data["experiment_recalculation_time"]
-                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
@@ -1377,6 +1363,11 @@ def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team:
     )
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class ConversationsSettingsField(serializers.JSONField):
+    pass
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1400,6 +1391,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -1927,6 +1923,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conversation settings must be an object or null.")
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
@@ -2341,7 +2339,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         # Merge conversations_settings with existing values, unless explicitly clearing with null
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = instance.conversations_settings or {}
+            existing_settings = conversations_settings_as_dict(instance.conversations_settings)
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
@@ -3177,13 +3175,22 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
+def conversations_settings_as_dict(value: object) -> dict[str, Any]:
+    """Coerce a conversations_settings value to a dict for merging or diffing.
+
+    A row written before validation required an object/null can hold a stray array or scalar;
+    treat it as empty rather than raising.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
     """
-    old_settings = before_settings or {}
-    new_settings = team.conversations_settings or {}
+    old_settings = conversations_settings_as_dict(before_settings)
+    new_settings = conversations_settings_as_dict(team.conversations_settings)
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
@@ -3200,7 +3207,7 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
-    current_conversations_settings: dict | None,
+    current_conversations_settings: object,
 ) -> dict[str, Any]:
     """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
     if "conversations_enabled" not in validated_data:
@@ -3209,15 +3216,17 @@ def handle_conversations_token_on_update(
     is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
     is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
 
+    stored_settings = conversations_settings_as_dict(current_conversations_settings)
+
     if is_enabling:
         # Check if token already exists in current DB state (not user input, which is stripped)
-        has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
+        has_token = stored_settings.get("widget_public_token")
         if not has_token:
-            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
             conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
             validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+        conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 

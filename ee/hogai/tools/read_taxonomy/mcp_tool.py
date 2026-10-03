@@ -55,4 +55,6 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
             READ_TAXONOMY_TIMED_OUT_COUNTER.labels(query_kind=args.query.kind).inc()
             # MaxToolError appends its own retry hint and a period, so this ends bare. The hint for
             # a transient error offers one unchanged retry, so do not suggest narrowing the read.
-            raise MaxToolTransientError("Reading the taxonomy timed out. This can happen on large projects") from e
+            raise MaxToolTransientError(
+                "Reading the taxonomy timed out. This can happen on large projects", error_type="timeout"
+            ) from e

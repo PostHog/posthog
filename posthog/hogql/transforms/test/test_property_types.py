@@ -55,7 +55,7 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
+from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE, TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
@@ -323,12 +323,39 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 ("events.properties.`$feature_flags`",),
             ),
             (
+                "restricted_map_document",
+                "SELECT properties FROM events",
+                True,
+                {RestrictedProperty(name="$feature_flags", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("JSONExtractKeysAndValuesRaw(",),
+                ("concat('$feature/', key)", "'\"$active_feature_flags\":'"),
+            ),
+            (
                 "dynamic_restricted",
                 "SELECT properties, JSONHas(properties, '$feature_flags', concat('sec', 'ret')) FROM events",
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("JSONMergePatch(", "mapFilter("),
+                ("mapFilter((key, value) -> not(has(", "'\"$active_feature_flags\":'"),
+                ("JSONMergePatch(",),
+            ),
+            (
+                "stored_document_restricted",
+                "SELECT toJSONString(if(1, properties, properties)) FROM events",
+                True,
+                {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
+                None,
+                ("JSONMergePatch(", "mapFilter((key, value) -> not(has("),
+                ("'\"$active_feature_flags\":'",),
+            ),
+            (
+                "whole_document_adds_temporary_keys",
+                "SELECT properties, toString(properties) FROM events",
+                True,
+                None,
+                None,
+                ("toJSONString(events.temporary_properties)",),
                 (),
             ),
         ]
@@ -520,7 +547,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             """WITH events_json AS (
                 SELECT 1 AS team_id, 'synthetic' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
-                    CAST(%(document)s, %(person_type)s) AS person_properties
+                    CAST(%(document)s, %(person_type)s) AS person_properties,
+                    CAST('{}', %(temporary_type)s) AS temporary_properties
             ) """
             + printed,
             {
@@ -528,6 +556,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 "document": '{"$groups":{"organization":"hidden","project":"visible"}}',
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
         assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
@@ -1654,19 +1683,28 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
         }
         restricted = execute_hogql_query(
             "SELECT properties, JSONHas(properties, '$feature_flags', concat('sec', 'ret')), "
-            "properties.$active_feature_flags "
+            "properties.$active_feature_flags, toJSONString(if(1, properties, properties)) "
             f"FROM events WHERE uuid = '{native_uuid}'",
             team=self.team,
             context=restricted_context,
         )
         assert restricted.results is not None
-        assert json.loads(restricted.results[0][0])["$feature_flags"] == {
-            "checkout": "true",
-            "disabled": "false",
-            "false-variant": "$false",
-            "only-in-map": "true",
-            "variant": "control",
+        # The masked document is a String, so toJSONString quotes it, as it quotes the legacy String column.
+        stored_document = json.loads(json.loads(restricted.results[0][3]))
+        assert "$feature/secret" not in stored_document
+        assert "secret" not in stored_document["$feature_flags"]
+        assert stored_document["$feature_flags"]["variant"] == "control"
+        restricted_document = json.loads(restricted.results[0][0])
+        assert "$feature_flags" not in restricted_document
+        # The fixture sends "true" as a string, which the cleaner stores as `$true`, so it comes back as a string.
+        assert {key: value for key, value in restricted_document.items() if key.startswith("$feature/")} == {
+            "$feature/checkout": "true",
+            "$feature/disabled": False,
+            "$feature/false-variant": "false",
+            "$feature/only-in-map": "true",
+            "$feature/variant": "control",
         }
+        assert restricted_document["$active_feature_flags"] == ["checkout", "false-variant", "only-in-map", "variant"]
         assert restricted.results[0][1] == 0
         assert json.loads(restricted.results[0][2]) == ["checkout", "false-variant", "only-in-map", "variant"]
 
@@ -1696,6 +1734,88 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             context=HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True),
         )
         assert inactive.results == [("[]", 1, 1)]
+
+    def test_sdk_flag_properties_read_the_same_on_both_schemas(self) -> None:
+        sdk_uuid = _create_event(
+            team=self.team,
+            distinct_id="sdk-flags",
+            event="schema-parity",
+            properties={
+                "$browser": "Firefox",
+                "$feature/checkout": True,
+                "$feature/disabled": False,
+                "$feature/variant": "control",
+                "$feature/named-false": "false",
+                "$feature/named-true": "true",
+                "$active_feature_flags": ["checkout", "variant", "named-false", "named-true"],
+            },
+        )
+        flush_persons_and_events()
+
+        query = (
+            "SELECT properties, toString(properties), arraySort(JSONExtractKeys(properties)), "
+            "JSONLength(properties, '$active_feature_flags'), "
+            "arraySort(JSONExtractArrayRaw(properties, '$active_feature_flags')), "
+            "JSONExtractBool(properties, '$feature/checkout'), JSONExtractBool(properties, '$feature/named-true'), "
+            "JSONExtractRaw(properties, '$feature/named-true'), JSONType(properties, '$feature/named-false'), "
+            "JSONType(properties, '$feature/disabled'), JSONExtractString(properties, '$feature/variant'), "
+            "properties.`$feature/named-true`, properties.`$feature/checkout`, "
+            "arraySort(JSONExtractArrayRaw(toString(properties), '$active_feature_flags')) "
+            f"FROM events WHERE uuid = '{sdk_uuid}'"
+        )
+        exploded_query = (
+            "SELECT arrayJoin(JSONExtractArrayRaw(properties, '$active_feature_flags')) AS flag "
+            f"FROM events WHERE uuid = '{sdk_uuid}' ORDER BY flag"
+        )
+
+        def read(use_new_events_schema: bool) -> tuple[dict[str, Any], dict[str, Any], tuple[Any, ...], list[Any]]:
+            context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=use_new_events_schema
+            )
+            reads = execute_hogql_query(query, team=self.team, context=context)
+            exploded = execute_hogql_query(exploded_query, team=self.team, context=context)
+            assert reads.results is not None and exploded.results is not None
+            document = json.loads(reads.results[0][0])
+            document["$active_feature_flags"] = sorted(document["$active_feature_flags"])
+            stringified = json.loads(reads.results[0][1])
+            stringified["$active_feature_flags"] = sorted(stringified["$active_feature_flags"])
+            return document, stringified, tuple(reads.results[0][2:]), exploded.results
+
+        native = read(use_new_events_schema=True)
+        assert native == read(use_new_events_schema=False)
+        active_flags = ['"checkout"', '"named-false"', '"named-true"', '"variant"']
+        assert native[0] == {
+            "$browser": "Firefox",
+            "$feature/checkout": True,
+            "$feature/disabled": False,
+            "$feature/variant": "control",
+            "$feature/named-false": "false",
+            "$feature/named-true": "true",
+            "$active_feature_flags": ["checkout", "named-false", "named-true", "variant"],
+        }
+        assert native[2] == (
+            [
+                "$active_feature_flags",
+                "$browser",
+                "$feature/checkout",
+                "$feature/disabled",
+                "$feature/named-false",
+                "$feature/named-true",
+                "$feature/variant",
+            ],
+            4,
+            active_flags,
+            1,
+            0,
+            '"true"',
+            "String",
+            "Bool",
+            "control",
+            "true",
+            "true",
+            active_flags,
+        )
+        assert native[3] == [(flag,) for flag in active_flags]
 
     def test_moved_mutation_properties_read_the_same_on_both_schemas(self) -> None:
         event_uuid = _create_event(
@@ -1750,6 +1870,52 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     [("email", '"user@example.com"'), ("plan", '{"tier":"pro"}')],
                 )
             ], use_new_events_schema
+
+        document_query = (
+            "SELECT properties, toString(properties), arraySort(JSONExtractKeys(properties)), "
+            "(SELECT properties.$set.email FROM (SELECT * FROM events WHERE uuid = {uuid})) "
+            f"FROM events WHERE uuid = '{event_uuid}'"
+        ).replace("{uuid}", f"'{event_uuid}'")
+        restricted_plan = {RestrictedProperty(name="$set.plan", property_type=PropertyDefinition.Type.EVENT)}
+        documents: dict[tuple[bool, bool], tuple[Any, ...]] = {}
+        for use_new_events_schema in (False, True):
+            for with_restriction in (False, True):
+                context = HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    use_new_events_schema=use_new_events_schema,
+                    restricted_properties=restricted_plan if with_restriction else set(),
+                )
+                response = execute_hogql_query(document_query, team=self.team, context=context)
+                assert response.results is not None
+                document, stringified, keys, from_subquery = response.results[0]
+                documents[(use_new_events_schema, with_restriction)] = (
+                    json.loads(document),
+                    json.loads(stringified),
+                    keys,
+                    from_subquery,
+                )
+        assert documents[(True, False)] == documents[(False, False)]
+        assert documents[(True, True)] == documents[(False, True)]
+        assert documents[(True, False)] == (
+            {
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+            {
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset"],
+            "user@example.com",
+        )
+        assert documents[(True, True)][0]["$set"] == {"email": "user@example.com"}
 
         # One call per registered JSON function, so a newly registered function fails here until native reads the
         # moved key. isValidJSON and JSONArrayLength take no key path.

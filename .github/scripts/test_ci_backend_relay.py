@@ -1,6 +1,7 @@
 import re
 import json
 import subprocess
+import dataclasses
 import http.client
 import urllib.error
 import urllib.parse
@@ -305,6 +306,22 @@ def test_relay_gate_fails_closed(result: Any, exit_code: int, first_line: str | 
         assert lines == []
     else:
         assert first_line in lines[0]
+
+
+@pytest.mark.parametrize(
+    "merge_queue,present,absent",
+    [
+        (False, "--add-label ci-backend-github", "CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT"),
+        (True, "CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT", "--add-label ci-backend-github"),
+    ],
+)
+def test_retry_instructions_route_back_to_github_the_way_that_works(
+    merge_queue: bool, present: str, absent: str
+) -> None:
+    event = dataclasses.replace(EVENT, merge_queue=merge_queue)
+    text = "\n".join(relay.retry_instructions(event, "https://depot.dev/orgs/o/workflows/w1", "123"))
+    assert present in text
+    assert absent not in text
 
 
 def shown(workflow: str, gate: str, executions: int) -> dict[str, Any]:

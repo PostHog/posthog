@@ -8,6 +8,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, S
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
@@ -323,7 +324,9 @@ __all__ = [
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
     "presign_task_run_artifact_download",
+    "presign_task_run_living_artifact_version_download",
     "read_task_run_artifact",
+    "read_task_run_living_artifact_version",
     "get_task_run_log_urls",
     "get_task_run_log_size",
     "read_task_run_log_content",
@@ -552,12 +555,15 @@ def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = Fal
     return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
-def _task_run_log_url(run: TaskRun) -> str | None:
+def _task_run_log_url(run: TaskRun, *, has_analytics_context: bool) -> str | None:
     """Presigned S3 URL for a run's log, cached. Mirrors ``TaskRunDetailSerializer.get_log_url``."""
     from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
 
     from products.tasks.backend.redis import get_tasks_cache  # noqa: PLC0415 — keep redis off the api import path
 
+    # Protected traces must go through the permission-checked logs endpoint.
+    if has_analytics_context:
+        return None
     cache_key = f"task_run_log_url:{run.id}"
     cached_url = get_tasks_cache().get(cache_key)
     if cached_url:
@@ -592,6 +598,7 @@ def _task_run_detail_to_dto(
     include_agent_state: bool = False,
     user_id: int | None = None,
     include_log_url: bool = True,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
@@ -604,6 +611,11 @@ def _task_run_detail_to_dto(
     )
 
     state = parse_run_state(run.state)
+    has_analytics_context = "analytics_query_context" in (run.state or {})
+    protected_context = has_analytics_context and not (
+        include_agent_state
+        or (analytics_context_reader is not None and analytics_context_reader(run.state["analytics_query_context"]))
+    )
     can_read_summary = _can_read_task_run_summary(
         run, task=task, user_id=user_id, include_agent_state=include_agent_state
     )
@@ -618,13 +630,19 @@ def _task_run_detail_to_dto(
         provider=state.provider.value if state.provider is not None else None,
         model=state.model,
         reasoning_effort=state.reasoning_effort.value if state.reasoning_effort is not None else None,
-        log_url=_task_run_log_url(run) if include_log_url else None,
-        error_message=run.error_message,
-        output=run.output,
-        task_summary=run.task_summary if can_read_summary else None,
-        task_tags=run.task_tags if can_read_summary else [],
+        log_url=(
+            f"/api/projects/{run.team_id}/tasks/{run.task_id}/runs/{run.id}/logs/"
+            if has_analytics_context and include_agent_state and include_log_url
+            else _task_run_log_url(run, has_analytics_context=has_analytics_context)
+            if include_log_url
+            else None
+        ),
+        error_message=run.error_message if not protected_context else None,
+        output=run.output if not protected_context else None,
+        task_summary=run.task_summary if can_read_summary and not protected_context else None,
+        task_tags=run.task_tags if can_read_summary and not protected_context else [],
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
-        artifacts=run.artifacts or [],
+        artifacts=(run.artifacts or []) if not protected_context else [],
         created_at=run.created_at,
         updated_at=run.updated_at,
         completed_at=run.completed_at,
@@ -815,6 +833,7 @@ def _task_detail_to_dto(
     latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
     include_latest_run_log_url: bool = True,
     prior_pr_output: dict[str, Any] | None | _PriorPrOutputUnset = _PRIOR_PR_OUTPUT_UNSET,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskDetailDTO:
     """Map a ``Task`` to its HTTP detail DTO.
 
@@ -834,12 +853,24 @@ def _task_detail_to_dto(
         latest_run_id = resolved_latest_run.id
     latest_run_dto = (
         _task_run_detail_to_dto(
-            resolved_latest_run, task=task, user_id=user_id, include_log_url=include_latest_run_log_url
+            resolved_latest_run,
+            task=task,
+            user_id=user_id,
+            include_log_url=include_latest_run_log_url,
+            analytics_context_reader=analytics_context_reader,
         )
         if resolved_latest_run is not None
         else None
     )
-    if latest_run_dto is not None and not read_pr_urls(latest_run_dto.output):
+    may_read_latest_context = (
+        resolved_latest_run is None
+        or "analytics_query_context" not in (resolved_latest_run.state or {})
+        or (
+            analytics_context_reader is not None
+            and analytics_context_reader(resolved_latest_run.state["analytics_query_context"])
+        )
+    )
+    if latest_run_dto is not None and may_read_latest_context and not read_pr_urls(latest_run_dto.output):
         # A resumed run starts with an empty output, so the PR an earlier run opened drops
         # out of `latest_run` — and with it the PR button every client reads from there.
         # Logs and artifacts already survive a resume; the PR has to as well.
@@ -2611,6 +2642,9 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        "analytics_query_context",
+        "sandbox_oauth_token_ids",
+        "resume_from_run_id",
         "run_source",
         "pr_base_branch",
         "stack_base_branch",
@@ -2649,6 +2683,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # controller write arbitrary text into the agent's user-level instructions file.
         "agent_instructions",
         "wizard_config",
+        "reconciled_pr_merge_url",
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
@@ -2891,11 +2926,17 @@ def task_accessible_for_run_view(
 
 
 def list_task_runs(
-    task_id: str | UUID, team_id: int, *, user_id: int | None = None
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> list[contracts.TaskRunDetailDTO]:
     """All runs for a task, team-scoped. Caller enforces task visibility."""
     runs = _task_run_queryset().filter(team_id=team_id, task_id=task_id)
-    return [_task_run_detail_to_dto(run, user_id=user_id) for run in runs]
+    return [
+        _task_run_detail_to_dto(run, user_id=user_id, analytics_context_reader=analytics_context_reader) for run in runs
+    ]
 
 
 def get_task_run_source(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
@@ -2921,6 +2962,7 @@ def get_task_run_detail(
     *,
     include_agent_state: bool = False,
     user_id: int | None = None,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """A single run as a detail DTO, scoped to its task + team.
 
@@ -2929,7 +2971,12 @@ def get_task_run_detail(
     """
     run = _get_visible_run(run_id, task_id, team_id)
     return (
-        _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
+        _task_run_detail_to_dto(
+            run,
+            include_agent_state=include_agent_state,
+            user_id=user_id,
+            analytics_context_reader=analytics_context_reader,
+        )
         if run is not None
         else None
     )
@@ -3198,6 +3245,9 @@ def update_task_run(
     from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 (keep temporalio off the api import path)
         handle_loop_run_terminal,
     )
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
+        PullRequestReconciler,
+    )
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_agent_turn_failed,
         observe_prewarmed_unused_if_never_activated,
@@ -3254,6 +3304,7 @@ def update_task_run(
             or only_if_non_terminal
             or only_if_not_started
             or "status" in validated_data
+            or "branch" in validated_data
         ):
             run = TaskRun.objects.select_for_update().get(pk=run.pk)
         if only_if_not_started and run.status != TaskRun.Status.NOT_STARTED:
@@ -3263,6 +3314,8 @@ def update_task_run(
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
             return _task_run_detail_to_dto(run, user_id=user_id)
         old_status = run.status
+        old_output = run.output
+        old_branch = run.branch
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
 
@@ -3334,6 +3387,7 @@ def update_task_run(
 
         update_fields.add("updated_at")
         run.save(update_fields=list(update_fields))
+        PullRequestReconciler.schedule(run, previous_output=old_output, previous_branch=old_branch)
         run.publish_stream_state_event()
 
     # Only on the actual transition: a repeat PATCH with the same terminal status, or an
@@ -3432,16 +3486,23 @@ def set_task_run_output(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict, user_id: int | None = None
 ) -> contracts.TaskRunDetailDTO | None:
     """Persist a run's output. Completes the run for structured-output tasks; posts Slack PR update."""
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 - avoids the facade/webhook import cycle
+        PullRequestReconciler,
+    )
+
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     task = run.task
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
     # so a bare `= output` would drop output.pr_url recorded out of band.
-    existing = run.output if isinstance(run.output, dict) else {}
-    merged = merge_pr_output(existing, output)
-    run.output = _apply_caller_output(existing, output, merged)
-    run.save(update_fields=["output", "updated_at"])
+    with transaction.atomic():
+        run = TaskRun.objects.select_for_update().get(pk=run.pk, team_id=team_id)
+        existing = run.output if isinstance(run.output, dict) else {}
+        merged = merge_pr_output(existing, output)
+        run.output = _apply_caller_output(existing, output, merged)
+        run.save(update_fields=["output", "updated_at"])
+        PullRequestReconciler.schedule(run, previous_output=existing, previous_branch=run.branch)
     _refresh_self_driving_quota_for_pr(run, existing.get("pr_url"))
     if task.json_schema and not (run.state or {}).get("caller_ends_run"):
         signal_workflow_completion(run.id, TaskRun.Status.COMPLETED, None)
@@ -3462,6 +3523,7 @@ def set_task_run_summary(
     tags: list[str] | None = None,
     include_agent_state: bool = False,
     user_id: int | None = None,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -3477,7 +3539,12 @@ def set_task_run_summary(
             cleanup_orphan_tags(run.team_id)
     run.refresh_from_db()
     run.publish_stream_state_event()
-    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
+    return _task_run_detail_to_dto(
+        run,
+        include_agent_state=include_agent_state,
+        user_id=user_id,
+        analytics_context_reader=analytics_context_reader,
+    )
 
 
 def _entries_show_agent_activity(entries: list[dict]) -> bool:
@@ -4351,6 +4418,86 @@ def get_task_run_living_artifact(
     serialized = serialize_task_artifact(artifact)
     serialized["content"] = open_task_artifact(artifact)
     return serialized
+
+
+def read_task_run_living_artifact_version(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> tuple[contracts.LivingArtifactVersionContent | None, str | None]:
+    """Read the content of one living artifact version.
+
+    Returns ``(content, error)``: ``(None, None)`` if the run isn't found, ``(None, "not_found")`` if the
+    artifact or version isn't found or keeps no content, ``(None, "too_large")`` if a stored version is
+    over the preview limit, ``(None, "read_failed")`` if the storage read raised, else ``(content, None)``.
+    """
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        LivingArtifactVersionTooLarge,
+        get_task_artifact_for_run,
+        read_living_artifact_version,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return None, "not_found"
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        content = read_living_artifact_version(artifact, version)
+    except LivingArtifactVersionTooLarge:
+        return None, "too_large"
+    except Exception:
+        logger.exception("Failed to read living artifact %s version %s for team %s", artifact_id, version, team_id)
+        return None, "read_failed"
+    if content is None:
+        return None, "not_found"
+    return content, None
+
+
+def presign_task_run_living_artifact_version_download(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, artifact_id: str | UUID, version: int
+) -> contracts.LivingArtifactVersionDownload:
+    """Presign a download URL for one stored living artifact version.
+
+    The error is ``"not_found"`` if the artifact or version isn't found, ``"not_stored"`` if the version
+    keeps its content as text, and ``"unavailable"`` if presigning fails. Both fields are None if the run
+    isn't found.
+    """
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
+
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        resolve_living_artifact_version,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error=None)
+    try:
+        UUID(str(artifact_id))
+    except ValueError:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    resolved = resolve_living_artifact_version(artifact, version) if artifact is not None else None
+    if artifact is None or resolved is None:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_found")
+    if not resolved.storage_path:
+        return contracts.LivingArtifactVersionDownload(url=None, error="not_stored")
+    url = object_storage.get_presigned_url(
+        resolved.storage_path,
+        content_type=resolved.content_type or None,
+        # Agent-written HTML or SVG must not render as a page, so the browser always saves it.
+        content_disposition=content_disposition_header(
+            as_attachment=True, filename=PurePosixPath(artifact.name).name or "artifact"
+        )
+        or "attachment",
+    )
+    if not url:
+        return contracts.LivingArtifactVersionDownload(url=None, error="unavailable")
+    return contracts.LivingArtifactVersionDownload(url=url, error=None)
 
 
 def create_task_run_living_artifact(
@@ -5528,7 +5675,7 @@ def relay_task_run_message(
     trace_id: str | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message, or under the agent-design
-    flag signal the running task workflow to stream the text inline.
+    flag give the running task workflow the text as the turn's final answer.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text / streamed inline under the
@@ -5548,7 +5695,7 @@ def relay_task_run_message(
     )
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         execute_posthog_code_agent_relay_workflow,
-        signal_agent_text_delta,
+        signal_agent_final_text,
     )
     from products.tasks.backend.temporal.process_task.activities.feature_flags import (  # noqa: PLC0415 — keep temporal off the api import path
         AGENT_DESIGN_STATE_KEY,
@@ -5567,7 +5714,7 @@ def relay_task_run_message(
 
     if bool((run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
         try:
-            signal_agent_text_delta(run.workflow_id, trimmed)
+            signal_agent_final_text(run.workflow_id, trimmed, trace_id)
         except Exception:
             logger.exception("task_run_relay_text_signal_failed", extra={"run_id": str(run.id)})
         return "skipped", None
@@ -6260,7 +6407,12 @@ def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) ->
 
 
 def get_task_detail(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, bypass_visibility: bool = False
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    bypass_visibility: bool = False,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> contracts.TaskDetailDTO | None:
     """A single task as a detail DTO, team-scoped and visibility-gated.
 
@@ -6273,7 +6425,11 @@ def get_task_detail(
         .filter(id=task_id)
         .first()
     )
-    return _task_detail_to_dto(task, user_id=user_id) if task is not None else None
+    return (
+        _task_detail_to_dto(task, user_id=user_id, analytics_context_reader=analytics_context_reader)
+        if task is not None
+        else None
+    )
 
 
 def get_conversation_task_dtos(
@@ -6626,7 +6782,13 @@ def _latest_runs_by_task_id(task_ids: Iterable[UUID], team_id: int) -> dict[UUID
     return {run.task_id: run for run in runs}
 
 
-def _tasks_to_dtos(tasks: Iterable[Task], team_id: int, user_id: int | None = None) -> list[contracts.TaskDetailDTO]:
+def _tasks_to_dtos(
+    tasks: Iterable[Task],
+    team_id: int,
+    user_id: int | None = None,
+    *,
+    analytics_context_reader: Callable[[object], bool] | None = None,
+) -> list[contracts.TaskDetailDTO]:
     task_list = list(tasks)
     latest_runs_by_task_id = _latest_runs_by_task_id((task.id for task in task_list), team_id)
     # Resolved for the whole page in one query, rather than one per task inside the mapper.
@@ -6642,6 +6804,7 @@ def _tasks_to_dtos(tasks: Iterable[Task], team_id: int, user_id: int | None = No
             user_id=user_id,
             latest_run=latest_runs_by_task_id.get(task.id),
             prior_pr_output=prior_pr_output_by_task_id.get(str(task.id)),
+            analytics_context_reader=analytics_context_reader,
         )
         for task in task_list
     ]
@@ -6819,7 +6982,13 @@ def _latest_run_summary(
 
 
 def get_task_summaries(
-    team_id: int, user_id: int | None, *, ids: list, limit: int | None = None, offset: int = 0
+    team_id: int,
+    user_id: int | None,
+    *,
+    ids: list,
+    limit: int | None = None,
+    offset: int = 0,
+    analytics_context_reader: Callable[[object], bool] | None = None,
 ) -> tuple[list[contracts.TaskSummaryDTO], int]:
     """Summary fields for the requested tasks, mirroring ``TaskViewSet.summaries``."""
     from django.db.models.functions import JSONObject  # noqa: PLC0415
@@ -6844,6 +7013,12 @@ def get_task_summaries(
                 pr_merged=KeyTransform("pr_merged", "output"),
                 task_summary="state__task_summary",
                 prior_run_summary="state__prior_run_summary",
+                has_analytics_context=Case(
+                    When(state__has_key="analytics_query_context", then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField(),
+                ),
+                analytics_query_context="state__analytics_query_context",
             ),
         )
     )
@@ -6879,6 +7054,12 @@ def get_task_summaries(
         can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or (
             user_id is not None and task.created_by_id == user_id
         )
+        if isinstance(raw, dict) and raw.get("has_analytics_context"):
+            can_read_summary = (
+                can_read_summary
+                and analytics_context_reader is not None
+                and analytics_context_reader(raw.get("analytics_query_context"))
+            )
         latest = _latest_run_summary(raw, getattr(task, "_latest_pr_run", None), can_read_summary=can_read_summary)
         summaries.append(
             contracts.TaskSummaryDTO(

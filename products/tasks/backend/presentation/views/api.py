@@ -12,6 +12,7 @@ from uuid import UUID
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.utils.html import escape
+from django.utils.http import content_disposition_header
 
 import pydantic
 import requests as http_requests
@@ -122,6 +123,7 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
     session_update_type,
 )
+from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
     LegacyDesktopAccessResponseSerializer,
@@ -547,7 +549,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         basic = getattr(request, "validated_query_data", {}).get("basic", False)
         serializer_class = TaskBasicSerializer if basic else TaskSerializer
         return self.get_paginated_response(
-            serializer_class(tasks_facade._tasks_to_dtos(page, self.team_id, user_id=self._user_id()), many=True).data
+            serializer_class(
+                tasks_facade._tasks_to_dtos(
+                    page,
+                    self.team_id,
+                    user_id=self._user_id(),
+                    analytics_context_reader=run_context.analytics_context_reader(
+                        request=request, team_id=self.team_id
+                    ),
+                ),
+                many=True,
+            ).data
         )
 
     @validated_request(
@@ -579,7 +591,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], required_scopes=["task:read"])
     def review(self, request, pk=None, **kwargs):
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        task = tasks_facade.get_task_detail(
+            pk,
+            self.team_id,
+            self._user_id(),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
+        )
         if task is None:
             raise NotFound()
         result = tasks_facade.task_review(
@@ -594,7 +611,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def retrieve(self, request, pk=None, **kwargs):
         bypass_visibility = is_sandbox_agent_request(request, pk) or _can_bypass_visibility(request, self.team_id)
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility)
+        task = tasks_facade.get_task_detail(
+            pk,
+            self.team_id,
+            self._user_id(),
+            bypass_visibility=bypass_visibility,
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
+        )
         if task is None:
             raise NotFound()
         return Response(TaskSerializer(task).data)
@@ -607,7 +630,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], url_path="usage", required_scopes=["task:read"])
     def usage(self, request, pk=None, **kwargs):
-        task = tasks_facade.get_task_detail(pk, self.team_id, self._user_id())
+        task = tasks_facade.get_task_detail(
+            pk,
+            self.team_id,
+            self._user_id(),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
+        )
         if task is None or task.created_at is None:
             raise NotFound()
         try:
@@ -1102,7 +1130,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = paginator.get_limit(request)
         offset = paginator.get_offset(request)
         summaries, count = tasks_facade.get_task_summaries(
-            self.team_id, self._user_id(), ids=ids, limit=limit, offset=offset
+            self.team_id,
+            self._user_id(),
+            ids=ids,
+            limit=limit,
+            offset=offset,
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         paginator.set_count(count)
         page = self.paginate_queryset(summaries)
@@ -1357,6 +1390,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Original order: 404 if the task isn't visible, then gate (always cloud) before the run.
         if not tasks_facade.task_visible(pk, self.team_id, self._user_id(), for_control=True):
             raise NotFound()
+        if resume_id and not run_context.may_read_task_run_context(
+            request=request, team_id=self.team_id, task_id=str(pk), run_id=str(resume_id)
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if one_shot_response := self._one_shot_analysis_response(str(pk)):
             return one_shot_response
         if tasks_facade.task_runtime(
@@ -1570,6 +1607,13 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
         if gate is None:
             raise NotFound()
+        if not run_context.may_read_task_run_context(
+            request=request,
+            team_id=self.team_id,
+            task_id=str(pk),
+            run_id=str(request.validated_data["resume_from_run_id"]),
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if gate.runtime == tasks_facade.TaskRuntime.PI or not self._warm_enabled(gate.origin_product):
             return Response(status=status.HTTP_200_OK)
         if access_response := code_access_required_response(request, self.organization, task_id=pk):
@@ -1764,6 +1808,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
+        if run_id is not None:
+            try:
+                UUID(run_id)
+            except (ValueError, TypeError):
+                raise NotFound("Task run not found")
+        if not run_context.is_sandbox_run_request(
+            request=self.request,
+            team_id=self.team_id,
+            task_id=task_id,
+            run_id=run_id,
+            include_resume_sources=is_read_only,
+        ) and not run_context.may_read_task_run_context(
+            request=self.request, team_id=self.team_id, task_id=task_id, run_id=run_id
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         if (
             not is_read_only
             and run_id is not None
@@ -1778,8 +1837,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             pk,
             task_id,
             self.team_id,
-            include_agent_state=self._is_sandbox_agent_request(task_id),
+            include_agent_state=run_context.is_sandbox_run_request(
+                request=self.request,
+                team_id=self.team_id,
+                task_id=task_id,
+                run_id=pk,
+                include_resume_sources=True,
+            ),
             user_id=self._user_id(),
+            analytics_context_reader=run_context.analytics_context_reader(request=self.request, team_id=self.team_id),
         )
         if run is None:
             raise NotFound()
@@ -1800,7 +1866,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request, *args, **kwargs):
         task_id = self._ensure_task_accessible()
-        runs = tasks_facade.list_task_runs(task_id, self.team_id, user_id=self._user_id())
+        runs = tasks_facade.list_task_runs(
+            task_id,
+            self.team_id,
+            user_id=self._user_id(),
+            analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
+        )
         page = self.paginate_queryset(runs)
         if page is not None:
             return self.get_paginated_response(TaskRunDetailSerializer(page, many=True).data)
@@ -2126,8 +2197,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team_id,
             summary=request.validated_data["summary"],
             tags=request.validated_data.get("tags"),
-            include_agent_state=self._is_sandbox_agent_request(task_id),
+            include_agent_state=run_context.is_sandbox_run_request(
+                request=self.request,
+                team_id=self.team_id,
+                task_id=task_id,
+                run_id=pk,
+            ),
             user_id=self._user_id(),
+            analytics_context_reader=run_context.analytics_context_reader(request=self.request, team_id=self.team_id),
         )
         if run is None:
             raise NotFound()
@@ -4187,7 +4264,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     http_method_names = ["get", "post", "head", "options"]
-    # The artifact registry is small and bounded per task; the response is a plain list.
+    # The artifact registry is small and bounded per task, so the list returns one unpaginated envelope.
     pagination_class = None
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request.
@@ -4216,7 +4293,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
         task_id = self._task_id()
-        is_read = self.action in ("list", "retrieve")
+        is_read = self.action in ("list", "retrieve", "version_content")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
@@ -4228,6 +4305,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):
             raise NotFound("Task run not found")
+        if not run_context.may_read_task_run_context(
+            request=self.request, team_id=self.team_id, task_id=task_id, run_id=None
+        ):
+            raise PermissionDenied("The analytics data in this task run is not available to you.")
         return task_id
 
     @validated_request(
@@ -4510,6 +4591,96 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactResponseSerializer(artifact)
         return Response(serializer.data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "version",
+                OpenApiTypes.INT,
+                OpenApiParameter.PATH,
+                description="Version number of the living artifact, as listed in its versions.",
+            ),
+            OpenApiParameter(
+                "download",
+                OpenApiTypes.BOOL,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Set to true to save the version. A stored file then redirects to a short-lived presigned "
+                    "URL, so a large file never passes through the app. Leave unset for an inline preview."
+                ),
+            ),
+        ],
+        responses={
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Version content, with the content type the version was saved with",
+            ),
+            302: OpenApiResponse(description="With download=true, a redirect to a presigned URL for the stored file"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Unable to read the version"),
+            404: OpenApiResponse(description="Living artifact or version not found, or the version keeps no content"),
+            413: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The stored file is too large to preview. Request it with download=true.",
+            ),
+        },
+        summary="Download one version of a living artifact",
+        description=(
+            "Returns the content of one living artifact version. Slack file versions return their stored file, "
+            "streamed from the app origin for a preview or redirected to a presigned URL with download=true. "
+            "Slack canvas and message versions return their text."
+        ),
+        operation_id="tasks_runs_living_artifacts_version_content",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"versions/(?P<version>[0-9]+)",
+        required_scopes=["task:read"],
+    )
+    def version_content(self, request, pk=None, version=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        version_number = int(str(version))
+        if str(request.query_params.get("download", "")).lower() in ("1", "true"):
+            download = tasks_facade.presign_task_run_living_artifact_version_download(
+                self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=version_number
+            )
+            if download.url:
+                redirect = HttpResponseRedirect(download.url)
+                redirect["Cache-Control"] = "no-store"
+                return redirect
+            if download.error == "unavailable":
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if download.error != "not_stored":
+                raise NotFound()
+        content, error = tasks_facade.read_task_run_living_artifact_version(
+            self._run_id(), task_id, self.team_id, artifact_id=str(pk), version=version_number
+        )
+        if error == "too_large":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "This file is too large to preview. Download it instead."}
+                ).data,
+                status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+        if error == "read_failed":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Unable to read this version"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if content is None:
+            raise NotFound()
+        response = HttpResponse(content.content, content_type=content.content_type)
+        response["Cache-Control"] = "no-cache"
+        # Agent-written HTML or SVG must not render as a page on the app origin, so the browser always saves it.
+        response["Content-Disposition"] = (
+            content_disposition_header(as_attachment=True, filename=os.path.basename(content.name) or "artifact")
+            or "attachment"
+        )
+        return response
 
 
 @extend_schema(tags=["tasks"])

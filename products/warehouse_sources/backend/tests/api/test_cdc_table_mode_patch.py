@@ -90,7 +90,6 @@ def _make_cdc_source_and_schema(
     cdc_last_log_position: str | None = "0/12345",
     cdc_deferred_runs: list[dict] | None = None,
     initial_sync_complete: bool = True,
-    ingest_mode: str | None = "buffered",
 ) -> tuple[ExternalDataSource, ExternalDataSchema]:
     job_inputs = {
         "schema": "public",
@@ -99,8 +98,6 @@ def _make_cdc_source_and_schema(
         "cdc_slot_name": "test_slot",
         "cdc_publication_name": "test_pub",
     }
-    if ingest_mode is not None:
-        job_inputs["cdc_ingest_mode"] = ingest_mode
     source = ExternalDataSource.objects.create(
         team=team,
         source_type=ExternalDataSourceType.POSTGRES,
@@ -175,7 +172,7 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
     schema.refresh_from_db()
     assert schema.cdc_table_mode == new_mode
     # The table's changes keep going to the buffer, which the new snapshot then replays.
-    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (deferred_runs is None)
+    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     assert schema.sync_type_config.get("cdc_last_log_position") is None
     assert schema.sync_type_config.get("cdc_deferred_runs") is None
@@ -187,7 +184,7 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(
 
 @pytest.mark.parametrize("action", ["resync", "cdc_table_mode_switch", "re_enable"])
 def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(team, user, client: HttpClient, action):
-    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode="buffered")
+    source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
     if action == "re_enable":
         ExternalDataSchema.objects.filter(id=schema.id).update(should_sync=False)
     running_job = ExternalDataJob.objects.create(
@@ -308,7 +305,7 @@ def test_a_hand_over_recreates_a_capture_schedule_that_is_gone(team, user, clien
 def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient, should_sync_before, should_sync_after):
     # Capture skips a table while its sync is off, so its buffer has a gap. A marker left behind would
     # have the hand-over replay files from before the gap and bring deleted rows back.
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode="buffered")
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
     ExternalDataSchema.objects.filter(id=schema.id).update(
         should_sync=should_sync_before,
         initial_sync_complete=False,
@@ -478,7 +475,7 @@ def test_a_table_stays_in_the_publication_when_its_move_off_cdc_is_not_saved(
 def test_a_cdc_table_syncs_before_its_captured_changes_expire(
     team, user, client: HttpClient, sync_frequency, expected_status
 ):
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode="buffered")
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
     client.force_login(user)
     with (
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
@@ -495,9 +492,8 @@ def test_a_cdc_table_syncs_before_its_captured_changes_expire(
         assert "must sync at least weekly" in str(response.json())
 
 
-@pytest.mark.parametrize("ingest_mode", [None, "buffered"])
-def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team, user, client: HttpClient, ingest_mode):
-    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated", ingest_mode=ingest_mode)
+def test_resync_of_a_streaming_table_keeps_its_buffer(team, user, client: HttpClient):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
     client.force_login(user)
     with (
         mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
@@ -510,7 +506,7 @@ def test_resync_of_a_streaming_table_keeps_its_buffer_on_a_buffered_source(team,
     schema.refresh_from_db()
     assert schema.sync_type_config.get("cdc_mode") == "snapshot"
     # Unmarked, the next capture run empties the buffer and can delete changes the snapshot never saw.
-    assert (schema.sync_type_config.get("cdc_snapshot_lane") == "buffer") is (ingest_mode == "buffered")
+    assert schema.sync_type_config.get("cdc_snapshot_lane") == "buffer"
 
 
 @pytest.mark.parametrize(

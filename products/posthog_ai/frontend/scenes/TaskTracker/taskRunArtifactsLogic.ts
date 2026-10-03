@@ -13,7 +13,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill-primitives'
@@ -26,6 +26,7 @@ import {
     getTasksRunsArtifactsDownloadCreateUrl,
     getTasksRunsArtifactsDownloadRetrieveUrl,
     tasksRunsArtifactsDismissCreate,
+    getTasksRunsLivingArtifactsVersionContentUrl,
     tasksRunsLivingArtifactsList,
     tasksRunsRetrieve,
 } from 'products/tasks/frontend/generated/api'
@@ -35,19 +36,23 @@ import type {
 } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { TaskRun } from '../../types/taskTypes'
+import { uploadRunOutputVersion } from '../../utils/artifactUpload'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
 import {
     ARTIFACT_PARAM,
+    ArtifactEditConflict,
     ArtifactFile,
     ArtifactPreviewKind,
+    EditableArtifactKind,
     RunArtifact,
     TaskRunTab,
+    artifactEditConflict,
     artifactPreviewKind,
     collectRunArtifacts,
+    editableArtifactKind,
     groupArtifactVersions,
     isTextPreview,
     livingArtifactFiles,
-    livingArtifactsFromResponse,
     postHogObjectRef,
     taskArtifactPath,
     VERSION_PARAM,
@@ -66,6 +71,20 @@ export interface ArtifactText {
     text: string | null
     error: string | null
 }
+
+/** The file version an edit started from, and the text it had then. */
+export interface ArtifactEditSession {
+    fileKey: string
+    name: string
+    /** The run that holds the base version. The saved version goes to the same run. */
+    runId: string
+    baseArtifactId: string
+    contentType: string
+    kind: EditableArtifactKind
+    original: string
+}
+
+export type ArtifactConflictResolution = 'keep_editing' | 'save_as_latest'
 
 export interface ArtifactMedia {
     artifactId: string
@@ -90,12 +109,21 @@ export interface taskRunArtifactsLogicValues {
     commentsOpen: boolean
     dismissalPending: boolean
     dismissals: Record<string, boolean>
+    editConflict: ArtifactEditConflict | null
+    editDirty: boolean
+    editDisabledReason: string | null
+    editDraft: string
+    editError: string | null
+    editSaving: boolean
+    editSession: ArtifactEditSession | null
     files: ArtifactFile[]
+    isEditing: boolean
     livingArtifacts: TaskRunLivingArtifactResponseApi[]
     livingArtifactsLoading: boolean
     livingFiles: ArtifactFile[]
     mediaById: Record<string, ArtifactMedia>
     selectedArtifact: RunArtifact | null
+    selectedEditableKind: EditableArtifactKind | null
     selectedFile: ArtifactFile | null
     selectedFileKey: string | null
     selectedIndex: number
@@ -118,6 +146,9 @@ export interface taskRunArtifactsLogicActions {
         payload?: any
         runs: TaskRun[]
     } // taskDetailSceneLogic
+    cancelEditing: () => {
+        value: true
+    }
     dismissFile: (fileKey: string) => {
         fileKey: string
     }
@@ -126,6 +157,9 @@ export interface taskRunArtifactsLogicActions {
     }
     downloadArtifact: (artifact: RunArtifact) => {
         artifact: RunArtifact
+    }
+    editSaved: (artifactId: string) => {
+        artifactId: string
     }
     ensureSelectedText: () => {
         value: true
@@ -206,8 +240,14 @@ export interface taskRunArtifactsLogicActions {
     reportObjectOpened: (objectKind: string) => {
         objectKind: string
     }
+    resolveEditConflict: (resolution: ArtifactConflictResolution) => {
+        resolution: ArtifactConflictResolution
+    }
     restoreFile: (file: ArtifactFile) => {
         file: ArtifactFile
+    }
+    saveEdit: () => {
+        value: true
     }
     selectArtifact: (
         fileKey: string,
@@ -225,6 +265,21 @@ export interface taskRunArtifactsLogicActions {
     setCommentsOpen: (open: boolean) => {
         open: boolean
     }
+    setEditConflict: (conflict: ArtifactEditConflict | null) => {
+        conflict: ArtifactEditConflict | null
+    }
+    setEditDraft: (draft: string) => {
+        draft: string
+    }
+    setEditError: (error: string | null) => {
+        error: string | null
+    }
+    setEditSaving: (saving: boolean) => {
+        saving: boolean
+    }
+    setEditSession: (session: ArtifactEditSession | null) => {
+        session: ArtifactEditSession | null
+    }
     setFileDismissed: (
         artifactIds: string[],
         dismissed: boolean,
@@ -233,6 +288,9 @@ export interface taskRunArtifactsLogicActions {
         artifactIds: string[]
         dismissed: boolean
         selectKey: string | null
+    }
+    startEditing: () => {
+        value: true
     }
     stepArtifact: (delta: number) => {
         delta: number
@@ -267,6 +325,14 @@ export interface taskRunArtifactsLogicMeta {
             selectedVersionId: string | null,
             arg: any
         ) => string | null
+        isEditing: (editSession: ArtifactEditSession | null) => boolean
+        editDirty: (editSession: ArtifactEditSession | null, editDraft: string) => boolean
+        selectedEditableKind: (selectedArtifact: RunArtifact | null) => EditableArtifactKind | null
+        editDisabledReason: (
+            selectedEditableKind: EditableArtifactKind | null,
+            selectedVersionIndex: number,
+            selectedText: ArtifactText | null
+        ) => string | null
         selectedText: (
             selectedArtifact: RunArtifact | null,
             textsById: Record<string, ArtifactText>
@@ -283,13 +349,52 @@ export type taskRunArtifactsLogicType = MakeLogicType<
 
 // A long-lived task can have many runs. Older runs past this cap keep their files out of the list.
 const MAX_CHAIN_RUNS = 20
+
+const EDIT_CONTENT_TYPE: Record<EditableArtifactKind, string> = {
+    markdown: 'text/markdown',
+    html: 'text/html',
+    'plain-text': 'text/plain',
+}
+
+/** The runs list carries no artifact manifests, so each run's detail is read to find its files. */
+async function fetchChainRuns(projectId: string, taskId: string, runIds: string[]): Promise<TaskRunDetailDTOApi[]> {
+    const runs = await Promise.all(
+        runIds.slice(0, MAX_CHAIN_RUNS).map((runId) => tasksRunsRetrieve(projectId, taskId, runId).catch(() => null))
+    )
+    return runs.filter((run): run is TaskRunDetailDTOApi => run !== null)
+}
 // A video plays from a blob in memory, so a very large file goes to a download instead.
 const MAX_MEDIA_PREVIEW_BYTES = 200 * 1024 * 1024
 
-/** The download-by-id URL redirects to a fresh presigned link, so an `img` or an `a` can use it directly. */
-export function artifactDownloadUrl(projectId: number | null, taskId: string, artifact: RunArtifact): string | null {
+/**
+ * A URL that an `img`, a `video` or an `a` can use directly. The download-by-id URL redirects to a fresh
+ * presigned link. A stored living version streams from the app origin. Other living versions have no URL.
+ */
+/**
+ * The URL of an artifact's file. With `forDownload`, a stored living version redirects to object storage, so a
+ * large file does not pass through the app. A preview keeps the app URL, because the media-src policy allows
+ * video only from the app origin.
+ */
+export function artifactDownloadUrl(
+    projectId: number | null,
+    taskId: string,
+    artifact: RunArtifact,
+    { forDownload = false }: { forDownload?: boolean } = {}
+): string | null {
     if (projectId === null || !artifact.id) {
         return null
+    }
+    if (artifact.living) {
+        return artifact.living.stored
+            ? getTasksRunsLivingArtifactsVersionContentUrl(
+                  String(projectId),
+                  taskId,
+                  artifact.runId,
+                  artifact.living.artifactId,
+                  artifact.living.version,
+                  forDownload ? { download: true } : undefined
+              )
+            : null
     }
     return getTasksRunsArtifactsDownloadRetrieveUrl(String(projectId), taskId, artifact.runId, artifact.id)
 }
@@ -335,23 +440,26 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             selectKey,
         }),
         dismissalFailed: true,
+        startEditing: true,
+        setEditSession: (session: ArtifactEditSession | null) => ({ session }),
+        setEditDraft: (draft: string) => ({ draft }),
+        cancelEditing: true,
+        saveEdit: true,
+        resolveEditConflict: (resolution: ArtifactConflictResolution) => ({ resolution }),
+        setEditConflict: (conflict: ArtifactEditConflict | null) => ({ conflict }),
+        setEditSaving: (saving: boolean) => ({ saving }),
+        setEditError: (error: string | null) => ({ error }),
+        editSaved: (artifactId: string) => ({ artifactId }),
     }),
     loaders(({ props, values }) => ({
         chainRuns: [
             [] as TaskRunDetailDTOApi[],
             {
-                // The runs list carries no artifact manifests, so each run's detail is read to find its files.
                 loadChainRuns: async (runIds: string[]): Promise<TaskRunDetailDTOApi[]> => {
                     if (values.currentProjectId === null) {
                         return values.chainRuns
                     }
-                    const projectId = String(values.currentProjectId)
-                    const runs = await Promise.all(
-                        runIds
-                            .slice(0, MAX_CHAIN_RUNS)
-                            .map((runId) => tasksRunsRetrieve(projectId, props.taskId, runId).catch(() => null))
-                    )
-                    return runs.filter((run): run is TaskRunDetailDTOApi => run !== null)
+                    return fetchChainRuns(String(values.currentProjectId), props.taskId, runIds)
                 },
             },
         ],
@@ -364,9 +472,12 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                         return values.livingArtifacts
                     }
                     try {
-                        return livingArtifactsFromResponse(
-                            await tasksRunsLivingArtifactsList(String(values.currentProjectId), props.taskId, runId)
+                        const response = await tasksRunsLivingArtifactsList(
+                            String(values.currentProjectId),
+                            props.taskId,
+                            runId
                         )
+                        return response.artifacts
                     } catch {
                         return values.livingArtifacts
                     }
@@ -460,6 +571,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 selectArtifact: () => null,
                 selectVersion: (_, { artifactId }) => artifactId,
                 openFromUrl: (_, { versionId }) => versionId,
+                // The saved version is the newest one, so following the latest opens it.
+                editSaved: () => null,
                 setFileDismissed: () => null,
             },
         ],
@@ -480,6 +593,44 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 restoreFile: () => true,
                 setFileDismissed: () => false,
                 dismissalFailed: () => false,
+            },
+        ],
+        editSession: [
+            null as ArtifactEditSession | null,
+            {
+                setEditSession: (_, { session }) => session,
+                cancelEditing: () => null,
+                editSaved: () => null,
+                // The file list is locked while editing, so only a link or the back button opens another file.
+                openFromUrl: () => null,
+            },
+        ],
+        editDraft: [
+            '',
+            {
+                setEditSession: (_, { session }) => session?.original ?? '',
+                setEditDraft: (_, { draft }) => draft,
+                cancelEditing: () => '',
+                editSaved: () => '',
+                openFromUrl: () => '',
+            },
+        ],
+        editSaving: [false, { setEditSaving: (_, { saving }) => saving }],
+        editConflict: [
+            null as ArtifactEditConflict | null,
+            {
+                setEditConflict: (_, { conflict }) => conflict,
+                cancelEditing: () => null,
+                editSaved: () => null,
+            },
+        ],
+        editError: [
+            null as string | null,
+            {
+                setEditError: (_, { error }) => error,
+                setEditSession: () => null,
+                cancelEditing: () => null,
+                editSaved: () => null,
             },
         ],
         mediaById: [
@@ -584,6 +735,38 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 )
             },
         ],
+        isEditing: [(s) => [s.editSession], (editSession: ArtifactEditSession | null): boolean => !!editSession],
+        editDirty: [
+            (s) => [s.editSession, s.editDraft],
+            (editSession: ArtifactEditSession | null, editDraft: string): boolean =>
+                !!editSession && editDraft !== editSession.original,
+        ],
+        selectedEditableKind: [
+            (s) => [s.selectedArtifact],
+            (selectedArtifact: RunArtifact | null): EditableArtifactKind | null =>
+                selectedArtifact ? editableArtifactKind(selectedArtifact) : null,
+        ],
+        /** Why the open file can't be edited now, or null when it can. */
+        editDisabledReason: [
+            (s) => [s.selectedEditableKind, s.selectedVersionIndex, s.selectedText],
+            (
+                selectedEditableKind: EditableArtifactKind | null,
+                selectedVersionIndex: number,
+                selectedText: ArtifactText | null
+            ): string | null => {
+                if (!selectedEditableKind) {
+                    return "This file type can't be edited here"
+                }
+                // A save always adds a new latest version, so an edit must start from the latest one.
+                if (selectedVersionIndex !== 0) {
+                    return 'Only the latest version can be edited'
+                }
+                if (!selectedText || selectedText.text === null) {
+                    return 'The file has not loaded yet'
+                }
+                return null
+            },
+        ],
         selectedText: [
             (s) => [s.selectedArtifact, s.textsById],
             (selectedArtifact: RunArtifact | null, textsById: Record<string, ArtifactText>): ArtifactText | null => {
@@ -596,6 +779,44 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => {
+        const editProperties = (session: ArtifactEditSession): Record<string, unknown> => ({
+            kind: session.kind,
+            content_type: session.contentType,
+            version_count: values.files.find((file) => file.key === session.fileKey)?.versions.length ?? 1,
+        })
+        const saveVersion = async (afterConflict: boolean): Promise<void> => {
+            const session = values.editSession
+            if (!session || values.currentProjectId === null) {
+                return
+            }
+            const projectId = String(values.currentProjectId)
+            const content = values.editDraft
+            actions.setEditSaving(true)
+            actions.setEditError(null)
+            try {
+                const artifactId = await uploadRunOutputVersion(projectId, props.taskId, session.runId, {
+                    name: session.name,
+                    content,
+                    contentType: session.contentType,
+                })
+                // Read the manifests before the edit ends, so the new version is in the list when the preview opens.
+                actions.loadChainRunsSuccess(
+                    await fetchChainRuns(
+                        projectId,
+                        props.taskId,
+                        values.runs.map((run) => run.id)
+                    )
+                )
+                actions.loadArtifactTextSuccess({ artifactId, text: content, error: null })
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact saved', { ...editProperties(session), after_conflict: afterConflict })
+                actions.editSaved(artifactId)
+            } catch {
+                actions.setEditError("Couldn't save the file. Try again. Your changes are still in the editor.")
+            } finally {
+                actions.setEditSaving(false)
+            }
+        }
         const loadSelectedText = (): void => {
             const artifact = values.selectedArtifact
             const kind = values.selectedKind
@@ -604,7 +825,8 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
             }
             if (isTextPreview(kind) && !values.selectedText) {
                 actions.loadArtifactText(artifact)
-            } else if (kind === 'video' && !values.selectedMedia) {
+            } else if (kind === 'video' && !artifact.living && !values.selectedMedia) {
+                // A living version plays from its same-origin URL, so only an uploaded video loads into a blob.
                 actions.loadArtifactMedia(artifact)
             }
         }
@@ -681,7 +903,10 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 }
             },
             downloadArtifact: ({ artifact }) => {
-                posthog.capture('task artifact downloaded', { kind: artifactPreviewKind(artifact) })
+                posthog.capture('task artifact downloaded', {
+                    kind: artifactPreviewKind(artifact),
+                    living_adapter: artifact.living?.adapter ?? null,
+                })
             },
             reportObjectOpened: ({ objectKind }) => {
                 // pinned: analytics event name and properties. Renaming them breaks insights.
@@ -748,6 +973,79 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 // pinned: analytics event name and properties. Renaming them breaks insights.
                 posthog.capture('task artifact link opened', { has_version: !!versionId })
             },
+            startEditing: () => {
+                const file = values.selectedFile
+                const artifact = values.selectedArtifact
+                const kind = values.selectedEditableKind
+                const text = values.selectedText?.text
+                if (values.editDisabledReason || !file || !artifact?.id || !kind || typeof text !== 'string') {
+                    return
+                }
+                const session: ArtifactEditSession = {
+                    fileKey: file.key,
+                    name: artifact.name,
+                    runId: artifact.runId,
+                    baseArtifactId: artifact.id,
+                    contentType: artifact.content_type || EDIT_CONTENT_TYPE[kind],
+                    kind,
+                    original: text,
+                }
+                actions.setEditSession(session)
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact edit started', editProperties(session))
+            },
+            saveEdit: async () => {
+                const session = values.editSession
+                if (!session || values.editSaving || values.currentProjectId === null) {
+                    return
+                }
+                actions.setEditSaving(true)
+                actions.setEditError(null)
+                let conflict: ArtifactEditConflict | null
+                try {
+                    const runs = await fetchChainRuns(
+                        String(values.currentProjectId),
+                        props.taskId,
+                        values.runs.map((run) => run.id)
+                    )
+                    // fetchChainRuns drops a run that fails to load, so no runs means the check could not run.
+                    if (runs.length === 0) {
+                        throw new Error('No runs loaded')
+                    }
+                    actions.loadChainRunsSuccess(runs)
+                    conflict = artifactEditConflict(runs, session.name, session.baseArtifactId)
+                } catch {
+                    actions.setEditError(
+                        "Couldn't check for a newer version of the file. Try again. Your changes are still in the editor."
+                    )
+                    actions.setEditSaving(false)
+                    return
+                }
+                if (conflict) {
+                    actions.setEditConflict(conflict)
+                    actions.setEditSaving(false)
+                    return
+                }
+                await saveVersion(false)
+            },
+            resolveEditConflict: async ({ resolution }) => {
+                const conflict = values.editConflict
+                const session = values.editSession
+                if (!conflict || !session || values.editSaving) {
+                    return
+                }
+                // pinned: analytics event name and properties. Renaming them breaks insights.
+                posthog.capture('task artifact save conflict', {
+                    ...editProperties(session),
+                    conflict: conflict === 'dismissed' ? 'dismissed' : 'newer_version',
+                    resolution,
+                })
+                if (resolution === 'keep_editing') {
+                    actions.setEditConflict(null)
+                    return
+                }
+                await saveVersion(true)
+            },
         }
     }),
     actionToUrl(({ values, props }) => {
@@ -786,6 +1084,14 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
                 actions.openFromUrl(fileKey, versionId)
             }
         },
+    })),
+    beforeUnload(({ values, actions, props }) => ({
+        // The artifact and version params change while the user stays on the task, so only leaving it asks.
+        enabled: (newLocation) =>
+            values.editDirty &&
+            (!newLocation || !urlIsForTask(newLocation.pathname, newLocation.searchParams, props.taskId)),
+        message: "Leave this task? Your changes to the file aren't saved.",
+        onConfirm: () => actions.cancelEditing(),
     })),
     afterMount(({ actions, values }) => {
         if (values.runs.length > 0) {
