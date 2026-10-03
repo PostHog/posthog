@@ -75,8 +75,8 @@ export function BIDataPaneSection({
                         event.dataTransfer.setData(BI_FIELD_DRAG_MIME_TYPE, serializeBIField(field))
                     }}
                     onDoubleClick={() => addField(field)}
-                    onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
+                    onClick={(event) => {
+                        if (event.detail === 0) {
                             addField(field)
                         }
                     }}

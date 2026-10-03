@@ -243,7 +243,7 @@ Below Dimensions and Measures, **Connections** lists the selected table's linked
 Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
 fields and further links appear without section headings.
 
-Drag connected fields onto a shelf, double-click them, or press Enter to add them to Rows.
+Drag connected fields onto a shelf, double-click them, or press Enter or Space to add dimensions to Rows and measures to Values.
 Measures are aggregated automatically. The worksheet keeps its original source table and uses the full
 connection path in queries and shelf labels, such as `person.company.name`.
 Connections expand on demand, including repeated links to the same table. Search filters the fields

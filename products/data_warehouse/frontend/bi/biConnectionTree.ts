@@ -15,6 +15,10 @@ export interface BIConnection {
     connections: BIConnection[]
 }
 
+function getHydrationKey(table: DatabaseSchemaTable): string {
+    return table.type === 'posthog' ? table.id : table.name
+}
+
 function getConnectionState(
     field: DatabaseSchemaField,
     table: DatabaseSchemaTable | null,
@@ -81,7 +85,7 @@ export function buildBIConnections(
                     ? getConnectionState(
                           originalField,
                           pendingTable,
-                          tableFieldsStatus[pendingTable.name],
+                          tableFieldsStatus[getHydrationKey(pendingTable)],
                           databaseFieldsComplete
                       )
                     : null
@@ -94,13 +98,13 @@ export function buildBIConnections(
                 const childPath = [...path, originalField.name]
                 const id = JSON.stringify(childPath)
                 const table = pendingTable ?? getTable(field?.table)
-                const status = table ? tableFieldsStatus[table.name] : undefined
+                const status = table ? tableFieldsStatus[getHydrationKey(table)] : undefined
                 const state = pendingState ?? getConnectionState(field!, table, status, databaseFieldsComplete)
                 const connection: BIConnection = {
                     id,
                     name: originalField.name,
                     path: childPath,
-                    tableName: table?.name,
+                    tableName: table ? getHydrationKey(table) : undefined,
                     expanded: expanded.has(id),
                     state,
                     fields: { dimensions: [], measures: [] },

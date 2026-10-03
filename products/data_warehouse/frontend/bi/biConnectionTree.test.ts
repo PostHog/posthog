@@ -67,6 +67,17 @@ describe('BI connections', () => {
         }
     )
 
+    it('uses the PostHog table ID for hydration and status', () => {
+        const catalog = { ...tables, persons: { ...table('persons', []), id: 'person-table-id' } }
+        const expanded = ['["person"]']
+        expect(getPendingBIConnectionTables(buildBIConnections(source, catalog, expanded, {}, false))).toEqual([
+            'person-table-id',
+        ])
+        expect(buildBIConnections(source, catalog, expanded, { 'person-table-id': 'error' }, false)[0].state).toBe(
+            'error'
+        )
+    })
+
     it('resolves linked aliases and only expands requested paths through cyclic tables', () => {
         const catalog = {
             ...tables,

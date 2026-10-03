@@ -53,7 +53,7 @@ export function BIConnectionGroup({ connections }: { connections: BIConnection[]
                                 </div>
                             ) : connection.state === 'missing' ? (
                                 <span className="block p-2 text-xs text-secondary">
-                                    This connection's fields are unavailable.
+                                    Fields are unavailable. Check that the linked table still exists.
                                 </span>
                             ) : (
                                 <>
