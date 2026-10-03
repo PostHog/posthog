@@ -180,11 +180,15 @@ class EmailIntegration:
         return self.integration
 
     def _share_mail_from_subdomain_with_domain_senders(self, domain: str, mail_from_subdomain: str) -> None:
-        domain_senders = model.Integration.objects.filter(
-            kind="email",
-            config__domain=domain,
-            team__organization_id=self.integration.team.organization_id,
-        ).exclude(pk=self.integration.pk)
+        domain_senders = (
+            model.Integration.objects.select_for_update()
+            .filter(
+                kind="email",
+                config__domain=domain,
+                team__organization_id=self.integration.team.organization_id,
+            )
+            .exclude(pk=self.integration.pk)
+        )
         for sender in domain_senders:
             sender.config["mail_from_subdomain"] = mail_from_subdomain
             sender.save(update_fields=["config"])

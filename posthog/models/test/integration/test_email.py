@@ -123,7 +123,9 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain", return_value={"status": "pending"})
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
-    def test_verifying_any_sender_keeps_a_changed_mail_from_label(self, _mock_update, mock_verify_email_domain):
+    def test_verifying_any_sender_keeps_a_changed_mail_from_label(
+        self, mock_update_mail_from_subdomain, mock_verify_email_domain
+    ):
         other_team = Team.objects.create(organization=self.organization, name="other team")
         senders = {
             email: Integration.objects.create(
@@ -148,6 +150,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         EmailIntegration(senders["edited@example.com"]).update_native_integration(
             {"mail_from_subdomain": "bounce"}, team_id=self.team.id
         )
+        mock_update_mail_from_subdomain.assert_called_once_with("example.com", mail_from_subdomain="bounce")
 
         verified_labels = {}
         for email, sender in senders.items():
