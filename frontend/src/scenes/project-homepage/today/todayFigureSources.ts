@@ -1,4 +1,5 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { uniqueBy } from 'lib/utils/arrays'
 import { isNotNil, isObject } from 'lib/utils/guards'
 
 import { type SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
@@ -37,31 +38,35 @@ function textField(content: unknown, key: string): string | null {
     return isObject(content) ? textOf(content[key]) : null
 }
 
-export function researchNotes(
-    artefacts:
-        | readonly { type: string; content: unknown; created_at: string; created_by?: unknown }[]
-        | null
-        | undefined
-): TodayResearchNote[] {
-    const seen = new Set<string>()
-    const notes: TodayResearchNote[] = []
+interface ResearchArtefact {
+    type: string
+    content: unknown
+    created_at: string
+    created_by?: unknown
+}
+
+const REPEATABLE_NOTES = new Set(['check_scheduled', 'note'])
+
+function researchNote(artefact: ResearchArtefact): TodayResearchNote | null {
+    const field = RESEARCH_FIELDS[artefact.type]
+    const text = field ? textField(artefact.content, field) : null
+    if (!text || artefact.created_by || PLAN_NOTE.test(text)) {
+        return null
+    }
+    const signalId = artefact.type === 'signal_finding' ? textField(artefact.content, 'signal_id') : null
+    return { text, at: artefact.created_at, signalId }
+}
+
+export function researchNotes(artefacts: readonly ResearchArtefact[] | null | undefined): TodayResearchNote[] {
     const newestFirst = [...(artefacts ?? [])].sort((first, second) =>
         second.created_at.localeCompare(first.created_at)
     )
-    for (const artefact of newestFirst) {
-        const field = RESEARCH_FIELDS[artefact.type]
-        const text = field ? textField(artefact.content, field) : null
-        const signalId = artefact.type === 'signal_finding' ? textField(artefact.content, 'signal_id') : null
-        const key = ['check_scheduled', 'note'].includes(artefact.type) ? null : `${artefact.type}:${signalId ?? ''}`
-        if (!text || artefact.created_by || PLAN_NOTE.test(text) || (key && seen.has(key))) {
-            continue
-        }
-        if (key) {
-            seen.add(key)
-        }
-        notes.push({ text, at: artefact.created_at, signalId })
-    }
-    return notes
+    const notes = newestFirst.flatMap((artefact, index) => {
+        const note = researchNote(artefact)
+        const key = REPEATABLE_NOTES.has(artefact.type) ? `#${index}` : `${artefact.type}:${note?.signalId ?? ''}`
+        return note ? [{ note, key }] : []
+    })
+    return uniqueBy(notes, (entry) => entry.key).map((entry) => entry.note)
 }
 
 const COMMON_WORDS = new Set(

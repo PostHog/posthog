@@ -56,6 +56,31 @@ function rowElement(action: TodaySignalDestination, hint: RowHint | null, expand
     return <button type="button" aria-expanded={action.kind === 'read' ? expanded : undefined} />
 }
 
+function RowTrailer({
+    signal,
+    hint,
+    sourceLabel,
+}: {
+    signal: SignalNodeApi
+    hint: RowHint | null
+    sourceLabel: string
+}): JSX.Element {
+    const time = dayjs(signal.timestamp)
+    return (
+        <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-2 whitespace-nowrap">
+            <span aria-hidden className="flex size-3.5 items-center justify-center [&_svg]:size-3.5">
+                <span title={sourceLabel} className={cn('flex', hint && 'group-hover/row:hidden')}>
+                    <TodayIcon icon={citedSource(signal) ?? sourceStyle(signal.source_product).icon} />
+                </span>
+                {hint && <span className="hidden text-[var(--foreground)] group-hover/row:flex">{hint.icon}</span>}
+            </span>
+            <time dateTime={signal.timestamp} title={time.format('LLL')} className="w-12 text-right tabular-nums">
+                {time.isSame(dayjs(), 'day') ? 'Today' : shortDate(time)}
+            </time>
+        </Text>
+    )
+}
+
 export function TodayReportSignalRow({ reportId, signal }: { reportId: string; signal: SignalNodeApi }): JSX.Element {
     const { evidenceOpened, readCode } = useActions(todayReportLogic({ reportId }))
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
@@ -65,7 +90,6 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
     const hint = rowHint(action, preview, expanded)
     const cited = citedSource(signal)
     const sourceLabel = signalSourceLabel(signal)
-    const time = dayjs(signal.timestamp)
     const detailId = `today-signal-${signal.signal_id}`
 
     const onClick = (): void => {
@@ -114,30 +138,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
                     </ItemTitle>
                 </ItemContent>
                 <ItemActions className="shrink-0 self-start pt-0.5">
-                    <Text
-                        size="xs"
-                        variant="muted"
-                        render={<span />}
-                        className="flex items-center gap-2 whitespace-nowrap"
-                    >
-                        <span aria-hidden className="flex size-3.5 items-center justify-center [&_svg]:size-3.5">
-                            <span title={sourceLabel} className={cn('flex', hint && 'group-hover/row:hidden')}>
-                                <TodayIcon icon={cited ?? sourceStyle(signal.source_product).icon} />
-                            </span>
-                            {hint && (
-                                <span className="hidden text-[var(--foreground)] group-hover/row:flex">
-                                    {hint.icon}
-                                </span>
-                            )}
-                        </span>
-                        <time
-                            dateTime={signal.timestamp}
-                            title={time.format('LLL')}
-                            className="w-12 text-right tabular-nums"
-                        >
-                            {time.isSame(dayjs(), 'day') ? 'Today' : shortDate(time)}
-                        </time>
-                    </Text>
+                    <RowTrailer signal={signal} hint={hint} sourceLabel={sourceLabel} />
                 </ItemActions>
             </Item>
             {expanded && preview && (
