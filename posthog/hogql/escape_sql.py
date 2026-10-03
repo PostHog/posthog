@@ -382,7 +382,7 @@ class SQLValueEscaper:
         return "true" if value is True else "false"
 
     def visit_int(self, value: int):
-        return str(int(value))
+        return str(int.__int__(value))
 
     def visit_float(self, value: float):
         if math.isnan(value):
