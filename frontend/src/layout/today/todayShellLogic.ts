@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import { subscriptions } from 'kea-subscriptions'
@@ -45,6 +45,30 @@ const RAIL_PANE_HOME: Record<Exclude<TodayRailPane, 'more'>, () => string> = {
     tools: () => urls.tools(),
 }
 
+// The list records pages on every layout, so long desktop sessions need a bound.
+const PHONE_PAGE_LIMIT = 50
+
+export interface TodayPhonePage {
+    pathname: string
+    url: string
+}
+
+/** The pages the phone layout can go back through. A new path adds a page, and a change on the same path updates it. */
+export function nextPhonePages(
+    pages: TodayPhonePage[],
+    method: LocationChangedPayload['method'],
+    page: TodayPhonePage
+): TodayPhonePage[] {
+    const current = pages[pages.length - 1]
+    if (method === 'PUSH' && current?.pathname !== page.pathname) {
+        return [...pages, page].slice(-PHONE_PAGE_LIMIT)
+    }
+    if (method === 'POP' && pages[pages.length - 2]?.pathname === page.pathname) {
+        return [...pages.slice(0, -2), page]
+    }
+    return [...pages.slice(0, -1), page]
+}
+
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
 export function railPaneForPath(pathname: string): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
@@ -79,6 +103,7 @@ export interface todayShellLogicValues {
     leftNavWidth: number
     mobileSidebarOpen: boolean
     phoneLayout: boolean
+    phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
     sidebarOpen: boolean
@@ -110,8 +135,14 @@ export interface todayShellLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    goBackOnPhone: () => {
+        value: true
+    }
     pickPane: (pane: TodayRailPane) => {
         pane: TodayRailPane
+    }
+    setPhonePages: (pages: TodayPhonePage[]) => {
+        pages: TodayPhonePage[]
     }
     setMobileSidebarOpen: (open: boolean) => {
         open: boolean
@@ -162,6 +193,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
     })),
     actions({
         pickPane: (pane: TodayRailPane) => ({ pane }),
+        goBackOnPhone: true,
+        setPhonePages: (pages: TodayPhonePage[]) => ({ pages }),
         setMobileSidebarOpen: (open: boolean) => ({ open }),
         setSidebarOpen: (open: boolean) => ({ open }),
         setSidebarWidth: (width: number) => ({ width }),
@@ -191,6 +224,16 @@ export const todayShellLogic = kea<todayShellLogicType>([
             {
                 setMobileSidebarOpen: (_, { open }) => open,
                 locationChanged: () => false,
+            },
+        ],
+        // Opening a pane clears the pages, so the back button on the first page returns to the pane.
+        phonePages: [
+            [] as TodayPhonePage[],
+            {
+                setPhonePages: (_, { pages }) => pages,
+                setMobileSidebarOpen: (state, { open }) => (open ? [] : state),
+                locationChanged: (state, { method, pathname, search, hash }) =>
+                    nextPhonePages(state, method, { pathname, url: `${pathname}${search}${hash}` }),
             },
         ],
         // The resizer persists the width itself. This copy lets the app layout size the main column from it.
@@ -247,6 +290,15 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 return () => window.removeEventListener('keydown', onKeyDown)
             }, 'drawerEscape')
         },
+        goBackOnPhone: () => {
+            const previous = values.phonePages[values.phonePages.length - 2]
+            if (!previous) {
+                actions.setMobileSidebarOpen(true)
+                return
+            }
+            actions.setPhonePages(values.phonePages.slice(0, -1))
+            router.actions.replace(previous.url)
+        },
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
@@ -260,4 +312,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        const { pathname, search, hash } = router.values.location
+        actions.setPhonePages([{ pathname, url: `${pathname}${search}${hash}` }])
+    }),
 ])

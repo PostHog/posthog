@@ -15,6 +15,7 @@ import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar
 
 import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
+import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
 import { todayRecentsLogic } from './todayRecentsLogic'
@@ -140,6 +141,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         return (
             <ToastProvider>
                 <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
+                    {!sidebarVisible && <TodayPhoneHeader />}
                     <aside
                         ref={drawerRef}
                         tabIndex={-1}
