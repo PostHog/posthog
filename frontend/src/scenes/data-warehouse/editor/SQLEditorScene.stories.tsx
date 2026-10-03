@@ -821,7 +821,9 @@ export const BIConnections: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByText('Locate', {}, { timeout: 15000 })
+        await waitFor(() => expect(canvasElement.querySelector('[data-attr="bi-editor-data-source"]')).toBeVisible(), {
+            timeout: 15000,
+        })
         await userEvent.click(canvas.getByRole('button', { name: 'SQL' }))
         await userEvent.click(canvas.getByRole('button', { name: 'BI' }))
         const autoUpdate = canvasElement.querySelector('[data-attr="bi-editor-auto-update"]')!
