@@ -182,6 +182,7 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201)
+        response_id = response.json()["id"]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -195,6 +196,25 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 200)
+
+        changed_query = {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"}
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": changed_query},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["attr"], "edited_history_id")
+        self.assertEqual(response.json()["code"], "required")
+
+        latest_history_id = self.client.get(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{response_id}"
+        ).json()["latest_history_id"]
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": "event_view", "query": changed_query, "edited_history_id": latest_history_id},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["query"], changed_query)
 
     def test_materialize_view(self):
         response = self.client.post(

@@ -400,13 +400,18 @@ export const WarehouseSavedQueriesCreateBody = () => zod
             .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'The latest_history_id you last read for this view. Required when changing the query. The write is refused if someone else changed the query in the meantime.'
+            ),
         dag_id: zod
             .string()
             .nullish()
             .describe(
                 'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
             ),
-        is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
