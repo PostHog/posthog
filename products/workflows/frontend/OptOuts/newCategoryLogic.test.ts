@@ -173,18 +173,24 @@ describe('newCategoryLogic', () => {
         expect(toast).not.toHaveBeenCalled()
     })
 
-    it('clears a taken-key error once a new name fills a new key', async () => {
-        rejectCreateWith(apiFieldError('key', 'A message category with this key already exists.'))
-        const logic = newCategoryLogic({})
-        logic.mount()
-        typeInto(logic, 'name', 'Product updates')
-        await submitAndFail(logic)
+    it.each([
+        { failed: 'key', edited: 'name', value: 'Product news' },
+        { failed: 'key', edited: 'key', value: 'product-news' },
+        { failed: 'name', edited: 'name', value: 'Product news' },
+    ] as const)(
+        'clears the API error on the $failed field as soon as the $edited field is edited',
+        async ({ failed, edited, value }) => {
+            rejectCreateWith(apiFieldError(failed, 'Rejected by the server.'))
+            const logic = newCategoryLogic({})
+            logic.mount()
+            typeInto(logic, 'name', 'Product updates')
+            await submitAndFail(logic)
 
-        typeInto(logic, 'name', 'Product news')
+            typeInto(logic, edited, value)
 
-        expect(logic.values.categoryForm.key).toBe('product-news')
-        expect(logic.values.categoryFormAllErrors.key).toBeUndefined()
-    })
+            expect(logic.values.categoryFormErrors).toEqual({})
+        }
+    )
 
     it('toasts once when the save fails for a reason no field explains', async () => {
         const toast = jest.spyOn(lemonToast, 'error')
