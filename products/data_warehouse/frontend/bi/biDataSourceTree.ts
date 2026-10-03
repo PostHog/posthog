@@ -13,11 +13,12 @@ export function buildBIDataSourceTree(
     const visit = (items: TreeDataItem[]): TreeDataItem[] =>
         items.flatMap((item) => {
             if (['table', 'view', 'managed-view', 'view-table', 'endpoint'].includes(item.record?.type)) {
-                const source = remaining.get(item.name)
+                const tableName = item.record?.type === 'endpoint' ? item.record.tableName : item.name
+                const source = remaining.get(tableName)
                 if (!source) {
                     return []
                 }
-                remaining.delete(item.name)
+                remaining.delete(tableName)
                 const node: TreeDataItem = {
                     id: getBIDataSourceKey(source),
                     name: source.table,
