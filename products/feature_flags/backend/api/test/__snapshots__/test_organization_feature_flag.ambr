@@ -1627,6 +1627,15 @@
 # ---
 # name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.15
   '''
+  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode"
+  FROM "feature_flags_organizationfeatureflagsconfig"
+  WHERE "feature_flags_organizationfeatureflagsconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+  ORDER BY "feature_flags_organizationfeatureflagsconfig"."organization_id" ASC
+  LIMIT 1
+  '''
+# ---
+# name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.16
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1672,7 +1681,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.16
+# name: TestOrganizationFeatureFlagGet.test_get_feature_flag_success.17
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",

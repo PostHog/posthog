@@ -13,7 +13,6 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import re2
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from opentelemetry import trace
@@ -124,7 +123,15 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.customer_analytics.backend.facade.account_property_pins import (
+    InvalidPinnedAccountProperties,
+    validate_pinned_account_properties,
+)
+from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
+from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -143,7 +150,8 @@ from products.web_analytics.backend.hogql_queries.custom_bot_definitions import 
     validate_rule as validate_custom_bot_rule,
     validate_rule_set as validate_custom_bot_rule_set,
 )
-from products.workflows.backend.models.team_workflows_config import EmailTrackingConsentMode, TeamWorkflowsConfig
+from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 tracer = trace.get_tracer(__name__)
 
@@ -363,8 +371,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
         MAX_RECALCULATION_TIMES,
         MIN_RECALCULATION_GAP_HOURS,
         TeamExperimentsConfig,
-        legacy_from_recalculation_times,
-        recalculation_times_from_legacy,
         validate_recalculation_times,
     )
 
@@ -381,15 +387,13 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             help_text=(
                 "Times of day (UTC) when experiment metrics are recalculated, as 'HH:00:00' strings "
                 f"on the hour. At most {MAX_RECALCULATION_TIMES} entries, at least "
-                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC). "
-                "Takes precedence over experiment_recalculation_time."
+                f"{MIN_RECALCULATION_GAP_HOURS} hours apart. Null means the default time (02:00 UTC)."
             ),
         )
 
         class Meta:
             model = TeamExperimentsConfig
             fields = [
-                "experiment_recalculation_time",
                 "experiment_recalculation_times",
                 "default_experiment_confidence_level",
                 "default_experiment_stats_method",
@@ -415,16 +419,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             # writes when precomputation_enabled_set_by is null or "auto".
             if "experiment_precomputation_enabled" in validated_data:
                 instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-            # The two recalculation fields must stay coherent while both exist: writing one
-            # syncs the other, so old clients and the workflow reader never disagree.
-            if "experiment_recalculation_times" in validated_data:
-                validated_data["experiment_recalculation_time"] = legacy_from_recalculation_times(
-                    validated_data["experiment_recalculation_times"]
-                )
-            elif "experiment_recalculation_time" in validated_data:
-                validated_data["experiment_recalculation_times"] = recalculation_times_from_legacy(
-                    validated_data["experiment_recalculation_time"]
-                )
             return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
@@ -518,9 +512,9 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
     return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
 
-def validate_secret_token_generation(team: Team, user: User) -> None:
+def validate_secret_token_generation(team: Team) -> None:
     """Rotating an existing legacy secret token stays allowed for safe migration, but minting a
-    first one is blocked once the team has access to project secret API keys."""
+    first one is blocked unless Support is enabled. Project secret API keys replace it."""
     if team.secret_api_token or team.secret_api_token_backup:
         return
     if team.conversations_enabled:
@@ -528,18 +522,10 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
         # API against it. Project secret API keys are only ever stored hashed, so they cannot
         # replace it, which would leave Support with no way to verify identity at all.
         return
-    if posthoganalytics.feature_enabled(
-        "project-secret-api-keys",
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    ):
-        raise exceptions.ValidationError(
-            "The feature flags secure API key is deprecated. Create a project secret API key with the "
-            "feature_flag:read scope instead."
-        )
+    raise exceptions.ValidationError(
+        "The feature flags secure API key is deprecated. Create a project secret API key with the "
+        "feature_flag:read scope instead."
+    )
 
 
 def _format_serializer_errors(serializer_errors: dict) -> str:
@@ -970,7 +956,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
     email_tracking_consent_mode = serializers.ChoiceField(
-        choices=EmailTrackingConsentMode.choices,
+        choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES,
         required=False,
         help_text=(
             "Recipient-consent enforcement for open/click tracking on marketing workflow emails. "
@@ -1067,6 +1053,17 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         fields = ["require_tags"]
 
 
+class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=ACCOUNT_PROPERTY_PIN_KIND_CHOICES,
+        help_text="Definition type for this default pinned account property.",
+    )
+    id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
+
+    class Meta:
+        ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1085,6 +1082,15 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "Must reference an existing group type configured for the project."
         ),
     )
+    default_pinned_properties = TeamCustomerAnalyticsPinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text=(
+            "Ordered account properties shown until a user saves a personal pinned-property selection. "
+            "Pass an empty list to show no properties by default."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -1095,6 +1101,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "subscription_event",
             "payment_event",
             "account_group_type_index",
+            "default_pinned_properties",
         ]
 
     def update(
@@ -1110,6 +1117,19 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     @staticmethod
     def validate_account_group_type_index(value):
         return validate_group_type_index("account_group_type_index", value)
+
+    def validate_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.instance is None:
+            return value
+        pinned_properties = [PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value]
+        try:
+            validate_pinned_account_properties(
+                team_id=self.instance.team_id,
+                pinned_properties=pinned_properties,
+            )
+        except InvalidPinnedAccountProperties as error:
+            raise serializers.ValidationError(error.errors)
+        return [{"kind": reference["kind"], "id": str(reference["id"])} for reference in value]
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
@@ -1343,6 +1363,11 @@ def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team:
     )
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class ConversationsSettingsField(serializers.JSONField):
+    pass
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1353,6 +1378,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     live_events_token = serializers.SerializerMethodField()
     product_intents = serializers.SerializerMethodField()
     managed_viewsets = serializers.SerializerMethodField()
+    flag_evaluations_mode = serializers.SerializerMethodField(
+        help_text=(
+            "Which table this project's feature flag usage data is read from. PostHog sets it for the "
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
     available_setup_task_ids = serializers.SerializerMethodField()
     revenue_analytics_config = TeamRevenueAnalyticsConfigSerializer(required=False)
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
@@ -1360,6 +1391,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -1397,6 +1433,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "live_events_token",
             "product_intents",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "available_setup_task_ids",
         )
 
@@ -1420,6 +1457,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "user_access_level",
             "product_intents",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "available_setup_task_ids",
         )
 
@@ -1483,6 +1521,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         enabled_set = set(enabled_viewsets)
 
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
+    def get_flag_evaluations_mode(self, obj: Team) -> int:
+        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))
@@ -1881,6 +1923,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conversation settings must be an object or null.")
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
@@ -2100,6 +2144,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not isinstance(value, dict):
             raise exceptions.ValidationError("Must provide a dictionary or None.")
 
+        # The native JSON events table is an internal rollout switch that PostHog staff set per project in Django
+        # admin. Dropping the key keeps a client from setting or clearing it, including a settings page that echoes
+        # the whole modifiers dict back.
+        value = {key: item for key, item in value.items() if key != "useNewEventsSchema"}
+
         if "bounceRateDurationSeconds" in value:
             bounce_rate = value["bounceRateDurationSeconds"]
             if bounce_rate is not None:
@@ -2290,7 +2339,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         # Merge conversations_settings with existing values, unless explicitly clearing with null
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = instance.conversations_settings or {}
+            existing_settings = conversations_settings_as_dict(instance.conversations_settings)
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
@@ -2435,6 +2484,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
             "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
+            "default_pinned_properties": instance.customer_analytics_config.default_pinned_properties,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(
@@ -2789,7 +2839,7 @@ class TeamViewSet(
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        validate_secret_token_generation(team, cast(User, request.user))
+        validate_secret_token_generation(team)
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
@@ -3125,13 +3175,22 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
+def conversations_settings_as_dict(value: object) -> dict[str, Any]:
+    """Coerce a conversations_settings value to a dict for merging or diffing.
+
+    A row written before validation required an object/null can hold a stray array or scalar;
+    treat it as empty rather than raising.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
     """
-    old_settings = before_settings or {}
-    new_settings = team.conversations_settings or {}
+    old_settings = conversations_settings_as_dict(before_settings)
+    new_settings = conversations_settings_as_dict(team.conversations_settings)
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
@@ -3148,7 +3207,7 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
-    current_conversations_settings: dict | None,
+    current_conversations_settings: object,
 ) -> dict[str, Any]:
     """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
     if "conversations_enabled" not in validated_data:
@@ -3157,15 +3216,17 @@ def handle_conversations_token_on_update(
     is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
     is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
 
+    stored_settings = conversations_settings_as_dict(current_conversations_settings)
+
     if is_enabling:
         # Check if token already exists in current DB state (not user input, which is stripped)
-        has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
+        has_token = stored_settings.get("widget_public_token")
         if not has_token:
-            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
             conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
             validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+        conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 

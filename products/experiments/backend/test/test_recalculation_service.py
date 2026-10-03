@@ -154,6 +154,14 @@ class TestRecalculationService(BaseTest):
         assert result["is_existing"] is True
         assert result["id"] == str(recent_row.id)
 
+    def test_request_recalculation_without_a_user(self):
+        exp = self._launched_experiment(flag_key="no-user")
+        result = request_recalculation(exp, None, "stale_refresh")
+        assert result["is_existing"] is False
+        recalc = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert recalc.created_by is None
+        assert recalc.trigger == "stale_refresh"
+
     def test_request_recalculation_rejects_unlaunched(self):
         exp = Experiment.objects.create(
             team=self.team, created_by=self.user, feature_flag=self._flag("unlaunched"), name="draft"

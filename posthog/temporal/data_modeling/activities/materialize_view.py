@@ -36,6 +36,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     get_client as get_clickhouse_client,
 )
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
@@ -68,7 +69,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_quality.backend.facade import api as data_quality_facade
 from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, QualityAuditMode
-from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import delta_proxy_storage_options, ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
@@ -417,6 +418,7 @@ def get_aws_storage_options() -> dict[str, str]:
         }
 
     return {
+        **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
 
@@ -873,7 +875,8 @@ async def _build_person_property_sink(
         return sink if await sink.should_run() else None
     except Exception as e:
         await logger.awarning(f"Could not resolve person-property staging for this view: {e}")
-        capture_exception(e)
+        if not is_transient_db_error(e):
+            capture_exception(e)
         return None
 
 
@@ -890,7 +893,8 @@ async def _account_property_sync_enabled(
         return await sink.should_run()
     except Exception as error:
         await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
-        capture_exception(error)
+        if not is_transient_db_error(error):
+            capture_exception(error)
         return False
 
 

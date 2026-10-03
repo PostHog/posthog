@@ -64,6 +64,7 @@ from products.replay_vision.backend.models.replay_observation_media import Repla
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
 from products.replay_vision.backend.observation_formatting import summarize_observation
+from products.replay_vision.backend.prompt_questions import question_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
@@ -117,7 +118,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
+        help_text="Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.",
     )
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
@@ -175,6 +176,19 @@ class ScannerResultSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
     )
+    experiment_variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Experiment scanners only: the variant the exposure data attributes this session's person to. "
+            "Null on the other types and on rows scanned before variant attribution shipped."
+        ),
+    )
+    session_duration_s = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Experiment scanners only: the scanned session's duration in seconds.",
+    )
 
 
 class ReplayObservationLabelSerializer(serializers.Serializer):
@@ -202,7 +216,14 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=ReplayObservationMedia.Kind.choices,
         read_only=True,
-        help_text="`thumbnail` for the single frame that illustrates the observation, `clip` for a short video.",
+        help_text=(
+            "`thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one "
+            "summary chapter, `clip` for a short video."
+        ),
+    )
+    position = serializers.IntegerField(
+        read_only=True,
+        help_text="Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`.",
     )
     asset_id = serializers.IntegerField(
         read_only=True,
@@ -221,6 +242,17 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
         read_only=True,
         allow_null=True,
         help_text="Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.",
+    )
+
+
+class ObservationThumbnailQuerySerializer(serializers.Serializer):
+    chapter = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the "
+            "observation's thumbnail."
+        ),
     )
 
 
@@ -348,6 +380,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             {
                 "id": media.id,
                 "kind": media.kind,
+                "position": media.position,
                 "asset_id": media.asset_id,
                 "description": media.description,
                 "video_start_ms": media.video_start_ms,
@@ -357,6 +390,23 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             # No content location means the render has not landed yet, so there is nothing to fetch.
             if media.asset.content_location
         ]
+
+    prompt_question = serializers.SerializerMethodField(
+        help_text=(
+            "The scanner's prompt condensed into the one question it answers about a session. Null when the "
+            "prompt has changed since this observation was scanned, since the question then describes a "
+            "different prompt; read `scanner_snapshot.scanner_config.prompt` instead."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_prompt_question(self, obj: ReplayObservation) -> str | None:
+        # Annotated by `hydrate_for_serialization`; a queryset that skipped it just has no question.
+        return question_for_snapshot(
+            snapshot_config=(obj.scanner_snapshot or {}).get("scanner_config"),
+            question=getattr(obj, "scanner_prompt_question", "") or "",
+            source=getattr(obj, "scanner_prompt_question_source", "") or "",
+        )
 
     summary_line = serializers.SerializerMethodField(
         help_text=(
@@ -383,6 +433,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
             "workflow_id",
             "scanner_snapshot",
             "scanner_result",
+            "prompt_question",
             "triggered_by",
             "triggered_by_user",
             "backfill_id",
@@ -1137,11 +1188,12 @@ class ReplayObservationViewSet(
 
     @extend_schema(
         request=None,
+        parameters=[ObservationThumbnailQuerySerializer],
         responses={
             302: OpenApiResponse(description="Redirect to the image."),
             404: OpenApiResponse(
                 response=ReplayVisionErrorSerializer,
-                description="The observation has no thumbnail, or its render has not landed yet.",
+                description="The observation has no such frame, or its render has not landed yet.",
             ),
         },
     )
@@ -1153,13 +1205,22 @@ class ReplayObservationViewSet(
     )
     def thumbnail(self, request: Request, **kwargs: Any) -> HttpResponseBase:
         """Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it."""
+        query = ObservationThumbnailQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        chapter = query.validated_data.get("chapter")
+        kind, position = (
+            (ReplayObservationMedia.Kind.THUMBNAIL, 0)
+            if chapter is None
+            else (ReplayObservationMedia.Kind.CHAPTER, chapter)
+        )
         observation = self.get_object()
         # `get_object` already prefetched the observation's media with their assets, so this reads no rows.
         media = next(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL
+                if entry.kind == kind
+                and entry.position == position
                 and entry.asset.content_location
                 # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
                 # and an expired frame would serve until the sweep deletes it.
@@ -1168,7 +1229,7 @@ class ReplayObservationViewSet(
             None,
         )
         if media is None:
-            raise NotFound("This observation has no thumbnail.")
+            raise NotFound("This observation has no thumbnail." if chapter is None else "This chapter has no frame.")
         # Object-level access to the recording itself, which the export content endpoint used to apply to
         # these bytes before they moved here. A missing row falls back to the resource-level check
         # `_scanner_for_url` already ran.

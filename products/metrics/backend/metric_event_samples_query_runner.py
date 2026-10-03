@@ -13,7 +13,7 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -21,7 +21,8 @@ from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import MetricType
-from products.metrics.backend.metric_query_runner import series_scope_expr, time_range_expr, type_filter_expr
+from products.metrics.backend.metric_query_runner import points_query, series_scope_expr, type_filter_expr
+from products.metrics.backend.metrics4_samples import reads_metrics4_only
 
 # This query uses the shared ClickHouse cluster. Limit reads and fail on overflow.
 _QUERY_SETTINGS = HogQLGlobalSettings(
@@ -81,8 +82,48 @@ class MetricEventSamplesQueryRunner:
         self.metric_type = metric_type
         self.limit = limit
 
+    def _points_query(self) -> ast.SelectQuery:
+        point_filters: list[ast.Expr] = []
+        samples_row_filters: list[ast.Expr] = []
+        if self.trace_id:
+            trace_id = ast.Constant(value=self.trace_id)
+            point_filters.append(parse_expr("trace_id = {trace_id}", placeholders={"trace_id": trace_id}))
+            # `has()` on the array uses the `idx_trace_id_bf` bloom filter to skip granules.
+            samples_row_filters.append(parse_expr("has(trace_id_arr, {trace_id})", placeholders={"trace_id": trace_id}))
+        if self.span_id:
+            point_filters.append(
+                parse_expr("span_id = {span_id}", placeholders={"span_id": ast.Constant(value=self.span_id)})
+            )
+        return points_query(
+            from_samples=reads_metrics4_only(self.date_from),
+            columns=(
+                "team_id",
+                "metric_name",
+                "series_fingerprint",
+                "timestamp",
+                "value",
+                "count",
+                "trace_id",
+                "span_id",
+                "metric_type",
+                "unit",
+                "aggregation_temporality",
+                "is_monotonic",
+                "service_name",
+            ),
+            metric_names=(self.metric_name,) if self.metric_name else None,
+            date_from=self.date_from,
+            date_to=self.date_to,
+            timezone=self.team.timezone,
+            row_filters=(
+                type_filter_expr(self.metric_type.value if self.metric_type else None),
+                series_scope_expr(self.metric_name, self.filters, self.date_from),
+            ),
+            point_filters=point_filters,
+            samples_row_filters=samples_row_filters,
+        )
+
     def run(self) -> list[dict[str, Any]]:
-        # An empty `trace_id` matches every row, so the query needs no optional clause.
         # Filter and limit samples in the CTE. Join labels after that selection.
         # Apply label filters before LIMIT. Otherwise, filtered results can look empty.
         # Read labels only for matched samples. Trace queries must not read every series.
@@ -103,13 +144,7 @@ class MetricEventSamplesQueryRunner:
                         aggregation_temporality,
                         is_monotonic,
                         service_name
-                    FROM posthog.metrics
-                    WHERE ({metric_name} = '' OR metric_name = {metric_name})
-                      AND {time_range}
-                      AND ({trace_id} = '' OR trace_id = {trace_id})
-                      AND ({span_id} = '' OR span_id = {span_id})
-                      AND {type_filter}
-                      AND {series_scope}
+                    FROM {points}
                     ORDER BY timestamp DESC
                     LIMIT {limit}
                 )
@@ -146,15 +181,7 @@ class MetricEventSamplesQueryRunner:
                     AND s.series_fingerprint = ser.series_fingerprint
                 ORDER BY s.timestamp DESC
             """,
-            placeholders={
-                "metric_name": ast.Constant(value=self.metric_name),
-                "time_range": time_range_expr(self.date_from, self.date_to),
-                "trace_id": ast.Constant(value=self.trace_id),
-                "span_id": ast.Constant(value=self.span_id),
-                "type_filter": type_filter_expr(self.metric_type.value if self.metric_type else None),
-                "series_scope": series_scope_expr(self.metric_name, self.filters, self.date_from),
-                "limit": ast.Constant(value=self.limit),
-            },
+            placeholders={"points": self._points_query(), "limit": ast.Constant(value=self.limit)},
         )
         assert isinstance(query, ast.SelectQuery)
 

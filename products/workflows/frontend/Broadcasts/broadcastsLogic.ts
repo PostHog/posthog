@@ -44,8 +44,16 @@ export interface BroadcastRowDetails {
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
 export const BROADCASTS_PAGE_SIZE = 30
 
-export type BroadcastsStatusFilter = 'all' | 'draft' | 'active' | 'archived'
-const BROADCASTS_STATUS_FILTERS: BroadcastsStatusFilter[] = ['all', 'draft', 'active', 'archived']
+export type BroadcastsStatusFilter = 'all' | Exclude<BroadcastStatus, 'unknown'>
+const BROADCASTS_STATUS_FILTERS: BroadcastsStatusFilter[] = [
+    'all',
+    'draft',
+    'scheduled',
+    'sending',
+    'sent',
+    'failed',
+    'archived',
+]
 
 export interface BroadcastsFilters {
     search: string
@@ -299,7 +307,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         // trigger and a single email), so existing sends show up here too.
                         broadcast_eligible: true,
                         search: values.filters.search || undefined,
-                        status: values.filters.status !== 'all' ? values.filters.status : undefined,
+                        broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
                         created_by: values.filters.createdBy || undefined,
                         limit: BROADCASTS_PAGE_SIZE,
                         offset: (values.filters.page - 1) * BROADCASTS_PAGE_SIZE,

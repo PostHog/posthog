@@ -33,6 +33,7 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    ConversationsSettingsField,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     EventIngestionRestrictionSerializer,
@@ -46,6 +47,7 @@ from posthog.api.team import (
     TeamWorkflowsConfigSerializer,
     _default_data_color_theme_id,
     _format_serializer_errors,
+    conversations_settings_as_dict,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
     handle_experiments_config,
@@ -60,6 +62,7 @@ from posthog.api.team import (
 )
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
+from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
@@ -122,6 +125,8 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -602,6 +607,12 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Which table this project's feature flag usage data is read from. PostHog sets it for the "
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+        )
+    )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
@@ -628,6 +639,11 @@ class ProjectBackwardCompatSerializer(
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)  # Compat with TeamSerializer
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -647,6 +663,8 @@ class ProjectBackwardCompatSerializer(
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conversation settings must be an object or null.")
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
@@ -742,6 +760,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",  # Compat with TeamSerializer
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
+            "flag_evaluations_mode",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
@@ -783,6 +802,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "flag_evaluations_mode",
         )
 
         team_passthrough_fields = {
@@ -960,6 +980,10 @@ class ProjectBackwardCompatSerializer(
             DataWarehouseManagedViewSet.objects.filter(team=obj.passthrough_team).values_list("kind", flat=True)
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
+    def get_flag_evaluations_mode(self, obj: Project) -> int:
+        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1285,7 +1309,7 @@ class ProjectBackwardCompatSerializer(
 
         # Merge conversations_settings with existing values, unless explicitly clearing with null
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = team.conversations_settings or {}
+            existing_settings = conversations_settings_as_dict(team.conversations_settings)
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
@@ -1803,7 +1827,7 @@ class ProjectViewSet(
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
-        validate_secret_token_generation(project.passthrough_team, cast(User, request.user))
+        validate_secret_token_generation(project.passthrough_team)
         project.passthrough_team.rotate_secret_token_and_save(
             user=request.user, is_impersonated_session=is_impersonated(request)
         )
@@ -2141,6 +2165,13 @@ class ProjectViewSet(
                 before=str(current_organization.id),
                 after=str(target_organization.id),
             )
+
+            # The cache invalidation receiver reads organization_id from the saved row, which already
+            # points at the target organization. Without this bump the source organization keeps
+            # listing the project until its cached project list expires. Register it before the saves,
+            # because Django skips the remaining commit hooks when an earlier one raises.
+            source_organization_id = str(current_organization.id)
+            transaction.on_commit(lambda: _bump_org_serializer_cache_version(source_organization_id))
 
             project.organization_id = target_organization.id
             project.save()

@@ -4,7 +4,7 @@ This module calculates experiment metrics in the background using Temporal, a wo
 
 ## How it works
 
-Each team can configure one or two times of day when their experiments are recalculated, at least six hours apart (default: once at 02:00 UTC), via `TeamExperimentsConfig.experiment_recalculation_times`. The system runs 24 schedules - one for each hour of the day. When a schedule fires, it finds all experiments belonging to teams configured for that hour and calculates their metrics. A team with two configured times matches two schedules, so its experiments get two independent runs a day, each publishing its own recalculation.
+Each team can configure one or two times of day when their experiments are recalculated, at least six hours apart (default: once at 02:00 UTC), via `TeamExperimentsConfig.experiment_recalculation_times`. The system runs 24 schedules - one for each hour of the day. Each schedule starts between 2 and 32 minutes past its hour, so the runs do not pile up with other jobs at minute zero. When a schedule fires, it finds all experiments belonging to teams configured for that hour and calculates their metrics. A team with two configured times matches two schedules, so its experiments get two independent runs a day, each publishing its own recalculation.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -31,7 +31,7 @@ There are two parallel workflow systems:
 
 When a schedule triggers, it starts a workflow that:
 
-1. Discovers which experiment-metric pairs need calculation
+1. Discovers which experiment-metric pairs need calculation. It skips the metrics that `is_scheduled_metric` rejects, the same as recalculation discovery: legacy metrics without a `metric_type`, and metrics without a uuid
 2. Calculates each experiment's metrics in parallel, under one hour-wide concurrency limit
 3. Stores results in the database
 4. Assembles one completed metrics recalculation per experiment as soon as that experiment's own metrics finish (see below)
@@ -47,6 +47,8 @@ The experiment page reads results through `GET /metrics_recalculation/latest`, w
 - When no sync row exists for the run, the activity skips if any other recalculation, finished or executing, already has a `query_to` at or past the oldest qualifying point.
 
 Each metric stamps its own `query_to` at the moment its activity runs, so the points of one run are seconds to minutes apart. The copies present them as one window; that approximation is deliberate.
+
+Each run ends by emitting the `experiment_timeseries_publish_runs` Prometheus counter (labels: `workflow_type`, `status`), skipped when the run computed nothing. `status="missing"` means the run computed metrics but published zero recalculation rows - the silent-failure mode where results exist yet never reach users. One `missing` run can be legitimate (every row already covered by another run or a manual recalculation), so the Grafana alert thresholds over a window instead of firing per run.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -85,6 +87,35 @@ The `ExperimentSavedMetricsWorkflow` follows the same structure but:
 - Uses `get_experiment_saved_metrics_for_hour` to discover metrics from `experimenttosavedmetric_set`
 - Uses `calculate_experiment_saved_metric` to process each saved metric
 - Does not filter on empty `metrics`/`metrics_secondary` arrays (saved metrics are separate)
+
+### Scheduled recalculations
+
+The timeseries sync row is assembled from that day's points, so its window is approximate and a
+metric the daily run could not compute has no row at all. A separate workflow therefore starts a
+real recalculation for each eligible experiment, on one hourly schedule
+(`products/experiments/backend/temporal/schedule.py`).
+
+That schedule fires at `:30`, after the timeseries runs earlier in the hour, and carries no input.
+Discovery reads the hour and selects the teams configured for it, so one schedule serves all 24
+hours. A team may configure up to two times, at least 6 hours apart, and gets a run at each.
+Both this discovery and the timeseries one call `recalculation_hour_filter`, so the two always
+agree on which teams belong to a given hour.
+
+The coordinator selects experiments with the same rules the daily discovery uses, plus a 12-hour
+minimum age, an organization feature flag, and a 50-exposure floor. It then starts an ordinary
+`ExperimentMetricsRecalculationWorkflow` per experiment, through the same function the API uses.
+
+The timeseries workflows keep one schedule per hour, because each runs its own metric queries and
+can outlive its hour. This one starts other workflows and returns, so a single schedule with a
+`SKIP` overlap policy covers it.
+
+It skips an experiment whose recalculation is already running, or whose last one finished within
+the hour. That freshness check ignores `timeseries_sync` rows: one is published 30 minutes before
+every scheduled run, so counting it would skip every experiment forever.
+
+The coordinator never waits for the runs it starts. Each run's outcome lands on its own
+`ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and
+`experiment scheduled recalculation skipped` events carry the coordinator's own decisions.
 
 ## Key concepts
 

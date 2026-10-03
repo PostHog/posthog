@@ -106,7 +106,7 @@
   
   SELECT events.event AS event, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS id, events.person_properties AS properties, events.__pd_expr_0 AS created_at, events__session.`$session_duration` AS `$session_duration` 
   FROM (
-    SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS __pd_expr_0, toUInt128(accurateCastOrNull(events.properties.`$session_id`, %(hogql_val_1)s)) AS __pd_expr_1, events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}')) AS person_properties 
+    SELECT toTimeZone(events.person_created_at, %(hogql_val_0)s) AS __pd_expr_0, toUInt128(accurateCastOrNull(events.properties.`$session_id`, %(hogql_val_1)s)) AS __pd_expr_1, events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties))), ','), '}')) AS person_properties 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s))) 
     LIMIT 50000) AS events LEFT JOIN (
@@ -273,7 +273,7 @@
   
   SELECT events.event AS event, events.person_properties AS properties, events__session.`$session_duration` AS `$session_duration` 
   FROM (
-    SELECT toUInt128(accurateCastOrNull(events.properties.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, events.event AS event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties)))), ','), '}')) AS person_properties 
+    SELECT toUInt128(accurateCastOrNull(events.properties.`$session_id`, %(hogql_val_0)s)) AS __pd_expr_0, events.event AS event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.person_properties))), ','), '}')) AS person_properties 
     FROM events_json AS events 
     WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
     LIMIT 50000) AS events LEFT JOIN (

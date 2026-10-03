@@ -1,7 +1,52 @@
-import { eventFilterParam, heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
+import { expectLogic } from 'kea-test-utils'
+
+import {
+    eventFilterParam,
+    heatmapApiPath,
+    heatmapDataLogic,
+    isWithinBounds,
+} from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
+import { initKeaTests } from '~/test/init'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { AppContext } from '~/types'
+
+describe('heatmapDataLogic window resize', () => {
+    const originalInnerWidth = window.innerWidth
+
+    beforeEach(() => {
+        jest.spyOn(global, 'fetch').mockImplementation(() =>
+            Promise.resolve(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+        )
+        initKeaTests()
+        toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'test-token' }).mount()
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+    })
+
+    it.each([
+        ['in-app', false],
+        ['toolbar', true],
+    ] as const)('%s context refetches on resize: %s', async (context, refetches) => {
+        const logic = heatmapDataLogic({ context })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.setHref('https://example.com/pricing'))
+            .toDispatchActions(['loadHeatmapSuccess'])
+            .toFinishAllListeners()
+        const heatmapRequests = jest.mocked(global.fetch).mock.calls.filter(([url]) => String(url).includes('heatmap'))
+        expect(heatmapRequests).toHaveLength(1)
+        expect(logic.values.rawHeatmap).toEqual({ results: [] })
+
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: window.innerWidth - 200 })
+        window.dispatchEvent(new Event('resize'))
+
+        expect(logic.values.rawHeatmapLoading).toBe(refetches)
+    })
+})
 
 describe('isWithinBounds', () => {
     const staticArea: HeatmapBoundsFilter = {
