@@ -197,7 +197,7 @@ def _without_unrunnable_agent_specs(report: SignalReport, specs: list[CheckSpec]
     """
     kept: list[CheckSpec] = []
     for spec in specs:
-        if spec.kind == SignalReportCheck.Kind.AGENT:
+        if spec.kind == "agent":
             try:
                 runnable = _agent_lane_available(report, spec.config)
             except CheckConfigValidationError:
