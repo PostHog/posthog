@@ -308,15 +308,19 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
     def test_previews_the_distinct_ids_of_every_person_on_a_page(self) -> None:
         distinct_ids = [f"holder-{address}-{index}" for address in range(40) for index in range(3)]
+        distinct_id_by_person = {}
         for distinct_id in distinct_ids:
-            _create_person(
+            person = _create_person(
                 team=self.team, distinct_ids=[distinct_id], properties={"email": f"{distinct_id[:-2]}@example.com"}
             )
+            distinct_id_by_person[str(person.uuid)] = distinct_id
         flush_persons_and_events()
 
         results = self._list()["results"]
 
-        assert sorted(person["distinct_id"] for row in results for person in row["persons"]) == sorted(distinct_ids)
+        assert {person["uuid"]: person["distinct_id"] for row in results for person in row["persons"]} == (
+            distinct_id_by_person
+        )
 
     @parameterized.expand(
         [

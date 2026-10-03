@@ -48,10 +48,6 @@ class TestMessageCategoryAPI(APIBaseTest):
 
     @parameterized.expand([("initial_key",), ("all-marketing",)])
     def test_update_message_category(self, key):
-        """
-        Tests PUT and PATCH /messaging_categories/:id work as expected, also for a category created before
-        `all-marketing` became a reserved key.
-        """
         category = MessageCategory.objects.create(team=self.team, name="Initial Name", key=key)
 
         # PATCH
