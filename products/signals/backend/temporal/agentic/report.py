@@ -854,10 +854,9 @@ def _team_runs_scouts(team_id: int) -> bool:
     The enrollment and lane halves of the gate the check dispatcher applies, read at authoring time
     so the research turn is never offered a kind whose lane does not exist. Research checks name no
     skill, so the lane is the fleet's fallback scout. A paused lane still counts, because dispatch
-    waits for the resume. A project at its daily run
-    budget still counts as running scouts: a research check stays pending until its report resolves
-    and its soak passes, so today's budget says nothing about that day, and the dispatcher defers a
-    throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
+    waits for the resume. A project at its daily run budget still counts as running scouts: a
+    research check stays pending until its report resolves and its soak passes, so today's budget
+    says nothing about that day, and the dispatcher defers a throttled check by itself. Fails closed to False: a flag-service hiccup costs the run the agent
     kind, never the report.
     """
     from products.signals.backend.report_check_agent import agent_check_lane_available  # noqa: PLC0415
