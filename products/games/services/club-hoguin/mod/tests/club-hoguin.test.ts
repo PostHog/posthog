@@ -51,12 +51,22 @@ type Club = {
     panes: { opened: string[]; closed: string[] }
     toasts: string[]
     clock: ReturnType<typeof mock.clock>
+    opened: string[][]
 }
 
-function setUp(on: any, { placed = true, openGate = Promise.resolve() } = {}): Club {
+function setUp(
+    on: any,
+    {
+        placed = true,
+        openGate = Promise.resolve(),
+        env = { CLUB_HOGUIN_URL: 'http://club.test/' } as Record<string, string>,
+        tools = [] as unknown[],
+    } = {}
+): Club {
     const calls: Call[] = []
     const panes: { opened: string[]; closed: string[] } = { opened: [], closed: [] }
     const toasts: string[] = []
+    const opened: string[][] = []
     on('http.fetch', ($: unknown, e: any) => {
         const path = new URL(e.url).pathname
         calls.push({ method: e.init?.method ?? 'GET', path, body: e.init?.body ? JSON.parse(e.init.body) : undefined })
@@ -90,10 +100,15 @@ function setUp(on: any, { placed = true, openGate = Promise.resolve() } = {}): C
     on('session.start', () => ({ cwd: '/work' }))
     on('turn.start', ($: unknown, e: any) => ({ turnId: e.turnId }))
     on('turn.complete', () => ({ text: '' }))
+    on('tool.list', () => ({ value: tools }))
+    on('process.run', ($: unknown, e: any) => {
+        opened.push(e.argv)
+        return { value: { exitCode: 0, stdout: '', stderr: '' } }
+    })
     mock.store(on, {})
-    mock.env(on, { CLUB_HOGUIN_URL: 'http://club.test/' })
+    mock.env(on, env)
     const clock = mock.clock(on)
-    return { calls, panes, toasts, clock }
+    return { calls, panes, toasts, clock, opened }
 }
 
 const posts = (calls: Call[], path: string): unknown[] =>
@@ -184,4 +199,40 @@ test('a turn that ends while the pane still opens leaves no pane and no hedgehog
 
     expect(panes.closed).toEqual(['club-hoguin'])
     expect(posts(calls, '/api/join')).toEqual([])
+})
+
+test('/hoguin web opens the club in the browser', async ($, on) => {
+    const { opened } = setUp(on)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+    const result = await $.command.run({ command: 'hoguin', args: 'web' })
+
+    expect(opened).toEqual([['open', 'http://club.test/']])
+    expect(result.text).toContain('http://club.test/')
+})
+
+test('without a configured address, the mod asks the PostHog MCP server where the club is', async ($, on) => {
+    const mcpCalls: Array<{ server: string; tool: string; args: any }> = []
+    on('mcp.call', ($: unknown, e: any) => {
+        mcpCalls.push(e)
+        return {
+            value: {
+                content: [{ type: 'text', text: JSON.stringify({ url: 'https://club.posthog.example/' }) }],
+                isError: false,
+            },
+        }
+    })
+    const { calls } = setUp(on, {
+        env: {},
+        tools: [{ name: 'mcp__posthog-local__exec', description: 'PostHog', mcp: true }],
+    })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+    await $.command.run({ command: 'hoguin', args: '' })
+
+    expect(mcpCalls).toMatchObject([
+        { server: 'posthog-local', tool: 'exec', args: { command: 'call --json club-hoguin-open {}' } },
+    ])
+    expect(calls.map((call) => call.path)).toContain('/api/join')
+    expect(posts(calls, '/api/join')).toEqual([{ client: 'mod' }])
 })

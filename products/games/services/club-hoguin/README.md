@@ -72,12 +72,17 @@ CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/service
 ```
 
 - `/hoguin` opens or closes the club in a pane. The pane draws the town as a map of text characters.
+- `/hoguin web` opens the club in your browser.
 - When Claude works for more than 10 seconds, the pane opens by itself, and it closes when Claude is done.
   `/hoguin auto off` turns this off.
 - In the pane, `w` `a` `s` `d` walk, `e` uses the closest object, and `1` to `9` send a phrase.
 
 The mod sends only "joined", moves, phrases, uses, and "left" to the server.
 It never sends the prompt, the transcript, or anything about the task.
+
+The mod finds the club through the PostHog MCP server when one is connected: it calls the `club-hoguin-open` tool, which returns the address the server is configured with (`CLUB_HOGUIN_URL` in `services/mcp`).
+Claude Code asks once for permission to let the mod call that tool.
+`CLUB_HOGUIN_URL` in the environment of `claude` wins, and without either the mod uses `http://localhost:8642`.
 
 Run the mod checks with `pnpm test:mod`.
 The checks need the `claude` CLI, so CI does not run them.

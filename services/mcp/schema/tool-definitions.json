@@ -14,6 +14,20 @@
         },
         "feature_flag": "posthog-connect"
     },
+    "club-hoguin-open": {
+        "description": "Get the address of Club Hoguin, the PostHog hangout where hedgehogs wait for their agents. Call this when the person wants to open the club, play, or hang out while work runs. Returns `url` (open it in the browser, or show it as a link), `embedUrl` (for an iframe), and `claudeCode` (how to open it as a pane in Claude Code). Chat there is preset phrases only.",
+        "category": "Games",
+        "feature": "games",
+        "summary": "Get the address of Club Hoguin, the PostHog hangout.",
+        "title": "Open Club Hoguin",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "generate-app-url": {
         "description": "Build a correct, clickable PostHog app URL for any page or entity — run `info generate-app-url` for the full catalog of path templates.\nALWAYS use this (or an existing `_posthogUrl` field on a tool result) instead of writing PostHog links by hand: slugs and project/host prefixes are easy to get wrong (a person UUID lives at `/persons/<uuid>`, not `/person/...`) and IDs must never be retyped into a path. Pass a `url` template from the catalog plus its `{placeholders}` as `params`; returns `{ url }` — surface it verbatim.",
         "category": "Utilities",

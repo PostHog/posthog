@@ -18,6 +18,8 @@ const DIRECTIONS = [
 ]
 
 let baseUrl = DEFAULT_URL
+// Where the address came from: 'env' wins, then the PostHog MCP server, then the default.
+let baseUrlSource = 'default'
 let autoJoin = true
 let world = null
 let session = null
@@ -48,6 +50,54 @@ async function request($, method, path, body) {
         data = null
     }
     return { status: response.status, ok: response.ok, data }
+}
+
+// The PostHog MCP server knows where the club is hosted. The mod asks it once per session, so nobody
+// has to configure a URL. CLUB_HOGUIN_URL in the environment wins, for a club that runs locally.
+// The call can bring up a permission prompt for the MCP tool, so only a command the person typed makes it.
+async function resolveBaseUrl($) {
+    if (baseUrlSource !== 'default') {
+        return baseUrl
+    }
+    try {
+        // An MCP tool is named mcp__<server>__<tool>. The PostHog server's tools all go through `exec`.
+        const tool = (await $.tool.list()).find(
+            (candidate) => candidate.mcp && /^mcp__[^_]*posthog[^_]*__exec$/i.test(candidate.name)
+        )
+        if (!tool) {
+            return baseUrl
+        }
+        const server = tool.name.slice('mcp__'.length, -'__exec'.length)
+        const result = await $.mcp.call(server, 'exec', {
+            command: 'call --json club-hoguin-open {}',
+            context: 'The Club Hoguin mod asks where the club is hosted, so it can open it.',
+            llm_model: 'club-hoguin-mod',
+        })
+        const text = result.content.find((block) => block.type === 'text')?.text ?? ''
+        const url = JSON.parse(text).url
+        if (!result.isError && typeof url === 'string' && /^https?:\/\//.test(url)) {
+            baseUrl = url.replace(/\/+$/, '')
+            baseUrlSource = 'mcp'
+        }
+    } catch {
+        // Without the PostHog MCP server, the default address stays.
+    }
+    return baseUrl
+}
+
+// Opens the club in the browser of the person. `open` is macOS; `xdg-open` is Linux.
+async function openInBrowser($, url) {
+    for (const opener of ['open', 'xdg-open']) {
+        try {
+            const result = await $.process.run([opener, url], { timeoutMs: 5000 })
+            if (result.exitCode === 0) {
+                return true
+            }
+        } catch {
+            // Try the next opener.
+        }
+    }
+    return false
 }
 
 async function join($) {
@@ -260,6 +310,7 @@ export function register(on) {
         const url = await $.env.get('CLUB_HOGUIN_URL')
         if (url) {
             baseUrl = url.replace(/\/+$/, '')
+            baseUrlSource = 'env'
         }
         const savedAutoJoin = await $.store.get('autoJoin')
         if (typeof savedAutoJoin === 'boolean') {
@@ -268,7 +319,7 @@ export function register(on) {
         await $.command.register({
             name: 'hoguin',
             description: 'Open or close Club Hoguin, a place to hang out with other hedgehogs while Claude works',
-            argumentHint: '[auto on|auto off]',
+            argumentHint: '[web|auto on|auto off]',
             immediate: true,
         })
         return next(e)
@@ -285,11 +336,21 @@ export function register(on) {
                     : 'Club Hoguin opens only when you run /hoguin.',
             }
         }
-        if (args !== '') {
+        if (args === 'web') {
+            const url = (await resolveBaseUrl($)) + '/'
+            const opened = await openInBrowser($, url)
             return {
-                text: 'Run /hoguin to open or close the club, or /hoguin auto on|off to choose if it opens by itself.',
+                text: opened
+                    ? 'Club Hoguin is open in your browser: ' + url
+                    : 'Open Club Hoguin in your browser: ' + url,
             }
         }
+        if (args !== '') {
+            return {
+                text: 'Run /hoguin to open or close the club, /hoguin web to open it in the browser, or /hoguin auto on|off to choose if it opens by itself.',
+            }
+        }
+        await resolveBaseUrl($)
         if (isOpen) {
             await leaveClub($, true)
         } else {
