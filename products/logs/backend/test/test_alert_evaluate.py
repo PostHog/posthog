@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -12,10 +13,16 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import AlertEventKind, SourceBatchEvaluation, SourceKind
-from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes, slot_of
-from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
-from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.facade import testing as platform_testing
+from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.contracts import (
+    AlertEventKind,
+    PlatformConfigurationSnapshot,
+    SourceBatchEvaluation,
+    SourceKind,
+)
+from products.alerts_platform.backend.facade.lifecycle import AlertState
+from products.alerts_platform.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
 from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
@@ -34,11 +41,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
 
-    def _configuration(self, **overrides) -> PlatformAlertConfiguration:
-        defaults = {
-            "team": self.team,
+    def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
+        defaults: dict[str, Any] = {
+            "team_id": self.team.id,
             "name": "API errors",
-            "source_kind": PlatformAlertConfiguration.SourceKind.LOGS,
+            "source_kind": SourceKind.LOGS,
             "source_config": {},
             "threshold_count": 10,
             "threshold_operator": "above",
@@ -48,14 +55,14 @@ class TestLogsAlertEvaluation(APIBaseTest):
         }
         defaults.update(overrides)
         with team_scope(self.team.id):
-            return PlatformAlertConfiguration.objects.create(**defaults)
+            return platform_testing.create_configuration(**defaults)
 
     def _run(
         self,
-        *configurations: PlatformAlertConfiguration,
+        *configurations: PlatformConfigurationSnapshot,
         query_error: Exception | None = None,
         now: datetime | None = None,
-    ):
+    ) -> tuple[SourceBatchEvaluation, MagicMock]:
         now = now or self.cutoff
         breaching = {str(c.id): [BucketedCount(timestamp=now, count=500)] for c in configurations}
         with (
@@ -90,9 +97,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-            configuration.refresh_from_db()
-        assert alert.state == PlatformAlert.State.FIRING
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+            configuration = platform_testing.configuration(configuration.id)
+        assert alert.state == AlertState.FIRING
         assert alert.last_notified_at is not None
         # The schedule advanced, so the next tick does not rediscover this configuration.
         assert configuration.next_check_at is not None
@@ -112,8 +120,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert evaluation.deliveries
         with team_scope(self.team.id):
-            configuration.refresh_from_db()
-            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+            configuration = platform_testing.configuration(configuration.id)
+            assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_a_delivery_the_batch_cannot_carry_leaves_its_alert_due(self) -> None:
@@ -128,9 +136,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert len(evaluation.deliveries) == 1
         assert evaluation.omitted == 1
         with team_scope(self.team.id):
-            still_due = PlatformAlertConfiguration.objects.filter(
-                id__in=[c.id for c in configurations], next_check_at__lte=self.cutoff
-            ).count()
+            still_due = platform_testing.count_still_due([c.id for c in configurations], at=self.cutoff)
         assert still_due == 1
 
     def test_two_scheduled_checks_clamped_to_one_window_keep_distinct_keys(self) -> None:
@@ -145,7 +151,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         def run_at(next_check_at: datetime) -> str:
             with team_scope(self.team.id):
-                PlatformAlertConfiguration.objects.filter(id=configuration.id).update(next_check_at=next_check_at)
+                platform_testing.set_due_at(configuration.id, next_check_at)
             with (
                 patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=frozen_checkpoint),
                 patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
@@ -174,10 +180,11 @@ class TestLogsAlertEvaluation(APIBaseTest):
         query.assert_called_once()
         assert evaluation.deliveries == ()
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-            configuration.refresh_from_db()
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+            configuration = platform_testing.configuration(configuration.id)
         # An incident wholly inside the window must still leave a trace, and must not move the cooldown.
-        assert alert.state == PlatformAlert.State.FIRING
+        assert alert.state == AlertState.FIRING
         assert alert.last_notified_at is None
         assert alert.firing_started_at == self.cutoff
         # Parked at the end of the window would leave the alert unevaluated until noon.
@@ -198,8 +205,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         query.assert_not_called()
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-        assert alert.state == PlatformAlert.State.BROKEN
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+        assert alert.state == AlertState.BROKEN
         assert due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff + timedelta(hours=1)) == ()
 
     @parameterized.expand(
@@ -218,8 +226,9 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
         with team_scope(self.team.id):
-            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
-            configuration.refresh_from_db()
+            alert = platform_testing.alert_for(configuration.id)
+            assert alert is not None
+            configuration = platform_testing.configuration(configuration.id)
         assert alert.state == expected_state
         assert configuration.next_check_at is not None
         assert configuration.next_check_at > self.cutoff
@@ -232,8 +241,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 self._run(configuration, query_error=ExposedHogQLError("unknown field"))
 
         with team_scope(self.team.id):
-            configuration.refresh_from_db()
-            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+            configuration = platform_testing.configuration(configuration.id)
+            assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_the_logs_product_rows_are_never_written(self) -> None:

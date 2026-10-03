@@ -589,7 +589,9 @@ const meta: Meta = {
                         ? channel === 'space-checkout'
                             ? CANVASES
                             : []
-                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind'))
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind')).sort((first, second) =>
+                              second.updated_at.localeCompare(first.updated_at)
+                          )
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -1052,6 +1054,7 @@ export const ViewsEmpty: Story = {
 export const ViewsNewMenu: Story = {
     parameters: { pageUrl: urls.views() },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('New…'))
+        const [newView] = await within(canvasElement).findAllByText('New view')
+        await userEvent.click(newView)
     },
 }

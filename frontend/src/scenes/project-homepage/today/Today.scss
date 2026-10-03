@@ -135,7 +135,6 @@
 
     &[data-active='true'] {
         background: var(--today-soft);
-        transform: translateX(3px);
 
         .TodayNavItem__marker {
             color: #fff;
@@ -211,41 +210,6 @@
     margin-top: 3px;
     font-size: 11px;
     color: var(--today-faint);
-}
-
-// Shared sidebar footer
-
-.TodaySidebarFooter {
-    display: grid;
-    flex: none;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px;
-    align-items: center;
-    padding: 7px 0 16px;
-    margin: 0 12px;
-    border-top: 1px solid var(--today-line);
-}
-
-.TodaySidebarFooter__account,
-.TodaySidebarFooter__settings {
-    color: var(--today-secondary-text);
-
-    &:hover,
-    &[data-popup-open] {
-        color: var(--today-ink);
-    }
-}
-
-.TodaySidebarFooter__account {
-    min-width: 0;
-    padding-inline: 6px 8px;
-}
-
-.TodaySidebarFooter__name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 // Home

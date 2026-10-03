@@ -2599,6 +2599,8 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
@@ -14325,7 +14327,7 @@ export namespace Schemas {
     export interface BackfillCreate {
       /** Inclusive lower bound of the historical window to scan. */
       window_start: string;
-      /** Exclusive upper bound of the window; clamped server-side to now. */
+      /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
       window_end: string;
       /**
          * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
@@ -14348,7 +14350,7 @@ export namespace Schemas {
       credits_remaining: number | null;
       /** The window lower bound the estimate covered. */
       window_start: string;
-      /** The window upper bound after clamping to now. */
+      /** The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date. */
       window_end: string;
     }
 
@@ -14371,7 +14373,7 @@ export namespace Schemas {
     export interface BackfillWindow {
       /** Inclusive lower bound of the historical window to scan. */
       window_start: string;
-      /** Exclusive upper bound of the window; clamped server-side to now. */
+      /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
       window_end: string;
     }
 
@@ -19186,6 +19188,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     */
+    export type CalendarUnitEnum = typeof CalendarUnitEnum[keyof typeof CalendarUnitEnum];
+
+
+    export const CalendarUnitEnum = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
+    /**
      * * `needs_approval` - needs_approval
      * * `disabled` - disabled
      * * `removed` - removed
@@ -21737,20 +21753,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `day` - Day
-     * * `week` - Week
-     * * `month` - Month
-     */
-    export type SpaceGoalPeriodEnum = typeof SpaceGoalPeriodEnum[keyof typeof SpaceGoalPeriodEnum];
-
-
-    export const SpaceGoalPeriodEnum = {
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-    } as const;
-
-    /**
      * * `at_least` - At least
      * * `at_most` - At most
      */
@@ -21776,7 +21778,7 @@ export namespace Schemas {
        * * `day` - Day
        * * `week` - Week
        * * `month` - Month */
-      period?: SpaceGoalPeriodEnum;
+      period?: CalendarUnitEnum;
       /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
        *
        * * `at_least` - At least
@@ -34598,6 +34600,42 @@ export namespace Schemas {
       summary: DiagnosticReportSummary;
       /** Per-check results in execution order. */
       checks: DiagnosticCheckResult[];
+    }
+
+    /**
+     * * `ok` - OK
+     * * `no_web_sessions` - No web sessions
+     * * `no_sessions` - No sessions
+     * * `unknown` - Unknown
+     */
+    export type DigestDataStatusEnum = typeof DigestDataStatusEnum[keyof typeof DigestDataStatusEnum];
+
+
+    export const DigestDataStatusEnum = {
+      Ok: 'ok',
+      NoWebSessions: 'no_web_sessions',
+      NoSessions: 'no_sessions',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface DigestMetadata {
+      /** How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
+       *
+       * * `ok` - OK
+       * * `no_web_sessions` - No web sessions
+       * * `no_sessions` - No sessions
+       * * `unknown` - Unknown */
+      data_status: DigestDataStatusEnum;
+      /** Start of the current period, in the project timezone. */
+      date_from: string;
+      /** End of the current period, in the project timezone. */
+      date_to: string;
+      /** Project timezone for the period boundaries. */
+      timezone: string;
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+      filter_test_accounts: boolean;
+      /** Metric definitions to use when you compare the digest with a direct query. */
+      notes: string[];
     }
 
     /**
@@ -52422,10 +52460,20 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /**
+         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         * @nullable
+         */
+      readonly pending_suggestions: number | null;
+      /**
+         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * @nullable
+         */
+      readonly suggestions_enabled: boolean | null;
     }
 
     export interface HogFlowOptimization {
-      /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+      /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
     }
 
@@ -64540,6 +64588,16 @@ export namespace Schemas {
       signals_count: number;
       /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
       verification: VerificationRecord | null;
+      /**
+         * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+         * @nullable
+         */
+      experiment_variant?: string | null;
+      /**
+         * Experiment scanners only: the scanned session's duration in seconds.
+         * @nullable
+         */
+      session_duration_s?: number | null;
     }
 
     /**
@@ -64634,7 +64692,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -68108,8 +68166,19 @@ export namespace Schemas {
       readonly threshold_operator: string;
       /** Length of the evaluated time window, in minutes. */
       readonly window_minutes: number;
-      /** Minutes between scheduled checks. */
+      /** Minutes between scheduled checks. Applies when recurrence_unit is null. */
       readonly check_interval_minutes: number;
+      /** Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      readonly recurrence_unit: CalendarUnitEnum | null;
+      /**
+         * Local time (HH:MM in the project timezone) a calendar recurrence lands on. Null means the default anchor for the unit.
+         * @nullable
+         */
+      readonly anchor_time: string | null;
       /** Number of recent checks considered when deciding to fire. */
       readonly evaluation_periods: number;
       /** Number of breaching checks within evaluation_periods required to fire. */
@@ -73894,7 +73963,7 @@ export namespace Schemas {
     export type WorkflowProposalContent = { [key: string]: unknown };
 
     /**
-     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
      */
     export type WorkflowProposalEvidence = { [key: string]: unknown };
 
@@ -73906,7 +73975,7 @@ export namespace Schemas {
       readonly rationale: string;
       /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
       readonly content: WorkflowProposalContent;
-      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
       readonly evidence: WorkflowProposalEvidence;
       /**
          * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -73915,7 +73984,7 @@ export namespace Schemas {
       readonly step_id: string | null;
       /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
       readonly base_version: number;
-      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
       readonly is_stale: boolean;
       readonly status: WorkflowProposalStatusEnum;
       /**
@@ -106594,6 +106663,8 @@ export namespace Schemas {
       top_sources: TopSource[];
       /** Goal conversions. */
       goals: Goal[];
+      /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+      metadata: DigestMetadata;
       /** Link to the Web analytics dashboard for this project. */
       dashboard_url: string;
       /** The single weekly persona assigned from this week's data. */
@@ -106770,6 +106841,8 @@ export namespace Schemas {
       top_sources: TopSource[];
       /** Goal conversions. */
       goals: Goal[];
+      /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+      metadata: DigestMetadata;
       /** Link to the Web analytics dashboard for this project. */
       dashboard_url: string;
     }
@@ -107694,8 +107767,11 @@ export namespace Schemas {
       content: WorkflowProposalCreateContent;
       /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
       evidence?: WorkflowProposalCreateEvidence;
-      /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-      base_version?: number;
+      /**
+         * Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.
+         * @minimum 1
+         */
+      base_version: number;
       /**
          * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
          * @maxLength 200
@@ -107724,11 +107800,54 @@ export namespace Schemas {
       below_minimum_sample: boolean;
     }
 
+    export interface WorkflowVersionChange {
+      /**
+         * Step the field belongs to, or null for a workflow field.
+         * @nullable
+         */
+      step_name: string | null;
+      /** What changed, as a person reads it, e.g. 'email > subject'. */
+      field: string;
+      /**
+         * Value in the version before this one.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * Value this version published.
+         * @nullable
+         */
+      after: string | null;
+      /** Whether the suggestion is what changed this field. */
+      from_suggestion: boolean;
+    }
+
     export interface WorkflowProposalVersionOutcome {
       /** Workflow version these numbers belong to. */
       version: number;
+      /** Whether the suggestion went live as this version. */
+      applied?: boolean;
+      /** Whether the suggestion was written against this version. */
+      proposed_against?: boolean;
+      /** Whether this version still holds what the suggestion changed. */
+      carries_change?: boolean;
+      /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+      other_changes?: boolean;
+      /** What this version changed against the version before it. */
+      changes?: WorkflowVersionChange[];
+      /**
+         * When this version went live.
+         * @nullable
+         */
+      published_at?: string | null;
+      /** Who published this version. */
+      published_by?: UserBasic | null;
+      /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+      versions?: number[];
       /** The metric the suggestion aimed at. */
       target: WorkflowProposalMetric;
+      /** The rate read beside the target, so a lift in one is visible against the other. */
+      secondary?: WorkflowProposalMetric;
       /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
       click_through: WorkflowProposalMetric;
       /** Counter-metrics over the same window, so a harmful win is visible. */
@@ -107736,12 +107855,17 @@ export namespace Schemas {
     }
 
     export interface WorkflowProposalOutcome {
-      /** Relative window both sides were measured over. */
-      window: string;
+      /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+      versions: WorkflowProposalVersionOutcome[];
       /** The version the change was proposed against. */
       before: WorkflowProposalVersionOutcome | null;
-      /** The version it went live as. Null until the proposal is applied. */
+      /** The versions that carried the change. Null until the proposal is applied. */
       after: WorkflowProposalVersionOutcome | null;
+      /**
+         * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+         * @nullable
+         */
+      change_ended_at_version: number | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
     }
@@ -113111,6 +113235,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering;
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string;
@@ -113123,6 +113251,14 @@ export namespace Schemas {
       Component: 'component',
       Freeform: 'freeform',
       Grid: 'grid',
+    } as const;
+
+    export type CanvasesListOrdering = typeof CanvasesListOrdering[keyof typeof CanvasesListOrdering];
+
+
+    export const CanvasesListOrdering = {
+      CreatedAt: '-created_at',
+      UpdatedAt: '-updated_at',
     } as const;
 
     export type CanvasesBuildsRetrieveParams = {
@@ -113939,6 +114075,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.
+     */
+    ordering?: DashboardsListOrdering;
+    /**
      * Optional. Return only pinned dashboards.
      */
     pinned?: boolean;
@@ -113954,6 +114094,13 @@ export namespace Schemas {
     export const DashboardsListFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsListOrdering = typeof DashboardsListOrdering[keyof typeof DashboardsListOrdering];
+
+
+    export const DashboardsListOrdering = {
+      LastViewedAt: '-last_viewed_at',
     } as const;
 
     export type DashboardsCreateParams = {
@@ -117966,6 +118113,72 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFlowsMetricsVersionRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsVersionRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsVersionRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version: number;
+    };
+
+    export type HogFlowsMetricsVersionRetrieveBreakdownBy = typeof HogFlowsMetricsVersionRetrieveBreakdownBy[keyof typeof HogFlowsMetricsVersionRetrieveBreakdownBy];
+
+
+    export const HogFlowsMetricsVersionRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFlowsMetricsVersionRetrieveInterval = typeof HogFlowsMetricsVersionRetrieveInterval[keyof typeof HogFlowsMetricsVersionRetrieveInterval];
+
+
+    export const HogFlowsMetricsVersionRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
@@ -117990,13 +118203,6 @@ export namespace Schemas {
       Rejected: 'rejected',
       Suggested: 'suggested',
     } as const;
-
-    export type HogFlowsProposalsOutcomeRetrieveParams = {
-    /**
-     * Relative window, e.g. -7d. Defaults to -7d.
-     */
-    window?: string;
-    };
 
     export type HogFlowsRevisionsListParams = {
     /**
@@ -122756,6 +122962,13 @@ export namespace Schemas {
     resync?: boolean;
     };
 
+    export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean;
+    };
+
     export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
@@ -124118,6 +124331,10 @@ export namespace Schemas {
     };
 
     export type WizardRunsListParams = {
+    /**
+     * Only return runs created after this timestamp.
+     */
+    created_after?: string;
     /**
      * Number of results to return per page.
      */

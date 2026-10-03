@@ -1,41 +1,44 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconGridMasonry, IconPlus, IconSearch } from '@posthog/icons'
-import { Button, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconGridMasonry } from '@posthog/icons'
+import { Button, Spinner } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
-import { NewViewMenu } from 'scenes/views/NewViewMenu'
 import { VIEW_TYPE_INFO } from 'scenes/views/viewsUtils'
 import { ViewTypeIcon } from 'scenes/views/ViewTypeIcon'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
-import { TodayPaneSearchField } from './TodayPaneSearchField'
-import { TodayPaneSection } from './TodayPaneSection'
+import { matchesPaneQuery } from './todayPaneSearch'
+import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayViewsFilterMenu } from './TodayViewsFilterMenu'
 import { todayViewsLogic } from './todayViewsLogic'
 import { shortTimeAgo } from './todayWorkItems'
 
-/** The Views sub-nav: a "New" menu, the full list, and the most recent views of every type, newest first. */
+/** The Views sub-nav: recently viewed views, then the full list, newest first. */
 export function TodayViewsSidebar(): JSX.Element {
     const {
         recentViews,
+        recentReady,
         recentItems,
         recentViewsLoading,
         recentUnavailable,
-        recentCollapsed,
         recentQuery,
-        recentSearchVisible,
         recentFiltersActive,
         buildingViewIds,
+        recentlyViewed: recents,
     } = useValues(todayViewsLogic)
-    const { loadRecentViews, toggleRecent, setRecentQuery, setRecentSearchOpen, clearRecentSearchAndFilters } =
-        useActions(todayViewsLogic)
+    const { loadRecentViews, setRecentQuery, clearRecentSearchAndFilters } = useActions(todayViewsLogic)
     const narrowed = recentQuery.trim() !== '' || recentFiltersActive
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
-    const failedTypes = recentViews?.failedTypes ?? []
+    const failedTypes = recentViews.failedTypes
+    const showAll = matchesPaneQuery('All views', recentQuery)
 
     const retryButton = (size: 'sm' | 'xs'): JSX.Element => (
         <Button
@@ -51,64 +54,42 @@ export function TodayViewsSidebar(): JSX.Element {
 
     return (
         <div className="TodayPane" data-quill>
-            <NewViewMenu
-                trigger={<Button variant="primary" size="lg" className="w-full" data-attr="today-views-new" />}
+            <TodayPaneSearchList
+                query={recentQuery}
+                onQueryChange={setRecentQuery}
+                searchLabel="Search views"
+                dataAttr="today-views-search"
+                searchActions={<TodayViewsFilterMenu />}
             >
-                <IconPlus />
-                New…
-            </NewViewMenu>
-            <div className="TodayPane__scroll">
-                <TodayPaneRow
-                    label="All views"
-                    icon={<IconGridMasonry />}
-                    to={urls.views()}
-                    active={path === urls.views()}
-                    dataAttr="today-views-all"
-                />
-                <TodayPaneSection
-                    label="Recent"
-                    open={!recentCollapsed}
-                    count={recentItems.length}
-                    onToggle={toggleRecent}
-                    dataAttr="today-views-section-recent"
-                    heading={
-                        recentSearchVisible ? (
-                            <TodayPaneSearchField
-                                query={recentQuery}
-                                resultCount={recentItems.length}
-                                label="Search views"
-                                onQueryChange={setRecentQuery}
-                                onClose={() => setRecentSearchOpen(false)}
-                                dataAttr="today-views-search"
+                {recents.length > 0 && (
+                    <div>
+                        <TodayPaneGroupLabel first>Recently viewed</TodayPaneGroupLabel>
+                        {recents.map((recent) => (
+                            <TodayPaneRow
+                                key={recent.entry.id}
+                                value={`recent:${recent.entry.id}`}
+                                label={recent.name}
+                                icon={iconForType(recent.entry.type as FileSystemIconType)}
+                                to={recent.href}
+                                active={path === removeProjectIdIfPresent(recent.href)}
+                                dataAttr="today-views-recently-viewed"
                             />
-                        ) : null
-                    }
-                    actions={
-                        <>
-                            {!recentSearchVisible && (
-                                <Tooltip>
-                                    <TooltipTrigger
-                                        delay={0}
-                                        render={
-                                            <Button
-                                                size="icon-xs"
-                                                className="text-muted-foreground"
-                                                aria-label="Search views"
-                                                onClick={() => setRecentSearchOpen(true)}
-                                                data-attr="today-views-search-open"
-                                            />
-                                        }
-                                    >
-                                        <IconSearch />
-                                    </TooltipTrigger>
-                                    <TooltipContent>Search views</TooltipContent>
-                                </Tooltip>
-                            )}
-                            <TodayViewsFilterMenu />
-                        </>
-                    }
-                >
-                    {!recentViews || (recentViewsLoading && !recentItems.length) ? (
+                        ))}
+                    </div>
+                )}
+                <div>
+                    <TodayPaneGroupLabel first={!recents.length}>Views</TodayPaneGroupLabel>
+                    {showAll && (
+                        <TodayPaneRow
+                            value="all"
+                            label="All views"
+                            icon={<IconGridMasonry />}
+                            to={urls.views()}
+                            active={path === urls.views()}
+                            dataAttr="today-views-all"
+                        />
+                    )}
+                    {recentUnavailable || !recentReady ? (
                         recentUnavailable ? (
                             <div className="TodayPane__state">
                                 <span>Your views didn’t load.</span>
@@ -131,30 +112,18 @@ export function TodayViewsSidebar(): JSX.Element {
                                 Clear filters
                             </Button>
                         </div>
-                    ) : !recentItems.length && !failedTypes.length && !recentUnavailable ? (
+                    ) : !recentItems.length && !failedTypes.length ? (
                         <div className="TodayPane__state">
                             Canvases, notebooks and dashboards you create show up here.
                         </div>
                     ) : (
                         <>
-                            {(recentUnavailable || failedTypes.length > 0) && (
+                            {failedTypes.length > 0 && (
                                 <div className="TodayPane__state">
                                     <span>
-                                        {recentUnavailable
-                                            ? 'Your views didn’t refresh.'
-                                            : `${failedTypes.map((type) => VIEW_TYPE_INFO[type].pluralLabel).join(' and ')} didn’t load.`}
+                                        {`${failedTypes.map((type) => VIEW_TYPE_INFO[type].pluralLabel).join(' and ')} didn’t load.`}
                                     </span>
                                     {retryButton('xs')}
-                                </div>
-                            )}
-                            {recentViews.truncated && (
-                                <div className="TodayPane__state">
-                                    Some views are not shown. Open All views and use search to find them.
-                                </div>
-                            )}
-                            {recentViewsLoading && (
-                                <div className="TodayPane__state" role="status">
-                                    Loading more views…
                                 </div>
                             )}
                             {recentItems.map((item) => {
@@ -162,6 +131,7 @@ export function TodayViewsSidebar(): JSX.Element {
                                 return (
                                     <TodayPaneRow
                                         key={`${item.type}-${item.id}`}
+                                        value={`view:${item.type}-${item.id}`}
                                         label={item.name}
                                         icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
                                         meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
@@ -173,8 +143,8 @@ export function TodayViewsSidebar(): JSX.Element {
                             })}
                         </>
                     )}
-                </TodayPaneSection>
-            </div>
+                </div>
+            </TodayPaneSearchList>
         </div>
     )
 }

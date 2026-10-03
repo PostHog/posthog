@@ -202,7 +202,7 @@ Reset to defaults clears the custom selection, sorting, and pins for later visit
 
 ### Conversion recordings
 
-See [Marketing analytics conversion recordings](../../products/marketing_analytics/CONVERSION_RECORDINGS.md) for row selection, session attribution, and replay behavior.
+See [Marketing analytics conversion recordings](../../products/marketing_analytics/conversion-recordings.md) for row selection, session attribution, and replay behavior.
 
 ## Marketing metric chart
 
