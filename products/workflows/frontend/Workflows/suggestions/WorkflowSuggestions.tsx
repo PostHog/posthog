@@ -4,6 +4,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { WorkflowAppliedOutcome } from './WorkflowAppliedOutcome'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
+import { WorkflowRejectedSuggestions } from './WorkflowRejectedSuggestions'
 import { WorkflowStagedSuggestion } from './WorkflowStagedSuggestion'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 import { WorkflowSuggestionsIntroduction } from './WorkflowSuggestionsIntroduction'
@@ -51,6 +52,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         pendingProposals,
         approvedProposals,
         appliedProposals,
+        rejectedProposals,
         outcomes,
         optimizationEnabled,
         optimization,
@@ -59,9 +61,11 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         proposalsResponse,
         approvedResponse,
         appliedResponse,
+        rejectedResponse,
         proposalsResponseLoading,
         approvedResponseLoading,
         appliedResponseLoading,
+        rejectedResponseLoading,
         listsUnreadable,
     } = useValues(workflowProposalsLogic({ id }))
     const { reloadLists } = useActions(workflowProposalsLogic({ id }))
@@ -73,6 +77,7 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         proposalsResponseLoading ||
         approvedResponseLoading ||
         appliedResponseLoading ||
+        rejectedResponseLoading ||
         appliedProposals.some((proposal) => !outcomes[proposal.id])
 
     if ((optimization === null && optimizationLoading) || (optimizationEnabled && listsUnknown && !listsUnreadable)) {
@@ -83,7 +88,12 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
         return <SuggestionsUnreadableList onRetry={reloadLists} />
     }
 
-    const nothingFiled = pendingProposals.length === 0 && approvedProposals.length === 0 && measuredApplied.length === 0
+    // A rejected suggestion still counts as filed, so a mistaken rejection stays visible rather than vanishing.
+    const nothingFiled =
+        pendingProposals.length === 0 &&
+        approvedProposals.length === 0 &&
+        measuredApplied.length === 0 &&
+        rejectedProposals.length === 0
 
     // A failed read leaves the setting unknown, so it cannot stand in for "off".
     const notice = optimizationUnreadable ? (
@@ -149,6 +159,12 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
                         <WorkflowAppliedOutcome key={proposal.id} proposal={proposal} outcome={outcomes[proposal.id]} />
                     ))}
                 </div>
+            )}
+            {rejectedProposals.length > 0 && (
+                <WorkflowRejectedSuggestions
+                    proposals={rejectedProposals}
+                    total={rejectedResponse?.count ?? rejectedProposals.length}
+                />
             )}
         </div>
     )

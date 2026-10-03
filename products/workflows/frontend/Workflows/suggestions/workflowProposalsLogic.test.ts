@@ -243,4 +243,12 @@ describe('workflowProposalsLogic', () => {
 
         expect(approveBodies).toEqual([])
     })
+
+    it('rejecting reloads the rejected list so the suggestion stays visible', async () => {
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess', 'loadRejectedSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.confirmRejectProposal(PROPOSAL_ID)
+        }).toDispatchActions(['removeResolvedProposal', 'loadRejected', 'loadRejectedSuccess'])
+    })
 })
