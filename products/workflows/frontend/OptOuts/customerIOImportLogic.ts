@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { ApiRequest, getCookie } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -563,6 +564,8 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
         setImportProgress: ({ importProgress }) => {
             if (importProgress.status === 'completed') {
                 lemonToast.success('Customer.io API import completed!')
+                // pinned: analytics event name
+                posthog.capture('messaging customer.io import completed', { source: 'api' })
                 optOutCategoriesLogic.findMounted()?.actions.loadCategories()
             } else if (importProgress.status === 'failed') {
                 const errorMessage = importProgress.errors?.join(', ') || 'Import failed'
@@ -606,6 +609,8 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
 
                 if (data.status === 'completed') {
                     lemonToast.success('CSV import completed.')
+                    // pinned: analytics event name
+                    posthog.capture('messaging customer.io import completed', { source: 'csv' })
                     actions.loadSyncConfig()
                     optOutCategoriesLogic.findMounted()?.actions.loadCategories()
                 } else if (data.status === 'failed') {
