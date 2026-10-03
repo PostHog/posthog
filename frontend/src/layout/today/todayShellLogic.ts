@@ -141,11 +141,11 @@ export interface todayShellLogicActions {
     pickPane: (pane: TodayRailPane) => {
         pane: TodayRailPane
     }
-    setPhonePages: (pages: TodayPhonePage[]) => {
-        pages: TodayPhonePage[]
-    }
     setMobileSidebarOpen: (open: boolean) => {
         open: boolean
+    }
+    setPhonePages: (pages: TodayPhonePage[]) => {
+        pages: TodayPhonePage[]
     }
     setSidebarOpen: (open: boolean) => {
         open: boolean
