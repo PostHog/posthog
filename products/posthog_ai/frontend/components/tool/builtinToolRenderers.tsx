@@ -145,13 +145,11 @@ const ExitPlanModeRenderer = memo(function ExitPlanModeRenderer(props: ToolRende
         return <div className="my-2">{plan && <PlanCard plan={plan} id={`plan-${message.id}`} />}</div>
     }
 
-    const statusContent = isComplete ? (
-        <>
-            <IconCheckCircle className="size-4 shrink-0 text-success" />
-            <span className="text-[13px] text-success">Plan approved — proceeding with implementation</span>
-        </>
+    const statusIcon = isComplete && <IconCheckCircle className="mt-0.5 size-4 shrink-0 text-success" />
+    const statusText = isComplete ? (
+        <span className="text-success">Plan approved — proceeding with implementation</span>
     ) : (
-        <span className="text-[13px] text-muted">(Plan rejected)</span>
+        <span className="text-muted">(Plan rejected)</span>
     )
 
     return (
@@ -161,16 +159,25 @@ const ExitPlanModeRenderer = memo(function ExitPlanModeRenderer(props: ToolRende
                     type="button"
                     onClick={() => setIsPlanExpanded((expanded) => !expanded)}
                     aria-expanded={isPlanExpanded}
-                    className="flex items-center gap-2 rounded px-1 text-left hover:bg-fill-button-tertiary-hover"
+                    className="flex items-start gap-2 rounded px-1 text-left hover:bg-fill-button-tertiary-hover"
                 >
                     <IconChevronRight
-                        className={`size-3 shrink-0 text-muted transition-transform ${isPlanExpanded ? 'rotate-90' : ''}`}
+                        className={`mt-1 size-3 shrink-0 text-muted transition-transform ${isPlanExpanded ? 'rotate-90' : ''}`}
                     />
-                    {statusContent}
-                    <span className="text-[13px] text-muted">· {isPlanExpanded ? 'hide plan' : 'show plan'}</span>
+                    {statusIcon}
+                    {/* One text run, so a narrow row wraps it like a sentence instead of as two columns. */}
+                    <span className="min-w-0 text-[13px]">
+                        {statusText}{' '}
+                        <span className="whitespace-nowrap text-muted">
+                            · {isPlanExpanded ? 'hide plan' : 'show plan'}
+                        </span>
+                    </span>
                 </button>
             ) : (
-                <div className="flex items-center gap-2 px-1">{statusContent}</div>
+                <div className="flex items-start gap-2 px-1">
+                    {statusIcon}
+                    <span className="min-w-0 text-[13px]">{statusText}</span>
+                </div>
             )}
             {plan && isPlanExpanded && (
                 <div className="mt-2">
