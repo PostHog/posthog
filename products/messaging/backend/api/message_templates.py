@@ -91,13 +91,13 @@ class EmailTemplateSerializer(serializers.Serializer):
     )
 
 
-class MessageTemplateTemplating(models.TextChoices):
+class MessageTemplateContentTemplating(models.TextChoices):
     LIQUID = "liquid", "liquid"
 
 
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
-        choices=MessageTemplateTemplating.choices,
+        choices=MessageTemplateContentTemplating.choices,
         default="liquid",
         help_text="Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.",
     )

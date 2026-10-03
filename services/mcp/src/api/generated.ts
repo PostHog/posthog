@@ -63204,10 +63204,10 @@ export namespace Schemas {
     /**
      * * `liquid` - liquid
      */
-    export type MessageTemplateTemplatingEnum = typeof MessageTemplateTemplatingEnum[keyof typeof MessageTemplateTemplatingEnum];
+    export type MessageTemplateContentTemplatingEnum = typeof MessageTemplateContentTemplatingEnum[keyof typeof MessageTemplateContentTemplatingEnum];
 
 
-    export const MessageTemplateTemplatingEnum = {
+    export const MessageTemplateContentTemplatingEnum = {
       Liquid: 'liquid',
     } as const;
 
@@ -63215,7 +63215,7 @@ export namespace Schemas {
       /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
        *
        * * `liquid` - liquid */
-      templating?: MessageTemplateTemplatingEnum;
+      templating?: MessageTemplateContentTemplatingEnum;
       /** Email message content. Replaced as a whole on update — send the complete object. */
       email?: EmailTemplate | null;
     }

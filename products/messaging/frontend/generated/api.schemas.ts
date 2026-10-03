@@ -247,10 +247,10 @@ export interface PaginatedMessageSuppressionApi {
 /**
  * * `liquid` - liquid
  */
-export type MessageTemplateTemplatingEnumApi =
-    (typeof MessageTemplateTemplatingEnumApi)[keyof typeof MessageTemplateTemplatingEnumApi]
+export type MessageTemplateContentTemplatingEnumApi =
+    (typeof MessageTemplateContentTemplatingEnumApi)[keyof typeof MessageTemplateContentTemplatingEnumApi]
 
-export const MessageTemplateTemplatingEnumApi = {
+export const MessageTemplateContentTemplatingEnumApi = {
     Liquid: 'liquid',
 } as const
 
@@ -307,7 +307,7 @@ export interface MessageTemplateContentApi {
     /** Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.
      *
      * * `liquid` - liquid */
-    templating?: MessageTemplateTemplatingEnumApi
+    templating?: MessageTemplateContentTemplatingEnumApi
     /** Email message content. Replaced as a whole on update — send the complete object. */
     email?: EmailTemplateApi | null
 }
