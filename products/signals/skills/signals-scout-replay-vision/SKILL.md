@@ -124,8 +124,11 @@ SELECT properties.scanner_id AS scanner_id,
        count() AS obs,
        round(countIf(isNotNull(properties.scanner_output_verdict)) / count(), 2) AS verdict_cov,
        round(countIf(isNotNull(properties.scanner_output_score)) / count(), 2) AS score_cov,
-       round(countIf(isNotNull(properties.scanner_output_tags) OR isNotNull(properties.scanner_output_tags_freeform)) / count(), 2) AS tags_cov,
-       round(countIf(isNotNull(properties.scanner_output_title) OR isNotNull(properties.scanner_output_summary)) / count(), 2) AS summary_cov
+       round(countIf(isNotNull(properties.scanner_output_label)) / count(), 2) AS label_cov,
+       round(countIf(isNotNull(properties.scanner_output_tags)) / count(), 2) AS tags_cov,
+       round(countIf(isNotNull(properties.scanner_output_tags_freeform)) / count(), 2) AS tags_freeform_cov,
+       round(countIf(isNotNull(properties.scanner_output_title)) / count(), 2) AS title_cov,
+       round(countIf(isNotNull(properties.scanner_output_summary)) / count(), 2) AS summary_cov
 FROM events
 WHERE event = '$recording_observed'
   AND timestamp >= now() - INTERVAL 28 DAY
@@ -134,7 +137,7 @@ GROUP BY scanner_id, period
 ORDER BY scanner_id, period
 ```
 
-3. Use a field for a scanner only when its coverage is near `1.0` in both windows. A field that covers only one window gives a coverage step, not an output shift.
+3. Read each field's coverage on its own. Use a field for a scanner only when its coverage is near `1.0` in both windows. A field that covers only one window gives a coverage step, not an output shift.
 4. When the field is absent or partial, use the fallback for the scanner type:
 
 | Type                    | Field it needs            | Fallback when the field is absent or partial                                                                                                                   |
