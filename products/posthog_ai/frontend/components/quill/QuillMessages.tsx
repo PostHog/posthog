@@ -26,6 +26,10 @@ const ASSISTANT_TABLE_CLASS = cn(
     '[&_:is(th,td):first-child]:sticky [&_:is(th,td):first-child]:left-0 [&_:is(th,td):first-child]:z-1 [&_:is(th,td):first-child]:bg-(--background)'
 )
 
+// The copy button gets its own strip above the code, so it never covers the first line.
+const ASSISTANT_CODE_CLASS =
+    '[&_.CodeSnippet_pre]:!pt-7 [&_.CodeSnippet>div:first-child]:!top-1 [&_.CodeSnippet>div:first-child]:!right-1'
+
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
  * is measured against the clamped height and re-measured on resize, and the toggle only appears when the
@@ -107,7 +111,11 @@ export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item 
             <ChatMessageContent className="gap-1">
                 <ChatBubble variant="ghost">
                     <ChatBubbleContent>
-                        <MarkdownMessage content={item.text ?? ''} id={item.id} className={ASSISTANT_TABLE_CLASS} />
+                        <MarkdownMessage
+                            content={item.text ?? ''}
+                            id={item.id}
+                            className={cn(ASSISTANT_TABLE_CLASS, ASSISTANT_CODE_CLASS)}
+                        />
                     </ChatBubbleContent>
                 </ChatBubble>
             </ChatMessageContent>
