@@ -1,7 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -16,21 +15,18 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { projectNotice, projectNoticeVariant } = useValues(projectNoticeLogic)
     const { reportNoticeShown } = useActions(projectNoticeLogic)
     const { sceneConfig } = useValues(sceneLogic)
-    // The flag hides PostHog's own nudges only. The member notice is the organization's message to its members.
-    const hideProjectNotice =
-        useFeatureFlag('UX_HIDE_PROJECT_NOTICE') && projectNoticeVariant !== 'organization_member_notice'
 
     const requiresHorizontalMargin = sceneConfig?.layout && LAYOUT_WITH_HORIZONTAL_MARGIN.includes(sceneConfig.layout)
 
     // KLUDGE: We can't really depend on `projectNotice` being set inside the logic
     // to trigger the action from inside the logic, so let's do it here.
     useEffect(() => {
-        if (projectNoticeVariant && !hideProjectNotice) {
+        if (projectNoticeVariant) {
             reportNoticeShown()
         }
-    }, [projectNoticeVariant, reportNoticeShown, hideProjectNotice])
+    }, [projectNoticeVariant, reportNoticeShown])
 
-    if (!projectNotice || hideProjectNotice) {
+    if (!projectNotice) {
         return null
     }
 

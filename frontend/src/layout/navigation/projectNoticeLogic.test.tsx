@@ -6,8 +6,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -520,6 +522,29 @@ describe('projectNoticeLogic', () => {
                 targetBlank: true,
                 children: 'Read the policy',
             })
+
+            logic.unmount()
+        })
+
+        it.each([
+            {
+                label: 'falls back to the member notice',
+                memberNotice: { message: 'Read the policy.' },
+                expected: 'organization_member_notice',
+            },
+            { label: 'shows nothing without a member notice', memberNotice: null, expected: null },
+        ])('$label when the hide-notice flag is on and a PostHog notice applies', ({ memberNotice, expected }) => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                member_notice: memberNotice,
+            })
+            apiStatusLogic.actions.setInternetConnectionIssue(true)
+
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.UX_HIDE_PROJECT_NOTICE]: true })
+
+            expect(logic.values.projectNoticeVariant).toEqual(expected)
 
             logic.unmount()
         })

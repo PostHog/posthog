@@ -8,11 +8,13 @@ import api, { ApiError } from 'lib/api'
 import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
@@ -226,6 +228,7 @@ export interface projectNoticeLogicValues {
     user: UserType | null // userLogic
     effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
+    postHogNoticeVariant: ProjectNoticeVariant | null
     projectNotice: ProjectNoticeBlueprint | null
     projectNoticeDismissKey: string | null
     projectNoticeVariant: ProjectNoticeVariant | null
@@ -277,7 +280,7 @@ export interface projectNoticeLogicMeta {
             billingAlert: BillingAlertConfig | null,
             fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
         ) => BillingAlertConfig | null
-        projectNoticeVariant: (
+        postHogNoticeVariant: (
             currentOrganization: null | import('~/types').OrganizationType,
             currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
             preflight: null | import('~/types').PreflightStatus,
@@ -301,6 +304,11 @@ export interface projectNoticeLogicMeta {
             arg: number,
             hasReverseProxy: boolean | null,
             isProvisionedUser: boolean
+        ) => ProjectNoticeVariant | null
+        projectNoticeVariant: (
+            postHogNoticeVariant: ProjectNoticeVariant | null,
+            arg: boolean,
+            arg2: boolean
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -407,7 +415,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 return billingAlert
             },
         ],
-        projectNoticeVariant: [
+        postHogNoticeVariant: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
@@ -456,10 +464,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return null
                 }
 
-                // Dismissing a PostHog nudge must not hide the organization's own notice, which members can't dismiss.
-                const hasMemberNotice = !!organization.member_notice?.message
                 if (noticeDismissedThisSession) {
-                    return hasMemberNotice ? 'organization_member_notice' : null
+                    return null
                 }
 
                 if (internetConnectionIssue) {
@@ -511,11 +517,27 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {
                     return 'invite_teammates'
-                } else if (hasMemberNotice) {
-                    return 'organization_member_notice'
                 }
 
                 return null
+            },
+        ],
+        projectNoticeVariant: [
+            (s) => [
+                s.postHogNoticeVariant,
+                (state) => !!organizationLogic.selectors.currentOrganization(state)?.member_notice?.message,
+                (state) => !!featureFlagLogic.selectors.featureFlags(state)[FEATURE_FLAGS.UX_HIDE_PROJECT_NOTICE],
+            ],
+            (
+                postHogNoticeVariant: ProjectNoticeVariant | null,
+                hasMemberNotice: boolean,
+                hidePostHogNotices: boolean
+            ): ProjectNoticeVariant | null => {
+                // The member notice comes last. Members can't dismiss it, and the flag only hides PostHog's notices.
+                if (postHogNoticeVariant && !hidePostHogNotices) {
+                    return postHogNoticeVariant
+                }
+                return hasMemberNotice ? 'organization_member_notice' : null
             },
         ],
         projectNoticeDismissKey: [
