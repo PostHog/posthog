@@ -1,4 +1,4 @@
-import { defaultTreeAdapter, parse, serialize } from 'parse5'
+import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, serialize } from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
@@ -17,19 +17,24 @@ type SandboxEmailOutcome =
     | { type: 'blocked'; reason: 'switch_off'; blockedRecipientCount: number }
 
 function appendHtmlFooter(html: string, footer: string): string {
-    const document = parse(html)
+    const document = parse(html, { scriptingEnabled: false })
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
     const body = root?.childNodes.find((node) => defaultTreeAdapter.isElementNode(node) && node.tagName === 'body')
     if (!body || !defaultTreeAdapter.isElementNode(body)) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
     }
-    const nodes = [...body.childNodes]
+    const nodes: DefaultTreeAdapterMap['childNode'][] = [...document.childNodes]
     for (const node of nodes) {
         if (defaultTreeAdapter.isElementNode(node)) {
-            if (node.tagName === 'plaintext') {
+            if (node.tagName === 'plaintext' && node.namespaceURI === body.namespaceURI) {
                 node.tagName = 'pre'
             }
             nodes.push(...node.childNodes)
+            if (node.tagName === 'template' && node.namespaceURI === body.namespaceURI) {
+                nodes.push(
+                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
+                )
+            }
         }
     }
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
@@ -40,7 +45,7 @@ function appendHtmlFooter(html: string, footer: string): string {
     ])
     defaultTreeAdapter.insertText(paragraph, footer)
     defaultTreeAdapter.appendChild(body, paragraph)
-    return serialize(document)
+    return serialize(document, { scriptingEnabled: false })
 }
 
 export class SandboxEmailSender {

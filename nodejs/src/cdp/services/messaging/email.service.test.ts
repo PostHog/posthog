@@ -7,6 +7,7 @@ import {
     TooManyRequestsException,
 } from '@aws-sdk/client-sesv2'
 import { HighLevelProducer } from 'node-rdkafka'
+import { parseFragment } from 'parse5'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import {
@@ -325,9 +326,33 @@ describe('EmailService', () => {
                 ],
                 [false, '<body><textarea>Hello </body>', '<textarea>Hello &lt;/body&gt;</textarea>'],
                 [false, '<body><plaintext>Hello </body>', '<pre>Hello &lt;/body&gt;</pre>'],
+                [
+                    false,
+                    '<body><p>Hello</p><template><plaintext>Example',
+                    '<p>Hello</p><template><pre>Example</pre></template>',
+                    true,
+                ],
+                [
+                    false,
+                    '<head><template><plaintext>Example',
+                    '<head><template><pre>Example</pre></template></head>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body><p>Hello</p><noscript><style>p {color:blue}',
+                    '<p>Hello</p><noscript><style>p {color:blue}</style></noscript>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body><p>Hello</p><noscript>&lt;plaintext&gt;Example</noscript></body>',
+                    '<p>Hello</p><noscript>&lt;plaintext&gt;Example</noscript>',
+                    true,
+                ],
             ] as const)(
                 'sends untracked with the fixed identity and organization footer (isTest=%s, html=%s)',
-                async (isTest, html, expectedContent) => {
+                async (isTest, html, expectedContent, htmlOnly: boolean = false) => {
                     const outputs = new IngestionOutputs({
                         message_assets: new SingleIngestionOutput(
                             'message_assets',
@@ -343,7 +368,7 @@ describe('EmailService', () => {
                         replyTo: 'reply@example.com',
                         cc: 'cc@example.com',
                         bcc: 'bcc@example.com',
-                        text: 'Hello there.',
+                        text: htmlOnly ? undefined : 'Hello there.',
                         html,
                     })
                     invocation.hogFunction.metadata = { message_category_type: 'marketing', tracking_enabled: true }
@@ -370,7 +395,9 @@ describe('EmailService', () => {
                         Content: {
                             Simple: {
                                 Body: {
-                                    Text: { Data: `Hello there.\n\n${footer}`, Charset: 'UTF-8' },
+                                    ...(htmlOnly
+                                        ? {}
+                                        : { Text: { Data: `Hello there.\n\n${footer}`, Charset: 'UTF-8' } }),
                                     Html: {
                                         Charset: 'UTF-8',
                                     },
@@ -379,8 +406,17 @@ describe('EmailService', () => {
                         },
                     })
                     const sentHtml = input.Content?.Simple?.Body?.Html?.Data
-                    expect(sentHtml).toContain(`<body>${expectedContent}<div style="`)
+                    expect(sentHtml).toContain(expectedContent)
                     expect(sentHtml?.endsWith(`>${footer}</div></body></html>`)).toBe(true)
+                    for (const scriptingEnabled of [false, true]) {
+                        expect(parseFragment(sentHtml!, { scriptingEnabled }).childNodes.at(-1)).toMatchObject({
+                            tagName: 'div',
+                            childNodes: [{ nodeName: '#text', value: footer }],
+                        })
+                    }
+                    if (htmlOnly) {
+                        expect(input.Content?.Simple?.Body?.Text).toBeUndefined()
+                    }
                     expect(sentHtml).toContain(
                         'display:block!important;visibility:visible!important;opacity:1!important'
                     )
