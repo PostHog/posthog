@@ -163,9 +163,10 @@ tools:
         title: Update an email sender
         description: >
             Change an email sender's display name or its MAIL FROM subdomain. Send the full config with the sender's
-            current `email`, which cannot change. mail_from_subdomain applies to every sender on the domain and changes
-            the MX and SPF records the domain needs, so confirm it with the person first, then call
-            integrations-email-verify-create and publish the new records.
+            current `email`, which cannot change, and its current `name` unless you rename it. No read tool returns the
+            name: take it from the integrations-email-create response, or ask the person. mail_from_subdomain applies to
+            every sender on the domain and changes the MX and SPF records the domain needs, so confirm it with the
+            person first, then call integrations-email-verify-create and publish the new records.
         param_overrides:
             config:
                 input_schema: EmailSenderConfigSchema

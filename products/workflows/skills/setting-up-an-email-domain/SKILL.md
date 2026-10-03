@@ -44,6 +44,7 @@ If a sender with the exact requested address exists, skip to step 3 with its `id
 Never create it again: re-creating an existing sender marks it unverified until the next successful verify.
 If a sender with a different address exists on the same domain, call `integrations-email-verify-create` with its `id` before creating the new one.
 Its MAIL FROM records sit at `<label>.<domain>`; note that `<label>` for step 2.
+If that call returns a 403, stop and ask a project admin to add the sender or to tell you the label: creating it with another label moves the MAIL FROM for every sender on the domain.
 
 ### 2. Create the sender
 
@@ -76,10 +77,12 @@ Pick the first path that works:
    Read [references/publishing-records.md](references/publishing-records.md) first: it covers the records that must be merged, not duplicated.
 3. **Hand the records to the person.**
    List the records that are not `success` plus the two SPF records, as a table with type, name, value and priority.
+   Mark the DMARC record as needed only when the domain has no `_dmarc` record yet: look it up if you can, otherwise ask the person to check their DNS host before adding it.
    Mention that many DNS hosts append the domain to the name field, so they enter `_amazonses.mail` rather than `_amazonses.mail.example.com` when the zone is `example.com`.
 
 When you publish records yourself or hand them over, never create a second `_dmarc` record.
-If the domain already has one, the DMARC record shows as `success` with the existing value; keep it.
+If the domain already has one, the DMARC record usually shows as `success` with the existing value; keep it.
+A `pending` DMARC record can also mean the lookup timed out, so confirm the domain has no `_dmarc` record before adding one.
 
 ### 5. Verify until it succeeds
 
@@ -102,6 +105,7 @@ The records are already in place, so it succeeds without new DNS work.
 ## Changing a sender
 
 Use `integrations-email-partial-update` to change the display name or MAIL FROM subdomain.
-Send the full config with the current `email`, which cannot change.
+Send the full config with the current `email`, which cannot change, and the current `name` unless you are renaming the sender.
+No read tool returns the name: take it from the `integrations-email-create` response if you created the sender, otherwise ask the person.
 A new `mail_from_subdomain` applies to every sender on the domain and needs new MX and SPF records at the new name, so confirm it with the person first, then run steps 3 to 5 again.
 To change the address itself, create a new sender.

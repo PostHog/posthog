@@ -14,7 +14,7 @@ class NativeEmailProvider(models.TextChoices):
 
 
 class EmailDomainRecordPurpose(models.TextChoices):
-    VERIFICATION = "verification", "Domain ownership"
+    VERIFICATION = "verification", "Domain ownership or SPF"
     DKIM = "dkim", "DKIM signing"
     MAIL_FROM = "mail_from", "Custom MAIL FROM"
     DMARC = "dmarc", "DMARC policy"
@@ -83,7 +83,10 @@ class EmailSenderUpdateRequestSerializer(serializers.Serializer):
 class EmailDomainDnsRecordSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=EmailDomainRecordPurpose.choices,
-        help_text="What the record proves: domain ownership, DKIM signing, the custom MAIL FROM domain, or DMARC.",
+        help_text=(
+            "What the record is for: domain ownership or the sending domain's SPF, DKIM signing, "
+            "the custom MAIL FROM domain, or DMARC."
+        ),
     )
     recordType = serializers.ChoiceField(choices=EmailDomainRecordType.choices, help_text="DNS record type.")
     recordHostname = serializers.CharField(

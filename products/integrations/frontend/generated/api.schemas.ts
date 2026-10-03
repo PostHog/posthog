@@ -368,7 +368,7 @@ export const EmailDomainStatusEnumApi = {
 } as const
 
 /**
- * * `verification` - Domain ownership
+ * * `verification` - Domain ownership or SPF
  * * `dkim` - DKIM signing
  * * `mail_from` - Custom MAIL FROM
  * * `dmarc` - DMARC policy
@@ -410,9 +410,9 @@ export const EmailDomainRecordStatusEnumApi = {
 } as const
 
 export interface EmailDomainDnsRecordApi {
-    /** What the record proves: domain ownership, DKIM signing, the custom MAIL FROM domain, or DMARC.
+    /** What the record is for: domain ownership or the sending domain's SPF, DKIM signing, the custom MAIL FROM domain, or DMARC.
      *
-     * * `verification` - Domain ownership
+     * * `verification` - Domain ownership or SPF
      * * `dkim` - DKIM signing
      * * `mail_from` - Custom MAIL FROM
      * * `dmarc` - DMARC policy */
