@@ -241,7 +241,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
     template variables needed for the email-verification template.
     """
     from posthog.models.integration import EmailIntegration, Integration
-    from posthog.models.integration.email import DEFAULT_MAIL_FROM_SUBDOMAIN
+    from posthog.models.integration.email import stored_mail_from_subdomain
 
     instance = Integration.objects.get(id=integration_id, team_id=team_id)
     if instance.kind != "email":
@@ -252,7 +252,7 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
 
     dns_records = verification_result.get("dnsRecords", [])
     domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))
-    mail_from_subdomain = instance.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
+    mail_from_subdomain = stored_mail_from_subdomain(instance.config)
 
     verify_token = ""
     dkim_tokens: list[str] = []

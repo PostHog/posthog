@@ -25,6 +25,10 @@ if TYPE_CHECKING:
 DEFAULT_MAIL_FROM_SUBDOMAIN = "feedback"
 
 
+def stored_mail_from_subdomain(config: dict) -> str:
+    return config.get("mail_from_subdomain") or DEFAULT_MAIL_FROM_SUBDOMAIN
+
+
 class EmailIntegration:
     integration: model.Integration
 
@@ -122,10 +126,7 @@ class EmailIntegration:
     def _domain_wide_mail_from_subdomain(
         domain: str, requested_subdomain: str | None, same_domain_integrations: Iterable[model.Integration]
     ) -> str:
-        domain_subdomains = {
-            integration.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
-            for integration in same_domain_integrations
-        }
+        domain_subdomains = {stored_mail_from_subdomain(integration.config) for integration in same_domain_integrations}
         if not domain_subdomains:
             return requested_subdomain or DEFAULT_MAIL_FROM_SUBDOMAIN
         if len(domain_subdomains) > 1:
@@ -152,8 +153,8 @@ class EmailIntegration:
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
         name: str = config.get("name", self.integration.config.get("name"))
-        mail_from_subdomain: str = config.get("mail_from_subdomain") or self.integration.config.get(
-            "mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN
+        mail_from_subdomain: str = config.get("mail_from_subdomain") or stored_mail_from_subdomain(
+            self.integration.config
         )
 
         # Update domain in the appropriate provider
@@ -181,7 +182,7 @@ class EmailIntegration:
 
     def _share_mail_from_subdomain_with_domain_senders(self, domain: str, mail_from_subdomain: str) -> None:
         domain_senders = (
-            model.Integration.objects.select_for_update()
+            model.Integration.objects.select_for_update(of=("self",))
             .filter(
                 kind="email",
                 config__domain=domain,
@@ -201,7 +202,7 @@ class EmailIntegration:
     def _verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
-        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
+        mail_from_subdomain = stored_mail_from_subdomain(self.integration.config)
 
         verification_result: EmailDomainVerification
         # Use the appropriate provider for verification

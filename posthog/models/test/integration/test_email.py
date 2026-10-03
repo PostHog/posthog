@@ -68,15 +68,23 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration1.team_id == other_team.id
         assert integration2.team_id == self.team.id
 
-    @parameterized.expand([("omitted_label", None), ("matching_label", "bounce")])
+    @parameterized.expand(
+        [
+            ("omitted_label", "bounce", None, "bounce"),
+            ("matching_label", "bounce", "bounce", "bounce"),
+            ("default_label_on_a_legacy_blank_domain", "", "feedback", "feedback"),
+        ]
+    )
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_new_sender_keeps_the_domain_mail_from_label(self, _name, requested_label, mock_create_email_domain):
+    def test_new_sender_keeps_the_domain_mail_from_label(
+        self, _name, domain_label, requested_label, expected_label, mock_create_email_domain
+    ):
         other_team = Team.objects.create(organization=self.organization, name="other team")
         Integration.objects.create(
             team=other_team,
             kind="email",
             integration_id="sender@example.com",
-            config={"email": "sender@example.com", "domain": "example.com", "mail_from_subdomain": "bounce"},
+            config={"email": "sender@example.com", "domain": "example.com", "mail_from_subdomain": domain_label},
         )
         config = {"email": "new@example.com", "name": "New", "provider": "ses"}
         if requested_label is not None:
@@ -86,8 +94,8 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
 
-        assert integration.config["mail_from_subdomain"] == "bounce"
-        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == "bounce"
+        assert integration.config["mail_from_subdomain"] == expected_label
+        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == expected_label
 
     @parameterized.expand(
         [
