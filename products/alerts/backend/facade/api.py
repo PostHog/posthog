@@ -41,6 +41,7 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.api import viewable_insight_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -77,30 +78,36 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
 
 
-def investigation_notebook_ids(team_id: int) -> frozenset[uuid.UUID]:
-    """The ids of this team's notebooks that the alert investigation agent wrote."""
-    return frozenset(
-        AlertCheck.objects.filter(investigation_notebook__team_id=team_id)
-        .values_list("investigation_notebook_id", flat=True)
-        .distinct()
-    )
-
-
 def notebook_alert_investigations(
-    team_id: int, notebook_ids: Collection[uuid.UUID]
+    team_id: int, notebook_ids: Collection[uuid.UUID], user_access_control: UserAccessControl
 ) -> dict[uuid.UUID, NotebookAlertInvestigation]:
-    """The alert that each of these notebooks investigates. Notebooks the agent did not write are left out."""
+    """The alert that each of these notebooks investigates, for the alerts the caller can see.
+
+    Notebooks the agent did not write are left out. So are alerts on an insight the caller cannot view,
+    because the alerts API hides those alerts from that caller too.
+    """
     investigations: dict[uuid.UUID, NotebookAlertInvestigation] = {}
-    rows = (
+    rows = list(
         AlertCheck.objects.filter(investigation_notebook__team_id=team_id, investigation_notebook_id__in=notebook_ids)
         .order_by("-created_at")
-        .values_list("investigation_notebook_id", "alert_configuration_id", "alert_configuration__name")
-    )
-    for notebook_id, alert_id, alert_name in rows:
-        # Rows come newest first, so a notebook that more than one check links to names its latest alert.
-        investigations.setdefault(
-            notebook_id, NotebookAlertInvestigation(alert_id=alert_id, alert_name=alert_name or None)
+        .values_list(
+            "investigation_notebook_id",
+            "alert_configuration_id",
+            "alert_configuration__name",
+            "alert_configuration__insight_id",
         )
+    )
+    viewable = viewable_insight_ids(
+        team_id=team_id,
+        insight_ids={insight_id for *_, insight_id in rows},
+        user_access_control=user_access_control,
+    )
+    for notebook_id, alert_id, alert_name, insight_id in rows:
+        # Rows come newest first, so a notebook that more than one check links to names its latest alert.
+        if insight_id in viewable:
+            investigations.setdefault(
+                notebook_id, NotebookAlertInvestigation(alert_id=alert_id, alert_name=alert_name or None)
+            )
     return investigations
 
 

@@ -24,7 +24,7 @@ describe('viewFeedLogic', () => {
             const params = new URL(request.url).searchParams
             requests[name].push(`${params.get('offset')}:${params.get('ordering') ?? ''}`)
             filters[name].push(
-                ['pinned', 'alert_investigation']
+                ['pinned']
                     .filter((filter) => params.has(filter))
                     .map((filter) => `${filter}=${params.get(filter)}`)
                     .join('&')
@@ -116,14 +116,9 @@ describe('viewFeedLogic', () => {
             { canvases: ['pinned=true'], notebooks: [], dashboards: ['pinned=true'] },
         ],
         [
-            'made by people leaves out investigations',
-            { madeBy: 'people' },
-            { canvases: [''], notebooks: ['alert_investigation=false'], dashboards: [''] },
-        ],
-        [
-            'made by agents asks only for investigations',
+            'made by agents asks only for notebooks',
             { madeBy: 'agents' },
-            { canvases: [], notebooks: ['alert_investigation=true'], dashboards: [] },
+            { canvases: [], notebooks: [''], dashboards: [] },
         ],
         [
             'pinned agents match no view type',

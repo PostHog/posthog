@@ -1266,7 +1266,9 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(
+            baseline + 6
+        ):  # org, roles, preloaded access controls, the alert lookup for the page
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_with_preload_optimization(self):
@@ -1317,14 +1319,18 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(
+            baseline + 6
+        ):  # org, roles, preloaded access controls, the alert lookup for the page
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
 
-        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
+        with self.assertNumQueries(
+            baseline + 6
+        ):  # org, roles, preloaded access controls, the alert lookup for the page
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):

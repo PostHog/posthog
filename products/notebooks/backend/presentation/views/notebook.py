@@ -53,7 +53,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.alerts.backend.facade.api import investigation_notebook_ids, notebook_alert_investigations
+from products.alerts.backend.facade.api import notebook_alert_investigations
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -266,9 +266,14 @@ class NotebookMinimalListSerializer(serializers.ListSerializer):
     def to_representation(self, data: Any) -> Any:
         notebooks = list(data)
         # `child` is only None before `many=True` binds one, which cannot happen during rendering.
-        assert self.child is not None
-        self.child.context[ALERT_INVESTIGATIONS_CONTEXT_KEY] = notebook_alert_investigations(
-            self.child.context["team_id"], [notebook.id for notebook in notebooks]
+        assert isinstance(self.child, NotebookMinimalSerializer)
+        user_access_control = self.child.user_access_control
+        self.child.context[ALERT_INVESTIGATIONS_CONTEXT_KEY] = (
+            notebook_alert_investigations(
+                self.child.context["team_id"], [notebook.id for notebook in notebooks], user_access_control
+            )
+            if user_access_control
+            else {}
         )
         return super().to_representation(notebooks)
 
@@ -731,12 +736,6 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
                 "date_to",
                 OpenApiTypes.DATETIME,
                 description="Filter for notebooks created before this date & time",
-                required=False,
-            ),
-            OpenApiParameter(
-                "alert_investigation",
-                OpenApiTypes.BOOL,
-                description="Return only the notebooks the alert investigation agent wrote (`true`), or leave them out (`false`).",
                 required=False,
             ),
             OpenApiParameter(
@@ -1498,13 +1497,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(created_by__uuid=value)
             elif key == "last_modified_by":
                 queryset = queryset.filter(last_modified_by__uuid=value)
-            elif key == "alert_investigation" and value in ("true", "false"):
-                investigations = investigation_notebook_ids(self.team_id)
-                queryset = (
-                    queryset.filter(id__in=investigations)
-                    if value == "true"
-                    else queryset.exclude(id__in=investigations)
-                )
             elif key == "date_from" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):

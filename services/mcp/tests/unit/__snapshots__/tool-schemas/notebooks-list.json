@@ -1,10 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "alert_investigation": {
-            "description": "Return only the notebooks the alert investigation agent wrote (`true`), or leave them out (`false`).",
-            "type": "boolean"
-        },
         "contains": {
             "description": "Filter for notebooks that match a provided filter.\n                Each match pair is separated by a colon,\n                multiple match pairs can be sent separated by a space or a comma",
             "type": "string"

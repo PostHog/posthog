@@ -120701,10 +120701,6 @@ export namespace Schemas {
 
     export type NotebooksListParams = {
     /**
-     * Return only the notebooks the alert investigation agent wrote (`true`), or leave them out (`false`).
-     */
-    alert_investigation?: boolean;
-    /**
      * Filter for notebooks that match a provided filter.
      *                 Each match pair is separated by a colon,
      *                 multiple match pairs can be sent separated by a space or a comma

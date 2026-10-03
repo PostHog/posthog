@@ -24,15 +24,15 @@ export interface ViewFeedQuery {
     search: string
     /** Only views pinned to the top of their list. */
     pinned?: boolean
+    /** Leaves out the view types that cannot match. The list filters the loaded notebooks, like it does for creators. */
     madeBy?: ViewMadeBy
 }
 
-/** What one source fetches: one view type, with the search and filters of the query. */
+/** What one source fetches: one view type, with the search and the server-side filters of the query. */
 export interface ViewSourceParams {
     type: ViewType
     search: string
     pinned: boolean
-    madeBy: ViewMadeBy
 }
 
 export interface ViewSourcePage {
@@ -73,11 +73,11 @@ export function viewFeedTypes(query: ViewFeedQuery): ViewType[] {
 }
 
 export function viewSourceParams(query: ViewFeedQuery, type: ViewType): ViewSourceParams {
-    return { type, search: query.search.trim(), pinned: !!query.pinned, madeBy: query.madeBy ?? 'anyone' }
+    return { type, search: query.search.trim(), pinned: !!query.pinned }
 }
 
 export function viewSourceKey(projectId: string, params: ViewSourceParams): string {
-    return JSON.stringify([projectId, params.search, params.type, params.pinned, params.madeBy])
+    return JSON.stringify([projectId, params.search, params.type, params.pinned])
 }
 
 export async function fetchViewSourcePage(
@@ -105,12 +105,7 @@ export async function fetchViewSourcePage(
     }
     if (params.type === 'notebook') {
         // The notebooks endpoint filters on `search`, but its schema does not declare the parameter.
-        const query: NotebooksListParams & { search?: string } = {
-            limit,
-            offset,
-            search,
-            alert_investigation: params.madeBy === 'anyone' ? undefined : params.madeBy === 'agents',
-        }
+        const query: NotebooksListParams & { search?: string } = { limit, offset, search }
         const page = await notebooksList(projectId, query)
         return {
             items: page.results.filter((notebook) => !notebook.deleted).map(notebookToView),

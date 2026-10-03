@@ -46,6 +46,18 @@ export function viewsFiltersActive(filters: TodayViewsFilters): boolean {
     )
 }
 
+function matchesCreatedBy(item: ViewItem, filters: TodayViewsFilters, currentUserUuid: string | null): boolean {
+    // A view with no known creator is neither yours nor someone else's.
+    return (
+        filters.createdBy === 'anyone' ||
+        (!!item.createdByUuid && (filters.createdBy === 'me') === (item.createdByUuid === currentUserUuid))
+    )
+}
+
+function matchesMadeBy(item: ViewItem, filters: TodayViewsFilters): boolean {
+    return filters.madeBy === 'anyone' || (filters.madeBy === 'agents') === !!item.alertInvestigation
+}
+
 /** The views that match the search and the filters, in their original order. */
 export function filterRecentViews(
     items: ViewItem[],
@@ -58,10 +70,8 @@ export function filterRecentViews(
         (item) =>
             (!needle || item.name.toLowerCase().includes(needle)) &&
             (filters.type === 'all' || item.type === filters.type) &&
-            (filters.createdBy === 'anyone' ||
-                // A view with no known creator is neither yours nor someone else's.
-                (!!item.createdByUuid && (filters.createdBy === 'me') === (item.createdByUuid === currentUserUuid))) &&
-            (filters.madeBy === 'anyone' || (filters.madeBy === 'agents') === !!item.alertInvestigation) &&
-            (filters.pinned === 'any' || item.pinned)
+            (filters.pinned === 'any' || item.pinned) &&
+            matchesCreatedBy(item, filters, currentUserUuid) &&
+            matchesMadeBy(item, filters)
     )
 }

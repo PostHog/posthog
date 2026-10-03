@@ -110,15 +110,9 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
-    @parameterized.expand(
-        [
-            ("all", "", {"investigation", "notes"}),
-            ("only", "?alert_investigation=true", {"investigation"}),
-            ("without", "?alert_investigation=false", {"notes"}),
-        ]
-    )
-    def test_notebooks_list_marks_and_filters_alert_investigations(
-        self, _name: str, query: str, expected: set[str]
+    @parameterized.expand([("insight_viewer", True), ("no_insight_access", False)])
+    def test_notebooks_list_marks_alert_investigations_the_caller_can_see(
+        self, _name: str, can_view_insight: bool
     ) -> None:
         alert = AlertConfiguration.objects.create(
             team=self.team,
@@ -132,15 +126,21 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         create_notebook(self.team.id, title="notes", content=None, created_by_id=self.user.id)
         AlertCheck.objects.create(alert_configuration=alert, investigation_notebook_id=investigation.id)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{query}")
+        # Hide every insight from the caller and leave the notebook list itself visible.
+        with mock.patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: (
+                queryset if can_view_insight or queryset.model is not Insight else queryset.none()
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
 
         assert response.status_code == status.HTTP_200_OK
         rows = {row["title"]: row["alert_investigation"] for row in response.json()["results"]}
-        assert set(rows) == expected
-        if "investigation" in rows:
-            assert rows["investigation"] == {"alert_id": str(alert.id), "alert_name": "Signups drop"}
-        if "notes" in rows:
-            assert rows["notes"] is None
+        assert rows == {
+            "investigation": {"alert_id": str(alert.id), "alert_name": "Signups drop"} if can_view_insight else None,
+            "notes": None,
+        }
 
     def test_create_and_delete_alert(self) -> None:
         creation_request = {
