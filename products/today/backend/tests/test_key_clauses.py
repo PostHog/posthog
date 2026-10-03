@@ -50,6 +50,15 @@ def shown(found: list[TextKeyClauses]) -> dict[str, list[tuple[str, list[str]]]]
 PROBLEM_AND_CAUSE = [KeyClauseRole.PROBLEM, KeyClauseRole.CAUSE]
 
 
+class PickJev(FakeJev):
+    def __init__(self, pick: JevPick | None) -> None:
+        super().__init__([], {}, {})
+        self.pick = pick
+
+    def choice(self, items: list[str], question: str, labels: list[str]) -> list[JevPick | None]:
+        return [self.pick for _ in items]
+
+
 class TestKeyClauses(SimpleTestCase):
     @parameterized.expand(
         [
@@ -161,6 +170,4 @@ class TestKeyClauses(SimpleTestCase):
     def test_picks_the_excerpt_a_finding_describes(
         self, _name: str, pick: JevPick | None, expected: int | None
     ) -> None:
-        jev = FakeJev([], {}, {})
-        jev.choice = lambda items, question, labels: [pick]  # type: ignore[method-assign]
-        assert which_excerpt("The cart drops the token.", ["a = 1", "drop(token)"], jev) == expected
+        assert which_excerpt("The cart drops the token.", ["a = 1", "drop(token)"], PickJev(pick)) == expected

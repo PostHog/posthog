@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { type ChangeEvent, useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { Button, Text, Textarea } from '@posthog/quill'
@@ -70,7 +70,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 <div className="flex flex-col items-start gap-2">
                     <Textarea
                         value={feedbackNoteDraft}
-                        onChange={(event) => setFeedbackNoteDraft(event.target.value)}
+                        onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setFeedbackNoteDraft(event.target.value)}
                         placeholder="What was useful or off?"
                         aria-label="Add a note about this report"
                         maxLength={NOTE_MAX_LENGTH}

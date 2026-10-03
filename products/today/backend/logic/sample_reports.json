@@ -7,12 +7,7 @@
         "priority": "P1",
         "actionability": "immediately_actionable",
         "status": "ready",
-        "source_products": [
-            "error_tracking",
-            "session_replay",
-            "analytics",
-            "github"
-        ],
+        "source_products": ["error_tracking", "session_replay", "analytics", "github"],
         "pull_request_url": "https://github.com/example/hedgebox/pull/9123",
         "metrics": [
             {
@@ -21,22 +16,7 @@
                 "kind": "affected_users",
                 "role": "primary",
                 "value": 212,
-                "series": [
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    31,
-                    58,
-                    64,
-                    59
-                ],
+                "series": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 31, 58, 64, 59],
                 "value_format": "count",
                 "unit": "users"
             }
@@ -76,10 +56,7 @@
         "priority": "P1",
         "actionability": "immediately_actionable",
         "status": "ready",
-        "source_products": [
-            "analytics",
-            "session_replay"
-        ],
+        "source_products": ["analytics", "session_replay"],
         "pull_request_url": null,
         "metrics": [],
         "signals": [
@@ -117,11 +94,7 @@
         "priority": "P1",
         "actionability": "requires_human_input",
         "status": "pending_input",
-        "source_products": [
-            "session_replay",
-            "analytics",
-            "error_tracking"
-        ],
+        "source_products": ["session_replay", "analytics", "error_tracking"],
         "pull_request_url": null,
         "metrics": [],
         "signals": [
@@ -159,11 +132,7 @@
         "priority": "P2",
         "actionability": "immediately_actionable",
         "status": "ready",
-        "source_products": [
-            "error_tracking",
-            "analytics",
-            "session_replay"
-        ],
+        "source_products": ["error_tracking", "analytics", "session_replay"],
         "pull_request_url": "https://github.com/example/hedgebox/pull/9131",
         "metrics": [],
         "signals": [
@@ -201,10 +170,7 @@
         "priority": "P2",
         "actionability": "immediately_actionable",
         "status": "ready",
-        "source_products": [
-            "llm_analytics",
-            "analytics"
-        ],
+        "source_products": ["llm_analytics", "analytics"],
         "pull_request_url": "https://github.com/example/hedgebox/pull/9140",
         "metrics": [],
         "signals": [
@@ -242,11 +208,7 @@
         "priority": "P3",
         "actionability": "requires_human_input",
         "status": "pending_input",
-        "source_products": [
-            "conversations",
-            "analytics",
-            "session_replay"
-        ],
+        "source_products": ["conversations", "analytics", "session_replay"],
         "pull_request_url": null,
         "metrics": [],
         "signals": [
@@ -284,11 +246,7 @@
         "priority": "P3",
         "actionability": "requires_human_input",
         "status": "pending_input",
-        "source_products": [
-            "analytics",
-            "session_replay",
-            "error_tracking"
-        ],
+        "source_products": ["analytics", "session_replay", "error_tracking"],
         "pull_request_url": "https://github.com/example/hedgebox/pull/9123",
         "metrics": [],
         "signals": [
@@ -326,11 +284,7 @@
         "priority": "P3",
         "actionability": "immediately_actionable",
         "status": "ready",
-        "source_products": [
-            "analytics",
-            "error_tracking",
-            "conversations"
-        ],
+        "source_products": ["analytics", "error_tracking", "conversations"],
         "pull_request_url": null,
         "metrics": [],
         "signals": [
@@ -368,10 +322,7 @@
         "priority": "P3",
         "actionability": "immediately_actionable",
         "status": "ready",
-        "source_products": [
-            "llm_analytics",
-            "analytics"
-        ],
+        "source_products": ["llm_analytics", "analytics"],
         "pull_request_url": "https://github.com/example/hedgebox/pull/9147",
         "metrics": [],
         "signals": [
