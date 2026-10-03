@@ -99,7 +99,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         {dedent`
                             On Next.js 13.2–14.x only, enable the instrumentation hook in your Next.js config. Skip this on Next.js 15 and later: \`instrumentation.ts\` is loaded by default, and \`experimental.instrumentationHook\` is no longer needed.
 
-                            If you already have a config file, add \`instrumentationHook: true\` under \`experimental\` and keep your other settings. Use \`module.exports\` in \`next.config.js\` and \`export default\` in \`next.config.mjs\`.
+                            If you already have a config file, add \`instrumentationHook: true\` under \`experimental\` and keep your other settings. Use \`export default\` in \`next.config.mjs\`, or in \`next.config.js\` when your \`package.json\` has \`"type": "module"\`. Otherwise, use \`module.exports\`.
                         `}
                     </Markdown>
                     <CodeBlock
