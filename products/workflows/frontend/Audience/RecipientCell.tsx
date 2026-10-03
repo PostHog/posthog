@@ -1,4 +1,4 @@
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Link } from '@posthog/lemon-ui'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -10,9 +10,10 @@ export function RecipientCell({ recipient }: { recipient: RecipientApi }): JSX.E
     return (
         <div className="flex flex-col gap-1 min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span translate="no" className="font-medium wrap-anywhere">
-                    {recipient.email}
-                </span>
+                {/* Its click bubbles to the row's handler, so keyboard users can open the recipient too. */}
+                <Link className="font-medium wrap-anywhere text-left" data-attr="audience-recipient-open">
+                    <span translate="no">{recipient.email}</span>
+                </Link>
                 {recipient.suppression && (
                     <LemonTag type="danger" size="small">
                         Suppressed

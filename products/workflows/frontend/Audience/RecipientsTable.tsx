@@ -4,6 +4,7 @@ import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { audienceSceneLogic } from './audienceSceneLogic'
 import { RecipientCell } from './RecipientCell'
 import { RecipientLastSent } from './RecipientLastSent'
 import { RecipientPersonsSummary } from './RecipientPersonsSummary'
@@ -35,6 +36,7 @@ export function RecipientsTable(): JSX.Element {
     const { recipients, pageLoading, currentPage, hasNextPage, hasPreviousPage, topicNames } =
         useValues(recipientsLogic)
     const { loadNextPage, loadPreviousPage } = useActions(recipientsLogic)
+    const { openRecipient } = useActions(audienceSceneLogic)
 
     const columns: LemonTableColumns<RecipientApi> = [
         {
@@ -77,6 +79,7 @@ export function RecipientsTable(): JSX.Element {
                 loadingSkeletonRows={8}
                 nouns={['recipient', 'recipients']}
                 rowClassName="ph-no-capture"
+                onRow={(recipient) => ({ onClick: () => openRecipient(recipient.email) })}
                 emptyState="No recipients on this page"
                 pagination={{
                     controlled: true,

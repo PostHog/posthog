@@ -17,6 +17,7 @@ import type { MessageCategoryApi, RecipientApi } from 'products/messaging/fronte
 
 import { engagementEventsLogic } from '../engagementEventsLogic'
 import { AudienceScene } from './AudienceScene'
+import { audienceSceneLogic } from './audienceSceneLogic'
 import type { RecipientTimelineRow } from './recipientTimelineQuery'
 
 const CREATED_AT = '2026-09-01T10:00:00Z'
@@ -100,8 +101,11 @@ const TIMELINES: Record<string, RecipientTimelineRow[]> = {
     ],
 }
 
-const lookUpRecipient: MockSignature = ({ request }) => {
-    const email = new URL(request.url).searchParams.get('email')?.toLowerCase() ?? ''
+const listOrLookUpRecipients: MockSignature = ({ request }) => {
+    const email = new URL(request.url).searchParams.get('email')?.toLowerCase()
+    if (email === undefined) {
+        return [200, { results: Object.values(RECIPIENTS_BY_EMAIL), next_cursor: null }]
+    }
     const recipient = RECIPIENTS_BY_EMAIL[email]
     return recipient
         ? [200, { results: [recipient], next_cursor: null }]
@@ -127,7 +131,8 @@ const meta: Meta<typeof AudienceScene> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/messaging_categories/': toPaginatedResponse([PRODUCT_UPDATES, WEEKLY_DIGEST]),
-                '/api/projects/:team_id/messaging_recipients/': lookUpRecipient,
+                '/api/projects/:team_id/messaging_recipients/': listOrLookUpRecipients,
+                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': queryTimeline,
@@ -155,7 +160,8 @@ function recipientStory({
         render: function Render() {
             const { engagementEventsCaptured: captured } = useValues(engagementEventsLogic)
             useEffect(() => {
-                router.actions.push(urls.audienceRecipient(email))
+                router.actions.push(urls.audience())
+                audienceSceneLogic.actions.openRecipient(email)
             }, [])
             // Storybook decorators restore the default team after the story mounts, so keep reapplying it.
             useEffect(() => {

@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -20,6 +20,7 @@ import { AudienceEngagement } from './AudienceEngagement'
 import { AudienceRecipients } from './AudienceRecipients'
 import { AUDIENCE_TAB_LABELS, AudienceTab, audienceSceneLogic } from './audienceSceneLogic'
 import { RecipientDetail } from './RecipientDetail'
+import { recipientsLogic } from './recipientsLogic'
 
 export const scene: SceneExport = {
     component: AudienceScene,
@@ -28,6 +29,7 @@ export const scene: SceneExport = {
 }
 
 function RecipientsTabContent(): JSX.Element {
+    useMountedLogic(recipientsLogic)
     const { selectedEmail } = useValues(audienceSceneLogic)
     return selectedEmail ? <RecipientDetail email={selectedEmail} /> : <AudienceRecipients />
 }

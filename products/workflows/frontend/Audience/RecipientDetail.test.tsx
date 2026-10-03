@@ -19,6 +19,7 @@ import type { MessageCategoryApi, RecipientApi } from 'products/messaging/fronte
 
 import { AudienceScene } from './AudienceScene'
 import { audienceSceneLogic } from './audienceSceneLogic'
+import { recipient } from './recipientTestFixtures'
 
 const NEWSLETTER: MessageCategoryApi = {
     id: '0199c1aa-0000-7000-8000-000000000001',
@@ -43,6 +44,8 @@ const SUPPRESSED_JAMIE: RecipientApi = {
     preferences_updated_at: '2026-09-20T08:30:00Z',
 }
 
+const ALEX = recipient('alex@example.com')
+
 const TEAM_WITH_ENGAGEMENT_EVENTS: TeamType = {
     ...MOCK_DEFAULT_TEAM,
     workflows_config: { capture_workflows_engagement_events: true },
@@ -56,9 +59,11 @@ describe('recipient detail', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
-                    const email = new URL(request.url).searchParams.get('email')
+                    const params = new URL(request.url).searchParams
+                    const email = params.get('email')
                     if (!email) {
-                        return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
+                        const listed = params.get('search') ? [SUPPRESSED_JAMIE] : [SUPPRESSED_JAMIE, ALEX]
+                        return [200, { results: listed, next_cursor: null }]
                     }
                     lookups.push(email)
                     return response
@@ -149,18 +154,23 @@ describe('recipient detail', () => {
     it('opens from its row without the address in the url or breadcrumbs, and goes back to the same search', async () => {
         useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         showRecipients()
+        expect(await screen.findByText('alex@example.com')).toBeInTheDocument()
         fireEvent.change(screen.getByLabelText('Search recipients by email address'), { target: { value: 'jamie' } })
+        await waitFor(() => expect(screen.queryByText('alex@example.com')).not.toBeInTheDocument())
+        const listUrl = currentUrl()
 
         fireEvent.click(await screen.findByText('jamie@example.com'))
 
         expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
-        expect(currentUrl()).toEqual(urls.audience())
+        expect(currentUrl()).toEqual(listUrl)
+        expect(listUrl).not.toContain('example.com')
         expect(JSON.stringify(audienceSceneLogic.values.breadcrumbs)).not.toContain('example.com')
 
         fireEvent.click(screen.getByText('Back to recipients'))
 
         expect(await screen.findByLabelText('Search recipients by email address')).toHaveValue('jamie')
-        expect(screen.getByText('jamie@example.com')).toBeInTheDocument()
+        expect(await screen.findByText('jamie@example.com')).toBeInTheDocument()
+        expect(screen.queryByText('alex@example.com')).not.toBeInTheDocument()
     })
 
     it('keeps the recipient page out of autocapture and replay', async () => {

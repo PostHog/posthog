@@ -5,10 +5,10 @@ import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { urls } from 'scenes/urls'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { audienceSceneLogic } from './audienceSceneLogic'
 import { recipientDetailLogic } from './recipientDetailLogic'
 import { RecipientEmailActivity } from './RecipientEmailActivity'
 import { RecipientPersonsCard } from './RecipientPersonsCard'
@@ -85,10 +85,7 @@ function RecipientDetailBody(): JSX.Element {
             return (
                 <EmptyMessage
                     title="No recipient with this address"
-                    description="PostHog has no preference, suppression or person for this address. Check the spelling, or find it in the list."
-                    buttonText="Back to recipients"
-                    buttonTo={urls.audience()}
-                    buttonDataAttr="audience-recipient-not-found-back"
+                    description="PostHog no longer has a preference, suppression or person for this address. Go back to the list to see the current recipients."
                 />
             )
         case 'found':
@@ -97,12 +94,19 @@ function RecipientDetailBody(): JSX.Element {
 }
 
 export function RecipientDetail({ email }: { email: string }): JSX.Element {
+    const { closeRecipient } = useActions(audienceSceneLogic)
     return (
         <BindLogic logic={recipientDetailLogic} props={{ email }}>
-            <div className="flex flex-col gap-4 min-w-0" data-attr="audience-recipient-detail">
+            <div className="flex flex-col gap-4 min-w-0 ph-no-capture" data-attr="audience-recipient-detail">
                 <div>
-                    <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.audience()}>
-                        Recipients
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconArrowLeft />}
+                        onClick={closeRecipient}
+                        data-attr="audience-recipient-back"
+                    >
+                        Back to recipients
                     </LemonButton>
                 </div>
                 <RecipientDetailBody />
