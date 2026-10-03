@@ -233,11 +233,13 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("ending_in_whitespace_the_send_path_keeps", "a@example.com\u0085"),
-            ("longer_than_any_stored_identifier", f"a{'x' * 600}@example.com"),
+            ("ending_in_whitespace_the_send_path_keeps", "a@example.com\u0085", "\u0085"),
+            ("longer_than_any_stored_identifier", f"a{'x' * 600}@example.com", "axxxxxxxxxx"),
         ]
     )
-    def test_the_next_cursor_and_email_lookup_accept_every_listed_address(self, _name: str, address: str) -> None:
+    def test_the_next_cursor_email_lookup_and_search_accept_every_listed_address(
+        self, _name: str, address: str, search: str
+    ) -> None:
         self._person(address, distinct_id="first")
         self._person("b@example.com")
 
@@ -246,6 +248,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
         assert [row["email"] for row in first["results"] + second["results"]] == [address, "b@example.com"]
         assert self._emails(email=address) == [address]
+        assert self._emails(search=search) == [address]
 
     def test_pages_a_filtered_list_by_cursor(self) -> None:
         self._seed_facet_audience()
@@ -276,6 +279,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self, _name: str, stored: str, folded: str, search: str
     ) -> None:
         self._prefer(stored, {})
+        self._suppress(stored)
         self._person(stored, distinct_id="holder")
 
         assert self._emails() == [folded]
@@ -288,6 +292,14 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         )
         MessageSuppression.objects.for_team(self.team.id).create(
             team=self.team, identifier="kim@example.com", source="BOUNCE", suppressed=False, transient_bounce_count=1
+        )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team,
+            identifier="KIM@example.com",
+            source="MANUAL",
+            suppressed=True,
+            suppressed_at=NOW,
+            deleted=True,
         )
         self._person("kim@example.com")
 
