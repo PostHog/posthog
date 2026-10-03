@@ -117,9 +117,9 @@ def _read_token(token: str) -> dict[str, Any]:
     raise Http404
 
 
-def _require_artifact_host(request: HttpRequest) -> None:
+def _require_artifact_host(host: str) -> None:
     configured_host = _configured_artifact_host()
-    if settings.CANVAS_ARTIFACT_ORIGIN and (configured_host is None or request.get_host().lower() != configured_host):
+    if settings.CANVAS_ARTIFACT_ORIGIN and (configured_host is None or host.lower() != configured_host):
         raise Http404
 
 
@@ -194,7 +194,7 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
     which refuses the CDNs the document transpiles and resolves imports from. It holds no
     credentials: the canvas code arrives later by postMessage.
     """
-    _require_artifact_host(request)
+    _require_artifact_host(request.get_host())
     document = _sandbox_document()
     if not re.fullmatch(r"[0-9a-f]{64}", content_hash):
         raise Http404
@@ -215,7 +215,7 @@ def canvas_sandbox_document(request: HttpRequest, content_hash: str) -> HttpResp
 
 @xframe_options_exempt
 def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
-    _require_artifact_host(request)
+    _require_artifact_host(request.get_host())
     claims = _read_token(token)
     token_expires_at = (claims["bucket"] + 2) * ARTIFACT_TOKEN_BUCKET_SECONDS
     team_id = claims.get("team_id")

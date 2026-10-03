@@ -1,4 +1,9 @@
-from products.canvas.backend.artifacts import create_canvas_sandbox_document_url as create_canvas_sandbox_document_url
+from products.canvas.backend.artifacts import (
+    ARTIFACT_PERMISSIONS_POLICY as ARTIFACT_PERMISSIONS_POLICY,
+    _artifact_origin,
+    _require_artifact_host,
+    create_canvas_sandbox_document_url as create_canvas_sandbox_document_url,
+)
 from products.canvas.backend.connectors import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,
@@ -27,3 +32,11 @@ from products.canvas.backend.teaching import (
     seed_teaching_canvas as seed_teaching_canvas,
 )
 from products.canvas.backend.welcome import seed_home_canvas as seed_home_canvas
+
+
+def artifact_delivery_origin() -> str:
+    return _artifact_origin()
+
+
+def require_artifact_host(host: str) -> None:
+    _require_artifact_host(host)
