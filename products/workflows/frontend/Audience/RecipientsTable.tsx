@@ -75,6 +75,7 @@ export function RecipientsTable(): JSX.Element {
                 loading={pageLoading}
                 loadingSkeletonRows={8}
                 nouns={['recipient', 'recipients']}
+                rowClassName="ph-no-capture"
                 emptyState="No recipients on this page"
                 pagination={{
                     controlled: true,

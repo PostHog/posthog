@@ -13,6 +13,10 @@ export function AudienceRecipients(): JSX.Element {
     const { search, loadFailed, accessDenied } = useValues(recipientsLogic)
     const { setSearch, clearSearch, retryLoadRecipients } = useActions(recipientsLogic)
     const searchInputRef = useRef<HTMLInputElement>(null)
+    const thenFocusSearch = (action: () => void) => (): void => {
+        action()
+        searchInputRef.current?.focus()
+    }
 
     if (accessDenied) {
         return <AccessDenied reason="You need viewer access to Workflows to see recipients." inline />
@@ -36,19 +40,14 @@ export function AudienceRecipients(): JSX.Element {
                     type="error"
                     action={{
                         children: 'Try again',
-                        onClick: retryLoadRecipients,
+                        onClick: thenFocusSearch(retryLoadRecipients),
                         'data-attr': 'audience-recipients-retry',
                     }}
                 >
                     Couldn't load recipients. Search for part of an address to load fewer, or try again in a moment.
                 </LemonBanner>
             )}
-            <RecipientsBody
-                onClearSearch={() => {
-                    clearSearch()
-                    searchInputRef.current?.focus()
-                }}
-            />
+            <RecipientsBody onClearSearch={thenFocusSearch(clearSearch)} />
         </div>
     )
 }

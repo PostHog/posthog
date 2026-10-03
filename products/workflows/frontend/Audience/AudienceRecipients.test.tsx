@@ -2,40 +2,19 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { AudienceRecipients } from './AudienceRecipients'
-
-function recipient(email: string): RecipientApi {
-    return {
-        email,
-        all_marketing: 'NO_PREFERENCE',
-        topics: {},
-        suppression: null,
-        persons: [],
-        person_count: 0,
-        last_sent_at: null,
-        preferences_updated_at: null,
-    }
-}
+import { MockResponse, useRecipientsApiMocks, recipient } from './recipientTestFixtures'
 
 const FIRST_PAGE: RecipientPageApi = { results: [recipient('alex@example.com')], next_cursor: 'after-alex' }
 const LAST_PAGE: RecipientPageApi = { results: [recipient('sam@example.com')], next_cursor: null }
 
 describe('AudienceRecipients', () => {
-    type MockResponse = [number, unknown]
-
     function useRecipientsResponse(respond: (params: URLSearchParams) => MockResponse | Promise<MockResponse>): void {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_recipients/': ({ request }) =>
-                    respond(new URL(request.url).searchParams),
-                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
-            },
-        })
+        useRecipientsApiMocks({ recipients: respond, coverage: [200, { persons_without_email: 0 }] })
     }
 
     beforeEach(() => {
@@ -78,7 +57,8 @@ describe('AudienceRecipients', () => {
         useRecipientsResponse(() => [500, { detail: 'Query timed out' }])
         render(<AudienceRecipients />)
 
-        fireEvent.click(await screen.findByText('Try again'))
+        const [tryAgain] = await screen.findAllByText('Try again')
+        fireEvent.click(tryAgain)
 
         expect(screen.getByLabelText('Search recipients by email address')).toHaveFocus()
     })
