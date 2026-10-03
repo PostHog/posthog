@@ -14,6 +14,8 @@ once the Logs endpoint is deployed, regardless of deploy order.
 
 import re
 import json
+import time
+import itertools
 import dataclasses
 from collections.abc import Iterator
 from datetime import timedelta
@@ -27,6 +29,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -63,9 +66,16 @@ _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards th
 # Cap total jobs returned per tick — the activity hands them back as one Temporal payload (~2 MiB
 # limit), so an incident across many sources mustn't return an unbounded list.
 MAX_DISCOVERED_JOBS = 2000
+# GitHub discovery starts no new source query after this time, so the activity returns inside its
+# 2-minute start-to-close timeout. The sources it does not reach go first on the next tick.
+GITHUB_DISCOVERY_BUDGET_SECONDS = 60.0
+# One source query runs at most this long, so a slow source cannot use the budget of all others.
+MAX_SOURCE_QUERY_SECONDS = 30
 
 
-def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo: str) -> list[dict[str, Any]]:
+def _query_jobs_with_diagnostics(
+    team: Team, prefix: str, cutoff_iso: str, repo: str, max_execution_time: int = MAX_SOURCE_QUERY_SECONDS
+) -> list[dict[str, Any]]:
     # Window on completed_at (when the job finished), not created_at: a queued or long-running job
     # can be created well before it fails, and a created_at window would miss it. completed_at is an
     # ISO-8601 string and is always set for a failed (completed) job, so a lexical comparison against
@@ -107,6 +117,7 @@ def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo:
             ),
             team=team,
             query_type="GithubJobLogsDiscovery",
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
             # Trusted internal sweep with no request user: without this, HogQL's access-control build
             # marks the team's own warehouse tables denied and the query raises "You don't have access
             # to table" — so nothing is ever discovered. The query stays scoped to this team's table.
@@ -115,10 +126,22 @@ def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo:
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
-def _live_sources(source_type: ExternalDataSourceType) -> Iterator[ExternalDataSource]:
-    """Every team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep."""
-    sources = ExternalDataSource.objects.filter(source_type=source_type).exclude(deleted=True).select_related("team")
-    return sources.iterator()
+def _live_sources(source_type: ExternalDataSourceType, resume_after: str | None = None) -> Iterator[ExternalDataSource]:
+    """Every team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep.
+
+    The order is by id. With ``resume_after``, the sweep starts at the next source and wraps around.
+    """
+    sources = (
+        ExternalDataSource.objects.filter(source_type=source_type)
+        .exclude(deleted=True)
+        .select_related("team")
+        .order_by("id")
+    )
+    if resume_after is None:
+        return sources.iterator()
+    return itertools.chain(
+        sources.filter(id__gt=resume_after).iterator(), sources.filter(id__lte=resume_after).iterator()
+    )
 
 
 def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] | None:
@@ -149,49 +172,76 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
         return None
 
 
-def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
+@frozen
+class GithubDiscoveryInputs:
+    cutoff_iso: str
+    # The last source the previous tick read before it stopped early. None starts at the first source.
+    resume_after: str | None = None
+
+
+@frozen
+class GithubDiscovery:
+    jobs: list[FetchJobLogInputs]
+    resume_after: str | None
+
+
+def _discover_github_jobs(inputs: GithubDiscoveryInputs) -> GithubDiscovery:
+    """Failed or retry-recovered jobs of every GitHub source, inside the discovery time budget.
+
+    A sweep that stops at the budget or at ``MAX_DISCOVERED_JOBS`` returns the last source it read.
+    The next tick starts after that source, so the sources at the end of the order also get read.
+    """
     if not settings.OTLP_LOGS_INGEST_ENDPOINT:
         # No Logs sink configured yet (charts sets the endpoint per region): discover nothing so the
         # registered schedule is inert until the sink exists, then activates automatically. Mirrors
         # the activity's fail-closed guard, but here it also skips the per-source warehouse queries.
-        return []
-    found: list[dict[str, Any]] = []
+        return GithubDiscovery(jobs=[], resume_after=None)
+    deadline = time.monotonic() + GITHUB_DISCOVERY_BUDGET_SECONDS
+    found: list[FetchJobLogInputs] = []
     eligible_sources = 0
     skipped_sources = 0
-    for source in _live_sources(ExternalDataSourceType.GITHUB):
+    last_read: str | None = None
+    stopped_early = False
+    for source in _live_sources(ExternalDataSourceType.GITHUB, inputs.resume_after):
         params = _github_source_params(source.job_inputs)
         prefix = source.prefix or ""
         if params is None or not _PREFIX.match(prefix):
             continue
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or len(found) >= MAX_DISCOVERED_JOBS:
+            stopped_early = True
+            break
         eligible_sources += 1
+        last_read = str(source.id)
         integration_id, repo = params
         try:
             # Row handling stays inside the try so a single bad row (e.g. a null job_id) skips this
             # source rather than failing discovery for every team.
-            for row in _query_jobs_with_diagnostics(source.team, prefix, cutoff_iso, repo):
+            rows = _query_jobs_with_diagnostics(
+                source.team, prefix, inputs.cutoff_iso, repo, max(1, min(MAX_SOURCE_QUERY_SECONDS, int(remaining)))
+            )
+            for row in rows:
                 job_id = row.get("job_id")
                 if job_id is None:
                     continue
                 found.append(
-                    dataclasses.asdict(
-                        FetchJobLogInputs(
-                            team_id=source.team_id,
-                            integration_id=integration_id,
-                            repo=repo,
-                            job_id=int(job_id),
-                            run_id=row.get("run_id"),
-                            branch=row.get("branch"),
-                            conclusion=row.get("conclusion"),
-                            job_name=row.get("job_name"),
-                            workflow_name=row.get("workflow_name"),
-                            run_attempt=row.get("run_attempt"),
-                            head_sha=row.get("head_sha"),
-                        )
+                    FetchJobLogInputs(
+                        team_id=source.team_id,
+                        integration_id=integration_id,
+                        repo=repo,
+                        job_id=int(job_id),
+                        run_id=row.get("run_id"),
+                        branch=row.get("branch"),
+                        conclusion=row.get("conclusion"),
+                        job_name=row.get("job_name"),
+                        workflow_name=row.get("workflow_name"),
+                        run_attempt=row.get("run_attempt"),
+                        head_sha=row.get("head_sha"),
                     )
                 )
                 if len(found) >= MAX_DISCOVERED_JOBS:
                     logger.warning("github_job_logs_discovery_capped", cap=MAX_DISCOVERED_JOBS)
-                    break  # inner loop only; the outer break below stops the sweep so the cap holds
+                    break  # inner loop only; the outer loop stops the sweep at its next source
         except Exception as e:
             # A source whose jobs table isn't synced or a transient query error shouldn't fail the
             # whole sweep — skip it. Most teams never enable the workflow_jobs schema, so a missing
@@ -202,8 +252,6 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
             else:
                 logger.warning("github_job_logs_discovery_skipped_source", source_id=str(source.id), exc_info=True)
             continue
-        if len(found) >= MAX_DISCOVERED_JOBS:
-            break  # stop the sweep at the cap, but fall through to the summary log below
     # One summary line per tick so coverage stays observable even though per-source "not synced" skips
     # log at debug: a sweep that suddenly skips everything (e.g. a mistyped prefix or a dropped table)
     # is visible here instead of silently emitting nothing.
@@ -212,8 +260,9 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
         eligible_sources=eligible_sources,
         skipped_sources=skipped_sources,
         jobs_found=len(found),
+        stopped_early=stopped_early,
     )
-    return found
+    return GithubDiscovery(jobs=found, resume_after=last_read if stopped_early else None)
 
 
 @frozen
@@ -329,10 +378,23 @@ def _discover_failed_depot_attempts(inputs: DepotDiscoveryInputs) -> DepotDiscov
     return DepotDiscovery(attempts=attempts, cursors=cursors)
 
 
+def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
+    discovery = _discover_github_jobs(GithubDiscoveryInputs(cutoff_iso=cutoff_iso))
+    return [dataclasses.asdict(job) for job in discovery.jobs]
+
+
 @activity.defn
 async def discover_failed_jobs_activity(cutoff_iso: str) -> list[dict[str, Any]]:
-    """Failed or retry-recovered CI jobs with a connected GitHub source, as FetchJobLogInputs dicts."""
+    """Failed or retry-recovered CI jobs with a connected GitHub source, as FetchJobLogInputs dicts.
+
+    Only coordinator runs from before the ``github-job-logs-budget-2026-10`` patch call this activity.
+    """
     return await database_sync_to_async(_discover_jobs_with_diagnostics, thread_sensitive=False)(cutoff_iso)
+
+
+@activity.defn
+async def discover_failed_github_jobs_activity(inputs: GithubDiscoveryInputs) -> GithubDiscovery:
+    return await database_sync_to_async(_discover_github_jobs, thread_sensitive=False)(inputs)
 
 
 @activity.defn
@@ -349,6 +411,12 @@ def _previous_depot_cursors() -> dict[str, DepotAttemptCursor]:
     return {source_id: DepotAttemptCursor(**cursor) for source_id, cursor in (cursors or {}).items()}
 
 
+def _previous_github_resume_after() -> str | None:
+    previous = workflow.get_last_completion_result()
+    resume_after = previous.get("github_resume_after") if isinstance(previous, dict) else None
+    return resume_after if isinstance(resume_after, str) else None
+
+
 @workflow.defn(name="github-job-logs-coordinator")
 class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
     @staticmethod
@@ -358,15 +426,26 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, _state: dict[str, Any] | None = None) -> dict[str, Any]:
         cutoff_iso = (workflow.now() - DEFAULT_LOOKBACK).isoformat()
-        jobs = await workflow.execute_activity(
-            discover_failed_jobs_activity,
-            cutoff_iso,
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        github_resume_after: str | None = None
+        if workflow.patched("github-job-logs-budget-2026-10"):
+            github = await workflow.execute_activity(
+                discover_failed_github_jobs_activity,
+                GithubDiscoveryInputs(cutoff_iso=cutoff_iso, resume_after=_previous_github_resume_after()),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            jobs = github.jobs
+            github_resume_after = github.resume_after
+        else:
+            job_dicts = await workflow.execute_activity(
+                discover_failed_jobs_activity,
+                cutoff_iso,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            jobs = [FetchJobLogInputs(**job) for job in job_dicts]
         started = 0
-        for job in jobs:
-            inputs = FetchJobLogInputs(**job)
+        for inputs in jobs:
             try:
                 await workflow.start_child_workflow(
                     FetchGithubJobLogWorkflow.run,
@@ -406,4 +485,5 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
             "jobs_discovered": len(jobs) + len(depot.attempts),
             "workflows_started": started,
             "depot_cursors": depot.cursors,
+            "github_resume_after": github_resume_after,
         }
