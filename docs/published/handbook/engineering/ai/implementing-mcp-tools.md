@@ -332,6 +332,7 @@ Product teams own their definitions and control which operations are exposed as 
    Each tool hides only the fields it lists.
    Two kinds of field are the exception: a nested field such as `steps.*.selector_regex`, and a field of a request body that combines several schemas with `allOf`, `anyOf` or `oneOf`.
    Hide one of those on every enabled tool on the operation in the same YAML file, or on none. Otherwise the build fails.
+   Tools with `input_schema` do not count, because they bring their own schema.
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
