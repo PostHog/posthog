@@ -9,6 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IntegrationType } from '~/types'
 
 import { useIntegrationManagementRestriction } from './integrationPermissions'
+import { reconnectReturnUrl } from './integrationsLogic'
 
 /**
  * Extract the granted OAuth scopes from an integration's stored config. Tolerates the
@@ -71,7 +72,7 @@ export function IntegrationScopesWarning({
                     disableClientSideRouting: true,
                     to: api.integrations.authorizeUrl({
                         kind: integration.kind,
-                        next: window.location.pathname,
+                        next: reconnectReturnUrl(window.location.pathname, window.location.search),
                     }),
                     onClick: () =>
                         reportIntegrationConnectClicked(integration.kind, integration.kind, 'missing_scopes_reconnect'),

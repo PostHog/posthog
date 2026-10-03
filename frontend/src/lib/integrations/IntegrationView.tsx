@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
-import { integrationsLogic } from './integrationsLogic'
+import { integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
 import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
 
 export function IntegrationView({
@@ -176,7 +176,7 @@ export function IntegrationView({
                                     disableClientSideRouting
                                     to={api.integrations.authorizeUrl({
                                         kind: integration.kind,
-                                        next: window.location.pathname,
+                                        next: reconnectReturnUrl(window.location.pathname, window.location.search),
                                     })}
                                     onClick={() =>
                                         reportIntegrationConnectClicked(
@@ -202,7 +202,7 @@ export function IntegrationView({
                             disableClientSideRouting: true,
                             to: api.integrations.authorizeUrl({
                                 kind: integration.kind,
-                                next: window.location.pathname,
+                                next: reconnectReturnUrl(window.location.pathname, window.location.search),
                             }),
                             onClick: () =>
                                 reportIntegrationConnectClicked(
