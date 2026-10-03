@@ -136,11 +136,13 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         ]
     )
 
-    const resetPositionsApplied = useStore((state) =>
-        decoratedNodes.every((node) => {
-            const renderedNode = state.nodeLookup.get(node.id)
-            return renderedNode?.position.x === node.position.x && renderedNode.position.y === node.position.y
-        })
+    const resetPositionsApplied = useStore(
+        (state) =>
+            !resetRequested.current ||
+            decoratedNodes.every((node) => {
+                const renderedNode = state.nodeLookup.get(node.id)
+                return renderedNode?.position.x === node.position.x && renderedNode.position.y === node.position.y
+            })
     )
 
     useEffect(() => {
