@@ -4208,15 +4208,58 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_install_template_rejects_inactive_template(self):
+    @parameterized.expand([("inactive",), ("missing",), ("restricted",)])
+    @patch("products.mcp_store.backend.presentation.views.report_user_action")
+    def test_install_template_reports_an_unresolvable_template(self, expected_reason, mock_report):
+        # The restricted template is the only live one: real and active, just not
+        # served to this project, so the event must tell it apart from inactive and missing.
+        restricted = expected_reason == "restricted"
+        template = self._template(
+            **({"is_active": True, "oauth_credentials_source": "slack_dev_app"} if restricted else {"is_active": False})
+        )
+        template_id = str(template.id)
+        if expected_reason == "missing":
+            template.delete()
+
+        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id + 1)]):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+                data={"template_id": template_id},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        body = response.json()
+        # The client hides or disables the stale card off this reason, so it has
+        # to stay machine-readable, and the detail has to tell a person what to do.
+        assert body["reason"] == "template_unavailable"
+        assert "catalog" in body["detail"]
+        properties = next(
+            call.kwargs["properties"]
+            for call in mock_report.call_args_list
+            if call.args[1] == "mcp_store template unavailable"
+        )
+        assert properties["reason"] == expected_reason
+        assert properties["template_id"] == template_id
+        assert properties["flow"] == "install_template"
+
+    @patch("products.mcp_store.backend.presentation.views.report_user_action")
+    def test_authorize_reports_an_unresolvable_template(self, mock_report):
         template = self._template(is_active=False)
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
-            data={"template_id": str(template.id)},
-            format="json",
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {"template_id": str(template.id)},
         )
+
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["reason"] == "template_unavailable"
+        properties = next(
+            call.kwargs["properties"]
+            for call in mock_report.call_args_list
+            if call.args[1] == "mcp_store template unavailable"
+        )
+        assert properties["flow"] == "oauth_authorize"
 
     def test_install_template_shared_creds_without_oauth_metadata_returns_400(self):
         # Shared-creds templates require admin-seeded metadata. (DCR templates

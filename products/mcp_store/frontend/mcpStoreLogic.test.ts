@@ -2,7 +2,11 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import * as generated from './generated/api'
-import type { MCPServerInstallationApi, MCPServerInstallationToolApi } from './generated/api.schemas'
+import type {
+    MCPServerInstallationApi,
+    MCPServerInstallationToolApi,
+    MCPServerTemplateApi,
+} from './generated/api.schemas'
 import { mcpStoreLogic } from './mcpStoreLogic'
 
 jest.mock('./generated/api')
@@ -64,6 +68,33 @@ describe('mcpStoreLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
+    })
+
+    it('drops a stale catalog card when its template no longer resolves', async () => {
+        const template: MCPServerTemplateApi = {
+            id: 'gone-template',
+            name: 'Gone',
+            url: 'https://gone.example.com/mcp',
+            docs_url: '',
+            description: '',
+            auth_type: 'oauth',
+            icon_key: '',
+            icon_domain: '',
+            category: 'dev',
+        }
+        logic.actions.loadServersSuccess([template])
+        mocked.mcpServerInstallationsInstallTemplateCreate.mockRejectedValue({
+            status: 404,
+            detail: 'This server is no longer in the catalog.',
+            data: { reason: 'template_unavailable' },
+        })
+        const listServers = mocked.mcpServersList.mockResolvedValue({ count: 0, results: [] })
+
+        logic.actions.installTemplate({ templateId: template.id })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(listServers).toHaveBeenCalled()
+        expect(logic.values.servers).toEqual([])
     })
 
     it('reloads only loaded installations for the shared server whose policy changed', async () => {

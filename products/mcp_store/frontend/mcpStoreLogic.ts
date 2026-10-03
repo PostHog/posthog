@@ -29,6 +29,7 @@ import type {
     MCPServerTemplateApi,
     PatchedMCPServerInstallationUpdateApi,
 } from './generated/api.schemas'
+import { isTemplateUnavailable } from './templateAvailability'
 
 export type ToolApprovalState = 'approved' | 'needs_approval' | 'do_not_use'
 
@@ -587,6 +588,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     if (e.status === 302 || e.detail?.includes?.('redirect')) {
                         return
                     }
+                    if (template_id && isTemplateUnavailable(e)) {
+                        actions.loadServers()
+                        actions.closeAddCustomServerModal()
+                    }
                     lemonToast.error(e.detail || 'Failed to add server')
                     throw e
                 }
@@ -784,6 +789,10 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                 lemonToast.success('Server installed')
                 actions.loadInstallations()
             } catch (e: any) {
+                if (isTemplateUnavailable(e)) {
+                    // The catalog no longer serves this template, so the refetch drops its card.
+                    actions.loadServers()
+                }
                 lemonToast.error(e.detail || 'Failed to install server')
             }
         },
