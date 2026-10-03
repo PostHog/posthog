@@ -18,6 +18,7 @@ import { TeamType } from '~/types'
 import type { MessageCategoryApi, RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { AudienceScene } from './AudienceScene'
+import { audienceSceneLogic } from './audienceSceneLogic'
 
 const NEWSLETTER: MessageCategoryApi = {
     id: '0199c1aa-0000-7000-8000-000000000001',
@@ -55,7 +56,11 @@ describe('recipient detail', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
-                    lookups.push(new URL(request.url).searchParams.get('email'))
+                    const email = new URL(request.url).searchParams.get('email')
+                    if (!email) {
+                        return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
+                    }
+                    lookups.push(email)
                     return response
                 },
                 '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
@@ -92,15 +97,22 @@ describe('recipient detail', () => {
         })
     }
 
-    function openRecipient(
-        team: TeamType = MOCK_DEFAULT_TEAM,
-        path = '/audience/recipients/Jamie%40example.com'
-    ): void {
+    function showRecipients(team: TeamType = MOCK_DEFAULT_TEAM): void {
         initKeaTests(true, team)
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
-        router.actions.push(path)
+        router.actions.push(urls.audience())
         render(<AudienceScene />)
+    }
+
+    async function openRecipient(team: TeamType = MOCK_DEFAULT_TEAM): Promise<void> {
+        showRecipients(team)
+        fireEvent.click(await screen.findByText('jamie@example.com'))
+    }
+
+    function currentUrl(): string {
+        const { pathname, search, hash } = router.values.location
+        return `${pathname}${search}${hash}`
     }
 
     function capturedEvents(eventName: string): unknown[][] {
@@ -120,7 +132,7 @@ describe('recipient detail', () => {
 
     it('looks the address up, shows why it is suppressed and tracks the visit once without the address', async () => {
         useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
-        openRecipient()
+        await openRecipient()
 
         expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
         for (const suppressionListLink of screen.getAllByText('Open suppression list')) {
@@ -129,23 +141,33 @@ describe('recipient detail', () => {
                 expect.stringContaining(urls.audience('suppression'))
             )
         }
-        expect(lookups).toEqual(['Jamie@example.com'])
+        expect(lookups).toEqual(['jamie@example.com'])
         expect(capturedEvents('audience recipient opened')).toHaveLength(1)
         expect(JSON.stringify(capturedEvents('audience recipient opened'))).not.toContain('example.com')
     })
 
-    it.each([
-        'a+b@example.com',
-        'a%2Bb@example.com',
-        '100%@example.com',
-        'jamie@bücher.example',
-        "o'brien^x@example.com",
-    ])('looks up exactly %s from its recipient link', async (email) => {
-        useRecipientLookup([200, { results: [{ ...SUPPRESSED_JAMIE, email }], next_cursor: null }])
-        openRecipient(MOCK_DEFAULT_TEAM, urls.audienceRecipient(email))
+    it('opens from its row without the address in the url or breadcrumbs, and goes back to the same search', async () => {
+        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
+        showRecipients()
+        fireEvent.change(screen.getByLabelText('Search recipients by email address'), { target: { value: 'jamie' } })
 
-        expect(await screen.findByText(email)).toBeInTheDocument()
-        expect(lookups).toEqual([email])
+        fireEvent.click(await screen.findByText('jamie@example.com'))
+
+        expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
+        expect(currentUrl()).toEqual(urls.audience())
+        expect(JSON.stringify(audienceSceneLogic.values.breadcrumbs)).not.toContain('example.com')
+
+        fireEvent.click(screen.getByText('Back to recipients'))
+
+        expect(await screen.findByLabelText('Search recipients by email address')).toHaveValue('jamie')
+        expect(screen.getByText('jamie@example.com')).toBeInTheDocument()
+    })
+
+    it('keeps the recipient page out of autocapture and replay', async () => {
+        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
+        await openRecipient()
+
+        expect(await screen.findByTestId('audience-recipient-detail')).toHaveClass('ph-no-capture')
     })
 
     it('shows its own error with a retry instead of a toast, and tracks the visit once it loads', async () => {
@@ -153,17 +175,21 @@ describe('recipient detail', () => {
         let failNextLookup = true
         useMocks({
             get: {
-                '/api/projects/:team_id/messaging_recipients/': () => {
+                '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
+                    if (!new URL(request.url).searchParams.get('email')) {
+                        return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
+                    }
                     if (failNextLookup) {
                         failNextLookup = false
                         return [500, { detail: 'The query took too long.' }]
                     }
                     return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
                 },
+                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
                 '/api/projects/:team_id/messaging_categories/': { results: [NEWSLETTER], next: null },
             },
         })
-        openRecipient()
+        await openRecipient()
 
         fireEvent.click((await screen.findAllByTestId('audience-recipient-retry'))[0])
 
@@ -174,19 +200,20 @@ describe('recipient detail', () => {
 
     it('shows a way back to the list when the address is unknown', async () => {
         useRecipientLookup([404, { detail: 'No recipient with this email address.' }])
-        openRecipient()
+        await openRecipient()
 
         expect(await screen.findByText('No recipient with this address')).toBeInTheDocument()
-        expect(screen.getByText('Back to recipients').closest('a')).toHaveAttribute(
-            'href',
-            expect.stringContaining(urls.audience())
-        )
         expect(capturedEvents('audience recipient opened')).toEqual([])
+
+        fireEvent.click(screen.getByText('Back to recipients'))
+
+        expect(await screen.findByText('jamie@example.com')).toBeInTheDocument()
+        expect(screen.queryByText('No recipient with this address')).not.toBeInTheDocument()
     })
 
     it('with engagement events on, lists the email events for the address in lower case, not the person', async () => {
         useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
-        openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
+        await openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
 
         const timeline = await screen.findByTestId('audience-recipient-timeline')
         expect(await within(timeline).findByText('Clicked a link')).toBeInTheDocument()
@@ -202,7 +229,7 @@ describe('recipient detail', () => {
 
     it('with engagement events off, offers to turn them on and then shows the timeline', async () => {
         useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
-        openRecipient()
+        await openRecipient()
 
         const turnOnButton = await screen.findByTestId('audience-turn-on-engagement-events-button')
         expect(timelineQueries).toEqual([])
@@ -228,7 +255,7 @@ describe('recipient detail', () => {
             },
         })
         const openWindow = jest.spyOn(window, 'open').mockImplementation(() => null)
-        openRecipient()
+        await openRecipient()
 
         fireEvent.click(await screen.findByTestId('audience-recipient-preferences-page'))
 
