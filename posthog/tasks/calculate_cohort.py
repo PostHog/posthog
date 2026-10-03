@@ -52,6 +52,7 @@ from products.cohorts.backend.models.util import (
     parse_error_code,
     save_recovery_bookkeeping,
     sort_cohorts_topologically,
+    sync_static_cohort_pg_from_ch,
 )
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team
 
@@ -133,6 +134,12 @@ COHORT_DEPENDENCY_CALCULATION_FAILURES_COUNTER = Counter(
 )
 
 COHORT_STUCK_RESETS_COUNTER = Counter("cohort_stuck_resets_total", "Number of stuck cohorts that have been reset")
+
+STATIC_COHORT_PG_RESYNCS_COUNTER = Counter(
+    "cohort_static_pg_resyncs_total",
+    "Number of static cohorts whose Postgres membership was behind ClickHouse and was resynced",
+    labelnames=["trigger"],
+)
 
 COHORT_MAXED_ERRORS_GAUGE = Gauge(
     "cohort_maxed_errors",
@@ -242,6 +249,24 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     )
 
 
+def get_failed_static_cohort_reconcile_candidates_queryset() -> QuerySet:
+    """
+    Static cohorts whose last population or import failed and that nothing runs again.
+    Their ClickHouse and Postgres membership can disagree, so they get a membership reconcile.
+    reset_stuck_cohorts stamps last_error_at when it dispatches the reconcile, so a cohort is
+    checked at most once an hour, and errors_calculating stops the checks after
+    MAX_ERRORS_CALCULATING attempts.
+    """
+    return Cohort.objects.filter(
+        is_static=True,
+        is_calculating=False,
+        deleted=False,
+        errors_calculating__gt=0,
+        errors_calculating__lt=MAX_ERRORS_CALCULATING,
+        last_error_at__lte=timezone.now() - relativedelta(hours=1),
+    )
+
+
 def reset_stuck_cohorts() -> None:
     # A stuck cohort is a cohort that has is_calculating set to true but the query/task failed and
     # the field was never set back to false. These cohorts will never get pick up again for
@@ -313,6 +338,23 @@ def reset_stuck_cohorts() -> None:
             "reset_stuck_static_cohorts",
             cohort_ids=reset_static_cohort_ids,
             count=len(reset_static_cohort_ids),
+        )
+
+    reconcile_cohort_ids = []
+    for cohort in get_failed_static_cohort_reconcile_candidates_queryset().order_by(F("last_error_at").asc())[
+        0:MAX_STUCK_COHORTS_TO_RESET
+    ]:
+        cohort.errors_calculating = F("errors_calculating") + 1
+        cohort.last_error_at = timezone.now()
+        cohort.save(update_fields=["errors_calculating", "last_error_at"])
+        reconcile_static_cohort_membership.delay(cohort.pk, cohort.team_id)
+        reconcile_cohort_ids.append(cohort.pk)
+
+    if reconcile_cohort_ids:
+        logger.warning(
+            "reconcile_failed_static_cohorts",
+            cohort_ids=reconcile_cohort_ids,
+            count=len(reconcile_cohort_ids),
         )
 
 
@@ -755,6 +797,11 @@ def calculate_cohort_from_list(
                 import_resolution=import_resolution,
             )
 
+        # An earlier import can leave members in ClickHouse that never reached Postgres. Without
+        # this repair, flags keep missing them and this import resets the count to the smaller set.
+        if sync_static_cohort_pg_from_ch(cohort, team_id=team_id):
+            STATIC_COHORT_PG_RESYNCS_COUNTER.labels(trigger="import").inc()
+
         cohort.last_import_total_count = import_resolution.total
         cohort.last_import_unmatched_count = import_resolution.unmatched
         cohort.save(update_fields=["last_import_total_count", "last_import_unmatched_count"])
@@ -793,6 +840,25 @@ def calculate_cohort_from_list(
             cohort_id, len(items), batch_count, (time.time() - start_time)
         )
     )
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=STATIC_POPULATION_SOFT_TIME_LIMIT_SECONDS,
+)
+@skip_team_scope_audit
+def reconcile_static_cohort_membership(cohort_id: int, team_id: int) -> None:
+    cohort = Cohort.objects.get(pk=cohort_id, team_id=team_id)
+    if cohort.deleted or not cohort.is_static or cohort.is_calculating:
+        return
+    update_tags(QueryTags(cohort_id=cohort_id, team_id=team_id))
+    # The failure that brought the cohort here can also have left uploaded IDs out of both stores,
+    # so the sync keeps the error state that tells the user about it and saves only the count.
+    if sync_static_cohort_pg_from_ch(cohort, team_id=team_id, finalize_state=False):
+        cohort.save(update_fields=["count"])
+        STATIC_COHORT_PG_RESYNCS_COUNTER.labels(trigger="self_heal").inc()
+        logger.warning("reconciled_failed_static_cohort", cohort_id=cohort_id, team_id=team_id, count=cohort.count)
 
 
 def _finalize_population_history(

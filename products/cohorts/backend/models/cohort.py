@@ -1049,6 +1049,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         team_id: int,
         raise_on_error: bool = False,
         insert_batch: Callable[[list[Any]], None] | None = None,
+        finalize_state: bool = True,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -1061,6 +1062,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 UUIDs via personhog and inserting (``_insert_batch_via_personhog``, which honors
                 ``insert_in_clickhouse``); callers whose batches are not plain UUID lists supply
                 a writer matching their item type.
+            finalize_state: Whether to save the calculation state when the run ends. A caller
+                that must keep the cohort's error state passes False and saves `count` itself.
 
         Returns:
             Number of batches processed.
@@ -1123,7 +1126,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # In raise_on_error mode the caller finalizes cohort state on failure, so skip
             # the error save here to avoid double-counting errors_calculating. The success
             # path (processing_error is None) still finalizes state as usual.
-            if not (raise_on_error and processing_error is not None):
+            if finalize_state and not (raise_on_error and processing_error is not None):
                 self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
