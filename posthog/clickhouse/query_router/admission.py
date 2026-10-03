@@ -62,7 +62,7 @@ RUNNING_HISTOGRAM = Histogram(
     "posthog_query_router_running",
     "Queries holding a slot in the pool when a routed query arrived.",
     labelnames=["pool"],
-    buckets=(10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 600),
+    buckets=(10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 600, 800, 1000),
 )
 
 _BASE_POLL_DELAY_SECONDS = 0.05
@@ -209,7 +209,7 @@ class AdmissionOutcome(StrEnum):
     # Observe mode: the query would have been dropped on arrival, but it runs and holds a slot.
     WOULD_DROP = "would_drop"
     DROPPED_WAIT_TIMEOUT = "dropped_wait_timeout"
-    # The pool drained too slowly for the query to start well within its class's max wait.
+    # The pool drained too slowly for the query to start well within the wait.
     DROPPED_ON_ARRIVAL = "dropped_on_arrival"
     # Redis or the limit setting failed, so the query runs without a slot.
     ERROR = "error"
@@ -390,7 +390,7 @@ class QueryRouter:
                 delay = min(_BASE_POLL_DELAY_SECONDS * (1 + reply.ahead), _MAX_POLL_DELAY_SECONDS)
                 self.sleep(min(delay * random.uniform(0.5, 1.0), remaining))
             # A sleep can end late on a busy host. The waiter is dropped even when a slot has freed, so no
-            # query waits longer than its class allows.
+            # query waits longer than the budget.
             if self.get_time() >= deadline:
                 self._remove(slot, ran_ms=0)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)

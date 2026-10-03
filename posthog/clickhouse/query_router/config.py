@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.settings import CONSTANCE_CONFIG, TEST
+from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
 
@@ -145,10 +145,10 @@ def _load_settings(_minute: int) -> _RouterSettings:
         return _RouterSettings(mode=mode, enforced=enforced, limits=limits)
     except Exception:
         # The settings table does not exist during the first Postgres migrations, and a mistyped
-        # value must not take queries down. Both cases turn the router off.
+        # value must not take queries down. Both cases turn the router off, and an off router reads
+        # no limit.
         logger.warning("query_router_settings_unreadable", exc_info=True)
-        defaults = {key: CONSTANCE_CONFIG[key][0] for key in _SETTING_KEYS}
-        return _RouterSettings(mode=RouterMode.OFF, enforced=frozenset(), limits=_limits_from(defaults))
+        return _RouterSettings(mode=RouterMode.OFF, enforced=frozenset(), limits={})
 
 
 def _settings() -> _RouterSettings:
