@@ -1,3 +1,5 @@
+import { fromMarkdown } from 'mdast-util-from-markdown'
+
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 export const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"“(*`])/
@@ -103,7 +105,46 @@ export function withoutCodeBlocks(text: string): string {
 
 type TodayInlineSegment = { kind: 'text' | 'code'; text: string } | { kind: 'link'; text: string; href: string }
 
-const INLINE_MARKDOWN = /`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)\s]+)\)/g
+interface MarkdownNode {
+    type: string
+    value?: string
+    url?: string
+    alt?: string | null
+    children?: MarkdownNode[]
+}
+
+const INLINE_ONLY = {
+    disable: {
+        null: [
+            'blockQuote',
+            'codeFenced',
+            'codeIndented',
+            'definition',
+            'headingAtx',
+            'htmlFlow',
+            'list',
+            'setextUnderline',
+            'thematicBreak',
+        ],
+    },
+}
+
+function nodeText(node: MarkdownNode): string {
+    return node.value ?? node.alt ?? (node.children ?? []).map(nodeText).join('')
+}
+
+function nodeSegments(node: MarkdownNode): TodayInlineSegment[] {
+    switch (node.type) {
+        case 'inlineCode':
+            return [{ kind: 'code', text: node.value ?? '' }]
+        case 'link':
+            return [{ kind: 'link', text: nodeText(node), href: node.url ?? '' }]
+        case 'break':
+            return [{ kind: 'text', text: ' ' }]
+        default:
+            return node.children ? node.children.flatMap(nodeSegments) : [{ kind: 'text', text: nodeText(node) }]
+    }
+}
 
 function joinedText(segments: TodayInlineSegment[]): TodayInlineSegment[] {
     return segments.reduce<TodayInlineSegment[]>((joined, segment) => {
@@ -119,22 +160,8 @@ function joinedText(segments: TodayInlineSegment[]): TodayInlineSegment[] {
 
 export function inlineSegments(markdown: string): TodayInlineSegment[] {
     const text = readableDates(shortenGitHubLinks(markdown).replace(/\s+/g, ' ').trim())
-    const segments: TodayInlineSegment[] = []
-    let last = 0
-    for (const match of text.matchAll(INLINE_MARKDOWN)) {
-        const index = match.index ?? 0
-        segments.push({ kind: 'text', text: text.slice(last, index) })
-        if (match[1] !== undefined) {
-            segments.push({ kind: 'code', text: match[1] })
-        } else if (match[2] !== undefined) {
-            segments.push(...inlineSegments(match[2]))
-        } else {
-            segments.push({ kind: 'link', text: match[3], href: match[4] })
-        }
-        last = index + match[0].length
-    }
-    segments.push({ kind: 'text', text: text.slice(last) })
-    return joinedText(segments).filter((segment) => segment.text)
+    const tree: MarkdownNode = fromMarkdown(text, { extensions: [INLINE_ONLY] })
+    return joinedText(nodeSegments(tree)).filter((segment) => segment.text)
 }
 
 export function proseSentences(markdown: string): string[] {

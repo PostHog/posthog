@@ -1,3 +1,5 @@
+import { fullName } from 'lib/utils/strings'
+
 import { buildReportImplementationPrompt } from 'products/signals/frontend/inbox/components/detail/buildReportImplementationPrompt'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type { SignalReport } from 'products/signals/frontend/inbox/types'
@@ -41,8 +43,7 @@ function pickedUpOn(date: string | null | undefined): string {
 }
 
 function claimant(assignee: NonNullable<SignalReport['assignee']>): string {
-    const user = assignee.user
-    const name = user ? [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email : null
+    const name = assignee.user ? fullName(assignee.user) || assignee.user.email : null
     return name ?? assignee.agent ?? 'An agent'
 }
 

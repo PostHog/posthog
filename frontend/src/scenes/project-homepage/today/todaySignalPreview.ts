@@ -1,4 +1,5 @@
 import { isNotNil, isObject } from 'lib/utils/guards'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -37,8 +38,7 @@ const IN_APP_PATH = /^(?:posthog|products|ee|common|services|frontend)\//
 const SECTION_LABEL = /^\*\*([^*\n]+?):\*\*\s*/
 
 function sentenceCase(value: string): string {
-    const words = value.replace(/_/g, ' ').trim()
-    return `${words.charAt(0).toUpperCase()}${words.slice(1).toLowerCase()}`
+    return capitalizeFirstLetter(value.replace(/_/g, ' ').trim().toLowerCase())
 }
 
 function readable(signal: PreviewSignal, content: string): string {

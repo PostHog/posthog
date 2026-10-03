@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.llm.system_one import SystemOneNotConfigured
+
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
 from products.today.backend.logic.jev import JevPick
@@ -155,19 +157,26 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag on", True, REPORT_ID, status.HTTP_200_OK),
-            ("flag off", False, REPORT_ID, status.HTTP_404_NOT_FOUND),
-            ("not a report id", True, "report-1", status.HTTP_404_NOT_FOUND),
+            ("flag on", True, REPORT_ID, None, status.HTTP_200_OK),
+            ("flag off", False, REPORT_ID, None, status.HTTP_404_NOT_FOUND),
+            ("not a report id", True, "report-1", None, status.HTTP_404_NOT_FOUND),
+            ("no gateway", True, REPORT_ID, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
         ]
     )
     def test_key_clauses_answer_only_people_who_may_use_jev(
-        self, _sync_connect: MagicMock, _name: str, flag: bool, report_id: str, expected: int
+        self,
+        _sync_connect: MagicMock,
+        _name: str,
+        flag: bool,
+        report_id: str,
+        gateway_error: Exception | None,
+        expected: int,
     ) -> None:
         jev = FakeJev([CART_TEXT], {CAUSE: JevPick(label="cause", probability=0.9)}, {CAUSE: CAUSE_EXPLAINED})
         with (
             self._flag(flag),
             patch("products.today.backend.facade.api.signals.report_summary", return_value=SUMMARY),
-            patch("products.today.backend.facade.api.GatewayJev", return_value=jev),
+            patch("products.today.backend.facade.api.GatewayJev", return_value=jev, side_effect=gateway_error),
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/today/reports/{report_id}/key_clauses/",

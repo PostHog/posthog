@@ -54,13 +54,14 @@ export function TodayCodeExcerpt({
     file: TodayCodeFile
     quote: TodayCodeQuote | 'loading'
 }): JSX.Element {
-    const shown = quote === 'loading' ? file : quote.file
+    const loaded = quote === 'loading' ? null : quote
+    const shown = loaded?.file ?? file
     const folderEnd = shown.path.lastIndexOf('/') + 1
     const directory = shown.path.slice(0, folderEnd)
     const name = shown.path.slice(folderEnd)
-    const excerpt = quote === 'loading' ? null : quote.excerpt
+    const excerpt = loaded?.excerpt ?? null
     const lastLine = excerpt ? excerpt.startLine + excerpt.lines.length - 1 : null
-    const githubUrl = quote !== 'loading' ? `${quote.read.url}#L${quote.excerpt.startLine}-L${lastLine}` : null
+    const githubUrl = loaded ? `${loaded.read.url}#L${loaded.excerpt.startLine}-L${lastLine}` : null
 
     return (
         <figure

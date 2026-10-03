@@ -84,11 +84,7 @@ function wordStems(text: string): Set<string> {
 }
 
 function overlap(first: Set<string>, second: Set<string>): number {
-    let shared = 0
-    for (const stem of first) {
-        shared += second.has(stem) ? 1 : 0
-    }
-    return shared
+    return [...first].filter((stem) => second.has(stem)).length
 }
 
 const EXCERPT_BEFORE = 120
@@ -113,12 +109,10 @@ function excerptStart(sentence: string, first: number): number {
 }
 
 function excerptAround(sentence: string, needles: string[]): string {
-    const positions = needles
-        .map((needle) => {
-            const match = numberPattern(needle).exec(sentence)
-            return match ? { start: match.index, end: match.index + match[0].length } : null
-        })
-        .filter(isNotNil)
+    const positions = needles.flatMap((needle) => {
+        const match = numberPattern(needle).exec(sentence)
+        return match ? [{ start: match.index, end: match.index + match[0].length }] : []
+    })
     if (!positions.length || sentence.length <= EXCERPT_BEFORE + EXCERPT_AFTER) {
         return sentence
     }
@@ -165,10 +159,6 @@ interface TodayFigureEvidence {
     signals: SignalNodeApi[]
     research: TodayResearchNote[]
     summary: string | null | undefined
-}
-
-interface TodayFigureContext extends TodayFigureEvidence {
-    shownText: string
 }
 
 interface TodayFigureExcerpt {
@@ -302,7 +292,8 @@ function asFigureSource(match: TodayFigureMatch): TodayFigureSource {
 
 export function figureSource(
     figure: Pick<TodayFigure, 'text' | 'value' | 'noun'>,
-    { shownText, ...evidence }: TodayFigureContext
+    evidence: TodayFigureEvidence,
+    shownText: string
 ): TodayFigureSource | null {
     const claim = figureClaim(figure, shownText)
     let best = null as TodayFigureMatch | null
@@ -349,7 +340,7 @@ export function markedFigures(markdown: string, evidence: TodayFigureEvidence): 
     const sourced = inlineSegments(markdown).flatMap((segment, index) =>
         segment.kind === 'text'
             ? findFigures(segment.text).flatMap((figure) => {
-                  const source = figureSource(figure, { ...evidence, shownText: markdown })
+                  const source = figureSource(figure, evidence, markdown)
                   return source ? [{ ...figure, segment: index, content: source }] : []
               })
             : []

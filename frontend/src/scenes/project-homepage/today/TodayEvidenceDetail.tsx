@@ -23,6 +23,13 @@ function previewLink(preview: TodaySignalPreview, quote: TodayCodeQuoteState | n
     return preview.code.length > 0 && quote !== null ? null : preview.open
 }
 
+function detailLinkAttr(signal: SignalNodeApi, open: TodayPreviewLink | null): string {
+    if (!open) {
+        return 'today-report-signal-full-report'
+    }
+    return citedSource(signal) === 'slack' ? 'today-report-signal-slack' : 'today-report-signal-open'
+}
+
 function DetailLink({
     reportId,
     signal,
@@ -34,22 +41,9 @@ function DetailLink({
     open: TodayPreviewLink | null
     showsCode: boolean
 }): JSX.Element | null {
-    if (open) {
-        return (
-            <Button
-                variant="link-muted"
-                size="sm"
-                className="-me-2 px-2"
-                nativeButton={false}
-                render={<LinkPrimitive to={open.to} target={open.external ? '_blank' : undefined} />}
-                data-attr={citedSource(signal) === 'slack' ? 'today-report-signal-slack' : 'today-report-signal-open'}
-            >
-                {open.label}
-                {open.external ? <IconExternal /> : <IconArrowRight />}
-            </Button>
-        )
-    }
-    if (showsCode) {
+    const fullReport = { to: urls.inboxReport('reports', reportId), external: false, label: 'Open in the full report' }
+    const link = open ?? (showsCode ? null : fullReport)
+    if (!link) {
         return null
     }
     return (
@@ -58,11 +52,11 @@ function DetailLink({
             size="sm"
             className="-me-2 px-2"
             nativeButton={false}
-            render={<LinkPrimitive to={urls.inboxReport('reports', reportId)} />}
-            data-attr="today-report-signal-full-report"
+            render={<LinkPrimitive to={link.to} target={link.external ? '_blank' : undefined} />}
+            data-attr={detailLinkAttr(signal, open)}
         >
-            Open in the full report
-            <IconArrowRight />
+            {link.label}
+            {link.external ? <IconExternal /> : <IconArrowRight />}
         </Button>
     )
 }

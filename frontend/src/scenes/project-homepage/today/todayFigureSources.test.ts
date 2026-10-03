@@ -67,12 +67,11 @@ describe('todayFigureSources', () => {
             },
         ],
     ])('traces %s', (_, figure, signals, artefacts, expected) => {
-        const source = figureSource(figure, {
-            signals,
-            research: researchNotes(artefacts),
-            summary: null,
-            shownText: 'We logged 212 failed checkout requests, shown to 18 people.',
-        })
+        const source = figureSource(
+            figure,
+            { signals, research: researchNotes(artefacts), summary: null },
+            'We logged 212 failed checkout requests, shown to 18 people.'
+        )
         expect(source ? { kind: source.kind, excerpt: source.excerpt, parts: source.parts } : null).toEqual(expected)
     })
 })

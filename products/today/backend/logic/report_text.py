@@ -1,11 +1,16 @@
 import re
 from datetime import date, timedelta
 
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
+
 _BARE_GITHUB_LINK = re.compile(
     r"(?<![(<\[])https://github\.com/[\w.-]+/[\w.-]+/(?:pull|issues)/(\d+)(?![\w/])", re.ASCII
 )
 _ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b", re.ASCII)
-_INLINE_MARKDOWN = re.compile(r"`([^`]+)`|\*\*([^*]+)\*\*|\[([^\]]+)\]\(([^)\s]+)\)")
+_MARKDOWN = MarkdownIt("commonmark")
+_TEXT_TOKENS = frozenset({"text", "code_inline", "html_inline"})
+_BREAK_TOKENS = frozenset({"softbreak", "hardbreak"})
 _WHITESPACE = re.compile(r"\s+")
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -22,18 +27,14 @@ def _shortened_github_links(markdown: str) -> str:
     return _BARE_GITHUB_LINK.sub(lambda match: f"[#{match.group(1)}]({match.group(0)})", markdown)
 
 
+def _token_text(token: Token) -> str:
+    if token.type in _TEXT_TOKENS:
+        return token.content
+    if token.type in _BREAK_TOKENS:
+        return " "
+    return "".join(_token_text(child) for child in token.children or [])
+
+
 def rendered_text(markdown: str) -> str:
     text = _ISO_DATE.sub(_readable_date, _WHITESPACE.sub(" ", _shortened_github_links(markdown)).strip())
-    parts: list[str] = []
-    last = 0
-    for match in _INLINE_MARKDOWN.finditer(text):
-        parts.append(text[last : match.start()])
-        if match.group(1) is not None:
-            parts.append(match.group(1))
-        elif match.group(2) is not None:
-            parts.append(rendered_text(match.group(2)))
-        else:
-            parts.append(match.group(3))
-        last = match.end()
-    parts.append(text[last:])
-    return "".join(parts)
+    return "".join(_token_text(token) for token in _MARKDOWN.parseInline(text))
