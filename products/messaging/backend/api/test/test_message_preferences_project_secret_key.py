@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -41,10 +42,11 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
 
     def _sdk_request(self, endpoint: str, authorization: str | None, payload: dict | None = None):
         headers: dict[str, Any] = {"HTTP_AUTHORIZATION": authorization} if authorization else {}
+        body = {**(payload or {"identifier": "user@example.com"}), "token": self.team.api_token}
         return self.client.post(
-            f"/api/projects/@current/messaging_preferences/{endpoint}/?token={self.team.api_token}",
-            payload or {"identifier": "user@example.com"},
-            content_type="application/json",
+            f"/api/projects/@current/messaging_preferences/{endpoint}/",
+            urlencode(body),
+            content_type="application/x-www-form-urlencoded",
             **headers,
         )
 
@@ -144,11 +146,26 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertIn("does not support project secret API key", response.json()["detail"])
 
-    @parameterized.expand([(["messaging_preference:read"],), (["hog_flow:write"],), (["endpoint:read"],)])
-    def test_writing_needs_the_messaging_preference_write_scope(self, scopes):
+    @parameterized.expand(
+        [
+            (scopes, endpoint, payload)
+            for scopes in (["messaging_preference:read"], ["hog_flow:write"], ["endpoint:read"])
+            for endpoint, payload in (
+                ("add_opt_out", {"identifier": "user@example.com"}),
+                ("remove_opt_out", {"identifier": "user@example.com"}),
+                ("bulk_add_opt_outs", {"opt_outs": [{"identifier": "user@example.com"}]}),
+            )
+        ]
+    )
+    def test_writing_needs_the_messaging_preference_write_scope(self, scopes, endpoint, payload):
         token = self._create_project_secret_key(self.team, scopes)
 
-        response = self._sdk_request("add_opt_out", f"Bearer {token}")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging_preferences/{endpoint}/",
+            payload,
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(MessageRecipientPreference.objects.filter(identifier="user@example.com").exists())
@@ -167,19 +184,26 @@ class TestMessagePreferencesProjectSecretKeyAccess(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertFalse(MessageRecipientPreference.objects.filter(identifier="user@example.com").exists())
 
-    def test_the_secret_key_decides_the_project_not_the_public_token(self):
+    def test_rejects_a_key_from_another_project_than_the_token_names(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
         token = self._create_project_secret_key(other_team, ["messaging_preference:write"])
 
         response = self._sdk_request("add_opt_out", f"Bearer {token}")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
-        self.assertTrue(
-            MessageRecipientPreference.objects.filter(team=other_team, identifier="user@example.com").exists()
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertFalse(MessageRecipientPreference.objects.filter(identifier="user@example.com").exists())
+
+    def test_project_secret_key_cannot_read_another_project_by_its_token(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        MessageRecipientPreference.objects.create(team=other_team, identifier="user@example.com", preferences={})
+        token = self._create_project_secret_key(self.team, ["messaging_preference:read"])
+
+        response = self.client.get(
+            f"/api/projects/@current/messaging_preferences/opt_outs/?token={other_team.api_token}",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
         )
-        self.assertFalse(
-            MessageRecipientPreference.objects.filter(team=self.team, identifier="user@example.com").exists()
-        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
     @parameterized.expand(["no_credentials", "project_token_as_bearer", "revoked_key"])
     def test_rejects_requests_without_a_valid_secret_key(self, case):
