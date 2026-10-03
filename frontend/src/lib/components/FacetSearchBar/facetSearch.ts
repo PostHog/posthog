@@ -75,7 +75,7 @@ export function facetFilterKey(filter: FacetFilter): string {
 
 const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"|([^\s"]+)(?=\s|$))/g
 const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"|([^\s"]+)(?=\s))/g
-const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"?|(\S*))$/
+const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"?|([^\s"]*))$/
 const QUOTED_TOKEN_START = /-?[\w-]+:"/y
 const OPEN_QUOTED_DRAFT = /^(-?)([\w-]+):"((?:[^"\\]|\\[\s\S])*\\?)$/
 

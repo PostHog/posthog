@@ -75,10 +75,12 @@ export function FacetSearchBar<TRow>({
         applyTabTarget,
         removeFilter,
         removeLastFilter,
+        syncInput,
     } = useActions(logic)
 
     const inputRef = useRef<HTMLInputElement>(null)
     const movedByKeyboard = useRef(false)
+    const composing = useRef(false)
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
     const expanded = open && (options.length > 0 || !!statusMessage)
@@ -211,6 +213,14 @@ export function FacetSearchBar<TRow>({
             <div
                 className="w-full min-w-0"
                 onMouseDown={(event) => event.target !== inputRef.current && event.preventDefault()}
+                // An IME can hold spaces in text it has not confirmed, so tokens are read once it ends.
+                onCompositionStart={() => {
+                    composing.current = true
+                }}
+                onCompositionEnd={() => {
+                    composing.current = false
+                    setInput(inputRef.current?.value ?? input)
+                }}
             >
                 <div role="status" aria-live="polite" className="sr-only">
                     {expanded ? statusMessage : null}
@@ -228,7 +238,7 @@ export function FacetSearchBar<TRow>({
                     className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_input]:min-w-40"
                     value={input}
                     placeholder={value.filters.length ? 'Add a filter or search' : placeholder}
-                    onChange={setInput}
+                    onChange={(next) => (composing.current ? syncInput(next) : setInput(next))}
                     onKeyDown={onKeyDown}
                     inputRef={inputRef}
                     onFocus={() => setOpen(true)}
@@ -247,9 +257,12 @@ export function FacetSearchBar<TRow>({
                                             data-attr={`${dataAttr}-filter`}
                                             title={`${label}${note}`}
                                             closeLabel={`Remove filter ${label}`}
-                                            onClose={() => {
+                                            onClose={(event) => {
                                                 removeFilter(filter)
-                                                inputRef.current?.focus()
+                                                // A keyboard removal takes away the focused button. A pointer removal leaves the focus, and so the popover, as it was.
+                                                if (event.detail === 0) {
+                                                    inputRef.current?.focus()
+                                                }
                                             }}
                                             className="max-w-80"
                                         >

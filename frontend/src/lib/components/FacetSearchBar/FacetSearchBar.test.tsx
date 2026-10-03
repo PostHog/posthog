@@ -522,6 +522,19 @@ describe('FacetSearchBar', () => {
             expect(input()).toHaveFocus()
         })
 
+        it('removes a pill with the pointer without opening the suggestions over the results', async () => {
+            const user = setup('status:draft sends:Deals')
+            await user.click(document.querySelector('[aria-label="Remove filter Status: Draft"]')!)
+            expect(shown('url')).toEqual('sends:Deals')
+            expect(listbox()).toBeNull()
+            expect(input()).not.toHaveFocus()
+
+            document.querySelector<HTMLElement>('[aria-label="Remove filter Sends: Deals"]')!.focus()
+            await user.keyboard('{Enter}')
+            expect(shown('url')).toEqual('')
+            expect(input()).toHaveFocus()
+        })
+
         it('moves focus with Tab on an empty input and with Shift+Tab', async () => {
             const user = setup()
             await user.click(input())
@@ -577,6 +590,7 @@ describe('FacetSearchBar', () => {
             ],
             ['a facet alias', 'subject:Deals ', 'sends:Deals', ['Sends: Deals'], 'Promo'],
             ['an unknown facet, which stays text', 'owner:me ', 'owner:me', [], ''],
+            ['a quoted phrase that holds a facet token', '"See status:open"', '"See status:open"', [], ''],
         ])('turns %s into pills and text', async (_, typed, url, expectedPills, expectedRows) => {
             const user = setup()
             await user.click(input())
@@ -630,6 +644,20 @@ describe('FacetSearchBar', () => {
             fireEvent.keyDown(input(), { key: 'Enter', ...composition })
             expect(pills()).toEqual([])
             expect(input()).toHaveValue('status:')
+        })
+
+        it('leaves text an IME is still composing alone, and reads it once composition ends', async () => {
+            const user = setup()
+            await user.click(input())
+            fireEvent.compositionStart(input())
+            fireEvent.change(input(), { target: { value: 'sends:ni hao' } })
+            expect(pills()).toEqual([])
+            expect(input()).toHaveValue('sends:ni hao')
+
+            fireEvent.change(input(), { target: { value: 'sends:Deals ' } })
+            fireEvent.compositionEnd(input())
+            expect(pills()).toEqual(['Sends: Deals'])
+            expect(input()).toHaveValue('')
         })
 
         it('keeps focus in the input when the popover chrome is pressed', async () => {
@@ -687,7 +715,10 @@ describe('FacetSearchBar', () => {
             await user.keyboard('plan:')
             expect(suggestions()).toEqual(['Free', 'Paid (1,204)'])
 
-            await user.keyboard('{Enter}-plan:pa{Enter}acme')
+            await user.keyboard('{Enter}-plan:')
+            expect(suggestions()).toEqual(['Not Free', 'Not Paid (1,204)'])
+
+            await user.keyboard('pa{Enter}acme')
             expect(pills()).toEqual(['Plan: Free', 'Plan is not: Paid'])
             expect(JSON.parse(shown('query'))).toEqual({
                 text: 'acme',

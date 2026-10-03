@@ -548,9 +548,6 @@ export const facetSearchBarLogic: LogicWrapper<facetSearchBarLogicType> = kea<fa
             actions.loadValues()
         }
     }),
-    beforeUnmount(({ cache }) => {
-        cache.unmounted = true
-    }),
     propsChanged(({ actions, values, props, cache }, oldProps) => {
         const replacedLoaders = facetsWithNewLoaders(oldProps.facets, props.facets)
         if (replacedLoaders.length) {
@@ -564,5 +561,8 @@ export const facetSearchBarLogic: LogicWrapper<facetSearchBarLogicType> = kea<fa
         if (props.facets !== oldProps.facets || props.data !== oldProps.data || props.value !== oldProps.value) {
             actions.propsUpdated()
         }
+    }),
+    beforeUnmount(({ cache }) => {
+        cache.unmounted = true
     }),
 ])

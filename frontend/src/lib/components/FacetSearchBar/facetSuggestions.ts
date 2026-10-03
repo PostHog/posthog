@@ -121,8 +121,13 @@ function message(id: string, label: string): FacetSuggestion[] {
 
 type IsChosen = (filter: FacetFilter) => boolean
 
-function countOrHidden(option: FacetValueOption, negated: boolean): Pick<FacetSuggestion, 'count' | 'detail'> {
-    if (!negated) {
+/** Client counts are counted under the current search, so a negated one is the rows it hides. A consumer's count is a plain total. */
+function countOrHidden(
+    option: FacetValueOption,
+    negated: boolean,
+    data: SuggestionContext['data']
+): Pick<FacetSuggestion, 'count' | 'detail'> {
+    if (!negated || !data) {
         return { count: option.count }
     }
     return { detail: option.count !== undefined ? `Hides ${humanFriendlyNumber(option.count)}` : undefined }
@@ -171,7 +176,7 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
                 id: `value-${facetFilterKey(filterOf(option))}`,
                 kind: 'value',
                 label: `${draft.negated ? 'Not ' : ''}${optionLabel(facet, option)}`,
-                ...countOrHidden(option, draft.negated),
+                ...countOrHidden(option, draft.negated, context.data),
                 filter: filterOf(option),
                 rest: draft.rest,
             })
@@ -217,7 +222,7 @@ function crossFacetValueSuggestions(
                 id: `value-${facetFilterKey(filter)}`,
                 kind: 'value',
                 label: `${token.negated ? 'Not ' : ''}${facet.label}: ${optionLabel(facet, option)}`,
-                ...countOrHidden(option, token.negated),
+                ...countOrHidden(option, token.negated, context.data),
                 filter,
                 rest: token.rest,
             })
