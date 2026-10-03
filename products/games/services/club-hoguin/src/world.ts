@@ -98,7 +98,7 @@ export interface PlayerView {
     emote: { emoji: string; seq: number } | null
 }
 
-export type FeedKind = 'join' | 'leave' | 'say' | 'poke'
+export type FeedKind = 'join' | 'leave' | 'say' | 'emote' | 'poke'
 
 export interface FeedEntry {
     id: number
@@ -139,7 +139,7 @@ export type WorldEventBody =
     | { kind: 'leave'; id: string; reason: 'left' | 'idle'; text: string }
     | { kind: 'walk'; id: string; from: Point; path: Point[] }
     | { kind: 'say'; id: string; phrase: string; text: string }
-    | { kind: 'emote'; id: string; emoji: string }
+    | { kind: 'emote'; id: string; emoji: string; text: string }
     | { kind: 'look'; id: string; skin: Skin; hat: Hat | null }
     | { kind: 'poke'; id: string; objectId: ObjectId; objects: ObjectState; text: string }
 export type WorldEvent = { seq: number; at: number } & WorldEventBody
@@ -548,7 +548,8 @@ export class World {
         }
         player.lastEmoteAt = now
         player.emote = { emoji: emote.emoji, until: now + LIMITS.emoteMs, seq: this.nextEmoteSeq++ }
-        this.emit(now, { kind: 'emote', id: player.id, emoji: emote.emoji })
+        const text = this.post(now, 'emote', player, `${player.name} ${emote.emoji}`)
+        this.emit(now, { kind: 'emote', id: player.id, emoji: emote.emoji, text })
         return { ok: true }
     }
 

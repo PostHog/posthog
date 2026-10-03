@@ -208,27 +208,32 @@ body {
 
 .feed {
     width: 100%;
-    max-height: 22cqh;
-    padding: 0.5em 0.8em;
+    max-height: 40cqh;
+    padding: 0.45em 0.75em;
     margin: 0;
     overflow: hidden;
     font-family: system-ui, sans-serif;
-    font-size: clamp(9px, 1.15cqw, 13px);
-    line-height: 1.35;
+    font-size: clamp(9px, 1.05cqw, 12px);
+    line-height: 1.4;
     color: #fff;
     list-style: none;
-    background: rgb(15 23 54 / 62%);
-    border-radius: 0.9em;
+    background: rgb(15 23 54 / 55%);
+    border-radius: 0.8em;
+
+    /* The oldest lines fade out at the bottom instead of being cut off. */
+    mask-image: linear-gradient(#000 70%, transparent);
 }
 
 .feed li {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
 }
 
 .feed li:first-child {
     font-weight: 700;
+}
+
+.feed li:nth-child(n + 7) {
+    opacity: 0.7;
 }
 
 .notice,

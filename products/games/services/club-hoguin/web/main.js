@@ -198,7 +198,7 @@ function renderOnline() {
 function renderFeed() {
     $('feed').replaceChildren(
         ...feed
-            .slice(-6)
+            .slice(-12)
             .reverse()
             .map((text) => {
                 const item = document.createElement('li')

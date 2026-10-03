@@ -193,6 +193,10 @@ describe('World', () => {
         expect(world.emote(token, '<img src=x>', 0)).toEqual({ ok: false, error: 'unknown_emote' })
         expect(world.emote(token, 'party', 0)).toEqual({ ok: true })
         expect(world.snapshot(token, 0).you!.emote).toMatchObject({ emoji: '🎉' })
+        expect(world.snapshot(token, 0).feed.at(-1)).toMatchObject({
+            kind: 'emote',
+            text: expect.stringMatching(/ 🎉$/),
+        })
 
         world.touch(token, LIMITS.emoteMs)
         world.tick(LIMITS.emoteMs)
