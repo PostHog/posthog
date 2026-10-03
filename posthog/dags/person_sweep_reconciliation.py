@@ -1,37 +1,45 @@
 """Postgres side of the deletion sweep's reconciliation checkpoint.
 
-The sweep snapshots persons and distinct ids whose newest ClickHouse version is deleted. ClickHouse
-can hide a key that is live in Postgres: person UUIDs derive from the distinct id, so a person
-recreated after a legacy hard delete restarts at a low version, below the version + 100 tombstone
-that delete published. This module finds the snapshot keys that are live in Postgres, so the
-sweep can exclude them, and republishes them so ClickHouse shows them again.
+The sweep snapshots persons and distinct ids whose newest ClickHouse version is deleted, then
+deletes every ClickHouse row of each key up to the newest version it saw, M. Postgres is the only
+version authority, so every snapshot key is checked against it first:
+
+- A key that Postgres holds live is excluded from the run. ClickHouse can hide a live key: person
+  UUIDs derive from the distinct id, so a person recreated after a legacy hard delete restarts
+  below the version + 100 tombstone that delete published.
+- A key that Postgres holds as a tombstone at M or above needs nothing. A revival writes above M,
+  so ClickHouse sees it, and the delete's version bound keeps its row.
+- Any other key, absent from Postgres or tombstoned below M, gets a Postgres tombstone at M on the
+  primary. After that, every later write to the key lands above M too. The primary reports a key
+  that is live after all, and that key is excluded.
+
+A key whose check cannot finish is excluded, so a failure spares keys rather than deletes them.
 """
 
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import Context, copy_context
+from dataclasses import fields
+from functools import partial
 from typing import TypeVar
 from uuid import UUID
 
+import grpc
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.person import Person
 from posthog.models.person.util import (
     PERSONHOG_BATCH_SIZE,
-    _batched_get_persons_by_distinct_ids,
-    _batched_get_persons_by_uuids,
-    create_person,
-    create_person_distinct_id,
-    get_person_tombstones,
-)
-from posthog.personhog_client.client import personhog_call, require_personhog_client
-from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.proto import (
-    ReadOptions,
-    SetPersonDistinctIdVersionFloorRequest,
-    SetPersonVersionFloorRequest,
+    DistinctIdVersionFloor,
+    DistinctIdVersionHead,
+    PersonVersionFloor,
+    PersonVersionHead,
+    VersionFloorOutcome,
+    ensure_distinct_id_version_floors,
+    ensure_person_version_floors,
+    get_distinct_id_version_heads,
+    get_person_version_heads,
 )
 
 logger = structlog.get_logger(__name__)
@@ -39,52 +47,54 @@ logger = structlog.get_logger(__name__)
 _T = TypeVar("_T")
 _R = TypeVar("_R")
 
-# The liveness pass touches every snapshot key, so it reads identity fields only and leaves the
-# property blobs in Postgres. Only the persons it republishes are read in full.
-_PERSON_LIVENESS_FIELDS = ReadOptions(field_mask=["id", "uuid", "team_id", "version"])
-_MAPPING_LIVENESS_FIELDS = ReadOptions(field_mask=["id", "uuid", "team_id"])
-# Postgres stores properties as non-null JSON, so a real row always arrives with at least "{}".
-# Empty bytes mean the service did not return them, and publishing that would wipe the person's
-# properties in ClickHouse. The read-back skips such a row, so the person stays excluded but unpublished.
-_PERSON_REPUBLISH_FIELDS = ReadOptions(
-    field_mask=["id", "uuid", "team_id", "version", "properties", "is_identified", "created_at", "last_seen_at"]
-)
-
-# The floor RPC writes the primary, and the read-back comes from a replica. A person the replica
-# still shows below the floor is left excluded and unpublished, and the next sweep retries it.
-REPLICA_CATCH_UP_ATTEMPTS = 3
-REPLICA_CATCH_UP_SECONDS = 1.0
+FLOOR_ATTEMPTS = 3
+FLOOR_RETRY_BACKOFF_SECONDS = 1.0
 
 
 @frozen
-class LivePerson:
-    """A snapshot person that Postgres holds live."""
+class PersonKey:
+    """A snapshot person and the newest ClickHouse version the snapshot saw."""
 
-    uuid: str
-    person_id: int
-
-
-@frozen
-class PersonHead:
-    """The newest ClickHouse version of a person."""
-
+    uuid: UUID
     max_version: int
-    is_deleted: bool
 
 
 @frozen
-class MappingHead:
-    """The newest ClickHouse version of a distinct id mapping."""
+class MappingKey:
+    """A snapshot distinct id, with the owner and version of its newest ClickHouse row."""
 
+    distinct_id: str
+    # Owns the tombstone written where Postgres has no row for the distinct id.
+    person_uuid: UUID
     max_version: int
-    is_deleted: bool
-    person_uuid: str
 
 
-@frozen(frozen=False)
-class RepublishOutcome:
-    republished: int = 0
-    skipped: int = 0
+@frozen
+class ReconcileTally:
+    live: int = 0
+    # Postgres holds the mapping live, but its person has no row.
+    orphaned_live: int = 0
+    current: int = 0
+    floored: int = 0
+    floor_failed: int = 0
+    floor_capped: int = 0
+    # A dry run skips the floor write. It deletes nothing, so the key needs no exclusion.
+    floor_skipped: int = 0
+
+    def __add__(self, other: "ReconcileTally") -> "ReconcileTally":
+        return ReconcileTally(**{f.name: getattr(self, f.name) + getattr(other, f.name) for f in fields(self)})
+
+    @property
+    def excluded(self) -> int:
+        return self.live + self.orphaned_live + self.floor_failed + self.floor_capped
+
+
+@frozen
+class TeamReconciliation:
+    """One team's checked keys: the ones to exclude from the run, and how each key resolved."""
+
+    excluded: list[str]
+    tally: ReconcileTally
 
 
 def _fan_out(fn: Callable[[_T], _R], chunks: Sequence[_T], concurrency: int) -> list[_R]:
@@ -109,194 +119,163 @@ def _chunks(items: Sequence[_T]) -> list[list[_T]]:
     return [list(items[i : i + PERSONHOG_BATCH_SIZE]) for i in range(0, len(items), PERSONHOG_BATCH_SIZE)]
 
 
-class PostgresReconciler:
-    """Reads snapshot keys back from Postgres through personhog, and republishes the live ones.
+def _with_retries(fn: Callable[[], _T]) -> _T:
+    """Call fn, retrying an RPC failure a bounded number of times. Other errors propagate at once."""
+    for attempt in range(1, FLOOR_ATTEMPTS):
+        try:
+            return fn()
+        except grpc.RpcError:
+            time.sleep(FLOOR_RETRY_BACKOFF_SECONDS * attempt)
+    return fn()
 
-    Republishing raises the Postgres version above every ClickHouse version of the key first, then
-    publishes the row at the version Postgres holds. The order matters: a row published above the
-    Postgres version would hide every later ingestion update, because ingestion publishes at the
-    Postgres version and ClickHouse keeps the highest one.
+
+class PostgresReconciler:
+    """Checks snapshot keys against Postgres through personhog, and floors the ones that need it.
+
+    It reads every key from a replica, which returns tombstones too. Only keys the replica shows
+    absent or tombstoned below M go to the primary. The floor writes never touch a live row.
     """
 
-    def __init__(self, *, concurrency: int, dry_run: bool) -> None:
+    def __init__(self, *, concurrency: int, dry_run: bool, max_floor_keys: int) -> None:
         self.concurrency = concurrency
         self.dry_run = dry_run
+        # Shared by persons and mappings, so it bounds the run's whole write load on the primary.
+        self.floor_budget = max_floor_keys
 
-    def live_persons(self, team_id: int, uuids: Sequence[str]) -> list[LivePerson]:
-        def lookup(chunk: list[str]) -> list[LivePerson]:
-            persons = _batched_get_persons_by_uuids(
-                team_id, chunk, "sweep_reconcile_persons", read_options=_PERSON_LIVENESS_FIELDS
+    def persons(self, team_id: int, keys: Sequence[PersonKey]) -> TeamReconciliation:
+        heads: dict[UUID, PersonVersionHead] = {
+            head.uuid: head
+            for chunk in _fan_out(
+                partial(get_person_version_heads, team_id), _chunks([k.uuid for k in keys]), self.concurrency
             )
-            return [LivePerson(uuid=str(UUID(p.uuid)), person_id=p.id) for p in persons]
+            for head in chunk
+        }
+        excluded: list[str] = []
+        tally = ReconcileTally()
+        to_floor: list[PersonKey] = []
+        for key in keys:
+            head = heads.get(key.uuid)
+            if head is not None and not head.is_deleted:
+                excluded.append(str(key.uuid))
+                tally += ReconcileTally(live=1)
+            elif head is not None and head.version >= key.max_version:
+                tally += ReconcileTally(current=1)
+            else:
+                to_floor.append(key)
 
-        results = personhog_call("sweep_reconcile_persons", lambda: _fan_out(lookup, _chunks(uuids), self.concurrency))
-        return [person for chunk in results for person in chunk]
+        def floor(chunk: list[PersonKey]) -> TeamReconciliation:
+            results = {
+                r.uuid: r
+                for r in ensure_person_version_floors(
+                    team_id, [PersonVersionFloor(uuid=k.uuid, min_version=k.max_version) for k in chunk]
+                )
+            }
+            chunk_excluded: list[str] = []
+            chunk_tally = ReconcileTally()
+            for key in chunk:
+                result = results.get(key.uuid)
+                if result is not None and result.outcome is VersionFloorOutcome.LIVE:
+                    chunk_excluded.append(str(key.uuid))
+                    chunk_tally += ReconcileTally(live=1)
+                elif result is None or result.version < key.max_version:
+                    logger.error("sweep_reconcile.floor_not_held", team_id=team_id, kind="persons")
+                    chunk_excluded.append(str(key.uuid))
+                    chunk_tally += ReconcileTally(floor_failed=1)
+                else:
+                    chunk_tally += ReconcileTally(floored=1)
+            return TeamReconciliation(excluded=chunk_excluded, tally=chunk_tally)
 
-    def live_mappings(self, team_id: int, distinct_ids: Sequence[str]) -> dict[str, str]:
-        """Map each distinct id that Postgres holds live, with a live person, to that person's UUID."""
+        floored = self._floor(team_id, "persons", to_floor, lambda key: str(key.uuid), floor)
+        return TeamReconciliation(excluded=excluded + floored.excluded, tally=tally + floored.tally)
 
-        def lookup(chunk: list[str]) -> list[tuple[str, str]]:
-            results = _batched_get_persons_by_distinct_ids(
-                team_id,
-                chunk,
-                "sweep_reconcile_distinct_ids",
-                deduplicate_by_person=False,
-                read_options=_MAPPING_LIVENESS_FIELDS,
+    def mappings(self, team_id: int, keys: Sequence[MappingKey]) -> TeamReconciliation:
+        heads: dict[str, DistinctIdVersionHead] = {
+            head.distinct_id: head
+            for chunk in _fan_out(
+                partial(get_distinct_id_version_heads, team_id),
+                _chunks([k.distinct_id for k in keys]),
+                self.concurrency,
             )
-            return [(r.distinct_id, str(UUID(r.person.uuid))) for r in results]
+            for head in chunk
+        }
+        excluded: list[str] = []
+        tally = ReconcileTally()
+        to_floor: list[MappingKey] = []
+        for key in keys:
+            head = heads.get(key.distinct_id)
+            if head is not None and not head.is_deleted:
+                excluded.append(key.distinct_id)
+                tally += ReconcileTally(live=1) if head.person_uuid else ReconcileTally(orphaned_live=1)
+            elif head is not None and head.version >= key.max_version:
+                tally += ReconcileTally(current=1)
+            else:
+                to_floor.append(key)
 
-        results = personhog_call(
-            "sweep_reconcile_distinct_ids", lambda: _fan_out(lookup, _chunks(distinct_ids), self.concurrency)
-        )
-        return dict(pair for chunk in results for pair in chunk)
-
-    def republish_persons(
-        self, team_id: int, persons: Sequence[LivePerson], heads: dict[str, PersonHead]
-    ) -> RepublishOutcome:
-        outcome = RepublishOutcome()
-        # The floor RPC also raises a tombstoned row, and the replica lookup can lag a tombstone.
-        # Raising a tombstone's version would detach it from the version its ClickHouse row has.
-        tombstoned = self._tombstoned(team_id, [p.uuid for p in persons])
-        floors: dict[str, int] = {}
-        for person in persons:
-            head = heads.get(person.uuid)
-            if head is None or not head.is_deleted or person.uuid in tombstoned:
-                outcome.skipped += 1
-                continue
-            floors[person.uuid] = head.max_version + 1
-            if not self.dry_run:
-                self._set_person_version_floor(team_id, person.person_id, floors[person.uuid])
-        if self.dry_run:
-            outcome.republished = len(floors)
-            return outcome
-        if not floors:
-            return outcome
-
-        caught_up = self._read_back_persons(team_id, floors)
-        # A delete can land between the first check and the floor, so the primary decides again.
-        tombstoned = self._tombstoned(team_id, list(caught_up))
-        for uuid, (version, row) in caught_up.items():
-            if uuid in tombstoned:
-                continue
-            create_person(
-                uuid=uuid,
-                team_id=team_id,
-                version=version,
-                properties=row.properties,
-                is_identified=row.is_identified,
-                is_deleted=False,
-                created_at=row.created_at,
-                last_seen_at=row.last_seen_at,
-            )
-            outcome.republished += 1
-        outcome.skipped += len(floors) - outcome.republished
-        return outcome
-
-    def republish_mappings(
-        self, team_id: int, owners: dict[str, str], heads: dict[str, MappingHead]
-    ) -> RepublishOutcome:
-        """Republish each live mapping that ClickHouse hides or points at another person.
-
-        The published version is the floor itself. The floor RPC does not return the version it
-        leaves, and a stored version above the floor means Postgres wrote that version after
-        ClickHouse's newest row, so its own publish outranks this row. The owner check below makes
-        both rows name the same person.
-        """
-        outcome = RepublishOutcome()
-        floored: dict[str, tuple[str, int]] = {}
-        for distinct_id, owner in owners.items():
-            head = heads.get(distinct_id)
-            if head is None or (not head.is_deleted and head.person_uuid == owner):
-                outcome.skipped += 1
-                continue
-            version = head.max_version + 1
-            if self.dry_run:
-                floored[distinct_id] = (owner, version)
-                continue
-            person = self._set_distinct_id_version_floor(team_id, distinct_id, version)
-            if person is None or str(person.uuid) != owner:
-                logger.warning("sweep_reconcile.mapping_moved", team_id=team_id, distinct_id=distinct_id)
-                outcome.skipped += 1
-                continue
-            floored[distinct_id] = (owner, version)
-        if self.dry_run:
-            outcome.republished = len(floored)
-            return outcome
-        if not floored:
-            return outcome
-
-        tombstoned = self._tombstoned(team_id, sorted({owner for owner, _ in floored.values()}))
-        for distinct_id, (owner, version) in floored.items():
-            if owner in tombstoned:
-                outcome.skipped += 1
-                continue
-            create_person_distinct_id(
-                team_id=team_id, distinct_id=distinct_id, person_id=owner, version=version, is_deleted=False
-            )
-            outcome.republished += 1
-        return outcome
-
-    def _read_back_persons(self, team_id: int, floors: dict[str, int]) -> dict[str, tuple[int, Person]]:
-        """Read each floored person from the replica once it shows a version at or above its floor.
-
-        The row then carries properties and version from one Postgres state, so the republished
-        row matches what ingestion would publish for that version.
-        """
-        caught_up: dict[str, tuple[int, Person]] = {}
-        pending = dict(floors)
-        without_properties = 0
-        for attempt in range(REPLICA_CATCH_UP_ATTEMPTS):
-            if attempt:
-                time.sleep(REPLICA_CATCH_UP_SECONDS)
-            persons = personhog_call(
-                "sweep_reconcile_read_back",
-                lambda: _batched_get_persons_by_uuids(
+        def floor(chunk: list[MappingKey]) -> TeamReconciliation:
+            results = {
+                r.distinct_id: r
+                for r in ensure_distinct_id_version_floors(
                     team_id,
-                    list(pending),
-                    "sweep_reconcile_read_back",
-                    read_options=_PERSON_REPUBLISH_FIELDS,
-                    concurrency=self.concurrency,
-                ),
-            )
-            for proto in persons:
-                uuid = str(UUID(proto.uuid))
-                if uuid not in pending or proto.version < pending[uuid]:
-                    continue
-                del pending[uuid]
-                if not proto.properties:
-                    without_properties += 1
-                    continue
-                caught_up[uuid] = (proto.version, proto_person_to_model(proto))
-            if not pending:
-                break
-        if without_properties:
-            logger.warning("sweep_reconcile.properties_missing", team_id=team_id, persons=without_properties)
-        if pending:
-            logger.warning("sweep_reconcile.replica_behind", team_id=team_id, persons=len(pending))
-        return caught_up
+                    [
+                        DistinctIdVersionFloor(
+                            distinct_id=k.distinct_id, min_version=k.max_version, person_uuid=k.person_uuid
+                        )
+                        for k in chunk
+                    ],
+                )
+            }
+            chunk_excluded: list[str] = []
+            chunk_tally = ReconcileTally()
+            for key in chunk:
+                result = results.get(key.distinct_id)
+                if result is not None and result.outcome is VersionFloorOutcome.LIVE:
+                    chunk_excluded.append(key.distinct_id)
+                    chunk_tally += ReconcileTally(live=1) if result.person_uuid else ReconcileTally(orphaned_live=1)
+                elif result is None or result.version < key.max_version:
+                    logger.error("sweep_reconcile.floor_not_held", team_id=team_id, kind="distinct_ids")
+                    chunk_excluded.append(key.distinct_id)
+                    chunk_tally += ReconcileTally(floor_failed=1)
+                else:
+                    chunk_tally += ReconcileTally(floored=1)
+            return TeamReconciliation(excluded=chunk_excluded, tally=chunk_tally)
 
-    @staticmethod
-    def _tombstoned(team_id: int, uuids: Sequence[str]) -> set[str]:
-        """The given persons that the Postgres primary holds tombstoned."""
-        if not uuids:
-            return set()
-        return {str(t.uuid) for t in get_person_tombstones(team_id, [UUID(u) for u in uuids])}
+        floored = self._floor(team_id, "distinct_ids", to_floor, lambda key: key.distinct_id, floor)
+        return TeamReconciliation(excluded=excluded + floored.excluded, tally=tally + floored.tally)
 
-    @staticmethod
-    def _set_person_version_floor(team_id: int, person_id: int, version: int) -> None:
-        personhog_call(
-            "set_person_version_floor",
-            lambda: require_personhog_client().set_person_version_floor(
-                SetPersonVersionFloorRequest(team_id=team_id, person_id=person_id, min_version=version)
-            ),
-        )
+    def _floor(
+        self,
+        team_id: int,
+        kind: str,
+        keys: Sequence[_T],
+        key_name: Callable[[_T], str],
+        floor: Callable[[list[_T]], TeamReconciliation],
+    ) -> TeamReconciliation:
+        """Floor keys on the primary one batch at a time, serially, within the run's budget.
 
-    @staticmethod
-    def _set_distinct_id_version_floor(team_id: int, distinct_id: str, version: int) -> Person | None:
-        response = personhog_call(
-            "set_person_distinct_id_version_floor",
-            lambda: require_personhog_client().set_person_distinct_id_version_floor(
-                SetPersonDistinctIdVersionFloorRequest(team_id=team_id, distinct_id=distinct_id, min_version=version)
-            ),
-        )
-        return proto_person_to_model(response.person) if response.HasField("person") else None
+        A batch that keeps failing, or that the budget does not cover, is excluded whole: the
+        failed call can have committed part of the batch, so no result in it can be trusted.
+        """
+        excluded: list[str] = []
+        tally = ReconcileTally()
+        if self.dry_run:
+            return TeamReconciliation(excluded=[], tally=ReconcileTally(floor_skipped=len(keys)))
+        for chunk in _chunks(keys):
+            allowed = chunk[: max(self.floor_budget, 0)]
+            if len(allowed) < len(chunk):
+                excluded.extend(key_name(key) for key in chunk[len(allowed) :])
+                tally += ReconcileTally(floor_capped=len(chunk) - len(allowed))
+            if not allowed:
+                continue
+            self.floor_budget -= len(allowed)
+            try:
+                result = _with_retries(partial(floor, allowed))
+            except grpc.RpcError:
+                logger.warning(
+                    "sweep_reconcile.floor_failed", team_id=team_id, kind=kind, keys=len(allowed), exc_info=True
+                )
+                excluded.extend(key_name(key) for key in allowed)
+                tally += ReconcileTally(floor_failed=len(allowed))
+                continue
+            excluded.extend(result.excluded)
+            tally += result.tally
+        return TeamReconciliation(excluded=excluded, tally=tally)
