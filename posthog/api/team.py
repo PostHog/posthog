@@ -366,6 +366,7 @@ def handle_tracing_config(request: request.Request, team: Team) -> response.Resp
                 if throttle_error:
                     raise exceptions.ValidationError({"retention_days": throttle_error})
                 if locked_config.retention_days != config.retention_days:
+                    # Entitlement resets do not set retention_last_updated, so the throttle cannot see them.
                     raise exceptions.ValidationError(
                         {"retention_days": "Retention changed. Reload the settings and retry."}
                     )
