@@ -7,7 +7,6 @@ import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
-import { Property } from 'lib/components/Property'
 import { dayjs } from 'lib/dayjs'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -316,20 +315,19 @@ export const Table = (props: TableProps): JSX.Element => {
                             className={wrapText ? 'whitespace-pre-wrap wrap-anywhere' : 'truncate'}
                             title={wrapText ? undefined : getCellTitle(cell)}
                         >
-                            {wrapText && cell.type === 'STRING' && typeof cell.formattedValue === 'string' ? (
-                                <Property value={cell.formattedValue} wrapText />
-                            ) : (
-                                renderColumn(
-                                    cell.sourceColumnName ?? column.name,
-                                    cell.formattedValue,
-                                    data,
-                                    recordIndex,
-                                    rowCount,
-                                    {
-                                        kind: NodeKind.DataTableNode,
-                                        source: props.query.source,
-                                    }
-                                )
+                            {renderColumn(
+                                cell.sourceColumnName ?? column.name,
+                                cell.formattedValue,
+                                data,
+                                recordIndex,
+                                rowCount,
+                                {
+                                    kind: NodeKind.DataTableNode,
+                                    source: props.query.source,
+                                },
+                                undefined,
+                                undefined,
+                                { wrapText }
                             )}
                         </div>
                     )
