@@ -4096,7 +4096,7 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
             "conversations_settings": merge_conversations_settings(None, current),
         }
 
-        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+        with patch("posthog.api.team.conversations_settings.secrets.token_urlsafe", return_value="test-generated-token"):
             result = handle_conversations_token_on_update(updates, not enabling, current)
 
         token = ("test-existing-token" if has_token else "test-generated-token") if enabling else None
@@ -4114,7 +4114,7 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         if settings_input != "omitted":
             updates["conversations_settings"] = None if settings_input == "null" else {}
 
-        with patch("posthog.api.team.secrets.token_urlsafe", return_value="test-generated-token"):
+        with patch("posthog.api.team.conversations_settings.secrets.token_urlsafe", return_value="test-generated-token"):
             result = handle_conversations_token_on_update(updates, not enabling, current_settings)
 
         expected: dict[str, str | None] = dict(current_settings) if settings_input == "omitted" else {}
