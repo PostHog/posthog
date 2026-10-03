@@ -753,6 +753,54 @@ class TestExternalTicketAPI(BaseTest):
         tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
         self.assertEqual(tags, ["urgent"])
 
+    # -- PATCH cc_participants ---------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("add_default", {}, ["a@example.com", "owner@example.com"]),
+            ("add", {"cc_mode": "add"}, ["a@example.com", "owner@example.com"]),
+            ("set", {"cc_mode": "set"}, ["owner@example.com"]),
+            ("remove", {"cc_mode": "remove"}, ["a@example.com"]),
+        ]
+    )
+    def test_patch_cc_participants_modes(self, _name, mode, expected):
+        self.ticket.email_from = "customer@example.com"
+        existing = ["a@example.com", "owner@example.com"] if _name == "remove" else ["a@example.com"]
+        # A legacy row can hold the requester in Cc; every mode must drop it.
+        self.ticket.cc_participants = [*existing, "customer@example.com"]
+        self.ticket.save(update_fields=["email_from", "cc_participants"])
+
+        response = self.client.patch(
+            self.url,
+            {"cc_participants": ["Owner@Example.com", "customer@example.com"], **mode},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.cc_participants, expected)
+
+    @parameterized.expand(
+        [
+            ("invalid_email", [], ["not-an-email"]),
+            ("add_past_limit", [f"cc{i}@example.com" for i in range(50)], ["extra@example.com"]),
+        ]
+    )
+    def test_patch_cc_participants_rejected(self, _name, existing, payload):
+        self.ticket.cc_participants = existing
+        self.ticket.save(update_fields=["cc_participants"])
+
+        response = self.client.patch(
+            self.url,
+            {"cc_participants": payload, "status": Status.OPEN},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.cc_participants, existing)
+        self.assertEqual(self.ticket.status, Status.NEW)
+
     # -- URL validation ---------------------------------------------------
 
     def test_invalid_uuid_in_url_returns_404(self):
