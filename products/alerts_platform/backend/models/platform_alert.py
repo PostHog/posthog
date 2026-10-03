@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.enums import (
 )
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
 def source_kind_choices() -> list[tuple[str, str]]:
     # A callable, so a new source does not write a state-only migration for its choice.
     return PlatformAlertConfigurationSourceKind.choices
