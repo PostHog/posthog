@@ -1097,7 +1097,7 @@ function schemaExcludedFieldsFor(
         if (reason) {
             throw new Error(
                 `Tool "${toolName}" cannot omit "${field}" on its own, because ${reason}. ` +
-                    `Exclude it on every tool on "${config.operation}", or on none.`
+                    `Exclude it on every enabled tool on "${config.operation}" in this YAML file, or on none.`
             )
         }
     }
