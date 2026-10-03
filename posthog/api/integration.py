@@ -24,7 +24,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -72,7 +72,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import OrganizationMembership, User
+from posthog.models import OrganizationMembership, ProxyRecord, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -2512,6 +2512,8 @@ class IntegrationViewSet(
             integration_id = data["integration_id"]
             try:
                 resolved = resolve_email_context(integration_id, self.team_id)
+            except Integration.DoesNotExist:
+                raise NotFound("No email sender with this integration_id exists in this project.")
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
@@ -2521,7 +2523,9 @@ class IntegrationViewSet(
             proxy_record_id = data["proxy_record_id"]
             organization = self.organization
             try:
-                resolved = resolve_proxy_context(proxy_record_id, str(organization.id))
+                resolved = resolve_proxy_context(str(proxy_record_id), str(organization.id))
+            except ProxyRecord.DoesNotExist:
+                raise NotFound("No reverse proxy record with this proxy_record_id exists in this organization.")
             except ValueError as e:
                 capture_exception(
                     e, {"proxy_record_id": proxy_record_id, "organization_id": organization.id, "context": context}

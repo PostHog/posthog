@@ -158,7 +158,7 @@ class DomainConnectApplyUrlRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="ID of the email integration (sender). Required when `context` is `email`.",
     )
-    proxy_record_id = serializers.CharField(
+    proxy_record_id = serializers.UUIDField(
         required=False,
         allow_null=True,
         help_text="ID of the reverse proxy record. Required when `context` is `proxy`.",
