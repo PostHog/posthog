@@ -6054,9 +6054,14 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(
                     {"status": f"Must be one of: {', '.join(WorkflowProposal.Status.values)}."}
                 )
-            # Applied ones order by the version that shipped them; the rest read as a queue, newest first.
-            applied_only = requested_status == WorkflowProposal.Status.APPLIED
-            ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
+            # Applied ones order by the version that shipped them and rejected ones by when they were rejected,
+            # since either can happen long after filing; the rest read as a queue, newest first.
+            if requested_status == WorkflowProposal.Status.APPLIED:
+                ordering: tuple[str, ...] = ("-applied_version", "-created_at")
+            elif requested_status == WorkflowProposal.Status.REJECTED:
+                ordering = ("-resolved_at", "-created_at")
+            else:
+                ordering = ("-created_at",)
             queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
             if requested_status:
                 queryset = queryset.filter(status=requested_status)

@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -1343,33 +1344,46 @@ class TestWorkflowProposals(APIBaseTest):
         assert listed.status_code == 200, listed.json()
         assert [row["rejection_reason"] for row in listed.json()["results"]] == [expected]
 
-    def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
+    @parameterized.expand(
+        [
+            ("applied", WorkflowProposal.Status.APPLIED, {"applied_version": 3}, {"applied_version": 2}),
+            (
+                "rejected",
+                WorkflowProposal.Status.REJECTED,
+                {"resolved_at": datetime(2026, 5, 3, tzinfo=UTC)},
+                {"resolved_at": datetime(2026, 5, 2, tzinfo=UTC)},
+            ),
+        ]
+    )
+    def test_resolved_suggestions_are_listed_by_when_they_were_resolved(
+        self, _mock_flag, status: str, kind: str, first_resolved: dict, last_resolved: dict
+    ):
         flow_id = self._create_active_flow()
         flow = HogFlow.objects.get(id=flow_id)
         written_first = WorkflowProposal(
             hog_flow=flow,
             team=self.team,
-            title="Written first, shipped last",
-            rationale="Approved after the other one had already shipped.",
+            title="Written first, resolved last",
+            rationale="Resolved after the other one.",
             content={"exit_condition": "exit_on_conversion"},
             base_version=1,
-            status=WorkflowProposal.Status.APPLIED,
-            applied_version=3,
+            status=kind,
+            **first_resolved,
         )
         written_first.save()
         written_last = WorkflowProposal(
             hog_flow=flow,
             team=self.team,
-            title="Written last, shipped first",
-            rationale="Approved and published before the other one.",
+            title="Written last, resolved first",
+            rationale="Resolved before the other one.",
             content={"exit_condition": "exit_on_conversion"},
             base_version=1,
-            status=WorkflowProposal.Status.APPLIED,
-            applied_version=2,
+            status=kind,
+            **last_resolved,
         )
         written_last.save()
 
-        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=applied&limit=1")
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status={status}&limit=1")
         assert listed.status_code == 200, listed.json()
         assert [row["id"] for row in listed.json()["results"]] == [str(written_first.id)]
 
