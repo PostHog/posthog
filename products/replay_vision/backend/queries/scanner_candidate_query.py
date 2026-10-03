@@ -193,6 +193,8 @@ class ScannerCandidateQuery:
         skip_negative_blocklists: bool = False,
         # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
         scanner_id: str | None = None,
+        # Caps the settle horizon, so a sweep stops at a known end (an ended experiment's end date).
+        until: dt.datetime | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -213,6 +215,8 @@ class ScannerCandidateQuery:
         self._scanner_id = scanner_id
         # Fixed at construction and exposed so callers can persist exactly the horizon the query filtered on.
         self.settle_cutoff = dt.datetime.now(dt.UTC) - SETTLE_INTERVAL
+        if until is not None:
+            self.settle_cutoff = min(self.settle_cutoff, until)
 
         # The schedule owns the time window, not the user.
         inner_query = query.model_copy(deep=True)

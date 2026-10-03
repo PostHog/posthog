@@ -942,3 +942,64 @@ async def test_video_cache_creation_is_best_effort() -> None:
         cast(Any, _BoomClient()), "models/gemini-3-flash-preview", _VIDEO, "PRE", tools=[events_tool()]
     )
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_apply_experiment_scan_context_injects_into_experiment_scanners_only() -> None:
+    # The injected fields are exclude=True, so this per-scan context is the only way the prompt
+    # ever learns the variant; a broken injection silently degrades every experiment scan.
+    from uuid import uuid4
+
+    from products.replay_vision.backend.temporal.activities.call_scanner_provider import _apply_experiment_scan_context
+    from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
+    from products.replay_vision.backend.temporal.types import CallScannerProviderInputs
+
+    inputs = CallScannerProviderInputs(
+        team_id=1,
+        observation_id=uuid4(),
+        exported_asset_id=1,
+        file_uri="file://x",
+        mime_type="video/mp4",
+        experiment_variant="test",
+        experiment_context={
+            "id": 42,
+            "name": "Checkout CTA copy",
+            "description": "",
+            "feature_flag_key": "checkout-cta",
+            "variants": [{"key": "test", "description": "", "rollout_percentage": 50.0}],
+            "primary_metric_names": [],
+        },
+    )
+
+    experiment_scanner = ExperimentScanner(prompt="p", experiment_id=42)
+    injected = await _apply_experiment_scan_context(experiment_scanner, inputs)
+    assert isinstance(injected, ExperimentScanner)
+    assert injected.session_variant == "test"
+    assert injected.experiment_context is not None and injected.experiment_context["name"] == "Checkout CTA copy"
+    assert "`test` variant" in injected.core_steps()[0].instruction
+
+    monitor = MonitorScanner(prompt="p")
+    assert await _apply_experiment_scan_context(monitor, inputs) is monitor
+
+
+@pytest.mark.asyncio
+async def test_evaluation_calls_fall_back_to_the_persisted_attribution() -> None:
+    # Evaluations re-scan a rated session and dispatch no resolve activity; without the fallback
+    # they would test a suggested prompt without its experiment block.
+    from uuid import uuid4
+
+    from products.replay_vision.backend.temporal.activities.call_scanner_provider import _apply_experiment_scan_context
+    from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
+    from products.replay_vision.backend.temporal.types import CallScannerProviderInputs
+
+    inputs = CallScannerProviderInputs(
+        team_id=1, observation_id=uuid4(), exported_asset_id=1, file_uri="file://x", mime_type="video/mp4"
+    )
+    with patch(
+        "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_persisted_experiment_context",
+        return_value=("control", None),
+    ):
+        injected = await _apply_experiment_scan_context(ExperimentScanner(prompt="p", experiment_id=42), inputs)
+
+    assert isinstance(injected, ExperimentScanner)
+    assert injected.session_variant == "control"

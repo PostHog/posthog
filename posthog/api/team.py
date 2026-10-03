@@ -1363,6 +1363,11 @@ def _custom_logs_retention_enabled(serializer: serializers.BaseSerializer, team:
     )
 
 
+@extend_schema_field(OpenApiTypes.OBJECT)
+class ConversationsSettingsField(serializers.JSONField):
+    pass
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -1386,6 +1391,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     feature_flag_policy_config = TeamFeatureFlagPolicyConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    conversations_settings = ConversationsSettingsField(
+        required=False,
+        allow_null=True,
+        help_text="Settings for Conversations. Must be a JSON object or null.",
+    )
 
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
@@ -1913,6 +1923,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def validate_conversations_settings(self, value: dict | None) -> dict | None:
         if value is None:
             return value
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Conversation settings must be an object or null.")
         # Filter out None values from widget_domains if present
         if "widget_domains" in value and value["widget_domains"] is not None:
             value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
@@ -2327,7 +2339,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         # Merge conversations_settings with existing values, unless explicitly clearing with null
         if "conversations_settings" in validated_data and validated_data["conversations_settings"] is not None:
-            existing_settings = instance.conversations_settings or {}
+            existing_settings = conversations_settings_as_dict(instance.conversations_settings)
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
@@ -3163,13 +3175,22 @@ class ProjectEnvironmentsViewSet(TeamViewSet):
         )
 
 
+def conversations_settings_as_dict(value: object) -> dict[str, Any]:
+    """Coerce a conversations_settings value to a dict for merging or diffing.
+
+    A row written before validation required an object/null can hold a stray array or scalar;
+    treat it as empty rather than raising.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def report_conversations_settings_changes(user: User, before_settings: dict | None, team: Team) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
     Shared by the team and project serializers — both endpoints can PATCH the settings.
     """
-    old_settings = before_settings or {}
-    new_settings = team.conversations_settings or {}
+    old_settings = conversations_settings_as_dict(before_settings)
+    new_settings = conversations_settings_as_dict(team.conversations_settings)
     changed_keys = sorted(
         k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
     )
@@ -3186,7 +3207,7 @@ def report_conversations_settings_changes(user: User, before_settings: dict | No
 def handle_conversations_token_on_update(
     validated_data: dict[str, Any],
     current_conversations_enabled: bool | None,
-    current_conversations_settings: dict | None,
+    current_conversations_settings: object,
 ) -> dict[str, Any]:
     """Auto-generate/clear conversations widget token based on conversations_enabled changes."""
     if "conversations_enabled" not in validated_data:
@@ -3195,15 +3216,17 @@ def handle_conversations_token_on_update(
     is_enabling = validated_data["conversations_enabled"] and not current_conversations_enabled
     is_disabling = not validated_data["conversations_enabled"] and current_conversations_enabled
 
+    stored_settings = conversations_settings_as_dict(current_conversations_settings)
+
     if is_enabling:
         # Check if token already exists in current DB state (not user input, which is stripped)
-        has_token = current_conversations_settings and current_conversations_settings.get("widget_public_token")
+        has_token = stored_settings.get("widget_public_token")
         if not has_token:
-            conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+            conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
             conv_settings["widget_public_token"] = secrets.token_urlsafe(32)
             validated_data["conversations_settings"] = conv_settings
     elif is_disabling:
-        conv_settings = dict(validated_data.get("conversations_settings") or current_conversations_settings or {})
+        conv_settings = dict(validated_data.get("conversations_settings") or stored_settings)
         conv_settings["widget_public_token"] = None
         validated_data["conversations_settings"] = conv_settings
 

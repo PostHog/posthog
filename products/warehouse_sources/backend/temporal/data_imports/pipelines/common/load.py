@@ -30,11 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     set_initial_sync_complete,
 )
 from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import QueryFolderPointerHistory
-from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
-from products.warehouse_sources.backend.temporal.data_imports.util import (
-    DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG,
-    prepare_s3_files_for_querying,
-)
+from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
@@ -348,15 +344,10 @@ async def _publish_queryable_files(
 
         existing_queryable_folder = await database_sync_to_async_pool(_own_queryable_folder)()
 
-    double_buffer = await database_sync_to_async_pool(is_schema_flag_enabled)(
-        schema, DOUBLE_BUFFERED_QUERY_FOLDERS_FLAG
+    sync_type_config = await database_sync_to_async_pool(_stored_sync_type_config)(schema.id, job.team_id)
+    pointer_history = QueryFolderPointerHistory.from_config(
+        sync_type_config, f"{NamingConvention.normalize_identifier(resource_name)}__query"
     )
-    pointer_history = None
-    if double_buffer:
-        sync_type_config = await database_sync_to_async_pool(_stored_sync_type_config)(schema.id, job.team_id)
-        pointer_history = QueryFolderPointerHistory.from_config(
-            sync_type_config, f"{NamingConvention.normalize_identifier(resource_name)}__query"
-        )
 
     # File URIs are listed after delta maintenance so the queryable folder serves the compacted
     # layout rather than the pre-compaction small files.
@@ -371,7 +362,7 @@ async def _publish_queryable_files(
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
             refresh_file_uris=delta_table_ref.get_file_uris,
-            double_buffer=double_buffer,
+            double_buffer=True,
             pointer_history=pointer_history,
         )
     return folder

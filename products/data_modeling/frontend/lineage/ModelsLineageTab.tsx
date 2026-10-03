@@ -5,6 +5,7 @@ import { useRef } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
 
@@ -25,6 +26,7 @@ const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
 
 export function ModelsLineageTab(): JSX.Element {
     const searchInputRef = useRef<HTMLInputElement>(null)
+    const nodesDraggable = useFeatureFlag('DATA_MODELING_LINEAGE_NODE_DRAGGING')
     const {
         nodes,
         nodesLoading,
@@ -44,6 +46,7 @@ export function ModelsLineageTab(): JSX.Element {
         visibleNodes,
         visibleEdges,
         isFiltered,
+        nodePositions,
     } = useValues(modelsLineageLogic)
     const {
         setSearchTerm,
@@ -53,6 +56,8 @@ export function ModelsLineageTab(): JSX.Element {
         focusSearchResult,
         toggleLegendCollapsed,
         resetFilters,
+        nodeDragStopped,
+        resetNodePositions,
     } = useActions(modelsLineageLogic)
 
     const focusSearchInput = (): void => {
@@ -157,9 +162,13 @@ export function ModelsLineageTab(): JSX.Element {
                     searchFocusRequest={searchFocusRequest}
                     variant="canvas"
                     interactive
+                    nodesDraggable={nodesDraggable}
+                    nodePositions={nodesDraggable ? nodePositions : undefined}
+                    nodeOpenUrl={nodesDraggable ? lineageNodeUrl : undefined}
+                    onNodeDragStop={nodesDraggable ? (node, position) => nodeDragStopped(node.id, position) : undefined}
+                    onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
                     showControls
                     showMinimap
-                    minimapPosition="top-right"
                     loading={nodesLoading || edgesLoading}
                     emptyMessage={
                         isFiltered ? 'No models match these filters.' : 'No models yet. Create a view to see it here.'
@@ -169,8 +178,7 @@ export function ModelsLineageTab(): JSX.Element {
                         isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
                     })}
-                    onNodeClick={(node) => router.actions.push(lineageNodeUrl(node))}
-                    panelPosition="bottom-left"
+                    onNodeClick={nodesDraggable ? undefined : (node) => router.actions.push(lineageNodeUrl(node))}
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />
             </div>

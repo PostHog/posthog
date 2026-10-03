@@ -2080,6 +2080,8 @@ export interface SessionRecordingPlaylistType {
     /** Whether this playlist is a synthetic (virtual) playlist that's computed on-demand */
     is_synthetic?: boolean
     _create_in_folder?: string | null
+    /** Write-only. */
+    creation_method?: 'new' | 'pin' | 'duplicate'
 }
 
 export interface SavedSessionRecordingPlaylistsFilters {
@@ -4817,6 +4819,7 @@ export type HotKey =
     | 'x'
     | 'y'
     | 'z'
+    | '0'
     | '1'
     | '2'
     | '3'
@@ -4835,6 +4838,7 @@ export type HotKey =
     | 'arrowdown'
     | 'arrowup'
     | 'forwardslash'
+    | 'minus'
     | 'delete'
     | 'atsign'
 export type HotKeyOrModifier = HotKey | 'shift' | 'option' | 'command'
@@ -7174,7 +7178,6 @@ export enum SidePanelTab {
     // A canvas scene replaces the general tabs with its own panel tabs.
     CanvasChat = 'canvas-chat',
     CanvasBlocks = 'canvas-blocks',
-    CanvasComments = 'canvas-comments',
     CanvasTimeline = 'canvas-timeline',
 }
 
