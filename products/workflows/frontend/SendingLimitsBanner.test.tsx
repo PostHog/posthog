@@ -22,9 +22,11 @@ const nothingLimited: WorkflowSendingLimitsApi = {
 
 const sendingLimitsEndpoint = '/api/projects/:team_id/hog_flows/sending_limits/'
 
-const renderBanner = (): void => {
+const sendingAllowanceUrl = '/broadcasts/reputation'
+
+const renderBanner = ({ withAllowanceLink = true }: { withAllowanceLink?: boolean } = {}): void => {
     initKeaTests()
-    render(<SendingLimitsBanner />)
+    render(<SendingLimitsBanner sendingAllowanceUrl={withAllowanceLink ? sendingAllowanceUrl : undefined} />)
 }
 
 describe('SendingLimitsBanner', () => {
@@ -65,7 +67,7 @@ describe('SendingLimitsBanner', () => {
             banner: 'workflows-email-daily-cap-banner',
             text: 'daily sending allowance of 1,000 emails in the last 24 hours',
             link: 'View sending allowance',
-            href: urls.workflows('reputation'),
+            href: sendingAllowanceUrl,
         },
     ])('explains $name and points to the next step', async ({ limits, banner, text, link, href }) => {
         useMocks({ get: { [sendingLimitsEndpoint]: limits } })
@@ -75,5 +77,30 @@ describe('SendingLimitsBanner', () => {
         expect(notice).toHaveTextContent(text)
         // The banner renders its action twice, once per container-query layout.
         expect(within(notice).getAllByText(link)[0].closest('a')).toHaveAttribute('href', expect.stringContaining(href))
+    })
+
+    it('leaves out the daily cap while the email quota already stops email', async () => {
+        useMocks({
+            get: {
+                [sendingLimitsEndpoint]: {
+                    ...nothingLimited,
+                    email_quota_limited: true,
+                    email_daily_cap_reached: true,
+                    emails_per_day: 1000,
+                },
+            },
+        })
+        renderBanner()
+
+        await screen.findByTestId('workflows-email-quota-limited-banner')
+        expect(screen.queryByTestId('workflows-email-daily-cap-banner')).toBeNull()
+    })
+
+    it('drops the allowance link where the allowance is already on screen', async () => {
+        useMocks({ get: { [sendingLimitsEndpoint]: { ...nothingLimited, email_daily_cap_reached: true } } })
+        renderBanner({ withAllowanceLink: false })
+
+        const notice = await screen.findByTestId('workflows-email-daily-cap-banner')
+        expect(within(notice).queryByText('View sending allowance')).toBeNull()
     })
 })

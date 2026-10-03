@@ -62,7 +62,9 @@ export function BroadcastsScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <SendingLimitsBanner />
+            <SendingLimitsBanner
+                sendingAllowanceUrl={currentTab === 'reputation' ? undefined : urls.broadcasts('reputation')}
+            />
             <LemonTabs
                 activeKey={currentTab}
                 tabs={[

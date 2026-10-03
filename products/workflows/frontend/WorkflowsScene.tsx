@@ -174,7 +174,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <SendingLimitsBanner />
+            <SendingLimitsBanner
+                sendingAllowanceUrl={currentTab === 'reputation' ? undefined : urls.workflows('reputation')}
+            />
             <LemonTabs activeKey={currentTab} tabs={tabs} sceneInset data-attr="workflows-scene-tabs" />
             <NewWorkflowModal />
         </SceneContent>

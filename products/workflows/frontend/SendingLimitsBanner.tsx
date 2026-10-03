@@ -9,7 +9,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { workflowsSendingLimitsLogic } from './workflowsSendingLimitsLogic'
 
-export function SendingLimitsBanner(): JSX.Element | null {
+export function SendingLimitsBanner({
+    sendingAllowanceUrl,
+}: {
+    /** Where the sending allowance lives on this surface. Leave it out where the allowance is already on screen. */
+    sendingAllowanceUrl?: string
+}): JSX.Element | null {
     const { sendingLimits } = useValues(workflowsSendingLimitsLogic)
 
     if (!sendingLimits) {
@@ -37,11 +42,15 @@ export function SendingLimitsBanner(): JSX.Element | null {
                     </LemonBanner>
                 </div>
             )}
-            {sendingLimits.email_daily_cap_reached && (
+            {sendingLimits.email_daily_cap_reached && !sendingLimits.email_quota_limited && (
                 <div data-attr="workflows-email-daily-cap-banner">
                     <LemonBanner
                         type="warning"
-                        action={{ children: 'View sending allowance', to: urls.workflows('reputation') }}
+                        action={
+                            sendingAllowanceUrl
+                                ? { children: 'View sending allowance', to: sendingAllowanceUrl }
+                                : undefined
+                        }
                     >
                         This project used its daily sending allowance
                         {dailyAllowanceSuffix(sendingLimits.emails_per_day)} in the last 24 hours. Emails are not

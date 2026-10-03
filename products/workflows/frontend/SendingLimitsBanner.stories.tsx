@@ -1,5 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 
+import { urls } from 'scenes/urls'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WorkflowSendingLimitsApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -24,7 +26,7 @@ interface StoryProps {
 
 const Template: StoryFn<StoryProps> = ({ limits }) => {
     useStorybookMocks({ get: { [sendingLimitsEndpoint]: limits } })
-    return <SendingLimitsBanner />
+    return <SendingLimitsBanner sendingAllowanceUrl={urls.workflows('reputation')} />
 }
 
 export const QuotaLimited: StoryFn<StoryProps> = Template.bind({})
