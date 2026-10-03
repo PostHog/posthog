@@ -218,6 +218,7 @@ Then corroborate and illustrate:
 - Pull the same sessions' feature rows — `posthog.session_replay_features` filtered by the `$session_id`s above (an `IN` list, not a join) for `dead_click_count`, `console_error_after_click_count`, `quick_back_count`: rage clicks _plus_ errors-after-click or quick-backs on the same sessions upgrade "annoyance" to "broken". Absence of rows is sampling, not absence of friction.
 - If the heatmaps tools are available, `heatmaps-list` (`type: "rageclick"`, `url_exact` or a `url_pattern` covering the path) confirms the spatial cluster — read the `fold` summary and top points only; `heatmaps-events` names the sessions behind a hotspot. Skip without comment if absent.
 - Deep-link 2–3 example sessions: collect `$session_id`s from the rage-click events and fetch via `query-session-recordings-list` (`session_ids`, matching `date_from`), ordering by `console_error_count` or `activity_score` to shortlist the ones worth watching.
+- To name the control behind a recording's dead or rage clicks, read that session's click events. Recording metadata gives counts only, and a scout cannot scan a recording (replay vision refuses `observe`, `bulk_observe` and `inline_scan` from scouts). Filter `events` on `properties.$session_id = '<session_id>'` and `event IN ('$dead_click', '$rageclick', '$autocapture')`, bound `timestamp` around the recording, and read `properties.$el_text`, `elements_chain_texts`, `elements_chain_ids` and `elements_chain_href`. Repeated rows on one element name the control. `vision-observations-list` with the `session_id` returns a scan someone already ran on that recording.
 
 The finding: name the URL and element, quantify the step (baseline vs current rate, sessions, persons), date the onset, link example recordings. New-page caveat: a URL with no history can't have a step-change — first sighting of a hot new page is a `pattern:` memory, not a report, unless the friction is extreme and corroborated.
 
@@ -281,7 +282,7 @@ Zero rows → the project doesn't use replay vision; skip this pattern without c
 - **Watch gaps** — a previously-active scanner whose `observations_7d` went to zero is silently watching nothing. If the `vision-*` tools are available, confirm the mechanism (`vision-scanners-list` for enabled state, `-observations-list` for failed/ineligible rates — failures never reach the events stream, `vision-quota-get` for quota); without them, report the silence itself. P3; bundle all scanner-health items into one finding.
 - **Dedupe courtesy** — scanners with `emits_signals: true` already emit per-session signals into this same inbox: cite them, don't repeat them (check `inbox-reports-list` first).
 
-Don't create, update, or trigger scanners — your scopes are read-only there. If a friction cluster deserves continuous watching, _recommend_ a scanner (name the type, prompt sketch, and target query) as part of the finding and let the team decide.
+Don't create, update, or trigger scanners — your scopes are read-only there, and replay vision refuses every scan a scout starts. If a friction cluster deserves continuous watching, _recommend_ a scanner (name the type, prompt sketch, and target query) as part of the finding and let the team decide.
 
 ### Save memory as you go
 
