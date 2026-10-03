@@ -24,6 +24,7 @@ jest.mock('../EmailSuspensionBanner', () => ({ EmailSuspensionBanner: () => null
 jest.mock('../OptOuts/NewCategoryButton', () => ({ NewCategoryButton: () => null }))
 jest.mock('../OptOuts/OptOutScene', () => ({ OptOutScene: () => null }))
 jest.mock('../Suppression/SuppressionScene', () => ({ SuppressionScene: () => null }))
+jest.mock('./AudienceRecipients', () => ({ AudienceRecipients: () => null }))
 
 describe('AudienceScene', () => {
     beforeEach(() => {

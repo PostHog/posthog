@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { recipientsLogic } from './recipientsLogic'
 
 const SEARCH_DEBOUNCE_MS = 300
@@ -74,12 +75,29 @@ describe('recipientsLogic', () => {
 
         logic.actions.setSearch('ja')
         await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS - 1)
-        logic.actions.setSearch('jamie')
+        logic.actions.setSearch(' jamie ')
         await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
         jest.useRealTimers()
         await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
 
         expect(requests.map((params) => params.get('search'))).toEqual([null, 'jamie'])
+        expect(logic.values.searchPending).toBe(false)
+    })
+
+    it('names topics from the team topic list', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_categories/': {
+                    results: [{ id: 'topic-1', key: 'newsletter', name: 'Newsletter' }],
+                    next: null,
+                },
+            },
+        })
+        await mountLogic()
+
+        await expectLogic(optOutCategoriesLogic).toDispatchActions(['loadCategoriesSuccess'])
+
+        expect(logic.values.topicNames).toEqual({ newsletter: 'Newsletter' })
     })
 
     it('pages forward with the returned cursor and back to the first page', async () => {
