@@ -8,7 +8,7 @@ import type { ReplayObservationApi } from '../generated/api.schemas'
 import { currentRowIndex, recordingTimeline, timelineRows } from '../utils/recordingTimeline'
 
 /** A summary's chapters on a time rail, following the observation page's embedded player. */
-export default function ObservationBreakdown({
+export default function ObservationTimeline({
     observation,
     playerKey,
     onSeek,

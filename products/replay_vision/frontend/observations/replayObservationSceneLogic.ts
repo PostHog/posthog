@@ -8,7 +8,7 @@ import { Breadcrumb } from '~/types'
 import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
 import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
 
-export type ObservationResultTab = 'summary' | 'breakdown'
+export type ObservationResultTab = 'summary' | 'timeline'
 
 export interface ObservationsPage {
     rows: ReplayObservationApi[]
@@ -82,7 +82,7 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
                 setObservationId: () => null,
             },
         ],
-        // Kept across previous and next, so a reviewer can page through breakdowns.
+        // Kept across previous and next, so a reviewer can page through timelines.
         resultTab: [
             'summary' as ObservationResultTab,
             {

@@ -45,7 +45,7 @@ import {
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 const ObservationRecording = lazyWithRetry(() => import('./ObservationRecording'))
-const ObservationBreakdown = lazyWithRetry(() => import('./ObservationBreakdown'))
+const ObservationTimeline = lazyWithRetry(() => import('./ObservationTimeline'))
 
 export const scene: SceneExport = {
     component: ReplayObservationSceneComponent,
@@ -78,7 +78,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { observation, observationLoading, retrying, previousObservationId, nextObservationId, neighborsPending } =
         useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
-    const hasBreakdown = useMemo(
+    const hasTimeline = useMemo(
         () => (observation ? recordingTimeline([observation]).chapters.length > 0 : false),
         [observation]
     )
@@ -238,7 +238,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             {observation.status === 'succeeded' && snapshot && result && (
                                 <>
                                     {/* The answer and its evidence sit closer to each other than to the rest. */}
-                                    {hasBreakdown && (
+                                    {hasTimeline && (
                                         <LemonTabs
                                             size="small"
                                             activeKey={resultTab}
@@ -250,9 +250,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                                     'data-attr': 'vision-observation-tab-summary',
                                                 },
                                                 {
-                                                    key: 'breakdown',
-                                                    label: 'Breakdown',
-                                                    'data-attr': 'vision-observation-tab-breakdown',
+                                                    key: 'timeline',
+                                                    label: 'Timeline',
+                                                    'data-attr': 'vision-observation-tab-timeline',
                                                 },
                                             ]}
                                             barClassName="!mb-0"
@@ -260,9 +260,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                             rightSlotClassName="bg-transparent pr-0"
                                         />
                                     )}
-                                    {hasBreakdown && resultTab === 'breakdown' ? (
+                                    {hasTimeline && resultTab === 'timeline' ? (
                                         <Suspense fallback={<Spinner />}>
-                                            <ObservationBreakdown
+                                            <ObservationTimeline
                                                 observation={observation}
                                                 playerKey={playerKey}
                                                 onSeek={seekEmbeddedPlayer}
@@ -273,7 +273,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                             <ObservationHeadline
                                                 observation={observation}
                                                 onSeek={seekEmbeddedPlayer}
-                                                hideLabel={hasBreakdown}
+                                                hideLabel={hasTimeline}
                                             />
                                             {scannerType !== 'summarizer' && reasoning && (
                                                 <LabeledRow label="Reasoning" size="medium">

@@ -419,7 +419,7 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
                         )}
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
-                        <SectionHeader label="Breakdown" />
+                        <SectionHeader label="Timeline" />
                         <RecordingTimeline
                             timeline={timeline}
                             rows={timelineRows}

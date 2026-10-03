@@ -1962,8 +1962,8 @@ export const ScannerEditorGoalOverviewLoading: StoryObj = {
     ],
 }
 
-// A summary that carries chapters, so the result card gains Summary and Breakdown tabs.
-const breakdownObservationDetail = (() => {
+// A summary that carries chapters, so the result card gains Summary and Timeline tabs.
+const timelineObservationDetail = (() => {
     const withChapters = timelineSummary({ chapters: LONG, inactive: LONG_INACTIVE })
     const output = withChapters.scanner_result!.model_output as Record<string, unknown>
     return observation({
@@ -1981,13 +1981,13 @@ const breakdownObservationDetail = (() => {
     })
 })()
 
-export const ObservationDetailSummaryWithBreakdown: StoryObj = observationDetailStory(breakdownObservationDetail)
+export const ObservationDetailSummaryWithTimeline: StoryObj = observationDetailStory(timelineObservationDetail)
 
-// The breakdown tab on an hour-long recording, the only story where the rail scrolls inside the card.
-export const ObservationDetailBreakdown: StoryObj = {
-    ...observationDetailStory(breakdownObservationDetail),
+// The timeline tab on an hour-long recording, the only story where the rail scrolls inside the card.
+export const ObservationDetailTimeline: StoryObj = {
+    ...observationDetailStory(timelineObservationDetail),
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Breakdown'))
+        await userEvent.click(await within(canvasElement).findByText('Timeline'))
         await within(canvasElement).findByText('Session start')
     },
 }
