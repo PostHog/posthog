@@ -431,8 +431,7 @@ def build_agent_description(
           the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
           events). `person.properties.*` and `LEFT JOIN persons` both join the persons table, which is
           slow on large teams, and return current values, which leak the label window at training.
-        - Check the cost that `autoresearch-materialize-features` returns (step 3) before you build on
-          a query. Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
+        - Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
 
@@ -450,9 +449,7 @@ def build_agent_description(
         label or fold columns.
 
         Call materialize ONCE per `features_sql` and run many model iterations in Python on the same
-        parquet; re-call it only after you edit `features_sql`. The response also gives the feature query's
-        cost: `feature_query_elapsed_ms` and `feature_query_rows_read`. Record
-        them in the iteration's `agent_description`. The backend promotes the kept iteration with the
+        parquet; re-call it only after you edit `features_sql`. The backend promotes the kept iteration with the
         highest holdout AUC, whatever it costs, and your uploaded `features.sql` must be that iteration's
         query, so never upload a cheaper query that scored lower. Each call rebuilds the population, T0s
         and labels from current data, so compare model changes on one materialization, and treat a small

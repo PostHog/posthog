@@ -90,7 +90,6 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
         # A direct events join reads the whole team's events before the anchor filter applies.
         assert "LEFT JOIN events e" not in prompt
         assert "cutoff_ts = now()" not in prompt
-        assert "feature_query_rows_read" in prompt
 
     def test_prompt_drives_artifact_bundle_flow_not_set_output(self) -> None:
         pipeline = self._make_pipeline()

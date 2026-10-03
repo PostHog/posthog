@@ -1479,15 +1479,6 @@ class MaterializeFeaturesResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="The numeric feature column names (excludes distinct_id, __label, __fold).",
     )
-    feature_query_elapsed_ms = serializers.IntegerField(
-        help_text=(
-            "Time ClickHouse spent on the feature query, in milliseconds. Scoring runs the same features_sql "
-            "on every cadence over the whole inference population, under a time limit."
-        )
-    )
-    feature_query_rows_read = serializers.IntegerField(
-        help_text="Rows ClickHouse read to run the feature query. Compare it across iterations as well as AUC."
-    )
 
 
 # ── Artifact bundle serializers ─────────────────────────────────────────────

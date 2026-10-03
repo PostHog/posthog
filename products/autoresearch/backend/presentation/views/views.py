@@ -865,10 +865,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         responses={
             200: OpenApiResponse(
                 response=MaterializeFeaturesResponseSerializer,
-                description=(
-                    "Sandbox paths to the train/holdout feature and label parquet files, plus row counts, "
-                    "feature columns, and what the feature query cost ClickHouse."
-                ),
+                description="Sandbox paths to the train/holdout feature and label parquet files, plus row counts and feature columns.",
             ),
             400: OpenApiResponse(
                 description=(
