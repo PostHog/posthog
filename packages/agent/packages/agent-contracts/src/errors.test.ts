@@ -310,7 +310,12 @@ describe("classifyPromptFailure", () => {
     ],
     ["invalid model", undefined, "unknown", false],
     // A 429 also reads as transient; the user limit must win so the turn is not retried into it.
-    ["API Error: 429 user limit exceeded: hour:opus55", undefined, "usage_limit", false],
+    [
+      "API Error: 429 user limit exceeded: hour:opus55",
+      undefined,
+      "usage_limit",
+      false,
+    ],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
     expect(
       classifyPromptFailure(new Error(message), undefined, errorType),
