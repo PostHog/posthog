@@ -24,17 +24,16 @@ export function SendingLimitsBanner(): JSX.Element | null {
             {sendingLimits.email_quota_limited && (
                 <div data-attr="workflows-email-quota-limited-banner">
                     <LemonBanner type="error" action={manageBilling}>
-                        Your organization reached its usage limit for workflow emails. Workflow and broadcast emails are
-                        not sent until the billing period resets or you raise the limit. Other workflow steps still run.
+                        Your organization reached its usage limit for workflow emails. Workflows and broadcasts that
+                        send email do not run until the billing period resets or you raise the limit.
                     </LemonBanner>
                 </div>
             )}
             {sendingLimits.destination_quota_limited && (
                 <div data-attr="workflows-destination-quota-limited-banner">
                     <LemonBanner type="error" action={manageBilling}>
-                        Your organization reached its usage limit for workflow destinations. Destination and push steps
-                        are skipped until the billing period resets or you raise the limit. Other workflow steps still
-                        run.
+                        Your organization reached its usage limit for workflow destinations. Workflows with a
+                        destination or push step do not run until the billing period resets or you raise the limit.
                     </LemonBanner>
                 </div>
             )}
@@ -44,9 +43,10 @@ export function SendingLimitsBanner(): JSX.Element | null {
                         type="warning"
                         action={{ children: 'View sending allowance', to: urls.workflows('reputation') }}
                     >
-                        This project reached its daily email sending limit{dailyCapSuffix(sendingLimits.emails_per_day)}
-                        . Emails are not dropped. They are sent as the limit frees up, and the limit rises as your
-                        workflows build a clean sending history.
+                        This project used its daily sending allowance
+                        {dailyAllowanceSuffix(sendingLimits.emails_per_day)} in the last 24 hours. Emails are not
+                        dropped. They are sent as the allowance frees up, and it grows as your workflows build a clean
+                        sending history.
                     </LemonBanner>
                 </div>
             )}
@@ -54,6 +54,6 @@ export function SendingLimitsBanner(): JSX.Element | null {
     )
 }
 
-function dailyCapSuffix(emailsPerDay: number | null): string {
+function dailyAllowanceSuffix(emailsPerDay: number | null): string {
     return emailsPerDay ? ` of ${humanFriendlyNumber(emailsPerDay)} emails` : ''
 }

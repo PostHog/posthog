@@ -2,7 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { WorkflowSendingLimitsApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -44,30 +47,33 @@ describe('SendingLimitsBanner', () => {
             name: 'the email quota',
             limits: { ...nothingLimited, email_quota_limited: true },
             banner: 'workflows-email-quota-limited-banner',
-            text: 'Workflow and broadcast emails are not sent',
+            text: 'Workflows and broadcasts that send email do not run',
             link: 'Manage billing',
+            href: urls.organizationBilling([ProductKey.WORKFLOWS]),
         },
         {
             name: 'the destination quota',
             limits: { ...nothingLimited, destination_quota_limited: true },
             banner: 'workflows-destination-quota-limited-banner',
-            text: 'Destination and push steps are skipped',
+            text: 'Workflows with a destination or push step do not run',
             link: 'Manage billing',
+            href: urls.organizationBilling([ProductKey.WORKFLOWS]),
         },
         {
             name: 'the daily email cap',
             limits: { ...nothingLimited, email_daily_cap_reached: true, emails_per_day: 1000 },
             banner: 'workflows-email-daily-cap-banner',
-            text: 'daily email sending limit of 1,000 emails',
+            text: 'daily sending allowance of 1,000 emails in the last 24 hours',
             link: 'View sending allowance',
+            href: urls.workflows('reputation'),
         },
-    ])('explains $name and points to the next step', async ({ limits, banner, text, link }) => {
+    ])('explains $name and points to the next step', async ({ limits, banner, text, link, href }) => {
         useMocks({ get: { [sendingLimitsEndpoint]: limits } })
         renderBanner()
 
         const notice = await screen.findByTestId(banner)
         expect(notice).toHaveTextContent(text)
         // The banner renders its action twice, once per container-query layout.
-        expect(within(notice).getAllByText(link)[0].closest('a')).toHaveAttribute('href')
+        expect(within(notice).getAllByText(link)[0].closest('a')).toHaveAttribute('href', expect.stringContaining(href))
     })
 })

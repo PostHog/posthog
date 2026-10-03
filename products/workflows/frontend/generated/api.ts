@@ -1300,8 +1300,9 @@ export const getHogFlowsSendingLimitsRetrieveUrl = (projectId: string) => {
 /**
  * Which project-wide limits currently block or delay sends, for the scene-wide notice.
  *
- * Every project member sees this, like the suspension read: a quota or cap stops everyone's
- * sends, so hiding it would leave silent send failures unexplained.
+ * Everyone who can read workflows sees the quotas, like the suspension read: a quota stops
+ * everyone's sends, so hiding it would leave silent send failures unexplained. The daily cap
+ * shares `team_reputation`'s gate on the sending allowance, because it reveals project-wide usage.
  */
 export const hogFlowsSendingLimitsRetrieve = async (
     projectId: string,

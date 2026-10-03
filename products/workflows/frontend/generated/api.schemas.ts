@@ -1982,14 +1982,14 @@ export interface TeamEmailReputationResponseApi {
  * Project-wide limits that stop or delay workflow sends, for the scene-wide notice.
  */
 export interface WorkflowSendingLimitsApi {
-    /** True while the organization is over its workflow email quota, so email steps are skipped. */
+    /** True while the organization is over its workflow email quota, so workflows that send email do not run. */
     readonly email_quota_limited: boolean
-    /** True while the organization is over its workflow destination quota, so destination and push steps are skipped. */
+    /** True while the organization is over its workflow destination quota, so workflows with a destination or push step do not run. */
     readonly destination_quota_limited: boolean
-    /** True while the project has sent as many emails in the last 24 hours as its sending tier allows per day. Emails are delayed, not dropped, until the cap frees up. */
+    /** True while the project has sent its daily sending allowance in the last 24 hours. Emails wait rather than drop until the allowance frees up. Always false for callers who cannot read every workflow. */
     readonly email_daily_cap_reached: boolean
     /**
-     * How many emails the project's sending tier allows per day; null while the tiers are not enforced.
+     * How many emails the project's sending tier allows per day. Null while the tiers are not enforced, or for callers who cannot read every workflow.
      * @nullable
      */
     readonly emails_per_day: number | null
