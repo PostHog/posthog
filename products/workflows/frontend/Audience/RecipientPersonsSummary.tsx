@@ -1,3 +1,5 @@
+import { pluralize } from 'lib/utils/strings'
+
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
 export function RecipientPersonsSummary({ recipient }: { recipient: RecipientApi }): JSX.Element {
@@ -9,5 +11,5 @@ export function RecipientPersonsSummary({ recipient }: { recipient: RecipientApi
     if (onlyPersonLabel) {
         return <span className="wrap-anywhere">{onlyPersonLabel}</span>
     }
-    return <span>{personCount === 1 ? '1 person' : `${personCount.toLocaleString()} persons`}</span>
+    return <span>{pluralize(personCount, 'person')}</span>
 }

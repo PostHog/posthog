@@ -32,7 +32,8 @@ function TopicsCell({
 }
 
 export function RecipientsTable(): JSX.Element {
-    const { recipients, pageLoading, hasNextPage, hasPreviousPage, topicNames } = useValues(recipientsLogic)
+    const { recipients, pageLoading, currentPage, hasNextPage, hasPreviousPage, topicNames } =
+        useValues(recipientsLogic)
     const { loadNextPage, loadPreviousPage } = useActions(recipientsLogic)
 
     const columns: LemonTableColumns<RecipientApi> = [
@@ -80,6 +81,7 @@ export function RecipientsTable(): JSX.Element {
                 pagination={{
                     controlled: true,
                     useUrl: false,
+                    currentPage: currentPage ?? undefined,
                     onForward: hasNextPage ? loadNextPage : undefined,
                     onBackward: hasPreviousPage ? loadPreviousPage : undefined,
                 }}

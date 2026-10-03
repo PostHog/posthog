@@ -11,6 +11,7 @@ import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend
 import { MessageCategory, optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 
 const RECIPIENTS_PAGE_SIZE = 50
+export const RECIPIENT_SEARCH_MAX_LENGTH = 512
 const SEARCH_DEBOUNCE_MS = 300
 
 export type RecipientsView = 'loading' | 'error' | 'empty' | 'no-match' | 'results'
@@ -21,14 +22,19 @@ export interface RecipientsRequest {
     pageCursors: string[]
 }
 
-// pinned: analytics event names, renaming them breaks the Audience funnel
-type RecipientsUsageEvent =
-    | 'audience recipients filtered'
-    | 'audience recipients paged'
-    | 'audience recipients retried'
-    | 'audience unreachable persons opened'
+// pinned: analytics event names and properties, renaming them breaks the Audience funnel
+interface RecipientsUsageEvents {
+    'audience recipients filtered': { has_results: boolean }
+    'audience recipients search cleared': Record<string, never>
+    'audience recipients paged': { direction: 'next' | 'previous' }
+    'audience recipients retried': Record<string, never>
+    'audience unreachable persons opened': { count: number }
+}
 
-function captureRecipientsUsage(event: RecipientsUsageEvent, properties: Record<string, string | number> = {}): void {
+function captureRecipientsUsage<Event extends keyof RecipientsUsageEvents>(
+    event: Event,
+    properties: RecipientsUsageEvents[Event]
+): void {
     posthog.capture(event, properties)
 }
 
@@ -40,6 +46,7 @@ export interface recipientsLogicValues {
     categories: MessageCategory[] // optOutCategoriesLogic
     accessDenied: boolean
     canPage: boolean
+    currentPage: number | null
     hasNextPage: boolean
     hasPreviousPage: boolean
     lastRequest: RecipientsRequest
@@ -118,8 +125,9 @@ export interface recipientsLogicActions {
 export interface recipientsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         canPage: (pageLoading: boolean, searchPending: boolean) => boolean
-        hasNextPage: (page: RecipientPageApi) => boolean
-        hasPreviousPage: (shownRequest: RecipientsRequest) => boolean
+        currentPage: (recipientsView: RecipientsView, shownRequest: RecipientsRequest) => number | null
+        hasNextPage: (recipientsView: RecipientsView, page: RecipientPageApi) => boolean
+        hasPreviousPage: (currentPage: number | null) => boolean
         recipients: (page: RecipientPageApi, recipientsView: RecipientsView) => RecipientApi[]
         recipientsView: (
             pageLoading: boolean,
@@ -221,10 +229,19 @@ export const recipientsLogic = kea<recipientsLogicType>([
             (s) => [s.pageLoading, s.searchPending],
             (pageLoading: boolean, searchPending: boolean): boolean => !pageLoading && !searchPending,
         ],
-        hasNextPage: [(s) => [s.page], (page: RecipientPageApi): boolean => page.next_cursor !== null],
+        currentPage: [
+            (s) => [s.recipientsView, s.shownRequest],
+            (recipientsView: RecipientsView, shownRequest: RecipientsRequest): number | null =>
+                recipientsView === 'results' ? shownRequest.pageCursors.length + 1 : null,
+        ],
+        hasNextPage: [
+            (s) => [s.recipientsView, s.page],
+            (recipientsView: RecipientsView, page: RecipientPageApi): boolean =>
+                recipientsView === 'results' && page.next_cursor !== null,
+        ],
         hasPreviousPage: [
-            (s) => [s.shownRequest],
-            (shownRequest: RecipientsRequest): boolean => shownRequest.pageCursors.length > 0,
+            (s) => [s.currentPage],
+            (currentPage: number | null): boolean => currentPage !== null && currentPage > 1,
         ],
         topicNames: [
             (s) => [s.categories],
@@ -258,18 +275,28 @@ export const recipientsLogic = kea<recipientsLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, selectors }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(SEARCH_DEBOUNCE_MS)
             const search = values.search.trim()
-            if (search !== values.lastRequest.search) {
-                actions.loadAudienceRecipients({ search, pageCursors: [] })
-                if (search) {
-                    captureRecipientsUsage('audience recipients filtered')
-                }
+            if (search === values.lastRequest.search) {
+                return
+            }
+            actions.loadAudienceRecipients({ search, pageCursors: [] })
+            if (!search) {
+                captureRecipientsUsage('audience recipients search cleared', {})
             }
         },
-        clearSearch: () => actions.loadAudienceRecipients(FIRST_PAGE),
+        clearSearch: () => {
+            actions.loadAudienceRecipients(FIRST_PAGE)
+            captureRecipientsUsage('audience recipients search cleared', {})
+        },
+        loadAudienceRecipientsSuccess: ({ page, payload }, _, __, previousState) => {
+            const landedNewSearch = !!payload?.search && payload.search !== selectors.shownRequest(previousState).search
+            if (landedNewSearch) {
+                captureRecipientsUsage('audience recipients filtered', { has_results: page.results.length > 0 })
+            }
+        },
         loadNextPage: () => {
             const nextCursor = values.page.next_cursor
             if (values.canPage && nextCursor) {
@@ -287,7 +314,7 @@ export const recipientsLogic = kea<recipientsLogicType>([
         },
         retryLoadRecipients: () => {
             actions.loadAudienceRecipients(values.lastRequest)
-            captureRecipientsUsage('audience recipients retried')
+            captureRecipientsUsage('audience recipients retried', {})
         },
         openUnreachablePersons: () => {
             captureRecipientsUsage('audience unreachable persons opened', { count: values.personsWithoutEmail })

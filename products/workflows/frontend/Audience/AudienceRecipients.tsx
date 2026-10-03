@@ -6,7 +6,7 @@ import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 import { AccessDenied } from 'lib/components/AccessDenied'
 
 import { RecipientsBody } from './RecipientsBody'
-import { recipientsLogic } from './recipientsLogic'
+import { RECIPIENT_SEARCH_MAX_LENGTH, recipientsLogic } from './recipientsLogic'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
 export function AudienceRecipients(): JSX.Element {
@@ -30,6 +30,7 @@ export function AudienceRecipients(): JSX.Element {
                 aria-label="Search recipients by email address"
                 inputRef={searchInputRef}
                 value={search}
+                maxLength={RECIPIENT_SEARCH_MAX_LENGTH}
                 onChange={setSearch}
                 className="max-w-100"
                 data-attr="audience-recipients-search"
