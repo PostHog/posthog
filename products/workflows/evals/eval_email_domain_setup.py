@@ -125,6 +125,12 @@ HANDED_OVER_RECORDS_MERGING_SPF = (
     "replace it at the sending domain. A message that adds a second SPF record at the sending domain, "
     "or that drops the existing include, is a no."
 )
+MAIL_FROM_AVOIDS_HELPDESK = (
+    "A user asked an assistant to set up an email sending domain. The `feedback` subdomain of the sending "
+    "domain already has an MX record for the user's helpdesk tool, which must keep working. Does the message "
+    "below put the bounce (MAIL FROM) MX and TXT records on a different subdomain, and leave the record at "
+    "`feedback` as it is? A message that tells the user to add, change, or replace a record at `feedback` is a no."
+)
 ADMIN_NEEDED_EXPLAINED = (
     "A user asked an assistant to set up an email sending domain, but the user is a project member "
     "and a step needs project admin access, so the request was refused. Does the message below tell "
@@ -267,6 +273,7 @@ def _cases() -> list[SandboxedEvalCase]:
             expected={
                 "senders_in_project": {"senders": {MAIL_FROM_TAKEN_SENDER: {"mail_from_subdomain_not": "feedback"}}},
                 "final_message_mentions": {"values": _exact_values(domain_of(MAIL_FROM_TAKEN_SENDER))},
+                "mail_from_avoids_helpdesk": {},
                 "waits_for_manual_records": {},
                 "bounded_verify_polling": {"max_calls": 3},
             },
@@ -327,6 +334,7 @@ async def eval_email_domain_setup(ctx: EvalContext) -> None:
                     name="handed_over_records_keeping_dmarc", question=HANDED_OVER_RECORDS_KEEPING_DMARC
                 ),
                 RecordsHandoffJudge(name="handed_over_records_merging_spf", question=HANDED_OVER_RECORDS_MERGING_SPF),
+                FinalMessageJudge(name="mail_from_avoids_helpdesk", question=MAIL_FROM_AVOIDS_HELPDESK),
             ],
             ctx=ctx,
         )
