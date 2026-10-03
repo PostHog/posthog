@@ -6,6 +6,7 @@ import {
     SendingPausedException,
     TooManyRequestsException,
 } from '@aws-sdk/client-sesv2'
+import { HighLevelProducer } from 'node-rdkafka'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import {
@@ -13,6 +14,9 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -29,6 +33,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-
 import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { MessageAssetsService } from './message-assets.service'
 import { SandboxEmailSender } from './sandbox-email-sender'
 
 class ThrottlingException extends Error {
@@ -199,9 +204,11 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
         })
         describe('sandbox sender', () => {
+            let capture: jest.SpyInstance
             const createSandboxService = (
                 enabled: boolean,
-                tierLimiter: RateLimiterService | null = null
+                tierLimiter: RateLimiterService | null = null,
+                messageAssetsService?: MessageAssetsService
             ): EmailService => {
                 const sandboxService = new EmailService(
                     {
@@ -222,7 +229,7 @@ describe('EmailService', () => {
                     new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
-                    undefined,
+                    messageAssetsService,
                     null,
                     tierLimiter,
                     new SandboxEmailSender(
@@ -241,6 +248,7 @@ describe('EmailService', () => {
             }
 
             beforeEach(async () => {
+                capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
                 await insertIntegration(hub.postgres, team.id, {
                     id: getIntegrationId(4),
                     kind: 'email',
@@ -255,9 +263,12 @@ describe('EmailService', () => {
                 invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
             })
 
+            afterEach(() => {
+                capture.mockRestore()
+            })
+
             it.each([false, true])('skips with the global switch off (isTest=%s)', async (isTest) => {
                 service = createSandboxService(false)
-                const capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
                 const result = await service.executeSendEmail(invocation, isTest)
 
                 expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
@@ -287,8 +298,16 @@ describe('EmailService', () => {
             it.each([false, true])(
                 'sends untracked with the fixed identity and organization footer (isTest=%s)',
                 async (isTest) => {
-                    service = createSandboxService(true)
-                    const capture = jest.spyOn(posthog, 'captureTeamEvent').mockImplementation(() => {})
+                    const outputs = new IngestionOutputs({
+                        message_assets: new SingleIngestionOutput(
+                            'message_assets',
+                            'message_assets',
+                            new KafkaProducerWrapper(new HighLevelProducer({})),
+                            'DEFAULT'
+                        ),
+                    })
+                    service = createSandboxService(true, null, new MessageAssetsService(outputs))
+                    invocation.state.actionId = 'send-email'
                     const html = '<body>Hello <a href="https://example.com">there</a>.</body>'
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 4, email: 'override@example.com', name: 'Custom sender' },
@@ -351,8 +370,45 @@ describe('EmailService', () => {
                         'workflows sandbox email sent',
                         { is_test: isTest, recipient_count: 3, source: isTest ? 'test' : 'workflow' }
                     )
+                    expect(result.messageAssets).toEqual(
+                        isTest
+                            ? []
+                            : [
+                                  expect.objectContaining({
+                                      html: `<body>Hello <a href="https://example.com">there</a>.<p>${footer}</p></body>`,
+                                  }),
+                              ]
+                    )
                 }
             )
+
+            it.each([
+                ['provider rejection', new Error('Message rejected'), true],
+                ['provider throttle', new ThrottlingException('Rate exceeded'), false],
+                ['missing message ID', null, true],
+            ] as const)('does not report SES %s as a sandbox send', async (_name, error, finished) => {
+                service = createSandboxService(true)
+                if (error) {
+                    sendEmailSpy.mockRejectedValue(error)
+                } else {
+                    sendEmailSpy.mockResolvedValue({})
+                }
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                expect(result.finished).toBe(finished)
+                expect(capture).not.toHaveBeenCalled()
+                expect(result.metrics.map((metric) => metric.metric_name)).toEqual(finished ? ['email_failed'] : [])
+                expect(result.invocation.state.vmState?.stack).toEqual(finished ? [{ success: false }] : [])
+                if (finished) {
+                    expect(result.error).toContain('Failed to send email via SES')
+                } else {
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.queueScheduledAt).toBeDefined()
+                    expect(result.invocation.queueParameters).toMatchObject({ text: 'Test Text', html: 'Test HTML' })
+                }
+            })
 
             it('bypasses an exhausted sending tier and leaves its budget for own senders', async () => {
                 const redis = createRedisV2PoolFromConfig({

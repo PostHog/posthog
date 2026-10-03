@@ -396,6 +396,7 @@ export class EmailService {
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let deliveryParams = params
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -602,12 +603,12 @@ export class EmailService {
                     await this.sendEmailWithSES(result, params, from, trackingEnabled, integration, isTest)
                     break
                 case 'sandbox': {
-                    const sandboxParams = await this.sandboxSender!.withIdentificationFooter(
+                    deliveryParams = await this.sandboxSender!.withIdentificationFooter(
                         params,
                         from.name,
                         invocation.teamId
                     )
-                    await this.sendEmailWithSES(result, sandboxParams, from, trackingEnabled, integration, isTest)
+                    await this.sendEmailWithSES(result, deliveryParams, from, trackingEnabled, integration, isTest)
                     await this.sandboxSender!.capture(invocation.teamId, isTest, {
                         type: 'sent',
                         recipientCount: capRecipients,
@@ -624,7 +625,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, deliveryParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -646,6 +647,9 @@ export class EmailService {
         }
 
         if (throttled) {
+            if (isSandbox) {
+                result.invocation.queueParameters = params
+            }
             // On throttle, skip both the VM-state push and the business-metric
             // emit. The eventual successful retry will produce `email_sent` and
             // push the success bit to the VM stack — pushing them now would
