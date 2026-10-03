@@ -1882,18 +1882,18 @@ class TestIntegrationAPIKeyAccess:
     @patch("posthog.api.integration.discover_domain_connect", return_value=None)
     def test_email_domain_actions_with_scoped_api_key(
         self,
-        _mock_discover,
-        _mock_verify,
-        _mock_update,
-        method,
-        url_suffix,
-        body,
-        scope,
-        level,
-        expected_status,
-        expected_json,
+        _mock_discover: MagicMock,
+        _mock_verify: MagicMock,
+        _mock_update: MagicMock,
+        method: str,
+        url_suffix: str,
+        body: dict[str, Any] | None,
+        scope: str,
+        level: OrganizationMembership.Level,
+        expected_status: int,
+        expected_json: dict[str, Any],
         client: HttpClient,
-    ):
+    ) -> None:
         OrganizationMembership.objects.filter(user=self.user).update(level=level)
         email_integration = Integration.objects.create(
             team=self.team,
