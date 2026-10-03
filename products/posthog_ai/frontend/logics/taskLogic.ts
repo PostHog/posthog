@@ -54,7 +54,7 @@ export interface taskLogicActions {
         task: null
         payload?: any
     }
-    loadTask: () => any
+    loadTask: (_: void) => void
     loadTaskFailure: (
         error: string,
         errorObject?: any
@@ -64,10 +64,10 @@ export interface taskLogicActions {
     }
     loadTaskSuccess: (
         task: Task | null,
-        payload?: any
+        payload?: void
     ) => {
         task: Task | null
-        payload?: any
+        payload?: void
     }
     runTask: () => any
     runTaskFailure: (
@@ -122,7 +122,7 @@ export const taskLogic = kea<taskLogicType>([
         task: [
             null as Task | null,
             {
-                loadTask: async (_, breakpoint) => {
+                loadTask: async (_: void, breakpoint) => {
                     try {
                         return await retryTransientLoad(
                             () => api.tasks.get(props.taskId, phDebugQueryParams()),

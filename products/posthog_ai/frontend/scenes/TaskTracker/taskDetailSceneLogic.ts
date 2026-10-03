@@ -240,7 +240,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         runs: [
             [] as TaskRun[],
             {
-                loadTaskRuns: async (_, breakpoint) => {
+                loadTaskRuns: async (_: void, breakpoint) => {
                     try {
                         const response = await retryTransientLoad(
                             () => api.tasks.runs.list(props.taskId, phDebugQueryParams()),
@@ -260,7 +260,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         selectedRunData: [
             null as TaskRun | null,
             {
-                loadSelectedTaskRun: async (_, breakpoint) => {
+                loadSelectedTaskRun: async (_: void, breakpoint) => {
                     if (!values.selectedRunId) {
                         return null
                     }

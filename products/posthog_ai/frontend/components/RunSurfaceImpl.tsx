@@ -118,7 +118,7 @@ function RunSurfaceRoot({
         if (taskError) {
             return (
                 <LemonBanner type="error">
-                    Couldn't load this task. <LemonButton onClick={loadTask}>Try again</LemonButton>
+                    Couldn't load this task. <LemonButton onClick={() => loadTask()}>Try again</LemonButton>
                 </LemonBanner>
             )
         }
