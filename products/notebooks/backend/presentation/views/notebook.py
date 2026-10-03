@@ -1,7 +1,6 @@
 import math
 import hashlib
 from collections import Counter
-from collections.abc import Sequence
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -258,6 +257,22 @@ class NotebookAlertInvestigationSerializer(serializers.Serializer):
     alert_name = serializers.CharField(allow_null=True, help_text="Name of that alert.")
 
 
+ALERT_INVESTIGATIONS_CONTEXT_KEY = "alert_investigations"
+
+
+class NotebookMinimalListSerializer(serializers.ListSerializer):
+    """Looks up the alert behind each notebook of a page once, instead of with one query per row."""
+
+    def to_representation(self, data: Any) -> Any:
+        notebooks = list(data)
+        # `child` is only None before `many=True` binds one, which cannot happen during rendering.
+        assert self.child is not None
+        self.child.context[ALERT_INVESTIGATIONS_CONTEXT_KEY] = notebook_alert_investigations(
+            self.child.context["team_id"], [notebook.id for notebook in notebooks]
+        )
+        return super().to_representation(notebooks)
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -286,17 +301,18 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         ]
         read_only_fields = fields
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
+        list_serializer_class = NotebookMinimalListSerializer
 
     @extend_schema_field(NotebookAlertInvestigationSerializer(allow_null=True))
     def get_alert_investigation(self, notebook: Notebook) -> dict[str, Any] | None:
-        investigation = self.context.get("alert_investigations", {}).get(notebook.id)
+        investigation = self.context.get(ALERT_INVESTIGATIONS_CONTEXT_KEY, {}).get(notebook.id)
         if investigation is None:
             return None
         return {"alert_id": investigation.alert_id, "alert_name": investigation.alert_name}
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
-    alert_investigation = None
+    alert_investigation = None  # type: ignore[assignment]
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -1470,16 +1486,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             queryset = queryset.order_by("-last_modified_at")
 
         return queryset
-
-    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
-        page = super().paginate_queryset(queryset)
-        if self.action == "list" and page is not None:
-            # One lookup for the whole page, so the list serializer marks investigations without a query per row.
-            self._alert_investigations = notebook_alert_investigations(self.team_id, [notebook.id for notebook in page])
-        return page
-
-    def get_serializer_context(self) -> dict[str, Any]:
-        return {**super().get_serializer_context(), "alert_investigations": getattr(self, "_alert_investigations", {})}
 
     def _filter_list_request(self, request: Request, queryset: QuerySet, filters: dict | None = None) -> QuerySet:
         filters = filters or request.GET.dict()
