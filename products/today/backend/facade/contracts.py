@@ -202,6 +202,23 @@ class SignalView:
 
 
 @dataclass(frozen=True)
+class ImpactWorking:
+    expression: str
+    result: str
+
+
+@dataclass(frozen=True)
+class ImpactNumber:
+    key: str
+    value: str
+    sentence: str
+    signal_id: str | None
+    excerpt: str
+    values: list[str]
+    working: ImpactWorking | None
+
+
+@dataclass(frozen=True)
 class ReportPage:
     lead: str
     proposal: str
@@ -211,3 +228,5 @@ class ReportPage:
     signals: list[SignalView]
     evidence: list[str]
     evidence_count: int
+    impact_numbers: list[ImpactNumber]
+    last_seen: datetime | None

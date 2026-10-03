@@ -30,7 +30,7 @@ import type {
 
 import { reportItemState } from './todayBriefingItems'
 import { type TodaySignalDestination } from './todayEvidence'
-import { TodayImpactNumber, impactNumbers, lastOccurrence } from './todayImpact'
+import { TodayImpactNumber, impactNumbers } from './todayImpact'
 import { type TodayAskSource, todayLogic } from './todayLogic'
 import { renderedText } from './todayProse'
 import { TodayCodeQuote, codeIdentifiers, findCodeQuote } from './todayQuotedCode'
@@ -165,8 +165,12 @@ export interface todayReportLogicMeta {
         signals: (page: ReportPageApi | null) => SignalViewApi[]
         shownEvidence: (page: ReportPageApi | null, signals: SignalViewApi[]) => SignalViewApi[]
         evidenceCount: (page: ReportPageApi | null) => number
-        lastSeen: (signals: SignalViewApi[]) => string | null
-        impactNumbers: (currentReport: SignalReport | null, signals: SignalViewApi[]) => TodayImpactNumber[]
+        lastSeen: (page: ReportPageApi | null) => string | null
+        impactNumbers: (
+            currentReport: SignalReport | null,
+            page: ReportPageApi | null,
+            signals: SignalViewApi[]
+        ) => TodayImpactNumber[]
         reportState: (
             currentReport: SignalReport | null,
             reportStateOverrides: Record<string, BriefingItemStateEnumApi>
@@ -265,11 +269,14 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 signals.filter((signal) => page?.evidence.includes(signal.signal_id)),
         ],
         evidenceCount: [(s) => [s.page], (page: ReportPageApi | null): number => page?.evidence_count ?? 0],
-        lastSeen: [(s) => [s.signals], (signals: SignalViewApi[]): string | null => lastOccurrence(signals)],
+        lastSeen: [(s) => [s.page], (page: ReportPageApi | null): string | null => page?.last_seen ?? null],
         impactNumbers: [
-            (s) => [s.currentReport, s.signals],
-            (currentReport: SignalReport | null, signals: SignalViewApi[]): TodayImpactNumber[] =>
-                currentReport ? impactNumbers(currentReport, signals) : [],
+            (s) => [s.currentReport, s.page, s.signals],
+            (
+                currentReport: SignalReport | null,
+                page: ReportPageApi | null,
+                signals: SignalViewApi[]
+            ): TodayImpactNumber[] => (currentReport ? impactNumbers(currentReport, page, signals) : []),
         ],
         // A verdict given from Today shows before the report reloads.
         reportState: [

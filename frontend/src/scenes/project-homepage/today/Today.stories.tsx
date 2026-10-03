@@ -571,6 +571,8 @@ function mockReportPage(reportId: string): ReportPageApi {
         signals,
         evidence: signals.slice(0, 3).map((signal) => signal.signal_id),
         evidence_count: signals.length,
+        impact_numbers: [],
+        last_seen: null,
     }
 }
 

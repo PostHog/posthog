@@ -8,7 +8,7 @@ from posthog.models import Team
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
-from . import evidence, samples
+from . import evidence, impact, samples
 from .prose import concise_text
 
 _PROPOSAL_CHARS = 260
@@ -91,6 +91,8 @@ def report_page(page: signals.ReportPageSource) -> contracts.ReportPage:
         signals=[evidence.signal_view(signal) for signal in inputs],
         evidence=[signal.signal_id for signal in evidence.pick_evidence(inputs)],
         evidence_count=evidence.distinct_evidence_count(inputs),
+        impact_numbers=impact.impact_numbers(inputs),
+        last_seen=impact.last_occurrence(inputs),
     )
 
 

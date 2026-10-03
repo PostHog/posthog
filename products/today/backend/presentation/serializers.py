@@ -16,6 +16,8 @@ from ..facade.contracts import (
     CandidateFact,
     CandidateList,
     CodeFile,
+    ImpactNumber,
+    ImpactWorking,
     KeyClause,
     PageLink,
     PreviewLine,
@@ -325,6 +327,27 @@ class SignalViewSerializer(DataclassSerializer):
         dataclass = SignalView
 
 
+class ImpactWorkingSerializer(DataclassSerializer):
+    expression = serializers.CharField(help_text="How the number is worked out, such as '120 ms × 30,000 calls'.")
+    result = serializers.CharField(help_text="What the working comes to, such as '1.00 hours a day'.")
+
+    class Meta:
+        dataclass = ImpactWorking
+
+
+class ImpactNumberSerializer(DataclassSerializer):
+    key = serializers.CharField(help_text="Which number this is: 'tickets' or 'query-hours'.")
+    value = serializers.CharField(help_text="The number as shown, such as '2' or '1 hour'.")
+    sentence = serializers.CharField(help_text="The sentence that follows the number.")
+    signal_id = serializers.CharField(allow_null=True, help_text="The signal the number comes from, if one does.")
+    excerpt = serializers.CharField(help_text="That signal as one short line.")
+    values = serializers.ListField(child=serializers.CharField(), help_text="The figures in the excerpt to mark.")
+    working = ImpactWorkingSerializer(allow_null=True, help_text="How the number is worked out, if it is.")
+
+    class Meta:
+        dataclass = ImpactNumber
+
+
 class ReportPageSerializer(DataclassSerializer):
     lead = serializers.CharField(help_text="The summary's opening paragraph, as markdown.")
     proposal = serializers.CharField(
@@ -343,6 +366,12 @@ class ReportPageSerializer(DataclassSerializer):
         child=serializers.CharField(), help_text="The ids of the signals to show as evidence, at most 3."
     )
     evidence_count = serializers.IntegerField(help_text="How many distinct source objects the signals come from.")
+    impact_numbers = ImpactNumberSerializer(
+        many=True, help_text="Numbers the signals size the problem with, such as distinct support tickets."
+    )
+    last_seen = serializers.DateTimeField(
+        allow_null=True, help_text="When the newest session, ticket or alert behind the report happened."
+    )
 
     class Meta:
         dataclass = ReportPage

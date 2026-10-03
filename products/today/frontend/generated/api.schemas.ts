@@ -558,6 +558,33 @@ export interface SignalViewApi {
     preview: SignalPreviewApi | null
 }
 
+export interface ImpactWorkingApi {
+    /** How the number is worked out, such as '120 ms × 30,000 calls'. */
+    expression: string
+    /** What the working comes to, such as '1.00 hours a day'. */
+    result: string
+}
+
+export interface ImpactNumberApi {
+    /** Which number this is: 'tickets' or 'query-hours'. */
+    key: string
+    /** The number as shown, such as '2' or '1 hour'. */
+    value: string
+    /** The sentence that follows the number. */
+    sentence: string
+    /**
+     * The signal the number comes from, if one does.
+     * @nullable
+     */
+    signal_id: string | null
+    /** That signal as one short line. */
+    excerpt: string
+    /** The figures in the excerpt to mark. */
+    values: string[]
+    /** How the number is worked out, if it is. */
+    working: ImpactWorkingApi | null
+}
+
 export interface ReportPageApi {
     /** The summary's opening paragraph, as markdown. */
     lead: string
@@ -575,6 +602,13 @@ export interface ReportPageApi {
     evidence: string[]
     /** How many distinct source objects the signals come from. */
     evidence_count: number
+    /** Numbers the signals size the problem with, such as distinct support tickets. */
+    impact_numbers: ImpactNumberApi[]
+    /**
+     * When the newest session, ticket or alert behind the report happened.
+     * @nullable
+     */
+    last_seen: string | null
 }
 
 export type TodayBriefingRetrieveParams = {
