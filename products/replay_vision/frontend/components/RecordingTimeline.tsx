@@ -43,7 +43,7 @@ function SummaryNotice({
                 className="flex items-center gap-2 px-3 py-2 text-xs text-secondary"
                 data-attr="vision-timeline-pending"
             >
-                <Spinner className="text-sm" /> Building the breakdown of this recording…
+                <Spinner className="text-sm" /> Building the timeline of this recording…
             </div>
         )
     }
@@ -52,8 +52,8 @@ function SummaryNotice({
         <div className="flex flex-col items-start gap-2 px-3 py-3" data-attr="vision-timeline-cta">
             <span className="text-xs text-secondary">
                 {outdated
-                    ? 'This recording was summarized before breakdowns existed.'
-                    : 'Summarize this recording to get a breakdown of what happened, part by part.'}
+                    ? 'This recording was summarized before timelines existed.'
+                    : 'Summarize this recording to get a timeline of what happened.'}
             </span>
             <LemonButton
                 size="small"
@@ -64,13 +64,13 @@ function SummaryNotice({
                 disabledReason={summarizeDisabledReason}
                 data-attr={outdated ? 'vision-timeline-rebuild' : 'vision-timeline-summarize'}
             >
-                {outdated ? 'Rebuild the breakdown' : 'Summarize this recording'}
+                {outdated ? 'Rebuild the timeline' : 'Summarize this recording'}
             </LemonButton>
         </div>
     )
 }
 
-/** The recording's breakdown on a time rail: the summary's chapters and the idle gaps between them. */
+/** The recording's timeline on a rail: the summary's chapters and the idle gaps between them. */
 export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
     const { timeline, rows, currentTimeMs, onSeek } = props
     const currentIndex = currentRowIndex(rows, currentTimeMs)
