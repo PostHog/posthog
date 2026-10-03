@@ -15,6 +15,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.errors import ExposedCHQueryError
 from posthog.models import ActivityLog
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
@@ -522,6 +523,29 @@ class TestSavedQuery(APIBaseTest):
         assert response.status_code == 400, response.content
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
+
+    @parameterized.expand(
+        [
+            ("user_safe", ExposedCHQueryError("Input value is out of allowed Date32 range", code=321), False),
+            ("unexpected", RuntimeError("boom"), True),
+        ]
+    )
+    def test_create_reports_only_unexpected_type_inference_errors(
+        self, _name: str, error: Exception, expect_captured: bool
+    ):
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error),
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+            ) as capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "dated_view", "query": {"kind": "HogQLQuery", "query": "select event from events"}},
+            )
+
+        assert response.status_code == 400, response.content
+        assert capture.called is expect_captured
 
     def test_delete(self):
         query_name = "test_query"
