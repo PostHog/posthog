@@ -60,8 +60,15 @@ def _to_record(proposal: WorkflowProposal) -> WorkflowProposalRecord:
 
 
 def _proposals(hog_flow_id: UUID, status: str | None) -> QuerySet[WorkflowProposal]:
-    applied_only = status == WorkflowProposal.Status.APPLIED
-    ordering = ("-applied_version", "-created_at", "-pk") if applied_only else ("-created_at", "-pk")
+    # Applied ones order by the version that shipped them and rejected ones by when they were rejected,
+    # since either can happen long after filing; the rest read as a queue, newest first.
+    # `-pk` breaks ties so OFFSET/LIMIT pages neither repeat nor skip a proposal.
+    if status == WorkflowProposal.Status.APPLIED:
+        ordering: tuple[str, ...] = ("-applied_version", "-created_at", "-pk")
+    elif status == WorkflowProposal.Status.REJECTED:
+        ordering = ("-resolved_at", "-created_at", "-pk")
+    else:
+        ordering = ("-created_at", "-pk")
     queryset = WorkflowProposal.objects.filter(hog_flow_id=hog_flow_id).order_by(*ordering)
     if status:
         queryset = queryset.filter(status=status)
