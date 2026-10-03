@@ -1385,9 +1385,9 @@ class IntegrationViewSet(
         "github_prepare_callback",
         "github_link_existing",
         "github_oauth_authorize",
+        "email_sandbox_sender",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
-        "email_sandbox_sender",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
