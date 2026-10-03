@@ -15,7 +15,7 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from nanoid import generate
 from parameterized import parameterized
@@ -28,6 +28,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -4961,7 +4962,7 @@ class TestSurveyWithActions(APIBaseTest):
         assert len(survey.actions.all()) == 0
 
 
-class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
+class TestGetSurveyConditionsActionSanitization(ClickhouseFreeSimpleTestCase):
     def test_public_action_serializer_strips_non_public_fields_from_stale_blob(self) -> None:
         # /decide PII leak guard (no DB): when the actions M2M is empty and
         # get_survey_conditions_with_actions falls back to a stale conditions blob, it must project

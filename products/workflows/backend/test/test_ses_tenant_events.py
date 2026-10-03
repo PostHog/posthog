@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.http.response import HttpResponse
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -19,6 +19,7 @@ from cryptography.x509.oid import NameOID
 from parameterized import parameterized
 
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.workflows.backend.facade.api import accept_ses_event
 
@@ -101,7 +102,7 @@ def _delivery(message: dict[str, Any]) -> WebhookDelivery:
     )
 
 
-class TestAcceptSesEvent(SimpleTestCase):
+class TestAcceptSesEvent(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         sync = patch("products.workflows.backend.services.ses_tenant_events.sync_ses_tenant_state_task")
         self.sync_mock = sync.start()

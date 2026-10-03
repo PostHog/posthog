@@ -1,7 +1,7 @@
 from urllib.parse import urlencode
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory
 
 from parameterized import parameterized
 
@@ -9,6 +9,7 @@ from posthog.ingress.mailgun.provider import FILES_KEY, MAX_FILES, MailgunProvid
 from posthog.ingress.mailgun.testing import signed_mailgun_fields
 from posthog.ingress.providers import InvalidPayload
 from posthog.ingress.verify.schemes import VerificationOutcome
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SIGNING_KEY = "mailgun-signing-key"
 URL = "/api/conversations/v1/email/inbound"
@@ -19,7 +20,7 @@ def _provider(app: str = "inbound", *, signing_key: str | None = SIGNING_KEY) ->
     return build_mailgun_provider(app, signing_key_getter=lambda: signing_key)
 
 
-class TestMailgunProvider(SimpleTestCase):
+class TestMailgunProvider(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("a_fresh_signed_form", 0, {}, SIGNING_KEY, VerificationOutcome.VERIFIED),

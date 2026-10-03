@@ -1,16 +1,16 @@
 from types import SimpleNamespace
 
 from django.contrib.auth.hashers import make_password
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.api.oauth.client_assertion import ResolvedClientAssertion
 from posthog.api.oauth.client_auth import ClientCredentials, verify_client_secret
 from posthog.api.oauth.views import OAuthValidator
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestVerifyClientSecret(SimpleTestCase):
+class TestVerifyClientSecret(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("correct_hashed", "s3cret", make_password("s3cret"), True),
@@ -40,7 +40,7 @@ class TestVerifyClientSecret(SimpleTestCase):
         assert OAuthValidator()._load_application(client_id, SimpleNamespace(client=None)) is None
 
 
-class TestCredentialRepr(SimpleTestCase):
+class TestCredentialRepr(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("client_credentials", ClientCredentials(client_id="client-id", client_secret="s3cret-value")),

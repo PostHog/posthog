@@ -9,11 +9,12 @@ from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest
 from django.template.loader import render_to_string
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory
 from django.urls import reverse
 
 from posthog.admin.admins.organization_admin import BulkDeactivateOrganizationsForm, OrganizationAdmin
 from posthog.models import Organization
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _attach_messages(request) -> None:
@@ -32,7 +33,7 @@ class _TemplatePermissions:
         self.posthog = _PostHogPermissions(change_organization=change_organization)
 
 
-class TestOrganizationToolsAdminTemplate(SimpleTestCase):
+class TestOrganizationToolsAdminTemplate(ClickhouseFreeSimpleTestCase):
     def test_links_to_bulk_deactivation_for_users_with_change_permission(self) -> None:
         rendered = render_to_string(
             "organization_tools/app.html",
@@ -55,7 +56,7 @@ class TestOrganizationToolsAdminTemplate(SimpleTestCase):
         assert "Bulk deactivate organizations" not in rendered
 
 
-class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
+class TestBulkDeactivateOrganizationsForm(ClickhouseFreeSimpleTestCase):
     def test_defaults_to_desktop_abuse_reason_and_parses_pasted_ids(self) -> None:
         first_organization_id = uuid4()
         second_organization_id = uuid4()

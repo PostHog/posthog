@@ -16,7 +16,6 @@ from django.conf import settings
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
@@ -42,6 +41,7 @@ from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2798,7 +2798,7 @@ class TestUserAPI(APIBaseTest):
         )
 
 
-class TestUserUIConfigurationValidation(SimpleTestCase):
+class TestUserUIConfigurationValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("not_an_object", ["version"]),

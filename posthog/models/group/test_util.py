@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import (
@@ -12,6 +12,7 @@ from posthog.models.group.util import (
     get_groups_by_type_indices,
     save_group,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # Patched at source because util.py uses lazy `from X import Y` inside each function body.
 # `require_personhog_client` resolves the client via `get_personhog_client`, so patching that
@@ -37,7 +38,7 @@ def _make_proto_group(**kwargs) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-class TestGetGroupByKey(SimpleTestCase):
+class TestGetGroupByKey(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.team_id = 10
         self.group_type_index = 0
@@ -88,7 +89,7 @@ class TestGetGroupByKey(SimpleTestCase):
             get_group_by_key(self.team_id, self.group_type_index, self.group_key)
 
 
-class TestGetGroupsByIdentifiers(SimpleTestCase):
+class TestGetGroupsByIdentifiers(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.team_id = 10
         self.group_type_index = 0
@@ -137,7 +138,7 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
             mock_get_client.assert_not_called()
 
 
-class TestGetGroupsByTypeIndices(SimpleTestCase):
+class TestGetGroupsByTypeIndices(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.team_id = 10
 
@@ -165,7 +166,7 @@ class TestGetGroupsByTypeIndices(SimpleTestCase):
         assert get_groups_by_type_indices(self.team_id, {0, 1}, set()) == []
 
 
-class TestCreateGroup(SimpleTestCase):
+class TestCreateGroup(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.team_id = 10
         self.group_type_index: GroupTypeIndex = 0
@@ -216,7 +217,7 @@ class TestCreateGroup(SimpleTestCase):
         mock_ch.assert_called_once()
 
 
-class TestSaveGroup(SimpleTestCase):
+class TestSaveGroup(ClickhouseFreeSimpleTestCase):
     def _make_group_instance(self):
         group = MagicMock()
         group.team_id = 10

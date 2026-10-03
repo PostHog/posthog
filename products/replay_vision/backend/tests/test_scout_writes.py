@@ -1,15 +1,15 @@
 from typing import Any
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied, ValidationError
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.scout_writes import check_scout_scanner_credit_limit, refuse_scout_scanner_delete
 
 
-class TestScoutScannerDelete(SimpleTestCase):
+class TestScoutScannerDelete(ClickhouseFreeSimpleTestCase):
     def test_refuses_a_scout(self) -> None:
         with self.assertRaises(PermissionDenied):
             refuse_scout_scanner_delete(True)
@@ -18,7 +18,7 @@ class TestScoutScannerDelete(SimpleTestCase):
         refuse_scout_scanner_delete(False)
 
 
-class TestScoutScannerCreditLimit(SimpleTestCase):
+class TestScoutScannerCreditLimit(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

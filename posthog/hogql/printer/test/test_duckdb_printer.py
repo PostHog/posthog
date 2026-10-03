@@ -2,8 +2,6 @@
 
 from typing import Optional, cast
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -14,8 +12,10 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-class TestDuckDBPrinter(SimpleTestCase):
+
+class TestDuckDBPrinter(ClickhouseFreeSimpleTestCase):
     """DuckDB printer tests — focused on the DuckDB-specific overrides vs Postgres.
 
     The DuckDB dialect inherits most of its behavior from PostgresPrinter, so the

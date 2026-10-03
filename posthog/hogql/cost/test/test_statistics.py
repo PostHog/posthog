@@ -22,13 +22,14 @@ from posthog.models.usage_report_events_preagg.sql import (
     WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE,
     WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # Seeded rows must sit inside the rollup's 14-day TTL or ClickHouse drops the part on its next merge, so the
 # fixtures are relative to the real clock and the provider is handed the same day.
 TODAY = date.today()
 
 
-class TestEventVolume(SimpleTestCase):
+class TestEventVolume(ClickhouseFreeSimpleTestCase):
     def test_per_day_and_event_fraction_scale_from_the_recorded_window(self):
         volume = EventVolume(total=1_000, by_event={"$pageview": 600, "signup": 400}, days=10)
 

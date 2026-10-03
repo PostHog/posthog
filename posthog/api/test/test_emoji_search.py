@@ -4,7 +4,6 @@ from typing import cast
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
 from django.urls import path
 
 from drf_spectacular.generators import SchemaGenerator
@@ -25,9 +24,10 @@ from posthog.auth import (
 )
 from posthog.emoji_search.match import EmojiSearchResult, EmojiSuggestion
 from posthog.llm.system_one import SystemOneNotConfigured
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestEmojiSearch(SimpleTestCase):
+class TestEmojiSearch(ClickhouseFreeSimpleTestCase):
     def test_request_throttle_keeps_cached_results_available(self) -> None:
         assert EmojiSearchViewSet.throttle_classes == [EmojiSearchThrottle]
 

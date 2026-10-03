@@ -1,5 +1,3 @@
-from django.test.testcases import SimpleTestCase
-
 from parameterized import parameterized
 from pydantic import BaseModel, ValidationError
 
@@ -14,6 +12,8 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+
 # Companion to test_funnels_series_discriminator.py, which pins the detailed error
 # shapes of the discriminator mechanism for one site. Each union here was made a
 # discriminated union separately (JSDoc @discriminator tag + schema regeneration),
@@ -24,7 +24,7 @@ from posthog.schema import (
 _BAD_TAG = {"kind": "banana"}
 
 
-class TestQuerySchemaDiscriminators(SimpleTestCase):
+class TestQuerySchemaDiscriminators(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # (case_name, model, payload, field_with_tagged_union)

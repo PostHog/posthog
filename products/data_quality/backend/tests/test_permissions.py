@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_quality.backend.facade.enums import SubjectType
 from products.data_quality.backend.logic.permissions import authorized_subject_types
@@ -11,7 +11,7 @@ _WAREHOUSE_TABLES = {SubjectType.TABLE, SubjectType.POSTHOG_TABLE}
 _WAREHOUSE_KINDS = _WAREHOUSE_TABLES | {SubjectType.VIEW}
 
 
-class TestAuthorizedSubjectTypes(SimpleTestCase):
+class TestAuthorizedSubjectTypes(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("per_kind_table_write", ["query:read", "warehouse_table:write"], True, _WAREHOUSE_TABLES),

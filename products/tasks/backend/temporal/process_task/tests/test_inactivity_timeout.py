@@ -1,8 +1,10 @@
 from datetime import timedelta
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.constants import (
@@ -17,7 +19,7 @@ from products.tasks.backend.temporal.constants import (
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
-class TestResolveInactivityTimeout(SimpleTestCase):
+class TestResolveInactivityTimeout(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("user_origin", True, None, INACTIVITY_TIMEOUT_USER_SECONDS),

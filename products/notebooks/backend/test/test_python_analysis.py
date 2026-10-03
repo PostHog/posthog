@@ -1,11 +1,11 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.python_analysis import analyze_python_globals
 
 
-class TestAnalyzePythonGlobalsUsed(SimpleTestCase):
+class TestAnalyzePythonGlobalsUsed(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # A ref read before it is reassigned is still an input: `df` must be re-materialized

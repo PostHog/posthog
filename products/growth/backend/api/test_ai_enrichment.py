@@ -6,12 +6,11 @@ from typing import Any
 from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.organization import Organization
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.api.ai_enrichment_serializers import (
     OutputFieldSerializer,
@@ -787,7 +786,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         self.assertEqual(verdict_rows[0]["error"], "web search unavailable, retry later")
 
 
-class TestRunError(SimpleTestCase):
+class TestRunError(ClickhouseFreeSimpleTestCase):
     """No DB needed: _run_error is pure string formatting plus a capture_exception call."""
 
     def test_does_not_truncate_the_error_message_at_the_old_120_char_cap(self):
@@ -800,7 +799,7 @@ class TestRunError(SimpleTestCase):
         self.assertIn(long_message, formatted)
 
 
-class TestSaveAndRunSerializerCaps(SimpleTestCase):
+class TestSaveAndRunSerializerCaps(ClickhouseFreeSimpleTestCase):
     """Field-level max_length/count caps run inside is_valid()'s to_internal_value phase, before
     the object-level validate() that needs a request context - no DB needed. The /save/ and
     /run/ 400 tests above are the wiring guard that each viewset still calls is_valid() at all;
@@ -873,7 +872,7 @@ class TestSaveAndRunSerializerCaps(SimpleTestCase):
         self.assertIn("description", serializer.errors["output_fields"][0])
 
 
-class TestPromptTextHelpMentionsTools(SimpleTestCase):
+class TestPromptTextHelpMentionsTools(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("save", SaveRequestSerializer), ("run", RunRequestSerializer)])
     def test_mentions_web_search_and_fetch_page(self, _name, serializer_class):
         help_text = serializer_class().fields["prompt_text"].help_text

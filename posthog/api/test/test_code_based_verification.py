@@ -5,8 +5,6 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
@@ -14,6 +12,7 @@ from rest_framework import status
 from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 VERIFY_URL = "/api/login/code-based-verification/"
 RESEND_URL = "/api/login/code-based-verification/resend/"
@@ -170,7 +169,7 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             self.assertEqual(response.json()["code"], "too_many_attempts")
 
 
-class TestCodeBasedVerificationSerializer(SimpleTestCase):
+class TestCodeBasedVerificationSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("trailing_newline", "123456\n"),

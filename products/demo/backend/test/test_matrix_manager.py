@@ -6,13 +6,12 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import ClickhouseDestroyTablesMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import OrganizationMembership
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
@@ -142,7 +141,7 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         )
 
 
-class TestProduceWhenQueueHasRoom(SimpleTestCase):
+class TestProduceWhenQueueHasRoom(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("room_on_first_try", 0, 0),

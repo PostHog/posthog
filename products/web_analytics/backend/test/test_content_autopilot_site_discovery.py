@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.content_autopilot.site_discovery import (
     _MAX_DISCOVERY_REQUESTS,
@@ -19,7 +19,7 @@ def _response(*, status: int = 200, body: bytes = b"", location: str | None = No
     return FetchedPublicUrl(status_code=status, headers={"location": location} if location else {}, body=body)
 
 
-class TestContentAutopilotSiteDiscovery(SimpleTestCase):
+class TestContentAutopilotSiteDiscovery(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("lowercase_host", "HTTPS://Example.COM/guides?q=1#top", "https://example.com"),

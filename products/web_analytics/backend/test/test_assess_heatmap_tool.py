@@ -1,9 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.max_tools import AssessHeatmapTool, _scroll_reach, _viewport_band
 
@@ -109,7 +109,7 @@ class TestAssessHeatmapTool(APIBaseTest):
         assert "None detected" in content
 
 
-class TestScrollReachAndViewportBand(SimpleTestCase):
+class TestScrollReachAndViewportBand(ClickhouseFreeSimpleTestCase):
     def test_scroll_reach_none_for_empty_or_zero(self):
         assert _scroll_reach([]) is None
         assert _scroll_reach([{"scroll_depth_bucket": 0, "bucket_count": 0, "cumulative_count": 0}]) is None

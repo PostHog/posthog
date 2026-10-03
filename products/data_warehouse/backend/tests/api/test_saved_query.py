@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, patch
 
 from django.core.exceptions import ValidationError
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import ActivityLog
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
@@ -2568,7 +2568,7 @@ class TestSavedQuery(APIBaseTest):
                 cache.clear()
 
 
-class TestSavedQueryNameValidation(SimpleTestCase):
+class TestSavedQueryNameValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("namespace", "system"), ("nested_name", "system.accounts")])
     def test_reserves_system_namespace(self, _name: str, saved_query_name: str) -> None:
         name_field = DataWarehouseSavedQuery._meta.get_field("name")
@@ -2581,7 +2581,7 @@ class TestSavedQueryNameValidation(SimpleTestCase):
         ]
 
 
-class TestMaterializeRequestBody(SimpleTestCase):
+class TestMaterializeRequestBody(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # an omitted frequency keeps the pre-request-body behavior
@@ -2605,7 +2605,7 @@ class TestMaterializeRequestBody(SimpleTestCase):
         assert "sync_frequency" in serializer.errors
 
 
-class TestResumeSchedulesRequestBody(SimpleTestCase):
+class TestResumeSchedulesRequestBody(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("view_ids_omitted", {}),

@@ -1,9 +1,10 @@
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from posthog.db_circuit_breaker import ProductDBCircuitBreaker, _get_redis
 from posthog.redis import get_client
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 ALIAS = "visual_review_db_reader"
 
@@ -17,7 +18,7 @@ BREAKER_SETTINGS = {
 
 
 @override_settings(**BREAKER_SETTINGS)
-class TestProductDBCircuitBreaker(SimpleTestCase):
+class TestProductDBCircuitBreaker(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         _get_redis.cache_clear()

@@ -5,7 +5,7 @@ import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
@@ -42,6 +42,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
 from posthog.models import Organization, Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.format.sql import SQLResultsFormatter
@@ -55,7 +56,7 @@ from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
 
 
-class TestSQLResultBudgets(SimpleTestCase):
+class TestSQLResultBudgets(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(["table", "fallback", "warnings"])
     async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
         response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}

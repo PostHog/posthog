@@ -1,6 +1,5 @@
-from django.test import SimpleTestCase
-
 from posthog.celery import app
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # Celery keys tasks by this string, not by import path. Dropping a pin or skipping
 # a submodule import would leave queued messages and Beat entries unresolved.
@@ -28,7 +27,7 @@ EXPECTED_TASK_NAMES = {
 }
 
 
-class TestConversationsTaskRegistration(SimpleTestCase):
+class TestConversationsTaskRegistration(ClickhouseFreeSimpleTestCase):
     def test_expected_task_names_resolve(self) -> None:
         app.loader.import_default_modules()
         registered = {name for name in app.tasks if name.startswith("products.conversations.backend.tasks.")}

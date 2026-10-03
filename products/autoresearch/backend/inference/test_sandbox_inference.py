@@ -6,14 +6,13 @@ from decimal import Decimal
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import pandas as pd
 from parameterized import parameterized
 
 from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.inference import sandbox as sandbox_inference
 from products.autoresearch.backend.inference.sandbox import (
@@ -286,7 +285,7 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
                 sandbox_inference._materialize_rows(team=self.team, sql="SELECT person_id FROM events", values={})
 
 
-class TestParquetSerialization(SimpleTestCase):
+class TestParquetSerialization(ClickhouseFreeSimpleTestCase):
     def test_features_parquet_columns_and_rows(self):
         df = pd.read_parquet(io.BytesIO(features_parquet(_SCORE_ROWS, ["events_total", "pageviews"])))
         assert list(df.columns) == ["distinct_id", "events_total", "pageviews"]
@@ -323,7 +322,7 @@ class TestParquetSerialization(SimpleTestCase):
         assert df.iloc[0]["distinct_id"] == "12345"
 
 
-class TestFileReadback(SimpleTestCase):
+class TestFileReadback(ClickhouseFreeSimpleTestCase):
     def test_between_sentinels_extracts_body(self):
         stdout = f"junk before\n{_FILE_BEGIN}\ndistinct_id,p_y\ns1,0.8\n{_FILE_END}\njunk after"
         body = _between_sentinels(stdout)

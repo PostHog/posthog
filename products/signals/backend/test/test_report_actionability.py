@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from datetime import UTC, datetime
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.report_actionability import ACTIONABILITY_CRITERIA
 from products.signals.backend.report_generation.research import build_actionability_prompt
@@ -33,7 +33,7 @@ def _scout_prompt(allowed_tools: list[str]) -> Callable[[], str]:
     return build
 
 
-class TestActionabilityCriteriaReachEveryJudge(SimpleTestCase):
+class TestActionabilityCriteriaReachEveryJudge(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("pipeline_research_agent", lambda: build_actionability_prompt(3)),

@@ -1,13 +1,12 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.services.slack_messages import app_home_url
 
 
-class TestSlackLinks(SimpleTestCase):
+class TestSlackLinks(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("resolves", {"app_id": "A1"}, "T1", "slack://app?team=T1&id=A1&tab=home"),

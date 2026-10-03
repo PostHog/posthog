@@ -4,9 +4,10 @@ from uuid import UUID
 from unittest.mock import patch
 
 from django.template import Context, Template
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from posthog.templatetags.posthog_filters import compact_number
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestTemplateTags(TestCase):
@@ -18,7 +19,7 @@ class TestTemplateTags(TestCase):
         self.assertEqual(compact_number(8283310234), "8.28B")
 
 
-class TestPageJsonScript(SimpleTestCase):
+class TestPageJsonScript(ClickhouseFreeSimpleTestCase):
     @patch("posthog.templatetags.posthog_filters.capture_exception")
     def test_unserializable_value_renders_null_and_is_reported(self, mock_capture) -> None:
         uuid = UUID("00000000-0000-4000-8000-000000000001")

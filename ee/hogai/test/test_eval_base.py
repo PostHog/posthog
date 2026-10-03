@@ -1,10 +1,10 @@
 import asyncio
 from typing import Any
 
-from django.test import SimpleTestCase
-
 from braintrust import EvalAsync, EvalCase, Score
 from braintrust_core.score import Scorer
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 import ee.hogai.eval.base  # noqa: F401  (imported for the braintrust patch it applies)
 
@@ -19,7 +19,7 @@ class _SkipsOneCase(Scorer):
         return Score(name="skips", score=1.0)
 
 
-class TestOfflineEvalSummary(SimpleTestCase):
+class TestOfflineEvalSummary(ClickhouseFreeSimpleTestCase):
     def test_summarizes_an_offline_run_whose_scorer_skips_a_case(self) -> None:
         async def task(input: dict[str, Any]) -> dict[str, Any]:
             return input

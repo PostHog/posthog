@@ -6,13 +6,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.template.loader import render_to_string
-from django.test import SimpleTestCase
 
 from lxml import html
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic.customer_task_digest import (
@@ -158,7 +158,7 @@ class TestCustomerTaskDigest(BaseTest):
         assert build_customer_task_digest(user=user, team=self.team, reference_time=now) is None
 
 
-class TestCustomerTaskDigestTemplate(SimpleTestCase):
+class TestCustomerTaskDigestTemplate(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(1,), (10,), (11,), (19,)])
     def test_due_today_preview_includes_total_and_remaining_count(self, total: int) -> None:
         tasks = [

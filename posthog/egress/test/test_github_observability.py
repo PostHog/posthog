@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase
-
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -9,6 +7,7 @@ from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.observability import _normalize_github_endpoint, github_egress
 from posthog.egress.observability.observability import default_normalize_endpoint
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _COUNTER = "github_integration_api_requests_total"
 _REMAINING = "github_integration_api_rate_limit_remaining"
@@ -31,7 +30,7 @@ def _response(
     return response
 
 
-class TestGithubObservability(SimpleTestCase):
+class TestGithubObservability(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("https://api.github.com/repos/posthog/posthog/commits", "/repos/{owner}/{repo}/commits"),

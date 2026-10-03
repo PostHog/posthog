@@ -5,8 +5,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
-
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
@@ -19,6 +17,7 @@ from parameterized import parameterized
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.ph_client import get_client
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -422,7 +421,7 @@ class TestSubagentCallbackHandler(BaseTest):
         self.assertEqual(root_props["$ai_parent_id"], self.parent_span_id)
 
 
-class TestMaxCallbackHandler(SimpleTestCase):
+class TestMaxCallbackHandler(ClickhouseFreeSimpleTestCase):
     def _captured_events(
         self, client: Mock, handler: MaxCallbackHandler, output: LLMResult | BaseException
     ) -> list[str]:

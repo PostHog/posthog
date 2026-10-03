@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.db import DatabaseError
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -16,6 +16,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models import Team
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.error_tracking.backend.facade import api
 from products.error_tracking.backend.models import (
@@ -29,7 +30,7 @@ LINKED_BODY = "https://app.example.com/project/12/error_tracking/00000000-0000-0
 
 
 @override_settings(SITE_URL="https://app.example.com")
-class TestPrepareGitHubExternalReferenceJob(SimpleTestCase):
+class TestPrepareGitHubExternalReferenceJob(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("unsupported_action", "closed", "MEMBER", "octocat", "User", LINKED_BODY),
@@ -84,7 +85,7 @@ class TestPrepareGitHubExternalReferenceJob(SimpleTestCase):
         assert [job.actor_login for job in jobs] == ["editor"]
 
 
-class TestGitHubExternalReferenceTask(SimpleTestCase):
+class TestGitHubExternalReferenceTask(ClickhouseFreeSimpleTestCase):
     def test_retries_transient_database_failures_without_losing_worker_crashes(self) -> None:
         assert process_github_external_reference.acks_late is True
         assert process_github_external_reference.reject_on_worker_lost is True
@@ -100,7 +101,7 @@ class TestGitHubExternalReferenceTask(SimpleTestCase):
 
 
 @override_settings(SITE_URL="https://app.example.com")
-class TestErrorTrackingGitHubWebhook(SimpleTestCase):
+class TestErrorTrackingGitHubWebhook(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         reset_consumer_registry()
         cache.clear()

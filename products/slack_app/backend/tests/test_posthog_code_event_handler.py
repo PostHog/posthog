@@ -5,7 +5,7 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
 from parameterized import parameterized
@@ -16,13 +16,14 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.api import _app_mention_ignore_reason
 from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
-class TestLinkSharedUrlRegion(SimpleTestCase):
+class TestLinkSharedUrlRegion(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("us_host", ["https://us.posthog.com/project/2/insights/abc"], "US"),
@@ -49,7 +50,7 @@ class TestLinkSharedUrlRegion(SimpleTestCase):
         assert _link_shared_url_region(event) == expected
 
 
-class TestAppMentionIgnoreReason(SimpleTestCase):
+class TestAppMentionIgnoreReason(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("package_path_only", "<@U0BOT>/react-native-plugin", "path_mention"),
@@ -66,7 +67,7 @@ class TestAppMentionIgnoreReason(SimpleTestCase):
         assert _app_mention_ignore_reason(event) == expected
 
 
-class TestPostHogCodeEventHandler(SimpleTestCase):
+class TestPostHogCodeEventHandler(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.client = APIClient()
         self.signing_secret = "posthog-code-test-secret"
@@ -1741,7 +1742,7 @@ class TestQueueWorkflowDispatch(TestCase):
         mock_slack.return_value.client.reactions_add.assert_not_called()
 
 
-class TestUntaggedFollowupPrompt(SimpleTestCase):
+class TestUntaggedFollowupPrompt(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("linked", {"app_id": "A123"}, "<slack://app?team=T12345&id=A123&tab=home|PostHog app Home tab>"),
@@ -1766,7 +1767,7 @@ class TestUntaggedFollowupPrompt(SimpleTestCase):
         }
 
 
-class TestPostSlackUserEphemeral(SimpleTestCase):
+class TestPostSlackUserEphemeral(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("ephemeral", lambda slack, api: api._post_slack_user_ephemeral(slack, "C001", "U123", None, "nope")),

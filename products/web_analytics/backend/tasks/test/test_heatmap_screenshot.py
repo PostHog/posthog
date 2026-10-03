@@ -4,7 +4,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -12,6 +12,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
@@ -293,7 +294,7 @@ class TestHeatmapScreenshotTask(APIBaseTest):
 
 
 # Pure-function tests for the Browserless REST helper — no DB, so they run on SimpleTestCase.
-class TestBrowserlessScreenshotRequest(SimpleTestCase):
+class TestBrowserlessScreenshotRequest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("rate_limited", {"x-response-code": "429"}, 429),
@@ -483,7 +484,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
 
 
 @override_settings(HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED=True)
-class TestHeatmapScreenshotCookies(SimpleTestCase):
+class TestHeatmapScreenshotCookies(ClickhouseFreeSimpleTestCase):
     @override_settings(HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED=False)
     def test_cookie_withheld_when_delivery_is_disabled(self) -> None:
         assert heatmap_screenshot_cookies("phh_abc", "https://www.example.com", ["www.example.com"]) == []
@@ -520,7 +521,7 @@ class TestHeatmapScreenshotCookies(SimpleTestCase):
 
 
 # Pure-function tests for the Browserless URL helpers — no DB, so they run on SimpleTestCase.
-class TestBrowserlessUrlHelpers(SimpleTestCase):
+class TestBrowserlessUrlHelpers(ClickhouseFreeSimpleTestCase):
     @override_settings(HEATMAP_BROWSERLESS_URL="")
     def test_build_screenshot_url_returns_none_when_unset(self) -> None:
         assert _build_browserless_screenshot_url() is None
@@ -586,7 +587,7 @@ class TestBrowserlessUrlHelpers(SimpleTestCase):
         assert "timeout=1000" in redacted
 
 
-class TestClassifyFailure(SimpleTestCase):
+class TestClassifyFailure(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("soft_time_limit", SoftTimeLimitExceeded(), "soft_time_limit"),

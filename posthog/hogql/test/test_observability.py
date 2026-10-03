@@ -1,8 +1,6 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -25,6 +23,7 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.models import PropertyDefinition
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.event_definitions.backend.models.property_definition import PropertyType as PropertyDefinitionType
 
@@ -33,7 +32,7 @@ def _metric(name: str, labels: dict[str, str]) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
-class TestHogQLTypeObservability(SimpleTestCase):
+class TestHogQLTypeObservability(ClickhouseFreeSimpleTestCase):
     @patch("posthog.hogql.observability.TYPE_OBSERVABILITY_SAMPLE_RATE", 0.0)
     def test_zero_sample_rate_creates_no_accumulator(self):
         base = {"engine": "current", "dialect": "clickhouse", "source": "sql_editor"}

@@ -1,5 +1,3 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql.direct_sql import (
@@ -12,11 +10,13 @@ from posthog.hogql.direct_sql import (
 from posthog.hogql.direct_sql.capability import direct_capable_source_types, is_direct_capable
 from posthog.hogql.direct_sql.registry import get_adapter, register_adapter, registered_engines
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
-class TestDirectSQLRegistry(SimpleTestCase):
+class TestDirectSQLRegistry(ClickhouseFreeSimpleTestCase):
     def test_get_adapter_returns_registered_engine_adapter(self):
         self.assertIsInstance(get_adapter("postgres"), PostgresAdapter)
         self.assertIsInstance(get_adapter("mysql"), MySQLAdapter)
@@ -56,7 +56,7 @@ class TestDirectSQLRegistry(SimpleTestCase):
             registry_module._ADAPTERS.pop("fake", None)
 
 
-class TestDirectSQLCapability(SimpleTestCase):
+class TestDirectSQLCapability(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("postgres_direct_ignores_toggle", ExternalDataSourceType.POSTGRES, "direct", False, True),

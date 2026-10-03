@@ -5,12 +5,12 @@ class django_db. Keep this file free of a Team, a request, or a database, so the
 stay on SimpleTestCase and skip Django setup.
 """
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.endpoints.backend.logic.strategies import apply_where_filter
 from products.endpoints.backend.materialization_transforms import (
@@ -28,7 +28,7 @@ from products.endpoints.backend.materialization_transforms import (
 )
 
 
-class TestStripCombinators(SimpleTestCase):
+class TestStripCombinators(ClickhouseFreeSimpleTestCase):
     """Unit tests for _strip_combinators."""
 
     @parameterized.expand(
@@ -70,7 +70,7 @@ class TestStripCombinators(SimpleTestCase):
             assert result not in REAGGREGATABLE_BASE_FUNCTIONS or result == func_name.lower()
 
 
-class TestCTEGraph(SimpleTestCase):
+class TestCTEGraph(ClickhouseFreeSimpleTestCase):
     """Unit tests for the CTE reference graph and downstream/topological helpers."""
 
     @staticmethod
@@ -153,7 +153,7 @@ class TestCTEGraph(SimpleTestCase):
         assert graph["b"] == set()
 
 
-class TestDownstreamCTEClassifier(SimpleTestCase):
+class TestDownstreamCTEClassifier(ClickhouseFreeSimpleTestCase):
     """Unit tests for the downstream CTE shape classifier."""
 
     @staticmethod
@@ -408,7 +408,7 @@ class TestDownstreamCTEClassifier(SimpleTestCase):
         assert expected_fragment in plan.reject_reason
 
 
-class TestDownstreamAnalysisRejections(SimpleTestCase):
+class TestDownstreamAnalysisRejections(ClickhouseFreeSimpleTestCase):
     """Analyzer-level rejection tests for downstream CTE shapes we don't support."""
 
     def test_downstream_left_join_between_propagating_ctes_rejected(self):
@@ -515,7 +515,7 @@ class TestDownstreamAnalysisRejections(SimpleTestCase):
         assert "collides with existing column" in reason
 
 
-class TestCombinatorReaggregation(SimpleTestCase):
+class TestCombinatorReaggregation(ClickhouseFreeSimpleTestCase):
     """Test combinator-based re-aggregation detection."""
 
     @parameterized.expand(
@@ -578,7 +578,7 @@ class TestCombinatorReaggregation(SimpleTestCase):
         assert "re-aggregated" in reason
 
 
-class TestMaterializedReadPath(SimpleTestCase):
+class TestMaterializedReadPath(ClickhouseFreeSimpleTestCase):
     """Test that the read path applies value_wrapper_fns when filtering the materialized table."""
 
     def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
@@ -657,7 +657,7 @@ class TestMaterializedReadPath(SimpleTestCase):
         assert "toDate(toStartOfMonth('2024-01-15'))" in result
 
 
-class TestCTEVariableAnalysis(SimpleTestCase):
+class TestCTEVariableAnalysis(ClickhouseFreeSimpleTestCase):
     """Test variable analysis for variables inside CTE WHERE clauses."""
 
     def test_single_cte_with_variable_in_where(self):

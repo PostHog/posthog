@@ -1,11 +1,12 @@
 import hmac
 
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 
 from posthog.ingress.pandadoc.provider import build_pandadoc_provider
 from posthog.ingress.verify.schemes import VerificationOutcome
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SECRET = "pandadoc-secret"
 BODY = b'[{"event":"document_state_changed"}]'
@@ -16,7 +17,7 @@ def _signature() -> str:
 
 
 @override_settings(PANDADOC_WEBHOOK_SECRET=SECRET)
-class TestPandaDocProvider(SimpleTestCase):
+class TestPandaDocProvider(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("header_only", _signature(), None, VerificationOutcome.VERIFIED),

@@ -2,9 +2,9 @@ import copy
 from itertools import count
 from typing import Any
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.legacy_definitions import (
     cohort_references,
@@ -28,7 +28,7 @@ def feed(flags: list[dict[str, Any]]) -> dict[str, Any]:
     return {"flags": flags, "cohorts": {}, "group_type_mapping": {}, "minimal_flag_called_events": True}
 
 
-class TestLegacyDefinitions(SimpleTestCase):
+class TestLegacyDefinitions(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [(str(value), {"version": value, "groups": []}) for value in (2, 2.0, 3, "1", "2", True, False, None)]
         + [

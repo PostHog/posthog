@@ -3,13 +3,14 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.temporal.oauth import WEBMCP_APP_CLIENT_ID
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.webmcp.backend.facade import api
 from products.webmcp.backend.logic.tokens import WebMCPTokenIssuer
@@ -73,7 +74,7 @@ class TestWebMCPTokenIssuer(BaseTest):
         assert OAuthAccessToken.objects.get(token=minted).scoped_teams == [self.team.id]
 
 
-class TestWebMCPAvailability(SimpleTestCase):
+class TestWebMCPAvailability(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("https", "https://mcp.example.com/mcp", False, True),

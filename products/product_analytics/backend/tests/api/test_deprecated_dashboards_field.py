@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -9,6 +9,7 @@ from rest_framework import status
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication, SharingAccessTokenAuthentication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -23,7 +24,7 @@ def _fake_request(authenticator: object | None, query_params: dict[str, str] | N
     return request
 
 
-class TestShouldServeDeprecatedDashboardsField(SimpleTestCase):
+class TestShouldServeDeprecatedDashboardsField(ClickhouseFreeSimpleTestCase):
     def test_serves_when_no_request_in_context(self):
         assert should_serve_deprecated_dashboards_field({}) is True
 

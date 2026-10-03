@@ -1,7 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.heatmap_screenshot_grounding import GroundingResult
 from products.web_analytics.backend.max_tools import (
@@ -20,7 +20,7 @@ class _FakeResult:
         self.results = results
 
 
-class TestFormatWebsiteInteractionsReport(SimpleTestCase):
+class TestFormatWebsiteInteractionsReport(ClickhouseFreeSimpleTestCase):
     def test_embeds_vision_block_when_present(self):
         content = _format_website_interactions_report(
             "https://posthog.com/pricing", "HEATMAP_BLOCK", "VISION_BLOCK", session_count=4

@@ -5,13 +5,12 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models.scoping import team_scope
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
@@ -289,7 +288,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert [d.evaluation_key for d in evaluation.deliveries] == [expected]
 
 
-class TestEvaluationTimeoutLadder(SimpleTestCase):
+class TestEvaluationTimeoutLadder(ClickhouseFreeSimpleTestCase):
     """Constants only, so this takes no database."""
 
     def test_the_evaluation_timeout_ladder_holds(self) -> None:

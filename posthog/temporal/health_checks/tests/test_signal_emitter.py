@@ -1,7 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models import Team
@@ -15,6 +13,7 @@ from posthog.temporal.health_checks.framework import (
 )
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.contracts import HealthCheckSignalExtra, SignalRemediation
 from products.signals.backend.enums import ReportPriority
@@ -51,12 +50,12 @@ def _make_issue(kind: str = "stub_check", severity: str = "warning") -> HealthIs
     return HealthIssue(team_id=42, kind=kind, severity=severity, payload={"detail": "x"}, unique_hash="h")
 
 
-class TestBaseRenderSignal(SimpleTestCase):
+class TestBaseRenderSignal(ClickhouseFreeSimpleTestCase):
     def test_base_render_signal_returns_none(self):
         assert _NoSignalCheck.render_signal(_make_issue()) is None
 
 
-class TestBuildSignalExtra(SimpleTestCase):
+class TestBuildSignalExtra(ClickhouseFreeSimpleTestCase):
     def test_extra_satisfies_signal_schema(self):
         # emit_signal validates extra against this variant; if the envelope drifts
         # from the schema, every emit fails validation.
@@ -92,7 +91,7 @@ def _patch_in_bulk(team_model: MagicMock, teams_by_id: dict[int, Team]) -> None:
     team_model.objects.select_related.return_value.in_bulk.return_value = teams_by_id
 
 
-class TestEmitHealthCheckSignals(SimpleTestCase):
+class TestEmitHealthCheckSignals(ClickhouseFreeSimpleTestCase):
     def test_calls_emit_signal_with_weight_and_extra(self):
         emit_mock = AsyncMock()
         team = MagicMock(spec=Team)
@@ -183,7 +182,7 @@ class TestEmitHealthCheckSignals(SimpleTestCase):
         capture.assert_called_once()
 
 
-class TestSeamEmitsSignalsOnFiringOnly(SimpleTestCase):
+class TestSeamEmitsSignalsOnFiringOnly(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("dry_run_off", False)])
     def test_signal_emitted_for_newly_active_not_resolved(self, _name: str, dry_run: bool):
         firing = _make_issue(kind="k")

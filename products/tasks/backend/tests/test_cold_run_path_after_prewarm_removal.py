@@ -11,7 +11,7 @@ import inspect
 import importlib
 import dataclasses
 
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.temporal.process_task import workflow as workflow_module
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
@@ -19,7 +19,7 @@ from products.tasks.backend.temporal.process_task.activities import provision_sa
 PREWARM_TOKENS = ("prewarmed_sandbox_id", "prewarmed_sandbox", "seeded_env", "lease_prewarmed")
 
 
-class TestPrewarmArtifactsRemoved(SimpleTestCase):
+class TestPrewarmArtifactsRemoved(ClickhouseFreeSimpleTestCase):
     def test_prewarm_modules_are_gone(self):
         for module_path in (
             "products.tasks.backend.logic.services.prewarmed_sandbox",
@@ -43,7 +43,7 @@ class TestPrewarmArtifactsRemoved(SimpleTestCase):
             assert not (field_names & set(PREWARM_TOKENS)), f"{input_cls.__name__} still references a prewarm field"
 
 
-class TestColdProvisionPathIntact(SimpleTestCase):
+class TestColdProvisionPathIntact(ClickhouseFreeSimpleTestCase):
     def test_create_activity_cold_creates_via_sandbox_create(self):
         source = inspect.getsource(provision_sandbox._create_sandbox_for_repository)
         # The cold path resolves the provider per run and calls create() on it

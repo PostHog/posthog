@@ -3,7 +3,7 @@ from ipaddress import ip_address
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -13,6 +13,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.presentation.views.screenshot_settings import (
@@ -22,7 +23,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import generate_hea
 from products.web_analytics.backend.tasks.test.test_heatmap_screenshot import BROWSERLESS_SETTINGS, _make_response
 
 
-class TestScreenshotHostnames(SimpleTestCase):
+class TestScreenshotHostnames(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("https://example.com",),

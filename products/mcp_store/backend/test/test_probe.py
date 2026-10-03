@@ -3,12 +3,11 @@ from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import requests
 from parameterized import parameterized
 
 from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.probe import ProbeResult, probe_mcp_server
 
@@ -69,7 +68,7 @@ def _url_router(routes):
     return handle
 
 
-class TestProbeMCPServer(SimpleTestCase):
+class TestProbeMCPServer(ClickhouseFreeSimpleTestCase):
     def _probe(self, *, post_routes, get_routes=None, scope_allowlist=None, shared_client_id=None):
         post_router = _url_router(post_routes)
         get_router = _url_router(get_routes or {})
@@ -323,7 +322,7 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.passed_activation_gate)
 
 
-class TestPassedActivationGate(SimpleTestCase):
+class TestPassedActivationGate(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("open_reachable_mcp", "open", True, True, False, False, True),

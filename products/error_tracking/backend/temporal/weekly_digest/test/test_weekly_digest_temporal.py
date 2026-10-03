@@ -10,7 +10,7 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -23,6 +23,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import uuid7
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.models import (
@@ -65,7 +66,7 @@ def _days_ago(n: int) -> str:
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
-class TestGetDigestOrgs(SimpleTestCase):
+class TestGetDigestOrgs(ClickhouseFreeSimpleTestCase):
     def test_explicit_org_ids_bypass_discovery_and_are_stored_sorted(self):
         with (
             patch("products.error_tracking.backend.weekly_digest.get_org_ids_with_exceptions") as mock_discover,
@@ -111,7 +112,7 @@ class TestGetDigestOrgs(SimpleTestCase):
             mock_storage.write.assert_not_called()
 
 
-class TestLoadPageOrgs(SimpleTestCase):
+class TestLoadPageOrgs(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("first_page", 1, ["org-0", "org-1"]),

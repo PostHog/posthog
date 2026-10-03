@@ -1,11 +1,11 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex, format_log_cursor, parse_log_cursor
 
 
-class TestLogCursor(SimpleTestCase):
+class TestLogCursor(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("log_cursor", "log-0", 0),
@@ -27,7 +27,7 @@ class TestLogCursor(SimpleTestCase):
         assert parse_log_cursor(format_log_cursor(42)) == 42
 
 
-class TestTaskRunStreamBacklogIndex(SimpleTestCase):
+class TestTaskRunStreamBacklogIndex(ClickhouseFreeSimpleTestCase):
     def test_covers_exact_ids_and_coalesced_ranges(self) -> None:
         index = TaskRunStreamBacklogIndex(
             [

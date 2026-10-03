@@ -1,7 +1,5 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
@@ -16,6 +14,7 @@ from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
 from posthog.schema_enums import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -141,7 +140,7 @@ class TestTrinoSemantics(APIBaseTest):
             prepare_and_print_ast(parse_select("SELECT 1"), context, "trino")
 
 
-class TestTrinoAccessControl(SimpleTestCase):
+class TestTrinoAccessControl(ClickhouseFreeSimpleTestCase):
     def test_preloaded_restriction_rejects_query_without_property_reads(self) -> None:
         context = HogQLContext(
             database=Database(include_posthog_tables=True),
@@ -161,7 +160,7 @@ class TestTrinoAccessControl(SimpleTestCase):
             prepare_and_print_ast(parse_select("SELECT 1"), context, "trino")
 
 
-class TestTrinoPersonsSemantics(SimpleTestCase):
+class TestTrinoPersonsSemantics(ClickhouseFreeSimpleTestCase):
     def _context(self, modifiers: HogQLQueryModifiers | None = None) -> HogQLContext:
         return HogQLContext(
             database=Database(include_posthog_tables=True),

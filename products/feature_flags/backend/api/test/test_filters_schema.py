@@ -2,9 +2,9 @@ from typing import Any
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.api.filters_schema import (
     PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY,
@@ -49,7 +49,7 @@ def _codes_under(node: Any) -> set[str]:
     return {getattr(node, "code", None) or "invalid"}
 
 
-class TestFiltersSchema(SimpleTestCase):
+class TestFiltersSchema(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty", {}),

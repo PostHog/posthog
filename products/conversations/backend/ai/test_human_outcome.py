@@ -1,9 +1,9 @@
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.ai.human_outcome import classify_human_outcome
 
 
-class TestClassifyHumanOutcome(SimpleTestCase):
+class TestClassifyHumanOutcome(ClickhouseFreeSimpleTestCase):
     def test_identical_reply_is_used(self):
         draft = "Add the snippet to the head of every page."
         assert classify_human_outcome(draft, draft) == "used"

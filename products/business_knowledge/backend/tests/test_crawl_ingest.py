@@ -25,9 +25,9 @@ from collections.abc import Mapping
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.business_knowledge.backend import crawl, discover, logic, url_fetch
 from products.business_knowledge.backend.logic import create_crawl_source, ingest_source, refresh_source
@@ -364,7 +364,7 @@ def _ok(url: str, body: bytes) -> url_fetch.FetchResult:
     )
 
 
-class TestIterFetch(SimpleTestCase):
+class TestIterFetch(ClickhouseFreeSimpleTestCase):
     def test_submits_at_most_max_in_flight_before_the_first_outcome(self) -> None:
         urls = [f"https://example.com/{i}" for i in range(10)]
         fake = _FakeFetch({url: _ok(url, f"<html><body>Page {url}.</body></html>".encode()) for url in urls})

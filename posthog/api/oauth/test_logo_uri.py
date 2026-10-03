@@ -2,9 +2,9 @@ import ipaddress
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from .logo_uri import MAX_LOGO_URI_LENGTH, usable_logo_uri
 
@@ -12,7 +12,7 @@ PUBLIC_IPS = {ipaddress.ip_address("93.184.216.34")}
 PRIVATE_IPS = {ipaddress.ip_address("10.1.2.3")}
 
 
-class TestUsableLogoUri(SimpleTestCase):
+class TestUsableLogoUri(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("https url", "https://example.com/logo.png"),

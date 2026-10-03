@@ -1,13 +1,14 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import posthoganalytics
 
 from posthog.ph_client import ScopedCapture, get_client, ph_scoped_capture
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestAILaneOptIn(SimpleTestCase):
+class TestAILaneOptIn(ClickhouseFreeSimpleTestCase):
     def test_get_client_opts_into_ai_lane(self):
         for region in ("US", "EU"):
             client = get_client(region, send=False, enable_local_evaluation=False)
@@ -22,7 +23,7 @@ class TestAILaneOptIn(SimpleTestCase):
         self.assertTrue(client._enable_multimodal_capture)
 
 
-class TestScopedCaptureFlush(SimpleTestCase):
+class TestScopedCaptureFlush(ClickhouseFreeSimpleTestCase):
     def test_flush_waits_indefinitely_rather_than_taking_the_default_budget(self):
         # The SDK's default is a 10 second budget, and on expiry it logs and returns with items still
         # queued — indistinguishable from a drained buffer. Callers flush before writing a durable
@@ -46,7 +47,7 @@ class TestScopedCaptureFlush(SimpleTestCase):
         client.shutdown.assert_called_once()
 
 
-class TestGetClientTestGuard(SimpleTestCase):
+class TestGetClientTestGuard(ClickhouseFreeSimpleTestCase):
     def test_client_is_disabled_under_test_settings(self) -> None:
         # apps.py disables the module-level client under TEST, but a client built here
         # is a fresh instance that never sees that flag. Without its own guard, any

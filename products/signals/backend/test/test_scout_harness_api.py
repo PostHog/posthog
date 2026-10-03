@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -37,6 +36,7 @@ from posthog.temporal.oauth import (
     PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
@@ -1190,7 +1190,7 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert "per-run cap" in str(second.json())
 
 
-class TestStructuredOutputSchemaValidation(SimpleTestCase):
+class TestStructuredOutputSchemaValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("valid_schema", _STRUCTURED_OUTPUT_SCHEMA, True),
@@ -1535,7 +1535,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert config.write_scopes == (requested if expected == status.HTTP_200_OK else current)
 
 
-class TestWriteScopesValidation(SimpleTestCase):
+class TestWriteScopesValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty_is_read_only", [], True, []),
@@ -2441,7 +2441,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
 
 
-class TestRunCronScheduleValidation(SimpleTestCase):
+class TestRunCronScheduleValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain_daily", "30 9 * * *", True),
@@ -4974,7 +4974,7 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False
 
 
-class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
+class TestSignalScoutSlackDestinationSerializerValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("both_channel_and_users", {"integration_id": 1, "channel": "C1|#alerts", "users": ["U0123ABC|@a"]}),

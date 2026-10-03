@@ -6,9 +6,9 @@ import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.context_layer.backend.repo_lint import lint_repo, report_repo
 from products.context_layer.backend.scaffold import write_default_structure
@@ -155,7 +155,7 @@ def _space_page_with_lists(lists: str) -> Callable[[Path], None]:
     return lambda root: _write_space_page(root, lists)
 
 
-class TestRepoLint(SimpleTestCase):
+class TestRepoLint(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.root = Path(tempfile.mkdtemp(prefix="context-layer-lint-"))
@@ -275,7 +275,7 @@ class TestRepoLint(SimpleTestCase):
         assert lint_repo(self.root) != []
 
 
-class TestWikiPublish(SimpleTestCase):
+class TestWikiPublish(ClickhouseFreeSimpleTestCase):
     def _git(self, *args: str) -> str:
         return subprocess.run(
             ["git", *args], cwd=self.root, env=self.env, check=True, capture_output=True, text=True

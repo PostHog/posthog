@@ -2,8 +2,6 @@ from datetime import date
 
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
-
 import fakeredis
 from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
@@ -14,6 +12,7 @@ from posthog.schema import HogQLQueryResponse
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.achievements import evaluators, tasks
 from products.web_analytics.backend.achievements.definitions import TRACKS, TrackKey
@@ -28,7 +27,7 @@ CAPACITY_ERRORS = [
 ]
 
 
-class TestAchievementQueryConcurrency(SimpleTestCase):
+class TestAchievementQueryConcurrency(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         get_achievement_query_limiter.cache_clear()

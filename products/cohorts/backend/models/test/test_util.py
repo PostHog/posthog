@@ -4,7 +4,6 @@ from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
-from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
@@ -25,6 +24,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
@@ -56,7 +56,7 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-class TestCohortQueryValidation(SimpleTestCase):
+class TestCohortQueryValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("time_series_trends_without_day", None, None, True),

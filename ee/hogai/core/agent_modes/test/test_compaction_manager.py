@@ -2,8 +2,6 @@ from uuid import uuid4
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -21,6 +19,8 @@ from posthog.schema import (
     HumanMessage,
 )
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+
 from ee.hogai.utils.anthropic import convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, should_output_assistant_message
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
@@ -28,7 +28,7 @@ from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ..compaction_manager import AnthropicConversationCompactionManager
 
 
-class TestAnthropicConversationCompactionManager(SimpleTestCase):
+class TestAnthropicConversationCompactionManager(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         super().setUp()
         self.window_manager = AnthropicConversationCompactionManager()

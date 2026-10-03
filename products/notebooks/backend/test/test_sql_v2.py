@@ -23,7 +23,7 @@ from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -39,6 +39,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.uuidt import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -108,7 +109,7 @@ def _restrict_query_access(test: APIBaseTest) -> None:
     cache.clear()
 
 
-class TestSQLV2BackendBaseURL(SimpleTestCase):
+class TestSQLV2BackendBaseURL(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("explicit_override", "https://tunnel.example.dev/", True, "https://tunnel.example.dev"),
@@ -121,7 +122,7 @@ class TestSQLV2BackendBaseURL(SimpleTestCase):
             assert build_callback_url("run-1") == f"{expected_base}/internal/notebooks/runs/run-1/result/"
 
 
-class TestSQLV2ApplyPageBounds(SimpleTestCase):
+class TestSQLV2ApplyPageBounds(ClickhouseFreeSimpleTestCase):
     def test_naked_scan_is_bounded_in_place_not_wrapped(self) -> None:
         # The fix: a query with no LIMIT of its own gets the window on its own SELECT so
         # ClickHouse pushes it into an aggregated view instead of scanning the whole table.
@@ -1901,7 +1902,7 @@ class TestSQLV2Activities(APIBaseTest):
         self.assertEqual(self._reload(run).status, NotebookNodeRun.Status.FAILED)
 
 
-class TestSQLV2CommandToken(SimpleTestCase):
+class TestSQLV2CommandToken(ClickhouseFreeSimpleTestCase):
     # Backend mints (sql_v2), the in-sandbox kernel verifies (kernel.auth) — this
     # round-trip is the contract that keeps the two HMAC implementations in sync.
     def test_valid_token_verifies(self):
@@ -1922,7 +1923,7 @@ class TestSQLV2CommandToken(SimpleTestCase):
         self.assertFalse(kernel_auth.verify_command_token(verify_secret, run_id, token))
 
 
-class TestSQLV2DataPlaneToken(SimpleTestCase):
+class TestSQLV2DataPlaneToken(ClickhouseFreeSimpleTestCase):
     def test_round_trip(self):
         token = mint_data_plane_token("nb123", 7, 42)
         self.assertEqual(
@@ -1941,7 +1942,7 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
             verify_data_plane_token(make_token())
 
 
-class TestNotebookFlagResolution(SimpleTestCase):
+class TestNotebookFlagResolution(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("neither", False, False, True, False),
@@ -2398,7 +2399,7 @@ class TestSQLV2RunContract(APIBaseTest):
         self.assertEqual(stored.envelope["types"], [["a", "Int64"]])
 
 
-class TestSQLV2KernelServerHTTP(SimpleTestCase):
+class TestSQLV2KernelServerHTTP(ClickhouseFreeSimpleTestCase):
     # The kernel HTTP layer (routing, auth wiring, async-run vs sync-page split) has no
     # other CI coverage — it only runs inside the sandbox. Loopback-only, stubbed runner.
     def test_routes_auth_and_dispatch(self):
@@ -2470,7 +2471,7 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
             kernel_server._config.update(original_config)
 
 
-class TestSQLV2KernelPackage(SimpleTestCase):
+class TestSQLV2KernelPackage(ClickhouseFreeSimpleTestCase):
     def test_arrow_contract_round_trip(self):
         # Where backend encoding and kernel decoding actually meet: duplicate column
         # names must survive, a mixed-type column falls back to strings, and the
@@ -2887,7 +2888,7 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertEqual(len(version), 16)
 
 
-class TestSQLV2PythonNodeRun(SimpleTestCase):
+class TestSQLV2PythonNodeRun(ClickhouseFreeSimpleTestCase):
     def test_materialize_query_writes_a_readable_arrow_file(self):
         # Journey 4 materialization: the server streams a CH result to a local Arrow *file* the
         # kernel later mmaps. It must be an IPC file (open_file), and the temp must be renamed away.

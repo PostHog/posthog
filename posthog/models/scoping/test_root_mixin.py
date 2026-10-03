@@ -14,15 +14,15 @@ recognises all three adoption styles: the two mixins and an ad-hoc
 from types import SimpleNamespace
 
 from django.db import models
-from django.test import SimpleTestCase
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import RootTeamManager, RootTeamMixin
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestTeamScopedRootMixinWiring(SimpleTestCase):
+class TestTeamScopedRootMixinWiring(ClickhouseFreeSimpleTestCase):
     def test_objects_is_team_scoped_manager(self) -> None:
         """The default manager is fail-closed by team scope, overriding RootTeamManager."""
         manager = TeamScopedRootMixin._meta.managers_map["objects"]
@@ -38,7 +38,7 @@ class TestTeamScopedRootMixinWiring(SimpleTestCase):
         self.assertTrue(TeamScopedRootMixin._meta.abstract)
 
 
-class TestFailClosedIntrospection(SimpleTestCase):
+class TestFailClosedIntrospection(ClickhouseFreeSimpleTestCase):
     """The CI baseline check (compute_unmigrated_to_fail_closed) verifies
     that the manager accessible as `Model.objects` is a `TeamScopedManager`.
     Confirm that contract holds for all three adoption styles.

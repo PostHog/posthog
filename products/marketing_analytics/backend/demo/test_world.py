@@ -1,4 +1,4 @@
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.demo.world import CAMPAIGNS, FREE_CHANNELS
 from products.marketing_analytics.backend.services.native_integrations import lookup_alias
@@ -12,7 +12,7 @@ def _is_paid_medium(medium: str | None) -> bool:
     return medium in PAID_MEDIUMS or medium.startswith("paid")
 
 
-class TestDemoWorldPaidSignals(SimpleTestCase):
+class TestDemoWorldPaidSignals(ClickhouseFreeSimpleTestCase):
     """The paid/organic split the `connect_source` gate reads.
 
     Both sides have to exist here or the gate is untestable against demo data: it

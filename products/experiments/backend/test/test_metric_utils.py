@@ -2,9 +2,9 @@
 
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.metric_utils import (
@@ -390,7 +390,7 @@ class TestCollectMetricEventsAndActionIds(BaseTest):
         assert action_ids == {7}
 
 
-class TestCollectMetricWarehouseTables(SimpleTestCase):
+class TestCollectMetricWarehouseTables(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

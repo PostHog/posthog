@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.product_push.cadence import (
     campaign_ends_at,
@@ -15,7 +15,7 @@ from products.growth.backend.product_push.cadence import (
 NOW = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
 
-class TestProductPushCadence(SimpleTestCase):
+class TestProductPushCadence(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("day_9_still_in_grace", datetime(2026, 6, 22, 13, 0, tzinfo=UTC), False),

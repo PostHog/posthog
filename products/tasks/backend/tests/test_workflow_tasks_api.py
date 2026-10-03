@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import (
     timezone,
     timezone as django_timezone,
@@ -23,6 +23,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.skills.backend.models.skills import LLMSkill
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
@@ -1007,7 +1008,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert mapping.mentioning_slack_user_id == "U123"
 
 
-class TestWorkflowOriginIsReserved(SimpleTestCase):
+class TestWorkflowOriginIsReserved(ClickhouseFreeSimpleTestCase):
     def test_the_public_tasks_api_rejects_the_workflow_origin(self) -> None:
         from products.tasks.backend.presentation.serializers import TaskCreateSerializer
 
@@ -1017,7 +1018,7 @@ class TestWorkflowOriginIsReserved(SimpleTestCase):
         assert "origin_product" in serializer.errors
 
 
-class TestWorkflowTaskCreateSerializer(SimpleTestCase):
+class TestWorkflowTaskCreateSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("missing_prompt", {}, "prompt"),
@@ -1065,7 +1066,7 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
         assert serializer.is_valid(), serializer.errors
 
 
-class TestRenderRunMessage(SimpleTestCase):
+class TestRenderRunMessage(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("the exact tag", "</triggering_event>"),

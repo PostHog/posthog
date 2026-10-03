@@ -6,11 +6,12 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.http.response import HttpResponseBase
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 WEBHOOK_SECRET = "test-webhook-secret"
 WEBHOOK_PATH = "/webhooks/stamphog/github"
@@ -24,7 +25,7 @@ def _signature(body: bytes, secret: str) -> str:
 
 
 @override_settings(STAMPHOG_GITHUB_APP_WEBHOOK_SECRET=WEBHOOK_SECRET)
-class TestStamphogGitHubWebhook(SimpleTestCase):
+class TestStamphogGitHubWebhook(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         # The registry is cached for the process and the dedup marks sit in the cache; both would
         # otherwise carry another test's state into this one.

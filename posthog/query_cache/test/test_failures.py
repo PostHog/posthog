@@ -4,7 +4,6 @@ import time_machine
 from unittest import mock
 
 from django.core.cache import caches
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -19,9 +18,10 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
     WarmingQueryFailureCache,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestQueryFailureCache(SimpleTestCase):
+class TestQueryFailureCache(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         super().setUp()
         caches[QUERY_CACHE_ALIAS].clear()

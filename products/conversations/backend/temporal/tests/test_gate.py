@@ -1,6 +1,6 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_CLARIFYING_QUESTION_CHARS
 from products.conversations.backend.temporal.ai_reply.gate import (
@@ -17,7 +17,7 @@ from products.conversations.backend.temporal.ai_reply.schemas import (
 )
 
 
-class TestFailClosedDefaults(SimpleTestCase):
+class TestFailClosedDefaults(ClickhouseFreeSimpleTestCase):
     def test_omitted_draft_verdict_is_blocked_on_knowledge(self):
         draft = SupportReplyDraft(reply="ok", citations=[], confidence=0.9)
         assert draft.verdict == "blocked_on_knowledge"
@@ -66,7 +66,7 @@ class TestFailClosedDefaults(SimpleTestCase):
         )
 
 
-class TestDecideReplyAction(SimpleTestCase):
+class TestDecideReplyAction(ClickhouseFreeSimpleTestCase):
     def _decide(
         self,
         *,
@@ -150,7 +150,7 @@ class TestDecideReplyAction(SimpleTestCase):
         assert self._decide(**overrides) == expected
 
 
-class TestFindingsNote(SimpleTestCase):
+class TestFindingsNote(ClickhouseFreeSimpleTestCase):
     def test_knowledge_blocker_persists_even_without_investigation_text(self):
         assert should_persist_findings(
             investigation_summary="",
@@ -188,7 +188,7 @@ class TestFindingsNote(SimpleTestCase):
         )
 
 
-class TestFormatClarifyingQuestion(SimpleTestCase):
+class TestFormatClarifyingQuestion(ClickhouseFreeSimpleTestCase):
     def test_uses_first_question_only(self):
         text = format_clarifying_question(questions=["Which SDK are you using", "What version"])
         assert text == "Which SDK are you using?"
@@ -203,7 +203,7 @@ class TestFormatClarifyingQuestion(SimpleTestCase):
         assert text.endswith("?")
 
 
-class TestCoerceActivityResults(SimpleTestCase):
+class TestCoerceActivityResults(ClickhouseFreeSimpleTestCase):
     def test_dict_without_verdict_fails_closed(self):
         draft = coerce_dataclass(DraftOutput, {"reply": "ok", "citations": [], "confidence": 0.9})
         assert draft.verdict == "blocked_on_knowledge"

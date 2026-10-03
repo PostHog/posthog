@@ -1,12 +1,12 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import serializers
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.api.dashboard import DashboardSerializer
 
 
-class TestDashboardFiltersValidation(SimpleTestCase):
+class TestDashboardFiltersValidation(ClickhouseFreeSimpleTestCase):
     def _validate(self, value):
         return DashboardSerializer._validated_filters(value)
 
@@ -44,7 +44,7 @@ class TestDashboardFiltersValidation(SimpleTestCase):
         raise AssertionError("expected ValidationError")
 
 
-class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
+class TestDashboardTileFiltersOverridesValidation(ClickhouseFreeSimpleTestCase):
     def test_normalizes_property_group_dict_on_tile_filters_overrides(self):
         # Tile `filters_overrides` is opaque JSON with the same properties shape ambiguity as dashboard
         # `filters`; a PropertyGroupFilter dict must be flattened to the flat-list contract on write.
@@ -64,7 +64,7 @@ class TestDashboardTileFiltersOverridesValidation(SimpleTestCase):
         assert result["filters_overrides"] is None
 
 
-class TestDashboardBreakdownColorsValidation(SimpleTestCase):
+class TestDashboardBreakdownColorsValidation(ClickhouseFreeSimpleTestCase):
     def _field(self, partial: bool) -> serializers.Field:
         # Read the field off the serializer rather than building one, so the cases bind to the shape
         # the endpoint actually validates against.

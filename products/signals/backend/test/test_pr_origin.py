@@ -4,11 +4,10 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.integration import GitHubIntegration
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.pr_origin import (
@@ -28,7 +27,7 @@ SECTION = "<!-- posthog-self-driving-origin:r1 -->\n## Origin\n\n- new\n<!-- /po
 OTHER_REPORT = "<!-- posthog-self-driving-origin:r0 -->\n## Origin\n\n- other\n<!-- /posthog-self-driving-origin:r0 -->"
 
 
-class TestPlaceOriginSection(SimpleTestCase):
+class TestPlaceOriginSection(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -73,7 +72,7 @@ class TestPlaceOriginSection(SimpleTestCase):
         assert place_origin_section(body, report_id="r1", section=SECTION) == expected
 
 
-class TestScoutLabel(SimpleTestCase):
+class TestScoutLabel(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("canonical", "signals-scout-error-tracking", "`signals-scout-error-tracking`"),

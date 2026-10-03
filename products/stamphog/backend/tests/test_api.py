@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from django.core import signing
 from django.db import transaction
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -19,6 +19,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, uuid7
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
@@ -554,7 +555,7 @@ def _repo_config_dto(*, enabled: bool, digest_enabled: bool) -> contracts.RepoCo
     )
 
 
-class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
+class TestStamphogRepoConfigSerializerValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("create", None, {"repository": "PostHog/posthog", "enabled": False, "digest_enabled": True}),

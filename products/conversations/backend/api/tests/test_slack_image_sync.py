@@ -3,12 +3,12 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.models import ConversationDeliveryPart, TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel
@@ -54,7 +54,7 @@ def fake_slack_client() -> MagicMock:
     return client
 
 
-class TestSlackImageIngest(SimpleTestCase):
+class TestSlackImageIngest(ClickhouseFreeSimpleTestCase):
     @patch("products.conversations.backend.slack.build_opener")
     def test_download_rejects_non_slack_host(self, mock_build_opener: MagicMock) -> None:
         image_bytes = _download_slack_image_bytes("https://example.com/a.png", "xoxb-token")
@@ -271,7 +271,7 @@ class TestSlackImageIngest(SimpleTestCase):
         assert "]" not in attachments[0]["name"]
 
 
-class TestSlackImageOutbound(SimpleTestCase):
+class TestSlackImageOutbound(ClickhouseFreeSimpleTestCase):
     def test_outbound_reader_rejects_non_uploaded_media_urls(self) -> None:
         payload = _read_image_bytes_for_slack_upload(1, "https://example.com/test.png")
         assert payload is None

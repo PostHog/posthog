@@ -9,7 +9,6 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -31,6 +30,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -2582,7 +2582,7 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
         }
 
 
-class TestFileSystemSerializerInputValidation(SimpleTestCase):
+class TestFileSystemSerializerInputValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("meta_null", {"path": "a", "type": "doc", "meta": None}, "meta"),
@@ -2659,7 +2659,7 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
         self.assertEqual([row["path"] for row in response.json()["results"]], ["!"])
 
 
-class TestFileSystemInsightType(SimpleTestCase):
+class TestFileSystemInsightType(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("TrendsQuery", None, "trends"),

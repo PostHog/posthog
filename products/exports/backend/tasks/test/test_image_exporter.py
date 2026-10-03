@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import MagicMock, mock_open, patch
 
 from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from boto3 import resource
 from botocore.client import Config
@@ -29,6 +29,7 @@ from posthog.settings import (
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -720,7 +721,7 @@ class TestImageExporterQueryOverrideE2E(ClickhouseTestMixin, APIBaseTest):
         assert url_default != url_override
 
 
-class TestInsightQueryScreenshotWidth(SimpleTestCase):
+class TestInsightQueryScreenshotWidth(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("funnel_default_layout", {"kind": "InsightVizNode", "source": {"kind": "FunnelsQuery"}}, 4000),
@@ -759,7 +760,7 @@ class TestInsightQueryScreenshotWidth(SimpleTestCase):
         assert image_exporter._insight_query_screenshot_width(query) == expected
 
 
-class TestInsightQueryWantsLegend(SimpleTestCase):
+class TestInsightQueryWantsLegend(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -806,7 +807,7 @@ class TestInsightQueryWantsLegend(SimpleTestCase):
         assert image_exporter._insight_query_wants_legend(query) == expected
 
 
-class TestBuildCdpEndpoint(SimpleTestCase):
+class TestBuildCdpEndpoint(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain_wss", "wss://chrome.browserless.io", "tok123", 180000, "wss", "chrome.browserless.io", "tok123"),
@@ -859,7 +860,7 @@ class TestBuildCdpEndpoint(SimpleTestCase):
         assert params["timeout"] == ["1000"]
 
 
-class TestScreenshotAssetBrowserless(SimpleTestCase):
+class TestScreenshotAssetBrowserless(ClickhouseFreeSimpleTestCase):
     def test_connect_error_is_wrapped_as_browserless_unavailable(self) -> None:
         playwright_obj = MagicMock()
         playwright_obj.chromium.connect_over_cdp.side_effect = PlaywrightError("ECONNREFUSED")
@@ -961,7 +962,7 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert all("iframe.PlayerFrame__document" in script for script in measure_scripts)
 
 
-class TestDimensionHelpers(SimpleTestCase):
+class TestDimensionHelpers(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("int_within_bounds", 1200, 800, 1200),
@@ -997,7 +998,7 @@ class TestDimensionHelpers(SimpleTestCase):
         assert image_exporter._cap_height(raw_height, effective_max, "https://example.com", final=final) == expected
 
 
-class TestMeasureContentWidthJS(SimpleTestCase):
+class TestMeasureContentWidthJS(ClickhouseFreeSimpleTestCase):
     # The vertical funnel (FunnelStepsBarChart, quill-charts) renders neither a <table> nor a
     # .FunnelBarVertical, so the measurement JS must target its own selector. If that selector is
     # absent — or is checked after the generic <table> fallback — funnel measurement returns null,
@@ -1015,7 +1016,7 @@ class TestMeasureContentWidthJS(SimpleTestCase):
         assert canvas_index < table_fallback_index
 
 
-class TestIsBrowserlessConnectionError(SimpleTestCase):
+class TestIsBrowserlessConnectionError(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("target_closed", "Target closed", True),

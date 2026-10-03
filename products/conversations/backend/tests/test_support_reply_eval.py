@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.evals.constants import BLOCKER_TYPES, EVAL_OUTCOMES, TICKET_TYPES
 from products.conversations.evals.fixtures import FIXTURES, FIXTURES_BY_NAME, expected_for
@@ -22,7 +22,7 @@ from products.conversations.evals.seeders import provision_eval_team, seed_case,
 from products.posthog_ai.eval_harness.scorers.contract import Score
 
 
-class TestEvalOutcomeFromTriage(SimpleTestCase):
+class TestEvalOutcomeFromTriage(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("persisted_is_answerable", {"status": "done", "result": "persisted"}, "answerable"),
@@ -68,7 +68,7 @@ class TestEvalOutcomeFromTriage(SimpleTestCase):
         assert eval_outcome_from_triage(triage) == expected
 
 
-class TestSupportReplyScorers(SimpleTestCase):
+class TestSupportReplyScorers(ClickhouseFreeSimpleTestCase):
     def test_outcome_match_scores_equality(self):
         expected = {"outcome_match": {"outcome": "answerable"}}
         assert OutcomeMatch()._run_eval_sync({"eval_outcome": "answerable"}, expected).score == 1.0
@@ -135,7 +135,7 @@ class TestSupportReplyScorers(SimpleTestCase):
         assert prepared.score == 0.0
 
 
-class TestFixtureCoverage(SimpleTestCase):
+class TestFixtureCoverage(ClickhouseFreeSimpleTestCase):
     def test_every_ticket_type_and_blocker_has_a_fixture(self):
         assert {fixture.ticket_type for fixture in FIXTURES} == set(TICKET_TYPES)
         assert {fixture.blocker for fixture in FIXTURES} == set(BLOCKER_TYPES)

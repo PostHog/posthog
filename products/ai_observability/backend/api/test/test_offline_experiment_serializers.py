@@ -1,9 +1,10 @@
 from uuid import UUID, uuid4
 
 from django.http import QueryDict
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.api.offline_experiment_read_serializers import (
     OfflineExperimentQuerySerializer,
@@ -29,7 +30,7 @@ ITEM_ID = UUID("01922222-2222-7222-8222-222222222222")
 SCORER_VERSION_ID = UUID("01923333-3333-7333-8333-333333333333")
 
 
-class TestOfflineReadQuerySerializers(SimpleTestCase):
+class TestOfflineReadQuerySerializers(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("item_ids", ""),
@@ -149,7 +150,7 @@ class TestOfflineReadQuerySerializers(SimpleTestCase):
         self.assertEqual({field: getattr(query, field) for field in identifiers}, identifiers)
 
 
-class TestOfflineExperimentSubmissionSerializers(SimpleTestCase):
+class TestOfflineExperimentSubmissionSerializers(ClickhouseFreeSimpleTestCase):
     def experiment_data(self, **overrides: object) -> dict[str, object]:
         return {"id": str(uuid4()), "name": "Answer quality", "started_at": "2026-09-24T10:00:00Z", **overrides}
 

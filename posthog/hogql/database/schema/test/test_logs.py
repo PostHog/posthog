@@ -1,13 +1,13 @@
 from unittest.mock import Mock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql.database.schema.logs import get_hogql_max_bytes_to_read_for_logs_user_queries
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-class TestGetHogqlMaxBytesToReadForLogsUserQueries(SimpleTestCase):
+
+class TestGetHogqlMaxBytesToReadForLogsUserQueries(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("free", 50_000_000_000),

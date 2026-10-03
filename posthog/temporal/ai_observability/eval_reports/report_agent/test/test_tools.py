@@ -13,7 +13,6 @@ from unittest.mock import (
     patch,
 )
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from clickhouse_driver.errors import NetworkError, SocketTimeoutError
@@ -59,6 +58,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     set_title,
     strip_dead_backticked_ids,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _VALID_GEN_ID = "12345678-1234-1234-1234-123456789abc"
 _VALID_TRACE_ID = "abcdefab-cdef-abcd-efab-cdefabcdefab"
@@ -127,7 +127,7 @@ def _trace_report_tool_state() -> _ReportToolState:
     return _aggregate_report_tool_state("trace")
 
 
-class TestChTs(SimpleTestCase):
+class TestChTs(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -149,7 +149,7 @@ class TestChTs(SimpleTestCase):
         self.assertEqual(result.tzinfo, dt.UTC)
 
 
-class TestWidenedTsWindow(SimpleTestCase):
+class TestWidenedTsWindow(ClickhouseFreeSimpleTestCase):
     def test_widens_start_by_7_days_and_end_by_1_day(self):
         state = {
             "period_start": "2026-04-08T14:00:00+00:00",
@@ -172,7 +172,7 @@ class TestWidenedTsWindow(SimpleTestCase):
         self.assertEqual(window.ts_end.year, 2099)
 
 
-class TestSummaryMetrics(SimpleTestCase):
+class TestSummaryMetrics(ClickhouseFreeSimpleTestCase):
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_boolean_keeps_pass_rate_separate_from_outcome_distribution(self, mock_execute_hogql):
         mock_execute_hogql.side_effect = [
@@ -299,7 +299,7 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertIn("properties.$ai_evaluation_result = true", pass_column.group(1))
 
 
-class TestTargetAwareEvalResults(SimpleTestCase):
+class TestTargetAwareEvalResults(ClickhouseFreeSimpleTestCase):
     def _state(self, evaluation_target: str, output_type: str = "boolean") -> dict:
         return {
             "team_id": 1,
@@ -458,7 +458,7 @@ class TestTargetAwareEvalResults(SimpleTestCase):
         self.assertEqual(state["trace_id_allowlist"], [])
 
 
-class TestTraceDetailTools(SimpleTestCase):
+class TestTraceDetailTools(ClickhouseFreeSimpleTestCase):
     def _state(self) -> dict:
         return {
             "team_id": 7,
@@ -564,7 +564,7 @@ class TestTraceDetailTools(SimpleTestCase):
         self.assertNotIn("get_top_outcome_reasons", sentiment_tools)
 
 
-class TestSessionTracesQueryFallback(SimpleTestCase):
+class TestSessionTracesQueryFallback(ClickhouseFreeSimpleTestCase):
     def test_placeholder_names_survive_the_events_table_rewrite(self) -> None:
         """The rewriter descends into placeholders, so a placeholder named after an ai_events
         column is rewritten into a column reference and substitution then fails — which only
@@ -586,7 +586,7 @@ class TestSessionTracesQueryFallback(SimpleTestCase):
         self.assertEqual(sorted(names), ["limit", "target_session_id", "ts_end", "ts_start"])
 
 
-class TestSessionDetailTools(SimpleTestCase):
+class TestSessionDetailTools(ClickhouseFreeSimpleTestCase):
     def _state(self) -> _ReportToolState:
         return _aggregate_report_tool_state("session")
 
@@ -653,7 +653,7 @@ class TestSessionDetailTools(SimpleTestCase):
         self.assertIn("first 10 traces", result[0]["truncated"])
 
 
-class TestUuidRegex(SimpleTestCase):
+class TestUuidRegex(ClickhouseFreeSimpleTestCase):
     def test_matches_canonical_uuid(self):
         self.assertIsNotNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc"))
 
@@ -668,7 +668,7 @@ class TestUuidRegex(SimpleTestCase):
         self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc-extra"))
 
 
-class TestSetTitle(SimpleTestCase):
+class TestSetTitle(ClickhouseFreeSimpleTestCase):
     def test_sets_title_on_state(self):
         state = _state_with_empty_report()
         result = _set_title_fn(state=state, title="Pass rate steady at 94%")
@@ -715,7 +715,7 @@ class TestSetTitle(SimpleTestCase):
         self.assertEqual(state["report"].title, "")
 
 
-class TestAddSection(SimpleTestCase):
+class TestAddSection(ClickhouseFreeSimpleTestCase):
     def test_appends_section(self):
         state = _state_with_empty_report()
         result = _add_section_fn(state=state, title="Summary", content="Pass rate is 94%.")
@@ -823,7 +823,7 @@ class TestAddSection(SimpleTestCase):
         self.assertEqual(state["report"].sections, [])
 
 
-class TestDeadBacktickedIds(SimpleTestCase):
+class TestDeadBacktickedIds(ClickhouseFreeSimpleTestCase):
     _OPAQUE_SESSION_ID = "chat_thread_9f2b1a"
     _RUN_ID = "0195f0a1-2b3c-7d4e-8f90-1a2b3c4d5e6f"
 
@@ -927,7 +927,7 @@ class TestDeadBacktickedIds(SimpleTestCase):
         self.assertLess(time.monotonic() - started, 1.0)
 
 
-class TestAddCitation(SimpleTestCase):
+class TestAddCitation(ClickhouseFreeSimpleTestCase):
     def test_appends_citation(self):
         state = _state_with_empty_report()
         result = _add_citation_fn(
@@ -1052,7 +1052,7 @@ class TestAddCitation(SimpleTestCase):
         self.assertEqual(state["report"].citations[1].reason, "second")
 
 
-class TestSessionCitations(SimpleTestCase):
+class TestSessionCitations(ClickhouseFreeSimpleTestCase):
     def _allowlisted_state(self) -> _ReportToolState:
         state = _aggregate_report_tool_state("session")
         state["session_id_allowlist"].append(_VALID_SESSION_ID)
@@ -1364,7 +1364,7 @@ class TestListAndGetReportRun(BaseTest):
         self.assertIn("error", result)
 
 
-class TestExecuteChQueryWithRetry(SimpleTestCase):
+class TestExecuteChQueryWithRetry(ClickhouseFreeSimpleTestCase):
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools.time.sleep")
     @patch(
         "posthog.temporal.ai_observability.eval_reports.report_agent.tools.random.uniform",
@@ -1438,7 +1438,7 @@ class TestExecuteChQueryWithRetry(SimpleTestCase):
         self.assertFalse(_is_retriable_ch_error(error))
 
 
-class TestToolsCoordinate(SimpleTestCase):
+class TestToolsCoordinate(ClickhouseFreeSimpleTestCase):
     """Smoke: a realistic agent-like sequence of calls produces a valid report."""
 
     def test_full_agent_sequence(self):
@@ -1464,7 +1464,7 @@ class TestToolsCoordinate(SimpleTestCase):
         self.assertEqual(len(report.citations), 1)
 
 
-class TestLabelGenerationEvals(SimpleTestCase):
+class TestLabelGenerationEvals(ClickhouseFreeSimpleTestCase):
     def test_numeric_evaluations_use_their_own_rule_and_keep_unrated_scores(self):
         rows = [
             [name, "numeric", None, None, None, "reason", True, 7.5, None, None] for name in ["high", "low", "unrated"]

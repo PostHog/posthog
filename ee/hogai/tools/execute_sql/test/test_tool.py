@@ -1,8 +1,6 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from django.test import SimpleTestCase
-
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
@@ -21,6 +19,7 @@ from posthog.schema import (
 
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Organization, Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
@@ -32,7 +31,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
 
 
-class TestExecuteSQLPreview(SimpleTestCase):
+class TestExecuteSQLPreview(ClickhouseFreeSimpleTestCase):
     async def test_native_tool_bounds_results_and_preserves_artifact_query(self) -> None:
         context = MagicMock(spec=AssistantContextManager)
         context.get_contextual_tools.return_value = {"execute_sql": {"connection_id": "example-connection"}}

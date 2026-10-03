@@ -2,8 +2,6 @@ from datetime import UTC, datetime
 
 from unittest.mock import PropertyMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel
@@ -14,6 +12,7 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
@@ -21,7 +20,7 @@ from .base import HierarchicalNativeAdsConfig, QueryContext
 from .rokt_ads import RoktAdsAdapter
 
 
-class TestRoktAdsAdapter(SimpleTestCase):
+class TestRoktAdsAdapter(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=1)
         self.enterContext(

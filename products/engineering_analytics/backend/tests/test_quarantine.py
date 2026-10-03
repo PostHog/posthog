@@ -10,11 +10,13 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest import TestCase, mock
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import requests
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.logic.ownership import PlacedTest, RepoOwnershipResult
@@ -749,7 +751,7 @@ class TestQuarantineRequestAPI(APIBaseTest):
         called.assert_not_called()
 
 
-class TestQuarantineRequestValidation(SimpleTestCase):
+class TestQuarantineRequestValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("missing_selector", {"selector": None}, "selector", "required"),

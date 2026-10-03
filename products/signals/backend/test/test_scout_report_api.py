@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError, transaction
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
@@ -19,6 +18,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.artefact_schemas import (
     AutostartSkip,
@@ -2606,7 +2606,7 @@ _PICKED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "picked"}
 _OWNER_FLAGGED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "owner", "is_skill_owner": True}])
 
 
-class TestWantsRepoSelection(SimpleTestCase):
+class TestWantsRepoSelection(ClickhouseFreeSimpleTestCase):
     """The PR-intent gate for repo selection. The load-bearing case: an owner-flagged reviewer is a
     scout pick (nothing is injected), so it counts as intent — re-excluding it would skip repo
     selection for a prioritized report whose scout deliberately routed to an owner."""
@@ -2635,7 +2635,7 @@ def _evidence(*descriptions: str) -> list[ReportEvidence]:
     return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
 
 
-class TestExtractLinkedRepository(SimpleTestCase):
+class TestExtractLinkedRepository(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("root_url", "", "See https://github.com/acme/widgets for context", (), "acme/widgets"),
@@ -2676,7 +2676,7 @@ class TestExtractLinkedRepository(SimpleTestCase):
         assert _extract_linked_repository("", "https://github.com/acme/widgets", _evidence(), []) is None
 
 
-class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
+class TestResolveReportRepositoryGateSkipped(ClickhouseFreeSimpleTestCase):
     def _resolve(self, summary: str) -> RepoSelectionResult | None:
         with patch(
             "products.signals.backend.scout_harness.tools.report._connected_repositories",
@@ -2701,7 +2701,7 @@ class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
         assert self._resolve("No repository named here") is None
 
 
-class TestReportClassificationProps(SimpleTestCase):
+class TestReportClassificationProps(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("exact_prefix", "Scout self-improvement: my-scout – dead trigger", True),
@@ -2842,7 +2842,7 @@ class TestScoutReportCheckAPI(APIBaseTest):
         assert response.json()["status"] == "cancelled"
 
 
-class TestEmitReportMetricGoalFields(SimpleTestCase):
+class TestEmitReportMetricGoalFields(ClickhouseFreeSimpleTestCase):
     def _payload(self, **metric_overrides: object) -> dict:
         metric = {
             "metric_id": "affected-users",

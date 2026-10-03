@@ -15,7 +15,6 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     Client as DjangoClient,
     RequestFactory,
-    SimpleTestCase,
 )
 from django.urls import reverse
 
@@ -42,6 +41,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import SITE_URL
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.actions.backend.models.action import Action
@@ -281,7 +281,7 @@ class TestAccessMiddleware(APIBaseTest):
     USE_X_FORWARDED_HOST=True,
     TRUST_ALL_PROXIES=True,
 )
-class TestManagedProxyClientIPMiddleware(SimpleTestCase):
+class TestManagedProxyClientIPMiddleware(ClickhouseFreeSimpleTestCase):
     def _verification_counts(self) -> dict[str, float]:
         return {
             outcome.value: REGISTRY.get_sample_value(
@@ -398,7 +398,7 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         )
 
 
-class TestFix204Middleware(SimpleTestCase):
+class TestFix204Middleware(ClickhouseFreeSimpleTestCase):
     def test_no_content_response_has_no_body_or_content_length(self) -> None:
         def get_response(request: HttpRequest) -> HttpResponse:
             response = HttpResponse(b'{"ok": true}', status=204, content_type="application/json")

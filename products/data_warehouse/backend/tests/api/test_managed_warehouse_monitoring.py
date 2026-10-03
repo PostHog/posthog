@@ -5,11 +5,11 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.presentation.managed_warehouse_monitoring import (
@@ -82,7 +82,7 @@ def _series(organization_id: object, metric: str = "query_rate") -> dict[str, ob
     }
 
 
-class TestManagedWarehouseMonitoringSeriesQuerySerializer(SimpleTestCase):
+class TestManagedWarehouseMonitoringSeriesQuerySerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("unknown_metric", {"metric": "worker_states", "window": "1h"}, "metric"),

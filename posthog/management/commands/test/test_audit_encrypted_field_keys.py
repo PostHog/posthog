@@ -8,7 +8,7 @@ from posthog.test.base import BaseTest
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connections, router
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from cryptography.fernet import Fernet, MultiFernet
 from cryptography.hazmat.backends import default_backend
@@ -31,6 +31,7 @@ from posthog.management.commands.audit_encrypted_field_keys import (
     classify,
 )
 from posthog.models.integration import Integration
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # ENCRYPTION_KEY and OTHER_KEY are used directly as Fernet keys, so they must be exactly 32 bytes.
 # SECRET and SALT_RAW only feed PBKDF2 (password / salt), so their length is irrelevant.
@@ -58,7 +59,7 @@ def _secret_derived_fernet(secret_key: str, salt_key: str) -> Fernet:
 @override_settings(
     ENCRYPTION_SALT_KEYS=[ENCRYPTION_KEY], SECRET_KEY=SECRET, SECRET_KEY_FALLBACKS=[], SALT_KEY=[SALT_RAW]
 )
-class TestAuditClassify(SimpleTestCase):
+class TestAuditClassify(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.salt_only = _salt_only_fernet()
         self.legacy = _legacy_fernet()
@@ -125,7 +126,7 @@ class TestAuditClassify(SimpleTestCase):
 @override_settings(
     ENCRYPTION_SALT_KEYS=[ENCRYPTION_KEY], SECRET_KEY=SECRET, SECRET_KEY_FALLBACKS=[], SALT_KEY=[SALT_RAW]
 )
-class TestAuditFieldArgument(SimpleTestCase):
+class TestAuditFieldArgument(ClickhouseFreeSimpleTestCase):
     # --field resolves against the app registry before any DB access, so these need no database
 
     def test_unknown_field_raises_clear_error_listing_available_fields(self):
@@ -138,7 +139,7 @@ class TestAuditFieldArgument(SimpleTestCase):
         assert "posthog.Integration.sensitive_config" in message
 
 
-class TestAuditFernetBuilders(SimpleTestCase):
+class TestAuditFernetBuilders(ClickhouseFreeSimpleTestCase):
     @override_settings(ENCRYPTION_SALT_KEYS=[], SALT_KEY=[])
     def test_salt_only_fernet_is_none_when_no_keys(self):
         assert _salt_only_fernet() is None
@@ -159,7 +160,7 @@ class TestAuditFernetBuilders(SimpleTestCase):
 @override_settings(
     ENCRYPTION_SALT_KEYS=[ENCRYPTION_KEY], SECRET_KEY=SECRET, SECRET_KEY_FALLBACKS=[], SALT_KEY=[SALT_RAW]
 )
-class TestAuditLeafHelpers(SimpleTestCase):
+class TestAuditLeafHelpers(ClickhouseFreeSimpleTestCase):
     # The leaf-walking and token-probing helpers underneath classify(), tested in isolation.
 
     def setUp(self):
@@ -219,7 +220,7 @@ class TestAuditLeafHelpers(SimpleTestCase):
             assert _classify_leaf(leaf, self.salt_only, self.legacy) == expected, leaf
 
 
-class TestAuditCoerceRaw(SimpleTestCase):
+class TestAuditCoerceRaw(ClickhouseFreeSimpleTestCase):
     # A raw cursor returns jsonb as a JSON string under Django's psycopg config; _coerce_raw decodes it
     # so per-leaf tokens are walked individually instead of the whole document reading as one opaque leaf.
 
@@ -392,7 +393,7 @@ class TestAuditCommandEndToEnd(BaseTest):
         assert report["counts"][UNREADABLE] == 0
 
 
-class TestAuditCommandErrors(SimpleTestCase):
+class TestAuditCommandErrors(ClickhouseFreeSimpleTestCase):
     @override_settings(ENCRYPTION_SALT_KEYS=[], SALT_KEY=[SALT_RAW])
     def test_empty_encryption_salt_keys_raises_before_any_db_access(self):
         with self.assertRaises(CommandError) as ctx:

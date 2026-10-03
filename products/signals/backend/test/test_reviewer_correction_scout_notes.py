@@ -4,11 +4,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import (
     SignalReport,
@@ -32,7 +32,7 @@ SCOUT_SKILL = "signals-scout-error-tracking"
 OTHER_SCOUT_SKILL = "signals-scout-logs"
 
 
-class TestReviewerCorrectionNoteContent(SimpleTestCase):
+class TestReviewerCorrectionNoteContent(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain", ["Octocat"], ["octocat"]),

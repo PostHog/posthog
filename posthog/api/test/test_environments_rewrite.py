@@ -1,12 +1,13 @@
 from posthog.test.base import APIBaseTest
 
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 from rest_framework import status
 
 from posthog.middleware import EnvironmentsRewriteMiddleware
 from posthog.models.organization import OrganizationMembership
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # EnvironmentsRewriteMiddleware serves /api/environments/* through the equivalent /api/projects/*
 # viewset (same id — Project ↔ primary Team are 1:1 and share it) via an in-process path rewrite.
@@ -15,7 +16,7 @@ from posthog.models.organization import OrganizationMembership
 # 200 on the original URL with method, body, and query string intact.
 
 
-class TestRewriteMechanism(SimpleTestCase):
+class TestRewriteMechanism(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
@@ -74,7 +75,7 @@ class TestEnvironmentsRewriteIntegration(APIBaseTest):
         self.assertEqual(response.json()["name"], "renamed via env alias")
 
 
-class TestSunsetHeader(SimpleTestCase):
+class TestSunsetHeader(ClickhouseFreeSimpleTestCase):
     def _sunset(self):
         def get_response(request):
             return HttpResponse("ok")

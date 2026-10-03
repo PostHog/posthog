@@ -2,12 +2,12 @@ import hashlib
 import inspect
 from collections.abc import Callable
 
-from django.test import SimpleTestCase
-
 from oauth2_provider import __version__ as installed_dot_version
 from oauth2_provider.models import AbstractRefreshToken
 from oauth2_provider.oauth2_validators import OAuth2Validator
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 # OAuthValidator.validate_refresh_token (posthog/api/oauth/views.py) is a line-for-line fork
 # of the upstream method with the reuse-protection family sweep replaced by
@@ -43,7 +43,7 @@ PINNED_UPSTREAM_SOURCES: list[tuple[str, Callable[..., object], str]] = [
 ]
 
 
-class TestOAuthValidatorForkUpstreamPin(SimpleTestCase):
+class TestOAuthValidatorForkUpstreamPin(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(PINNED_UPSTREAM_SOURCES)
     def test_forked_upstream_source_is_unchanged(
         self, name: str, method: Callable[..., object], pinned_sha256: str

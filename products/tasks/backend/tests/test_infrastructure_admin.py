@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 from django.contrib.sessions.backends.signed_cookies import SessionStore
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 import requests
@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.infrastructure_status import InfrastructureStatus, SourceSnapshot
 from products.tasks.backend.models import SandboxCustomImage
@@ -24,7 +25,7 @@ from products.tasks.backend.presentation.views.infrastructure_admin import infra
 from products.tasks.backend.redis import get_tasks_cache
 
 
-class TestInfrastructureAdminPermissions(SimpleTestCase):
+class TestInfrastructureAdminPermissions(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(False, True, False), (True, False, False), (True, True, True)])
     def test_denies_non_staff_inactive_and_impersonated_users(
         self, staff: bool, active: bool, impersonated: bool
@@ -39,7 +40,7 @@ class TestInfrastructureAdminPermissions(SimpleTestCase):
 
 
 @override_settings(TASKS_REDIS_URL="", CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
-class TestInfrastructureSourceCache(SimpleTestCase):
+class TestInfrastructureSourceCache(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         get_tasks_cache().clear()
         self.redis = fakeredis.FakeRedis()
@@ -187,7 +188,7 @@ class TestInfrastructureInventory(BaseTest):
 
 
 @override_settings(ADMIN_PORTAL_ENABLED=True, JS_URL="https://assets.example.com", DEBUG=False)
-class TestInfrastructureAdminCSP(SimpleTestCase):
+class TestInfrastructureAdminCSP(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("/admin/tasks/task/infrastructure/", True), ("/admin/", False)])
     def test_bundle_origin_is_limited_to_infrastructure_page(self, path: str, allowed: bool) -> None:
         request = RequestFactory().get(path)

@@ -1,11 +1,10 @@
 from typing import Any, cast
 
-from django.test import SimpleTestCase
-
 from rest_framework.viewsets import ViewSetMixin
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.permissions import ScopeBasePermission
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.error_tracking.backend.routes import register_routes
 
@@ -19,7 +18,7 @@ class _RouteCollector:
         self.viewsets.append(viewset)
 
 
-class TestErrorTrackingAPIScopes(SimpleTestCase):
+class TestErrorTrackingAPIScopes(ClickhouseFreeSimpleTestCase):
     def test_all_registered_actions_support_scoped_authentication(self) -> None:
         routes = _RouteCollector()
         register_routes(cast(Any, routes))

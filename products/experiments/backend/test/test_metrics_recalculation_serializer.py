@@ -1,10 +1,9 @@
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.presentation.serializers import (
@@ -99,7 +98,7 @@ class TestExperimentMetricsRecalculationSerializers(BaseTest):
         assert data["result_source"] == "timeseries_fallback"
 
 
-class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
+class TestRecalculateMetricsRequestSerializer(ClickhouseFreeSimpleTestCase):
     def test_defaults_trigger_to_manual_when_omitted(self):
         s = RecalculateMetricsRequestSerializer(data={})
         assert s.is_valid(), s.errors
@@ -140,7 +139,7 @@ class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
         )
 
 
-class TestMetricRecalculationResultSerializer(SimpleTestCase):
+class TestMetricRecalculationResultSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

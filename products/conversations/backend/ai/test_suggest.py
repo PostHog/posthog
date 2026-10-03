@@ -4,8 +4,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -13,6 +11,7 @@ from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
@@ -43,7 +42,7 @@ from products.customer_analytics.backend.facade.testing import (
 _FIXED_NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-class TestFormatEnhancedContext(SimpleTestCase):
+class TestFormatEnhancedContext(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -62,7 +61,7 @@ class TestFormatEnhancedContext(SimpleTestCase):
         assert "TypeError: Bad call" in context
 
 
-class TestFormatConversation(SimpleTestCase):
+class TestFormatConversation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("customer", {"author_type": "customer", "is_private": False}, "[Customer]: hi"),
@@ -81,7 +80,7 @@ class TestFormatConversation(SimpleTestCase):
         assert expected in format_conversation(ticket, [message])
 
 
-class TestFormatSessionContext(SimpleTestCase):
+class TestFormatSessionContext(ClickhouseFreeSimpleTestCase):
     def test_renders_allowlisted_fields(self) -> None:
         text = format_session_context(
             {
@@ -121,7 +120,7 @@ class TestFormatSessionContext(SimpleTestCase):
         assert format_session_context("nope") == ""
 
 
-class TestParsePosthogEntityRefs(SimpleTestCase):
+class TestParsePosthogEntityRefs(ClickhouseFreeSimpleTestCase):
     def test_parses_urls_and_uuids(self) -> None:
         recording = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
         other = "11111111-2222-3333-4444-555555555555"
@@ -142,7 +141,7 @@ class TestParsePosthogEntityRefs(SimpleTestCase):
         assert parsed == ""
 
 
-class TestFormatPriorTickets(SimpleTestCase):
+class TestFormatPriorTickets(ClickhouseFreeSimpleTestCase):
     def test_truncates_reply_and_omits_identity_fields(self) -> None:
         reply = "x" * (MAX_PRIOR_TICKET_REPLY_CHARS + 50)
         text = format_prior_tickets([PriorTicket(ticket_number=12, title="#12: Billing", reply=reply)])
@@ -153,7 +152,7 @@ class TestFormatPriorTickets(SimpleTestCase):
         assert "distinct-secret" not in text
 
 
-class TestFormatAccountProperties(SimpleTestCase):
+class TestFormatAccountProperties(ClickhouseFreeSimpleTestCase):
     def test_renders_selected_values_and_skips_empty(self) -> None:
         text = format_account_properties([("Plan", "Enterprise"), ("Seats", 12.0), ("Empty", None), ("Flag", True)])
         assert "- Plan: Enterprise" in text

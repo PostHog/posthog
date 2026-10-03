@@ -5,7 +5,6 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -13,6 +12,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.models import (
     AutoresearchModel,
@@ -53,7 +53,7 @@ def _kickoff(reason: str = "started", error: Optional[str] = None) -> KickoffTra
     return KickoffTrainingResult(kicked_off=reason == "started", reason=reason, error=error)
 
 
-class TestEvaluatePipelineOutcome(SimpleTestCase):
+class TestEvaluatePipelineOutcome(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("all_steps_succeed", _inference(), _validation(), _kickoff(), True, 0),

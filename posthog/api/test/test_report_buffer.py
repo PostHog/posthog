@@ -4,12 +4,13 @@ import queue
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.test.client import Client
 
 from rest_framework import status
 
 from posthog.api.report_buffer import CSP_BUFFER_DROPPED, CSP_BUFFER_FAILED, CSP_BUFFER_SUBMITTED, CspReportBuffer
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _capture_result(ok=(), dropped=(), retried=(), unaccounted=(), warnings=()):
@@ -83,7 +84,7 @@ class TestCspReportBufferedView(BaseTest):
         assert mock_buffer.enqueue.call_count == 0
 
 
-class TestCspReportBufferLogic(SimpleTestCase):
+class TestCspReportBufferLogic(ClickhouseFreeSimpleTestCase):
     def _buffer(
         self,
         maxsize: int = 10,

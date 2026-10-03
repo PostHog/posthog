@@ -1,14 +1,14 @@
 import datetime as dt
 from uuid import UUID
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.batch_exports.backend.models import BatchExport, BatchExportOnDemand, BatchExportRun
 
 
-class TestBatchExportRunWorkflowId(SimpleTestCase):
+class TestBatchExportRunWorkflowId(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("bounded", True, True, "2026-01-01T00:00:00Z-2026-01-02T00:00:00Z"),

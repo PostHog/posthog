@@ -6,13 +6,14 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
@@ -30,7 +31,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.dependencies import _behavioral_cohort_ids_key
 
 
-class TestFinalizerKindCoverage(SimpleTestCase):
+class TestFinalizerKindCoverage(ClickhouseFreeSimpleTestCase):
     def test_every_backfill_kind_has_a_stamp(self) -> None:
         unmapped = set(CohortBackfillKind.values) - set(_STAMP_BY_KIND)
         assert not unmapped, (

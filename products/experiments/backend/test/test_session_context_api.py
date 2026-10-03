@@ -6,7 +6,6 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -24,6 +23,7 @@ from posthog.rate_limit import SessionContextsBurstRateThrottle
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
@@ -1620,7 +1620,7 @@ class TestSessionExperimentContext(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
 
 
-class TestBoundedMetadataIds(SimpleTestCase):
+class TestBoundedMetadataIds(ClickhouseFreeSimpleTestCase):
     def test_id_without_usable_bound_is_excluded_instead_of_unbounding_the_scan(self) -> None:
         # One legacy/garbage id in a batch must not remove the min_first_timestamp bound from
         # the whole metadata query — it gets dropped from the lookup, keeping the bound from

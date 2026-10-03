@@ -1,14 +1,14 @@
 from uuid import uuid4
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import exceptions
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.workflows.backend.services.account_audience import is_account_audience, parse_account_audience_filters
 
 
-class TestParseAccountAudienceFilters(SimpleTestCase):
+class TestParseAccountAudienceFilters(ClickhouseFreeSimpleTestCase):
     def test_valid_filters_round_trip(self):
         definition_id = uuid4()
         parsed = parse_account_audience_filters(

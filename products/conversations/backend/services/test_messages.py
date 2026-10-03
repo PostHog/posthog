@@ -1,12 +1,12 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.models.constants import TicketMessageType
 from products.conversations.backend.services.messages import ticket_message_type
 
 
-class TestTicketMessageType(SimpleTestCase):
+class TestTicketMessageType(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

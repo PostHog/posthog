@@ -1,10 +1,9 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY
 from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck, _cache_team_sdk_data
@@ -39,7 +38,7 @@ def _patch_check(github: dict | None, rows: list[tuple]):
     )
 
 
-class TestSdkOutdatedCheck(SimpleTestCase):
+class TestSdkOutdatedCheck(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.check = SdkOutdatedCheck()
 
@@ -244,7 +243,7 @@ class TestSdkOutdatedCheck(SimpleTestCase):
         assert ttl == TEAM_SDK_CACHE_EXPIRY
 
 
-class TestSdkOutdatedRenderAlert(SimpleTestCase):
+class TestSdkOutdatedRenderAlert(ClickhouseFreeSimpleTestCase):
     def test_render_alert_prefers_reason_when_present(self) -> None:
         reason = (
             "Latest in-use version 1.200.0 matches latest 1.200.0. "

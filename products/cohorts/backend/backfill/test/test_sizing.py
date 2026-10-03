@@ -3,13 +3,14 @@ from datetime import UTC, date, datetime
 import time_machine
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.clickhouse.workload import Workload
 from posthog.errors import InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.backfill.sizing import (
     PersonSeedEstimateScanCapExceeded,
@@ -23,7 +24,7 @@ from products.cohorts.backend.backfill.sizing import (
     BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_BYTES=20_000_000_000,
     BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS=300,
 )
-class TestPersonBackfillSizing(SimpleTestCase):
+class TestPersonBackfillSizing(ClickhouseFreeSimpleTestCase):
     @mock.patch(
         "products.cohorts.backend.backfill.sizing.sync_execute",
         return_value=[(10,)],
@@ -93,7 +94,7 @@ class TestPersonBackfillSizing(SimpleTestCase):
                 estimate_person_seed_topic_bytes(7, datetime(2026, 5, 1, tzinfo=UTC), 2)
 
 
-class TestBehavioralScanEstimate(SimpleTestCase):
+class TestBehavioralScanEstimate(ClickhouseFreeSimpleTestCase):
     @time_machine.travel(datetime(2026, 9, 29, 15, 30, tzinfo=UTC), tick=False)
     @mock.patch("products.cohorts.backend.backfill.sizing.sync_execute")
     def test_the_estimate_is_the_busiest_day_across_every_pinned_event(self, sync_execute: mock.Mock) -> None:

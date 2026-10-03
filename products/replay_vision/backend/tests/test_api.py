@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -30,6 +30,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
@@ -4195,7 +4196,7 @@ class TestScannerSpend(_VisionAPITestCase):
         self.assertEqual(spend_queries(five_page), spend_queries(single_page))
 
 
-class TestCurrentPeriodBounds(SimpleTestCase):
+class TestCurrentPeriodBounds(ClickhouseFreeSimpleTestCase):
     NOW = datetime(2026, 7, 15, 12, 0, tzinfo=UTC)
     MONTH_BOUNDS = (datetime(2026, 7, 1, tzinfo=UTC), datetime(2026, 8, 1, tzinfo=UTC))
 
@@ -4225,7 +4226,7 @@ class TestCurrentPeriodBounds(SimpleTestCase):
         self.assertEqual(_current_period_bounds(organization, self.NOW), BillingPeriod(*expected))
 
 
-class TestScannerCreditLimitValidation(SimpleTestCase):
+class TestScannerCreditLimitValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("null_is_allowed", None, True),
@@ -4435,7 +4436,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow.assert_not_called()
 
 
-class TestWatchFeedQueryValidation(SimpleTestCase):
+class TestWatchFeedQueryValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty_scanner_ids", {"scanner_ids": ""}),

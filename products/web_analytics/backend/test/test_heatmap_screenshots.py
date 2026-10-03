@@ -6,7 +6,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -22,6 +21,7 @@ from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import HeatmapPreflightBurstRateThrottle
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.web_analytics.backend.api.heatmaps_api import SavedHeatmapCaptureRequestSerializer
@@ -726,7 +726,7 @@ class TestHeatmapToolbarCapture(APIBaseTest):
         mock_task.assert_not_called()
 
 
-class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
+class TestSavedHeatmapCaptureRequestSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("wildcard", "url", "https://app.example.com/*"),
@@ -770,7 +770,7 @@ class TestSavedHeatmapCaptureRequestSerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
 
 
-class TestBrowserlessEgressBudget(SimpleTestCase):
+class TestBrowserlessEgressBudget(ClickhouseFreeSimpleTestCase):
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
     def test_a_spent_fleet_budget_is_retryable_and_named_as_itself(self, browserless_request: MagicMock) -> None:
         # A starved fleet refills on its own, so this must stay on the retry path rather than

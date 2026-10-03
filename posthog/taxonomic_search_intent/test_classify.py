@@ -3,7 +3,6 @@ import dataclasses
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from posthoganalytics.ai.prompts import PromptResult
@@ -17,6 +16,7 @@ from posthog.taxonomic_search_intent.prompt import (
     fetch_search_intent_prompt,
     parse_search_intent_prompt,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
 
@@ -41,7 +41,7 @@ def _answer(choice: str, confidence: float) -> SystemOneResult:
     )
 
 
-class TestClassifySearchIntent(SimpleTestCase):
+class TestClassifySearchIntent(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
         build = patch(BUILD_CLIENT).start()
@@ -211,7 +211,7 @@ class TestClassifySearchIntent(SimpleTestCase):
 MANAGED_OPTIONS = {"events": "An event.", "person_properties": "A person property."}
 
 
-class TestSearchIntentPrompt(SimpleTestCase):
+class TestSearchIntentPrompt(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

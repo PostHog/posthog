@@ -2,9 +2,11 @@ import os
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_warehouse.backend.s3_proxy import (
     boto_proxy_config_kwargs,
@@ -33,7 +35,7 @@ def proxy_env(url: str | None, no_proxy: str | None = None) -> dict[str, str]:
     return env
 
 
-class TestWarehouseS3ProxyBypass(SimpleTestCase):
+class TestWarehouseS3ProxyBypass(ClickhouseFreeSimpleTestCase):
     @override_settings(**BYPASS_ON)
     def test_scopes_the_bypass_to_the_warehouse_bucket_host(self) -> None:
         with patch.dict(os.environ, proxy_env(PROXY)):

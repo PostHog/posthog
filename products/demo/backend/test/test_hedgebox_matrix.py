@@ -5,9 +5,11 @@ from typing import Any, cast
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.products.hedgebox.matrix import HedgeboxMatrix
@@ -20,7 +22,7 @@ from products.demo.backend.logic.products.hedgebox.taxonomy import (
 )
 
 
-class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
+class TestHedgeboxMatrixDemoWarehouseTables(ClickhouseFreeSimpleTestCase):
     def test_collect_demo_data_warehouse_rows(self):
         matrix = HedgeboxMatrix(seed="warehouse-test", n_clusters=0)
         matrix.is_complete = True
@@ -307,7 +309,7 @@ class TestHedgeboxMatrixDemoWarehouseTables(SimpleTestCase):
         )
 
 
-class TestHedgeboxMatrixDemoOAuthApplication(SimpleTestCase):
+class TestHedgeboxMatrixDemoOAuthApplication(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("local_dev", "dummy-key", True, False, False),

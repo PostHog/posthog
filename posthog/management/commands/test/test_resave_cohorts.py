@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.management.commands.resave_cohorts import UNWIND_SIGNALS, StaleFlagsCacheError, termination_unwinds
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.db_context_capturing import capture_db_queries
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -610,7 +611,7 @@ class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):
 def _other_handler(signum: int, frame: object) -> None: ...
 
 
-class TestTerminationUnwinds(SimpleTestCase):
+class TestTerminationUnwinds(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         _default_unwind_signals(self)

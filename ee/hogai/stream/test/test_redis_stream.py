@@ -6,8 +6,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import fakeredis
 import redis.exceptions as redis_exceptions
 from parameterized import parameterized
@@ -25,6 +23,8 @@ from posthog.schema import (
     ReasoningMessage,
     SubagentUpdateEvent,
 )
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -47,7 +47,7 @@ from ee.hogai.stream.redis_stream import (
 from ee.hogai.utils.types.base import ApprovalPayload, AssistantOutput
 
 
-class TestRedisStream(SimpleTestCase):
+class TestRedisStream(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.stream_key = f"test_stream:{uuid4()}"
         self.redis_stream = ConversationRedisStream(self.stream_key)
@@ -637,7 +637,7 @@ class TestConversationEventSerialization(BaseTest):
         self.assertEqual(deserialized.event.payload, conversation.id)
 
 
-class TestGetSubagentStreamKey(SimpleTestCase):
+class TestGetSubagentStreamKey(ClickhouseFreeSimpleTestCase):
     def test_get_subagent_stream_key_format(self):
         conversation_id = uuid4()
         tool_call_id = "tool_123"
@@ -660,7 +660,7 @@ class TestGetSubagentStreamKey(SimpleTestCase):
         self.assertNotEqual(key1, key2)
 
 
-class TestConversationStreamSerializerJson(SimpleTestCase):
+class TestConversationStreamSerializerJson(ClickhouseFreeSimpleTestCase):
     # The stream payload's inner union is resolved by pydantic smart mode, so each member is a
     # distinct resolution case. The three that share only `content: str` are the ones most likely
     # to misresolve or drop fields when validated back from JSON.
@@ -751,7 +751,7 @@ class TestConversationStreamSerializerJson(SimpleTestCase):
         self.assertEqual(result["data"][:1], b"{")
 
 
-class TestConversationStreamTTL(SimpleTestCase):
+class TestConversationStreamTTL(ClickhouseFreeSimpleTestCase):
     @pytest.mark.asyncio
     async def test_write_to_stream_sets_a_ttl(self):
         # Regression guard: EXPIRE used to run before the first XADD (a no-op on a missing key),

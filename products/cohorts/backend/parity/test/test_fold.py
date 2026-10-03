@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.parity.fold import (
     LIVE_ORIGIN,
@@ -52,7 +52,7 @@ def _marker_without(field: str) -> dict:
     return marker
 
 
-class TestFold(SimpleTestCase):
+class TestFold(ClickhouseFreeSimpleTestCase):
     def test_last_message_wins_per_pair(self) -> None:
         state, stats = fold_membership_changes(
             [

@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -24,6 +23,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import activity_visibility, build_service
@@ -2626,7 +2626,7 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-class TestTaskCreatePayloadSerializer(SimpleTestCase):
+class TestTaskCreatePayloadSerializer(ClickhouseFreeSimpleTestCase):
     def test_title_over_the_task_store_limit_is_rejected(self):
         # The task store caps title at 255; a longer value would reach Postgres
         # and 500 rather than surface as a field error, so the cap belongs here.

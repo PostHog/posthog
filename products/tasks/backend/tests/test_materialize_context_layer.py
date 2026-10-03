@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from asgiref.sync import async_to_sync
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.materialize_context_layer import (
@@ -26,7 +26,7 @@ def _context() -> TaskProcessingContext:
     )
 
 
-class TestMaterializeContextLayer(SimpleTestCase):
+class TestMaterializeContextLayer(ClickhouseFreeSimpleTestCase):
     def test_clears_a_leftover_checkout_when_the_org_has_no_wiki_to_mount(self) -> None:
         # A directory-resumed sandbox restores the previous run's checkout, so a
         # wiki that has gone dark stays readable unless the mount removes it.

@@ -3,7 +3,6 @@ import base64
 from datetime import UTC, datetime
 from typing import Any
 
-from posthog.test.base import SimpleTestCase
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -16,6 +15,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.test import APIRequestFactory
 
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelUser, VercelUserClaims
@@ -23,7 +23,7 @@ from ee.api.vercel.types import VercelUser, VercelUserClaims
 
 @patch("ee.api.authentication.get_vercel_jwks")
 @patch("ee.settings.VERCEL_CLIENT_INTEGRATION_ID", "test_audience")
-class TestVercelAuthentication(SimpleTestCase):
+class TestVercelAuthentication(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         super().setUp()
         self.installation_id = "icfg_9bceb8ccT32d3U417ezb5c8p"

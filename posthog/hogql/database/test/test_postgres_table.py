@@ -5,7 +5,6 @@ from posthog.test.base import BaseTest
 
 from django.apps import apps
 from django.db.models import ForeignKey, Model, UUIDField
-from django.test import SimpleTestCase
 from django.urls import get_resolver
 
 from parameterized import parameterized
@@ -28,6 +27,8 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import RESOURCE_INHERITANCE_MAP
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -459,7 +460,7 @@ class TestPostgresTablePrimaryKey(BaseTest):
         )
 
 
-class TestPostgresTableIdFieldType(SimpleTestCase):
+class TestPostgresTableIdFieldType(ClickhouseFreeSimpleTestCase):
     """A UUID primary key must never be declared as an integer.
 
     The declared type is what `system.information_schema` and the SQL editor report, and what the
@@ -485,7 +486,7 @@ class TestPostgresTableIdFieldType(SimpleTestCase):
         )
 
 
-class TestObjectAccessControlIdField(SimpleTestCase):
+class TestObjectAccessControlIdField(ClickhouseFreeSimpleTestCase):
     """Every scoped system table must filter object-level denials against the correct column.
 
     A table whose rows ARE the access-controlled object filters its primary key (the default).
@@ -558,7 +559,7 @@ class TestObjectAccessControlIdField(SimpleTestCase):
         )
 
 
-class TestObjectAccessControlCreatorField(SimpleTestCase):
+class TestObjectAccessControlCreatorField(ClickhouseFreeSimpleTestCase):
     """REST exempts an object's creator from object-level denial
     (`~Q(created_by=self._user)` in `filter_queryset_by_access_level`), and the HogQL guard
     reproduces that only for tables that declare `access_control_creator_id_field` and expose the
@@ -607,7 +608,7 @@ class TestObjectAccessControlCreatorField(SimpleTestCase):
         )
 
 
-class TestSystemTableAccessScope(SimpleTestCase):
+class TestSystemTableAccessScope(ClickhouseFreeSimpleTestCase):
     """A system table's `access_scope` must be the concrete resource under which object-level
     access control grants are stored — never a pure umbrella parent.
 

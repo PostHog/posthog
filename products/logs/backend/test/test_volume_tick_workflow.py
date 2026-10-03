@@ -8,14 +8,13 @@ import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.logs.backend.temporal.volume_tick.activities import (
     VolumeTickInput,
@@ -66,7 +65,7 @@ async def test_schedule_shaped_invocation_runs_the_tick() -> None:
     assert result["teams_with_logs"] == 3
 
 
-class TestDueBucketBounds(SimpleTestCase):
+class TestDueBucketBounds(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # 10:16:30 - 10min allowance = 10:06:30; newest closed grid end is 10:05.
@@ -144,7 +143,7 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
         assert after.due_in_shard == before.due_in_shard + 1
 
 
-class TestTeamsDueInShard(SimpleTestCase):
+class TestTeamsDueInShard(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("team_in_shard", [2], 2, [2]),

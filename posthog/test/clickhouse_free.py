@@ -17,6 +17,6 @@ class ClickhouseFreeSimpleTestCase(SimpleTestCase):
     def setUpClass(cls) -> None:
         stack = ExitStack()
         cls.addClassCleanup(stack.close)
-        stack.enter_context(sync_execute._temp_patch(_forbid_clickhouse))  # type: ignore[attr-defined]
-        stack.enter_context(get_client_from_pool._temp_patch(_forbid_clickhouse))  # type: ignore[attr-defined]
+        stack.enter_context(sync_execute._temp_patch(_forbid_clickhouse))
+        stack.enter_context(get_client_from_pool._temp_patch(_forbid_clickhouse))
         super().setUpClass()

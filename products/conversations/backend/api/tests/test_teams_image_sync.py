@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.teams_attachments import (
     _download_image,
@@ -16,7 +16,7 @@ VALID_PNG_BYTES = (
 )
 
 
-class TestTeamsImageIngest(SimpleTestCase):
+class TestTeamsImageIngest(ClickhouseFreeSimpleTestCase):
     @patch("products.conversations.backend.teams_attachments.save_file_to_uploaded_media")
     @patch("products.conversations.backend.teams_attachments._download_image")
     def test_extract_bot_attachments_copies_to_uploaded_media(

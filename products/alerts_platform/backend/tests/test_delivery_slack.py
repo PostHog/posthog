@@ -4,12 +4,11 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
@@ -22,7 +21,7 @@ MESSAGE = AlertMessage(
 )
 
 
-class TestSlackBlocks(SimpleTestCase):
+class TestSlackBlocks(ClickhouseFreeSimpleTestCase):
     def test_the_headline_is_clipped_to_what_slack_accepts(self) -> None:
         message = AlertMessage(headline="x" * 400, details=())
 

@@ -2,15 +2,15 @@ import os
 import json
 import tempfile
 
-from django.test import SimpleTestCase
-
 import pyarrow as pa
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend.sandbox.kernel.bootstrap import _MEDIA_MAX_FIGURES, KernelSession
 
 
-class TestKernelSessionRunNode(SimpleTestCase):
+class TestKernelSessionRunNode(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)
@@ -374,7 +374,7 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertLessEqual(len(json.dumps(envelope["frames"])), 300_000)
 
 
-class TestKernelSessionNotebookVariables(SimpleTestCase):
+class TestKernelSessionNotebookVariables(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)
@@ -442,7 +442,7 @@ class TestKernelSessionNotebookVariables(SimpleTestCase):
         self.assertIn("no variables here", envelope["stdout"])
 
 
-class TestKernelSessionDuckdbVariables(SimpleTestCase):
+class TestKernelSessionDuckdbVariables(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()
         self.addCleanup(self._dir.cleanup)

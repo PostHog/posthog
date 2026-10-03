@@ -1,9 +1,9 @@
 import json
 from uuid import UUID
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.facade.api import InboxReportSummary
 from products.tasks.backend.facade.domain_research import DomainResearch
@@ -42,7 +42,7 @@ def _setup_facts(**overrides: object) -> OnboardingFacts:
     return OnboardingFacts(**base)  # type: ignore[arg-type]
 
 
-class TestOpeningBrief(SimpleTestCase):
+class TestOpeningBrief(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(["not_configured", "unreachable", "busy"])
     def test_a_page_that_was_not_read_is_never_summarized_or_cited(self, outcome: str) -> None:
         brief = build_opening_brief(
@@ -255,7 +255,7 @@ class TestOpeningBrief(SimpleTestCase):
         assert not any(line.startswith("Offer to") for line in brief)
 
 
-class TestProseList(SimpleTestCase):
+class TestProseList(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ((), None),
@@ -270,7 +270,7 @@ class TestProseList(SimpleTestCase):
         assert prose_list(items) == expected
 
 
-class TestFollowup(SimpleTestCase):
+class TestFollowup(ClickhouseFreeSimpleTestCase):
     def test_setting_a_workspace_up_owes_it_the_company_context(self) -> None:
         followup = build_followup(_setup_facts())
 
@@ -342,7 +342,7 @@ class TestFollowup(SimpleTestCase):
         assert "were waiting when this session started" not in line
 
 
-class TestWhereFindingsLive(SimpleTestCase):
+class TestWhereFindingsLive(ClickhouseFreeSimpleTestCase):
     # Findings moved out of the space feeds into Self-driving. Onboarding sending someone back to a
     # space is the failure this guards: they open the feed, see nothing, and the tour is wrong.
     @parameterized.expand(
@@ -380,7 +380,7 @@ class TestWhereFindingsLive(SimpleTestCase):
         assert "their inbox in the sidebar" in status
 
 
-class TestBundledPromptRendering(SimpleTestCase):
+class TestBundledPromptRendering(ClickhouseFreeSimpleTestCase):
     def test_the_managed_prompt_requires_every_runtime_value(self) -> None:
         assert missing_onboarding_prompt_placeholders("{{brief}} {{homepage}}") == ("channel_id", "followup")
 

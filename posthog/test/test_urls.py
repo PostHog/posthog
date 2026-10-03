@@ -5,7 +5,7 @@ from pathlib import Path
 
 from posthog.test.base import APIBaseTest
 
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 from django.urls import URLResolver, resolve
 from django.urls.resolvers import RegexPattern
 
@@ -17,6 +17,7 @@ from posthog.api.playwright_setup import delete_events
 from posthog.frontend_views import home, home_with_region_redirect, region_host_from_current_instance
 from posthog.models.instance_setting import override_instance_config
 from posthog.temporal.codec_server import decode_payloads
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.views import handler500, metrics_view
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
@@ -193,7 +194,7 @@ class TestUrls(APIBaseTest):
         # )
 
 
-class TestRegionHostFromCurrentInstance(SimpleTestCase):
+class TestRegionHostFromCurrentInstance(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("eu", "https://eu.posthog.com", "eu.posthog.com"),
@@ -211,7 +212,7 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
         self.assertEqual(region_host_from_current_instance(cookie_value), expected)
 
 
-class TestLegacyDuckgresAdminUrls(SimpleTestCase):
+class TestLegacyDuckgresAdminUrls(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -262,7 +263,7 @@ class TestLegacyDuckgresAdminUrls(SimpleTestCase):
         assert response["Location"] == expected_location
 
 
-class TestConditionalRoutes(SimpleTestCase):
+class TestConditionalRoutes(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(list(product([False, True], [False, True], ["US", "EU"])))
     def test_route_gates_and_precedence(self, debug: bool, test: bool, region: str) -> None:
         with override_settings(DEBUG=debug, TEST=test, CLOUD_DEPLOYMENT=region):

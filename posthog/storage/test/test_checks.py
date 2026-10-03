@@ -1,9 +1,8 @@
-from django.test import SimpleTestCase
-
 from posthog.storage.checks import check_object_storage_public_endpoint
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestObjectStoragePublicEndpointCheck(SimpleTestCase):
+class TestObjectStoragePublicEndpointCheck(ClickhouseFreeSimpleTestCase):
     def test_no_error_for_valid_endpoint(self) -> None:
         with self.settings(
             OBJECT_STORAGE_ENABLED=True,

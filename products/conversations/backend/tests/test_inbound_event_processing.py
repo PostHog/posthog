@@ -9,13 +9,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import IntegrityError
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from prometheus_client import REGISTRY, CollectorRegistry
 
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.models import (
     ConversationInboundEvent,
@@ -63,7 +63,7 @@ def capture_pushed_registries() -> Iterator[list[CollectorRegistry]]:
         yield captured
 
 
-class TestInboundEventSourceId(SimpleTestCase):
+class TestInboundEventSourceId(ClickhouseFreeSimpleTestCase):
     def test_events_prefer_slack_event_id(self) -> None:
         assert slack_events_source_id(event_id="Ev123", signed_body=b'{"x":1}') == "Ev123"
 
@@ -90,7 +90,7 @@ class TestInboundEventSourceId(SimpleTestCase):
         )
 
 
-class TestSlackRetryMetadata(SimpleTestCase):
+class TestSlackRetryMetadata(ClickhouseFreeSimpleTestCase):
     def test_parses_retry_values(self) -> None:
         assert slack_retry_metadata_from_values(raw_retry_num="2", retry_reason="http_timeout") == (2, "http_timeout")
 
@@ -104,7 +104,7 @@ class TestSlackRetryMetadata(SimpleTestCase):
         assert slack_retry_metadata_from_values(raw_retry_num="-1", retry_reason="") == (None, "")
 
 
-class TestWakeInboundEvent(SimpleTestCase):
+class TestWakeInboundEvent(ClickhouseFreeSimpleTestCase):
     @patch.object(process_supporthog_event_receipt, "apply_async")
     def test_wake_does_not_retry_broker_publish(self, mock_apply: MagicMock) -> None:
         row = ConversationInboundEvent(id=uuid4(), source=ConversationInboundEventSource.SLACK_EVENTS)
@@ -118,7 +118,7 @@ class TestWakeInboundEvent(SimpleTestCase):
         mock_apply.assert_called_once()
 
 
-class TestDrainInboundRetention(SimpleTestCase):
+class TestDrainInboundRetention(ClickhouseFreeSimpleTestCase):
     def test_stops_on_short_batch(self) -> None:
         calls = {"n": 0}
 

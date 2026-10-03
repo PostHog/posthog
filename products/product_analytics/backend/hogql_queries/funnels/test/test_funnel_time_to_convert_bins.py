@@ -1,4 +1,4 @@
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.product_analytics.backend.hogql_queries.funnels.funnel_time_to_convert_bins import (
     ConversionTimeRange,
@@ -6,7 +6,7 @@ from products.product_analytics.backend.hogql_queries.funnels.funnel_time_to_con
 )
 
 
-class TestSharedBinComputer(SimpleTestCase):
+class TestSharedBinComputer(ClickhouseFreeSimpleTestCase):
     def test_spans_union_of_both_period_ranges(self):
         current = ConversionTimeRange(min_timing=100, max_timing=200, sample_count=8)
         previous = ConversionTimeRange(min_timing=50, max_timing=300, sample_count=19)

@@ -2,13 +2,12 @@ import time
 
 from unittest.mock import MagicMock, call, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import ExpiringTeamSelection, RefreshPacing, refresh_expiring_caches
 from posthog.storage.test.test_hypercache_manager import create_test_config as build_config
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 MODULE = "posthog.storage.cache_expiry_manager"
 
@@ -17,7 +16,7 @@ def build_teams(count: int) -> list[Team]:
     return [Team(id=team_id) for team_id in range(1, count + 1)]
 
 
-class TestRefreshExpiringCaches(SimpleTestCase):
+class TestRefreshExpiringCaches(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         super().setUp()
 

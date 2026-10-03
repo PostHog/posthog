@@ -4,7 +4,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -35,6 +34,7 @@ from posthog.storage.team_llm_gateway_quota_cache import (
     team_llm_gateway_quota_hypercache as hypercache,
 )
 from posthog.storage.test.cluster_cache import reject_multi_key_commands
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
@@ -70,7 +70,7 @@ class QuotaProjectionTestMixin(BaseTest):
         super().tearDown()
 
 
-class TestQuotaBlob(SimpleTestCase):
+class TestQuotaBlob(ClickhouseFreeSimpleTestCase):
     def test_bucket_names_are_the_quota_resources(self):
         self.assertEqual(AI_CREDITS_BUCKET, QuotaResource.AI_CREDITS.value)
         self.assertEqual(POSTHOG_CODE_CREDITS_BUCKET, QuotaResource.POSTHOG_CODE_CREDITS.value)

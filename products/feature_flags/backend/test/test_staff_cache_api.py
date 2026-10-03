@@ -7,12 +7,13 @@ from unittest.mock import patch
 from django.conf import settings
 from django.core.cache import caches
 from django.http import QueryDict
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.api.staff_cache import (
     MAX_TEAMS_PER_MUTATION,
@@ -205,7 +206,7 @@ class TestFeatureFlagsStaffCacheAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
-class TestTeamIdsFieldQueryParamFormats(SimpleTestCase):
+class TestTeamIdsFieldQueryParamFormats(ClickhouseFreeSimpleTestCase):
     # Our generated TS client (and plain URLSearchParams) serializes a number[] query param as one
     # comma-joined value rather than repeated keys. If `_team_ids_field` ever reverts to a plain
     # `serializers.ListField`, the comma-separated case starts failing validation while the

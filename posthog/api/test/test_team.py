@@ -10,7 +10,7 @@ from unittest.mock import ANY, MagicMock, call, patch
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import SimpleTestCase, TransactionTestCase, override_settings
+from django.test import TransactionTestCase, override_settings
 from django.test.client import RequestFactory
 from django.utils import timezone
 
@@ -43,6 +43,7 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_context_for_template, get_instance_realm
 
@@ -4076,7 +4077,7 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
 _TOO_MANY_WILDCARDS = ["https://*.*.*.*.*.*.example.com"]
 
 
-class TestTeamSerializerValidationNoDB(SimpleTestCase):
+class TestTeamSerializerValidationNoDB(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (serializer, value)

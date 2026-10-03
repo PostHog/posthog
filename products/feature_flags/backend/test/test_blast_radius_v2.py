@@ -1,11 +1,10 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.user_blast_radius import (
@@ -118,7 +117,7 @@ class TestBlastRadiusQueryV2(ClickhouseTestMixin, APIBaseTest):
         assert sampled.called is expects_v2
 
 
-class TestBlastRadiusGate(SimpleTestCase):
+class TestBlastRadiusGate(ClickhouseFreeSimpleTestCase):
     def test_the_gate_evaluates_locally_and_captures_nothing(self):
         with patch(
             "products.feature_flags.backend.user_blast_radius.feature_enabled_or_false", return_value=True

@@ -1,12 +1,11 @@
 from dataclasses import field
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.dataclasses import frozen
 from posthog.ownership.paths import UNOWNED_TEAM
 from posthog.ownership.repo_files import OwnershipUnavailable
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.logic.ownership import (
     UNPLACED,
@@ -67,7 +66,7 @@ def _placements(files: _FakeRepoFiles) -> list[PlacedTest]:
     ).tests
 
 
-class TestRepoOwnership(SimpleTestCase):
+class TestRepoOwnership(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

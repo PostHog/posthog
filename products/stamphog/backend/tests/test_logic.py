@@ -6,12 +6,13 @@ from typing import cast
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import jwt
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
@@ -48,7 +49,7 @@ from products.stamphog.backend.tests.conftest import _generate_app_private_key
 # parsing of the engine's stdout contract remains server-side.
 
 
-class ParseReviewerOutputTests(SimpleTestCase):
+class ParseReviewerOutputTests(ClickhouseFreeSimpleTestCase):
     def test_parses_rich_final_verdict_contract(self) -> None:
         raw = (
             '{"stamphog_version": "2.0.0b1", "final_verdict": "APPROVED", '
@@ -115,7 +116,7 @@ class ParseReviewerOutputTests(SimpleTestCase):
         assert any("MAYBE" in note for note in verdict.showstoppers)
 
 
-class RefusalSummaryTests(SimpleTestCase):
+class RefusalSummaryTests(ClickhouseFreeSimpleTestCase):
     def test_pr_text_cannot_close_the_untrusted_block(self) -> None:
         prompt = build_summary_prompt(
             gates=[{"gate": "deny-list", "passed": False, "message": "matches: infra_cicd"}],
@@ -144,7 +145,7 @@ class RefusalSummaryTests(SimpleTestCase):
         assert summary is None
 
 
-class BuildReviewerInvocationTests(SimpleTestCase):
+class BuildReviewerInvocationTests(ClickhouseFreeSimpleTestCase):
     def test_reviews_and_review_threads_are_threaded_into_the_context(self) -> None:
         # The hosted reviewer must receive prior PR reviews so the engine's prerequisite gate can block
         # on an active CHANGES_REQUESTED, and inline review threads so a maintainer's unresolved "do not
@@ -268,7 +269,7 @@ def _fetch_history(client: _FamiliarityClient) -> ReviewHistory:
     )
 
 
-class FamiliarityFactsTests(SimpleTestCase):
+class FamiliarityFactsTests(ClickhouseFreeSimpleTestCase):
     def test_facts_keep_the_blame_of_changed_lines_and_the_authors_history(self) -> None:
         history = _fetch_history(_FamiliarityClient())
 
@@ -341,7 +342,7 @@ class FamiliarityFactsTests(SimpleTestCase):
         assert history.status == FamiliarityStatus.PARTIAL_BLAME
 
 
-class ReviewTriggerTests(SimpleTestCase):
+class ReviewTriggerTests(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # Inbox provenance outranks the repo mode, so a self-driving PR in an ALL-mode repo is
@@ -375,7 +376,7 @@ class ReviewTriggerTests(SimpleTestCase):
         assert trigger_for_run(output=output, review_mode=mode) == expected
 
 
-class SlackDigestEscapingTests(SimpleTestCase):
+class SlackDigestEscapingTests(ClickhouseFreeSimpleTestCase):
     def _summary(
         self, *, author: str, body: str, considered: int = 1, headline: str = "", judged: bool = True
     ) -> DigestSummary:
@@ -539,7 +540,7 @@ class SlackDigestEscapingTests(SimpleTestCase):
             assert pr_section["text"]["text"].endswith(">")
 
 
-class DigestConfigFetchTests(SimpleTestCase):
+class DigestConfigFetchTests(ClickhouseFreeSimpleTestCase):
     def test_transient_fetch_errors_propagate(self) -> None:
         # The resolved audience is persisted on the merged PR and never recomputed, so swallowing a
         # transient GitHub failure here would permanently route the merge to the author/team fallback
@@ -555,7 +556,7 @@ class DigestConfigFetchTests(SimpleTestCase):
 _GH = "products.stamphog.backend.logic.github_client"
 
 
-class GetPrReviewThreadsTests(SimpleTestCase):
+class GetPrReviewThreadsTests(ClickhouseFreeSimpleTestCase):
     def _fetch(self, *graphql_responses: fakes.FakeResponse) -> list[dict]:
         # Stub the network boundary (github_request): the access-token mint is answered so the client's
         # _request machinery runs for real, and /graphql calls consume the scripted responses in order
@@ -683,7 +684,7 @@ class GetPrReviewThreadsTests(SimpleTestCase):
 # The client's cosmetic writes fail open (see their docstrings): the "review in flight" 👀 reaction
 # and hiding a dismissed review as outdated must never fail or retry the calling activity, unlike
 # every other read/write on StamphogGitHubClient.
-class CosmeticWriteFailOpenTests(SimpleTestCase):
+class CosmeticWriteFailOpenTests(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.requested_urls: list[str] = []
 
@@ -756,7 +757,7 @@ class CosmeticWriteFailOpenTests(SimpleTestCase):
         assert self.requested_urls[-1] == "https://api.github.com/graphql"
 
 
-class CommitGraphqlTests(SimpleTestCase):
+class CommitGraphqlTests(ClickhouseFreeSimpleTestCase):
     def _blame(self, response: fakes.FakeResponse) -> list[dict]:
         def fake_request(method: str, url: str, **kwargs: object) -> fakes.FakeResponse:
             if url.endswith("/access_tokens"):
@@ -784,7 +785,7 @@ class CommitGraphqlTests(SimpleTestCase):
             self._blame(fakes.FakeResponse(200, json_data={"errors": [error]}))
 
 
-class BuildAppJwtIssuerTests(SimpleTestCase):
+class BuildAppJwtIssuerTests(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("client_id_preferred_over_app_id", "acme-client", "999", "acme-client"),
@@ -813,7 +814,7 @@ class BuildAppJwtIssuerTests(SimpleTestCase):
                 _build_app_jwt()
 
 
-class TemporalRegistryTests(SimpleTestCase):
+class TemporalRegistryTests(ClickhouseFreeSimpleTestCase):
     def test_every_defined_activity_is_registered_with_the_worker(self) -> None:
         # A new @activity.defn that isn't added to ACTIVITIES fails only at runtime, when the worker
         # rejects the workflow's schedule request — this has already almost shipped once.
@@ -824,7 +825,7 @@ class TemporalRegistryTests(SimpleTestCase):
         assert defined == registered
 
 
-class ResolveAudiencesTests(SimpleTestCase):
+class ResolveAudiencesTests(ClickhouseFreeSimpleTestCase):
     @staticmethod
     def _gate_result(teams: object) -> dict:
         return {"classification": {"ownership": {"teams": teams}}}
@@ -874,7 +875,7 @@ class ResolveAudiencesTests(SimpleTestCase):
         ]
 
 
-class GeneratedOwnershipTests(SimpleTestCase):
+class GeneratedOwnershipTests(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("every_file_was_generated", 1, 1, []),
@@ -906,7 +907,7 @@ class GeneratedOwnershipTests(SimpleTestCase):
         assert [(a.key, a.reason, a.owned_file_count) for a in audiences] == expected
 
 
-class OwnedFilePromptTests(SimpleTestCase):
+class OwnedFilePromptTests(ClickhouseFreeSimpleTestCase):
     def test_the_prompt_names_which_files_belong_to_the_reading_team(self) -> None:
         # This marker is how the model knows whose side to judge from. It is read off the audience
         # row by the prompt builder, so a change on either side of that seam degrades the digest
@@ -971,7 +972,7 @@ class OwnedFilePromptTests(SimpleTestCase):
         assert "Ignore the pull requests above" in prompt
 
 
-class OwnedFileCountTests(SimpleTestCase):
+class OwnedFileCountTests(ClickhouseFreeSimpleTestCase):
     def test_true_owned_count_survives_the_capped_sample(self) -> None:
         # The sample is capped and the count is not. If the prompt reported the sample size, a team
         # owning most of a large change would look grazed by it and get filtered out of its own digest.
@@ -1003,7 +1004,7 @@ index aaa..bbb 100644
 _DIFF_MODE_FLIPPED = _DIFF.replace("index aaa..bbb 100644", "old mode 100644\nnew mode 100755\nindex aaa..bbb 100755")
 
 
-class CompareDiffSizeTests(SimpleTestCase):
+class CompareDiffSizeTests(ClickhouseFreeSimpleTestCase):
     @staticmethod
     def _streamed(body: bytes) -> MagicMock:
         response = MagicMock(status_code=200)
@@ -1027,7 +1028,7 @@ class CompareDiffSizeTests(SimpleTestCase):
                 StamphogGitHubClient("42").compare_diff("o/r", "base", "head")
 
 
-class ApprovalRetentionTests(SimpleTestCase):
+class ApprovalRetentionTests(ClickhouseFreeSimpleTestCase):
     def test_unchanged_diff_retains_across_a_base_merge(self) -> None:
         # A merge of the base branch into a PR is the most common push on a long-lived PR. It does
         # not change the PR's own diff, so there is nothing new to review, and a dismissal would

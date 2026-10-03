@@ -6,17 +6,17 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError, UnavailableStorage
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.notebooks.backend import frame_store
 
 
-class TestFrameKeys(SimpleTestCase):
+class TestFrameKeys(ClickhouseFreeSimpleTestCase):
     def test_key_is_namespaced_under_the_team_prefix(self):
         # The team prefix is the tenant isolation unit: presign_get's cross-tenant check
         # relies on every built key starting with it.

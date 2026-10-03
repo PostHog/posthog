@@ -1,8 +1,8 @@
 from typing import Any, cast
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts.backend.facade.destinations import build_alert_destination_config, validate_destination_data
 from products.alerts_platform.backend.facade.contracts import (
@@ -19,7 +19,7 @@ from products.logs.backend.alert_destinations import (
 )
 
 
-class TestDestinationValidation(SimpleTestCase):
+class TestDestinationValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -78,7 +78,7 @@ def destination_inputs(kind: EventKind, data: AlertDestinationData) -> dict[str,
     return config.payload["inputs"]
 
 
-class TestRenderedDestinationContent(SimpleTestCase):
+class TestRenderedDestinationContent(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(kind,) for kind in EVENT_KINDS])
     def test_slack_body_puts_every_detail_on_its_own_line(self, kind: EventKind) -> None:
         spec = EVENT_KIND_CONFIG[kind]

@@ -12,7 +12,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 import requests
@@ -41,9 +40,10 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.github import _MAX_FILE_CONTENTS_BYTES
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestExtractFailingChecks(SimpleTestCase):
+class TestExtractFailingChecks(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("failure", "FAILURE", True),
@@ -77,7 +77,7 @@ class TestExtractFailingChecks(SimpleTestCase):
         assert (failing == [{"key": "CI/unit tests", "details_url": "https://ci/1"}]) is expected_reported
 
 
-class TestGitHubPullRequestChecks(SimpleTestCase):
+class TestGitHubPullRequestChecks(ClickhouseFreeSimpleTestCase):
     def test_reports_missing_checks_permission(self):
         integration = MagicMock(kind="github", config={"permissions": {"contents": "read"}})
         github = GitHubIntegration(integration)
@@ -92,7 +92,7 @@ class TestGitHubPullRequestChecks(SimpleTestCase):
         }
 
 
-class TestParseRepoItemUrl(SimpleTestCase):
+class TestParseRepoItemUrl(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("a superscript digit", "²"),
@@ -107,7 +107,7 @@ class TestParseRepoItemUrl(SimpleTestCase):
         assert GitHubIntegrationBase.parse_issue_url(issue_url) is None
 
 
-class TestPullRequestCommentMarker(SimpleTestCase):
+class TestPullRequestCommentMarker(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("absent", [], True, False),

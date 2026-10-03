@@ -1,12 +1,12 @@
-from django.test.testcases import SimpleTestCase
-
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import FunnelsQuery
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-class TestFunnelsSeriesDiscriminator(SimpleTestCase):
+
+class TestFunnelsSeriesDiscriminator(ClickhouseFreeSimpleTestCase):
     # `FunnelsQuery.series` was an undiscriminated union — Pydantic would walk every
     # variant and report errors for each, so a single malformed series item produced
     # a dozen-plus errors per item (hundreds for real-world malformed queries), and

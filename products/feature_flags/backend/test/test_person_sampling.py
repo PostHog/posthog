@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from typing import Optional
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.person_sampling import (
     MIN_SAMPLED_MATCHES,
@@ -15,7 +15,7 @@ from products.feature_flags.backend.person_sampling import (
 )
 
 
-class TestPersonSamplingSettings(SimpleTestCase):
+class TestPersonSamplingSettings(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("memory bounded", bounded_memory_settings),
@@ -30,7 +30,7 @@ class TestPersonSamplingSettings(SimpleTestCase):
         assert build_settings().timeout_overflow_mode == "throw"
 
 
-class TestSampledOrExactCount(SimpleTestCase):
+class TestSampledOrExactCount(ClickhouseFreeSimpleTestCase):
     # Distinct from every extrapolation below, so the returned value names the branch that ran.
     EXACT_COUNT = 7
 

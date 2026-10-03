@@ -4,12 +4,11 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
@@ -594,7 +593,7 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
         assert all(r["iterations"][0]["agent_description"] != "leaked" for r in runs)
 
 
-class TestAgentWriteSerializers(SimpleTestCase):
+class TestAgentWriteSerializers(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("nan_holdout", {"holdout_score": "NaN"}, "holdout_score"),

@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend import prompt_references
 from products.ai_observability.backend.prompt_references import PromptReference, parse_prompt_references
@@ -10,7 +10,7 @@ from products.ai_observability.backend.prompt_references import PromptReference,
 RESOLVER = "products.ai_observability.backend.prompt_references"
 
 
-class TestParsePromptReferences(SimpleTestCase):
+class TestParsePromptReferences(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -64,7 +64,7 @@ class TestParsePromptReferences(SimpleTestCase):
         assert parse_prompt_references(text) == expected
 
 
-class TestResolvePromptReferences(SimpleTestCase):
+class TestResolvePromptReferences(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.team = MagicMock()
 

@@ -3,7 +3,6 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -14,6 +13,7 @@ from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.presentation.views.repo_routing_rules_api import (
     MAX_RULES_PER_TEAM,
@@ -21,7 +21,7 @@ from products.tasks.backend.presentation.views.repo_routing_rules_api import (
 )
 
 
-class TestRepoRoutingRuleSerializerValidation(SimpleTestCase):
+class TestRepoRoutingRuleSerializerValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("missing_slash", "posthog"),

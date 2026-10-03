@@ -2,9 +2,9 @@ from datetime import UTC, datetime
 
 from unittest import mock
 
-from django.test import SimpleTestCase
-
 from confluent_kafka import TopicPartition
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.parity.kafka_io import DrainStats, drain_topic
 
@@ -68,7 +68,7 @@ def _drain(consumer: _FakeConsumer, stats: DrainStats) -> list[dict]:
         return list(drain_topic(TOPIC, config={}, since=SINCE, stats=stats))
 
 
-class TestDrainTopic(SimpleTestCase):
+class TestDrainTopic(ClickhouseFreeSimpleTestCase):
     def test_fast_partition_stops_at_its_high_watermark_snapshot(self) -> None:
         ts = datetime(2026, 7, 7, 20, 0, tzinfo=UTC)
         consumer = _FakeConsumer(

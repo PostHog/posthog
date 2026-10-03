@@ -2,17 +2,16 @@ from datetime import datetime, timedelta
 
 import time_machine
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.organization import Organization
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 NOW = datetime(2026, 6, 1, 12, 0, 0)
 
 
-class TestActivityLogLookbackWindow(SimpleTestCase):
+class TestActivityLogLookbackWindow(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("boost", {"limit": 7, "unit": "days"}, 7),

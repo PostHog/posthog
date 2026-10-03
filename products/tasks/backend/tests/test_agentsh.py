@@ -8,10 +8,12 @@ from typing import Any
 
 from unittest.mock import Mock
 
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import TestCase, override_settings
 
 import yaml
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_AUDIT_DB,
@@ -393,7 +395,7 @@ class TestGeneratePolicyYaml(TestCase):
         self.assertNotIn("deny-cloud-metadata", rule_names)
 
 
-class TestEnvWrapper(SimpleTestCase):
+class TestEnvWrapper(ClickhouseFreeSimpleTestCase):
     def test_restores_safe_environment_and_only_managed_credentials(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             env_file = Path(temp_dir) / "agent env"
@@ -431,7 +433,7 @@ class TestEnvWrapper(SimpleTestCase):
         self.assertNotIn("--use-env-proxy", wrapper)
 
 
-class TestBashEnvScript(SimpleTestCase):
+class TestBashEnvScript(ClickhouseFreeSimpleTestCase):
     def test_initialization_replaces_snapshot_env_and_preserves_refreshed_credentials(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             env_file = Path(temp_dir) / "agent env"

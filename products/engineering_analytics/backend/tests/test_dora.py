@@ -4,12 +4,12 @@ from typing import Any
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 
 from django.http import QueryDict
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.facade.contracts import UnknownDoraEnvironmentError
 from products.engineering_analytics.backend.logic.dora import build_dora_overview
@@ -34,7 +34,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 )
 
 
-class TestDoraEnvironmentQuerySerializer(SimpleTestCase):
+class TestDoraEnvironmentQuerySerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("", None),

@@ -4,8 +4,6 @@ from typing import Optional
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.data_freshness import (
@@ -20,6 +18,7 @@ from posthog.data_freshness import (
 )
 from posthog.models.team.team import Team
 from posthog.schema_enums import ProductKey
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.feature_flags.backend.data_freshness import DATA_SOURCES as FEATURE_FLAGS_DATA_SOURCES
@@ -33,7 +32,7 @@ def _ago(days: float) -> datetime:
     return NOW - timedelta(days=days)
 
 
-class TestDeriveFreshness(SimpleTestCase):
+class TestDeriveFreshness(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

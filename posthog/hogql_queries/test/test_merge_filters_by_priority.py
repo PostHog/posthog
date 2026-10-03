@@ -1,5 +1,3 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.schema import DashboardFilter
@@ -12,9 +10,10 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     resolve_effective_dashboard_filters,
     resolve_filter_layers_by_priority,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestMergeFiltersByPriority(SimpleTestCase):
+class TestMergeFiltersByPriority(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("both empty", None, None, {}),
@@ -188,7 +187,7 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["properties"] == [country_prop, tile_browser_prop]
 
 
-class TestDashboardFilterFromDict(SimpleTestCase):
+class TestDashboardFilterFromDict(ClickhouseFreeSimpleTestCase):
     def test_property_group_dict_is_flattened_instead_of_raising(self):
         # `DashboardFilter.properties` is typed as a flat list, so a property-group dict used to raise a
         # pydantic ValidationError (500) at the construction sites in calculate_results and
@@ -209,7 +208,7 @@ class TestDashboardFilterFromDict(SimpleTestCase):
         assert built.date_from == "-7d"
 
 
-class TestFlattenPropertyLeaves(SimpleTestCase):
+class TestFlattenPropertyLeaves(ClickhouseFreeSimpleTestCase):
     def test_rejects_or_property_group(self):
         or_group = {
             "type": "OR",
@@ -222,7 +221,7 @@ class TestFlattenPropertyLeaves(SimpleTestCase):
             flatten_property_leaves(or_group)
 
 
-class TestResolveEffectiveDashboardFilters(SimpleTestCase):
+class TestResolveEffectiveDashboardFilters(ClickhouseFreeSimpleTestCase):
     def test_normalizes_single_layer_dict_properties_to_flat_list(self):
         prop = {"key": "$browser", "value": "Chrome", "type": "event"}
         query = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}
@@ -233,7 +232,7 @@ class TestResolveEffectiveDashboardFilters(SimpleTestCase):
         assert effective["date_from"] == "-7d"
 
 
-class TestIgnoreDashboardFilters(SimpleTestCase):
+class TestIgnoreDashboardFilters(ClickhouseFreeSimpleTestCase):
     _DASHBOARD = {
         "date_from": "-30d",
         "properties": [{"key": "$browser", "value": "Chrome", "type": "event"}],
@@ -325,7 +324,7 @@ class TestIgnoreDashboardFilters(SimpleTestCase):
         }
 
 
-class TestRemoveQueryPropertiesOverriddenBy(SimpleTestCase):
+class TestRemoveQueryPropertiesOverriddenBy(ClickhouseFreeSimpleTestCase):
     def _query(self, properties):
         return {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "properties": properties}}
 

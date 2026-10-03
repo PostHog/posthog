@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 from django.core.cache import caches
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -26,6 +26,7 @@ from posthog.ingress.dispatch.dedup import (
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.test import LOCMEM, LOCMEM_CACHES
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SPEC = ProviderSpec(provider="github", app="posthog", event_types=frozenset({"pull_request"}))
 
@@ -71,7 +72,7 @@ def _dispatcher(consumers: list[WebhookConsumer], *, budget_seconds: float | Non
 
 
 @override_settings(CACHES=LOCMEM_CACHES)
-class TestWebhookDispatcher(SimpleTestCase):
+class TestWebhookDispatcher(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.cache = caches[INGRESS_DEDUP_CACHE_ALIAS]
         self.cache.clear()
@@ -213,7 +214,7 @@ class TestWebhookDispatcher(SimpleTestCase):
 
 
 @override_settings(CACHES=LOCMEM_CACHES)
-class TestDeliveryDedup(SimpleTestCase):
+class TestDeliveryDedup(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.cache = caches[INGRESS_DEDUP_CACHE_ALIAS]
         self.cache.clear()
@@ -360,7 +361,7 @@ class TestDeliveryDedup(SimpleTestCase):
             self.assertEqual(DeliveryDedup().claim(**self.mark).state, expected)
 
 
-class TestDeliveryOwnership(SimpleTestCase):
+class TestDeliveryOwnership(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("nobody_declares_one", [], DeliveryOwnershipAnswers()),
@@ -401,7 +402,7 @@ class TestDeliveryOwnership(SimpleTestCase):
         asked.assert_called_once()
 
 
-class TestDeliveryBudgetSeconds(SimpleTestCase):
+class TestDeliveryBudgetSeconds(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("zero_would_skip_every_consumer", 0, DEFAULT_DELIVERY_BUDGET_SECONDS),

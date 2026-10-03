@@ -6,7 +6,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import Mock, PropertyMock, patch
 
 from django.apps import apps
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -39,6 +38,7 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     get_authenticator_client,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -438,7 +438,7 @@ class TestTeamSecretTokenPermission(BaseTest):
         self.assertFalse(result)
 
 
-class TestProjectSecretAPIKeyAPIScopePermission(SimpleTestCase):
+class TestProjectSecretAPIKeyAPIScopePermission(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         from posthog.permissions import APIScopePermission
 
@@ -1291,7 +1291,7 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
 SESSION_CALLER = {"credential_type": "session", "client_id": "posthog"}
 
 
-class TestAuthenticatorClient(SimpleTestCase):
+class TestAuthenticatorClient(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("session", None, SESSION_CALLER),
@@ -1454,7 +1454,7 @@ class TestPostHogFeatureFlagPermission(BaseTest):
         mock_ff.assert_called_once()
 
 
-class TestActiveOrganizationPermission(SimpleTestCase):
+class TestActiveOrganizationPermission(ClickhouseFreeSimpleTestCase):
     # The permission reads three fields off the organization, so unsaved instances are enough.
     def setUp(self):
         self.permission = ActiveOrganizationPermission()

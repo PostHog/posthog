@@ -4,8 +4,6 @@ import datetime as dt
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.temporal.salesforce_enrichment.stripe_workflow import (
@@ -18,6 +16,7 @@ from posthog.temporal.salesforce_enrichment.stripe_workflow import (
     enrich_stripe_page_activity,
     prepare_stripe_update_record,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.billing.salesforce_enrichment.enrichment import BulkUpdateResult
 from ee.billing.salesforce_enrichment.stripe_signals import StripeSignals
@@ -51,7 +50,7 @@ async def mock_to_thread(fn, *args, **kwargs):
     return fn(*args, **kwargs)
 
 
-class TestComposeBillingStreet(SimpleTestCase):
+class TestComposeBillingStreet(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("both_lines", "1 Main St", "Suite 200", "1 Main St\nSuite 200"),
@@ -64,7 +63,7 @@ class TestComposeBillingStreet(SimpleTestCase):
         assert _compose_billing_street(_signals(line1=line1, line2=line2)) == expected
 
 
-class TestPrepareStripeUpdateRecord(SimpleTestCase):
+class TestPrepareStripeUpdateRecord(ClickhouseFreeSimpleTestCase):
     def test_full_record(self):
         record = prepare_stripe_update_record("001ABC", _signals(line2="Suite 200"))
 
@@ -96,7 +95,7 @@ class TestPrepareStripeUpdateRecord(SimpleTestCase):
         assert record == {"Id": "001ABC"}
 
 
-class TestWorkflowParseInputs(SimpleTestCase):
+class TestWorkflowParseInputs(ClickhouseFreeSimpleTestCase):
     def test_defaults(self):
         inputs = SalesforceStripeEnrichmentWorkflow.parse_inputs(["{}"])
 
@@ -137,7 +136,7 @@ class TestWorkflowParseInputs(SimpleTestCase):
         assert inputs.state.cursor_org_id == "org-99"
 
 
-class TestEnrichStripePageActivity(SimpleTestCase):
+class TestEnrichStripePageActivity(ClickhouseFreeSimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.bulk_update_salesforce_accounts", return_value=BulkUpdateResult(succeeded=2, failed=0))
@@ -323,7 +322,7 @@ class TestEnrichStripePageActivity(SimpleTestCase):
         assert result.skipped_no_account == 0
 
 
-class TestWorkflowRun(SimpleTestCase):
+class TestWorkflowRun(ClickhouseFreeSimpleTestCase):
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_resolves_watermark_on_first_iteration(self, mock_workflow):

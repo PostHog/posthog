@@ -8,7 +8,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -24,6 +23,7 @@ from posthog.ownership.github_files import (
     fetcher_for_team,
 )
 from posthog.ownership.repo_files import GitHubRepoFiles, OwnershipUnavailable
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _REPOSITORY = "PostHog/posthog"
 _SHA = "a" * 40
@@ -116,7 +116,7 @@ def _fetcher() -> GitHubFilesFetcher:
     return GitHubFilesFetcher.from_token("t0ken", installation_id="42", priority=Priority.BATCH)
 
 
-class TestGitHubFilesFetcher(SimpleTestCase):
+class TestGitHubFilesFetcher(ClickhouseFreeSimpleTestCase):
     def test_a_batch_is_split_into_chunks_and_a_missing_file_comes_back_absent(self) -> None:
         # GitHub answers a few hundred aliased blobs with a 502, so one batch has to be several
         # requests, and every path has to survive the split.
@@ -241,7 +241,7 @@ class TestGitHubFilesFetcher(SimpleTestCase):
                 _fetcher().read_files(_REPOSITORY, _SHA, ["owners.yaml"], monotonic() - 1)
 
 
-class TestAuthenticatedRepoFiles(SimpleTestCase):
+class TestAuthenticatedRepoFiles(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
 

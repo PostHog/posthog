@@ -6,7 +6,6 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -20,6 +19,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -119,7 +119,7 @@ def _threshold_config(**overrides: object) -> dict:
     return {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 10}, **overrides}
 
 
-class TestCheckComparison(SimpleTestCase):
+class TestCheckComparison(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("lte_under", {"operator": "lte", "value": 10}, 4.0, "passed"),
@@ -311,7 +311,7 @@ class TestCheckComparison(SimpleTestCase):
         validate_metric_check_for_write(config)
 
 
-class TestMetricCheckTiming(SimpleTestCase):
+class TestMetricCheckTiming(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("daily_rounding", "UTC", "2026-10-01T12:30:00+00:00", "-13d", False, "2026-10-15T00:00:00+00:00"),
@@ -342,7 +342,7 @@ class TestMetricCheckTiming(SimpleTestCase):
         assert metric_check_window_start(query, team, ready_at - timedelta(seconds=1)) < anchor
 
 
-class TestAgentCheckConfig(SimpleTestCase):
+class TestAgentCheckConfig(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("no_instructions", {}),
@@ -382,7 +382,7 @@ class TestAgentCheckConfig(SimpleTestCase):
         assert resolve_check_skill_name(config) == "signals-scout-error-tracking"
 
 
-class TestCheckScheduleValidation(SimpleTestCase):
+class TestCheckScheduleValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("first_run_in_the_past", {"next_run_at": "2020-01-01T00:00:00Z"}, "next_run_at"),

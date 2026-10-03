@@ -6,18 +6,19 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from redis.exceptions import RedisError
 
 import posthog.storage.object_storage as object_storage_module
 from posthog.storage.object_storage import UnavailableStorage
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.context_layer.backend import repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig, WikiPageProposal
 
 
-class TestRepoWriterLock(SimpleTestCase):
+class TestRepoWriterLock(ClickhouseFreeSimpleTestCase):
     def test_release_redis_error_does_not_propagate(self) -> None:
         client = MagicMock()
         client.set.return_value = True
@@ -32,7 +33,7 @@ class TestRepoWriterLock(SimpleTestCase):
         assert client.eval.called
 
 
-class TestRunGit(SimpleTestCase):
+class TestRunGit(ClickhouseFreeSimpleTestCase):
     def test_missing_git_binary_raises_store_error(self) -> None:
         with patch.object(
             store.subprocess, "run", side_effect=FileNotFoundError(2, "No such file or directory", "git")
@@ -41,7 +42,7 @@ class TestRunGit(SimpleTestCase):
                 store._run_git(["status"], cwd=Path("/tmp"))
 
 
-class TestDreamPathGuard(SimpleTestCase):
+class TestDreamPathGuard(ClickhouseFreeSimpleTestCase):
     def test_allows_context_pages_and_rejects_server_owned_paths(self) -> None:
         assert store._dream_may_edit("org/strategy.md")
         assert store._dream_may_edit("areas/analytics.md")
@@ -60,7 +61,7 @@ class TestDreamPathGuard(SimpleTestCase):
         assert not store._dream_may_edit("scripts/publish")
 
 
-class TestPruneBundles(SimpleTestCase):
+class TestPruneBundles(ClickhouseFreeSimpleTestCase):
     ORG = "11111111-1111-1111-1111-111111111111"
 
     def test_deletes_stale_bundles_and_never_the_kept_head(self) -> None:

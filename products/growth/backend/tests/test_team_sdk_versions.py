@@ -1,14 +1,14 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY
 from products.growth.backend.team_sdk_versions import get_and_cache_team_sdk_versions, get_sdk_versions_for_team
 
 
-class TestGetSdkVersionsForTeam(SimpleTestCase):
+class TestGetSdkVersionsForTeam(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("posthog-server",),
@@ -40,7 +40,7 @@ class TestGetSdkVersionsForTeam(SimpleTestCase):
         assert [entry["lib_version"] for entry in result[sdk_type]] == ["1.10", "1.2.0"]
 
 
-class TestGetAndCacheTeamSdkVersions(SimpleTestCase):
+class TestGetAndCacheTeamSdkVersions(ClickhouseFreeSimpleTestCase):
     @patch("products.growth.backend.team_sdk_versions.get_sdk_versions_for_team")
     def test_uses_team_sdk_cache_expiry(self, mock_get_sdk_versions: MagicMock):
         mock_get_sdk_versions.return_value = {"web": [{"lib_version": "1.0.0", "max_timestamp": "x", "count": 1}]}

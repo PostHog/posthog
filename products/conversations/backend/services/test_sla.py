@@ -1,9 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.services.sla import compute_sla_deadline, is_calendar_hours
 
@@ -15,7 +15,7 @@ def _dt(year, month, day, hour=0, minute=0, second=0, microsecond=0, tz=UTC):
     return datetime(year, month, day, hour, minute, second, microsecond, tzinfo=tz)
 
 
-class TestIsCalendarHours(SimpleTestCase):
+class TestIsCalendarHours(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("none", None, True),
@@ -39,7 +39,7 @@ class TestIsCalendarHours(SimpleTestCase):
         self.assertEqual(is_calendar_hours(config), expected)
 
 
-class TestCalendarHoursFastPath(SimpleTestCase):
+class TestCalendarHoursFastPath(ClickhouseFreeSimpleTestCase):
     """No business hours config => plain now + timedelta."""
 
     @parameterized.expand(
@@ -71,7 +71,7 @@ class TestCalendarHoursFastPath(SimpleTestCase):
         self.assertEqual(deadline, _dt(2026, 1, 5, 11, 30))
 
 
-class TestBusinessHoursWindow(SimpleTestCase):
+class TestBusinessHoursWindow(ClickhouseFreeSimpleTestCase):
     """Weekdays 09:00-17:00 UTC — 8h window."""
 
     def setUp(self):
@@ -238,7 +238,7 @@ class TestBusinessHoursWindow(SimpleTestCase):
         self.assertEqual(deadline, _dt(2026, 1, 7, 13, 0))
 
 
-class TestTimezoneHandling(SimpleTestCase):
+class TestTimezoneHandling(ClickhouseFreeSimpleTestCase):
     def test_timezone_la_trigger_utc(self):
         """Window in America/Los_Angeles (UTC-8 in January), trigger expressed in UTC."""
         config = {
@@ -278,7 +278,7 @@ class TestTimezoneHandling(SimpleTestCase):
         self.assertEqual(deadline, _dt(2026, 1, 5, 10, 0))
 
 
-class TestDstCrossing(SimpleTestCase):
+class TestDstCrossing(ClickhouseFreeSimpleTestCase):
     """DST transitions must preserve wall-clock duration, not UTC elapsed."""
 
     def test_window_after_dst_transition_day(self):
@@ -326,7 +326,7 @@ class TestDstCrossing(SimpleTestCase):
         self.assertEqual(deadline, _dt(2026, 3, 8, 5, 0))
 
 
-class TestRejectsBadInput(SimpleTestCase):
+class TestRejectsBadInput(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("naive_now", datetime(2026, 1, 5, 10, 0), 1, "hour", None),
@@ -431,7 +431,7 @@ class TestRejectsBadInput(SimpleTestCase):
             compute_sla_deadline(now=now, amount=amount, unit=unit, business_hours=business_hours)
 
 
-class TestReturnsUtc(SimpleTestCase):
+class TestReturnsUtc(ClickhouseFreeSimpleTestCase):
     def test_returns_utc_aware(self):
         result = compute_sla_deadline(
             now=datetime(2026, 1, 5, 10, 0, tzinfo=ZoneInfo("Europe/Berlin")),
@@ -451,7 +451,7 @@ class TestReturnsUtc(SimpleTestCase):
         self.assertEqual(result.utcoffset(), timedelta(0))
 
 
-class TestIterationCap(SimpleTestCase):
+class TestIterationCap(ClickhouseFreeSimpleTestCase):
     def test_extreme_amount_raises_value_error(self):
         """Single working day + huge amount must raise ValueError, not RuntimeError,
         so the API serializer layer returns 400 instead of 500."""

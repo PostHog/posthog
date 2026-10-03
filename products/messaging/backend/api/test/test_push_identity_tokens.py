@@ -5,12 +5,12 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from django.test import SimpleTestCase
-
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.messaging.backend.api.push_identity_tokens import (
     PUSH_IDENTITY_TOKEN_AUDIENCE,
@@ -51,7 +51,7 @@ DISTINCT_ID = "user-1"
 APP_ID = "my-firebase-project"
 
 
-class TestPushIdentityTokens(SimpleTestCase):
+class TestPushIdentityTokens(ClickhouseFreeSimpleTestCase):
     def test_verifies_a_token_signed_by_the_registered_public_key(self) -> None:
         private_pem, public_pem = _es256_keypair()
         token = sign_push_identity_token_es256(private_pem, DISTINCT_ID, APP_ID)

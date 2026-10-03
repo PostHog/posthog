@@ -7,12 +7,11 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from temporalio.exceptions import ActivityError, RetryState
 
 from posthog.models import Organization, Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.ai_reply.activities.clarify import _clarify_sync
@@ -1117,7 +1116,7 @@ async def test_workflow_replays_blocker_aware_findings_history(
     ).replay_workflow(history)
 
 
-class TestFormatFindingsComment(SimpleTestCase):
+class TestFormatFindingsComment(ClickhouseFreeSimpleTestCase):
     def test_findings_note_does_not_include_the_draft_reply(self):
         text = format_findings_comment(
             investigation_summary="Checked the docs. SDK was not named.",

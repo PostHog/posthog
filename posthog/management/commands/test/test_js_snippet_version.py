@@ -5,12 +5,13 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from posthog.models.js_snippet_versioning import REDIS_POINTER_MAP_KEY, ManifestSyncError
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestPublish(SimpleTestCase):
+class TestPublish(ClickhouseFreeSimpleTestCase):
     def tearDown(self):
         cache.delete(REDIS_POINTER_MAP_KEY)
 
@@ -133,7 +134,7 @@ class TestPublish(SimpleTestCase):
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
 
-class TestYank(SimpleTestCase):
+class TestYank(ClickhouseFreeSimpleTestCase):
     def tearDown(self):
         cache.delete(REDIS_POINTER_MAP_KEY)
 
@@ -212,7 +213,7 @@ class TestYank(SimpleTestCase):
         assert cache.get(REDIS_POINTER_MAP_KEY) is None
 
 
-class TestSync(SimpleTestCase):
+class TestSync(ClickhouseFreeSimpleTestCase):
     @override_settings(POSTHOG_JS_S3_BUCKET="test-bucket")
     @patch("posthog.management.commands.js_snippet_version.sync_manifest_from_s3")
     def test_sync_runs_successfully(self, mock_sync):

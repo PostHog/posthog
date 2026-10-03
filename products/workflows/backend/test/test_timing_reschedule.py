@@ -2,13 +2,13 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import SimpleTestCase
 
 import jwt
 import requests
 from parameterized import parameterized
 
 from posthog.plugins.plugin_server_api import reschedule_hog_flow_parked_jobs
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.timing_reschedule import (
@@ -40,7 +40,7 @@ def _condition(action_id: str = "cond_1", max_wait: str = "7d", condition: dict 
     }
 
 
-class TestTimingRescheduleDiff(SimpleTestCase):
+class TestTimingRescheduleDiff(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("days", "7d", 7 * 86400.0),

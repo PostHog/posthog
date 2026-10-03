@@ -10,7 +10,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache as real_cache
-from django.test import SimpleTestCase
 from django.utils.html import escape
 
 import requests
@@ -44,6 +43,7 @@ from posthog.models.oauth import (
 )
 from posthog.models.oauth_provisioning import PartnerTier
 from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
@@ -1499,7 +1499,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         self.assertEqual(created.scopes, ["insight:read"])
 
 
-class TestResolveScopes(SimpleTestCase):
+class TestResolveScopes(ClickhouseFreeSimpleTestCase):
     """`_resolve_scopes` parsing in isolation — no DB, so it runs without local services."""
 
     def test_absent_or_malformed_field_returns_none(self) -> None:

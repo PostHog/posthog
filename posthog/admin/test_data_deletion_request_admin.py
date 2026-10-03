@@ -9,7 +9,7 @@ from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
 from bs4 import BeautifulSoup
@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.admin.admins.data_deletion_request_admin import EDITABLE_FIELDS, DataDeletionRequestAdmin, dagster_run_url
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _attach_messages(request) -> None:
@@ -1054,7 +1055,7 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         self.assertEqual(copy.execution_mode, ExecutionMode.DEFERRED)
 
 
-class TestDagsterRunLink(SimpleTestCase):
+class TestDagsterRunLink(ClickhouseFreeSimpleTestCase):
     RUN_ID = "f5f3a611-4be8-48bc-9b29-ff8b06d01189"
 
     @parameterized.expand(
@@ -1089,7 +1090,7 @@ class TestDagsterRunLink(SimpleTestCase):
         self.assertEqual(admin_obj.last_dagster_run(DataDeletionRequest()), "—")
 
 
-class TestDataDeletionRequestFormHidesUnsupportedTypes(SimpleTestCase):
+class TestDataDeletionRequestFormHidesUnsupportedTypes(ClickhouseFreeSimpleTestCase):
     @staticmethod
     def _type_values(form) -> list[str]:
         from typing import cast

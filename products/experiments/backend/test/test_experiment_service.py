@@ -12,7 +12,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.db.models import F
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 import pydantic
@@ -32,6 +31,7 @@ from posthog.exceptions import (
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
@@ -7405,7 +7405,7 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
             )
 
 
-class TestDeprecatedFieldsInRequest(SimpleTestCase):
+class TestDeprecatedFieldsInRequest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -7457,7 +7457,7 @@ class TestDeprecatedFieldsInRequest(SimpleTestCase):
         assert _deprecated_fields_in_request(request) == {}
 
 
-class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
+class TestDeprecatedParametersKeysInRequest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -7481,7 +7481,7 @@ class TestDeprecatedParametersKeysInRequest(SimpleTestCase):
         assert _deprecated_parameters_keys_in_request(request) == []
 
 
-class TestConcurrentMetricMerge(SimpleTestCase):
+class TestConcurrentMetricMerge(ClickhouseFreeSimpleTestCase):
     """Branch pins for the pure three-way merge helpers behind experiment optimistic concurrency.
     The end-to-end behavior is covered in test_presentation_api.py::TestExperimentConcurrency;
     these lock the merge decisions that are awkward to reach through the API (identical edits on
@@ -7559,7 +7559,7 @@ class TestConcurrentMetricMerge(SimpleTestCase):
         self.assertEqual(merged, [{"id": 1, "metadata": {"type": "secondary"}}])
 
 
-class TestScalarConcurrencyResolution(SimpleTestCase):
+class TestScalarConcurrencyResolution(ClickhouseFreeSimpleTestCase):
     """Branch pins for the per-field scalar three-way merge behind experiment optimistic
     concurrency, isolating the value canonicalization the API tests can't reach directly:
     the client base echoes API JSON (ISO datetime strings, holdout ids) while the payload

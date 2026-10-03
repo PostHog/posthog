@@ -4,8 +4,6 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import serializers, status
 
@@ -13,6 +11,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic import customer_tasks
@@ -25,7 +24,7 @@ from products.customer_analytics.backend.presentation.views.customer_tasks impor
 )
 
 
-class CustomerTaskSerializerTest(SimpleTestCase):
+class CustomerTaskSerializerTest(ClickhouseFreeSimpleTestCase):
     def test_public_writes_reject_internal_properties_and_blank_names(self) -> None:
         create_serializer = CustomerTaskCreateSerializer(data={"name": "  "})
         assert not create_serializer.is_valid()

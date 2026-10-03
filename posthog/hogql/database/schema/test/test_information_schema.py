@@ -3,7 +3,7 @@ import uuid
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from django.apps import apps
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -26,6 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
@@ -57,7 +58,7 @@ def _in(field: str, values: list[str]) -> ast.CompareOperation:
     )
 
 
-class TestDeniedTableMatcher(SimpleTestCase):
+class TestDeniedTableMatcher(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("mixed_case", ["Orders"], ["oRDERS"], True),
@@ -203,7 +204,7 @@ class TestWarehouseMetadata(APIBaseTest):
         assert "plain_view" not in metadata.view_row_counts
 
 
-class TestCertificationKey(SimpleTestCase):
+class TestCertificationKey(ClickhouseFreeSimpleTestCase):
     def test_view_key_prefers_db_saved_query_id_over_object_id(self) -> None:
         saved_query_id = str(uuid.uuid4())
         view = SavedQuery(id=str(uuid.uuid4()), name="stripe.mrr_revenue_view", query="select 1", fields={})

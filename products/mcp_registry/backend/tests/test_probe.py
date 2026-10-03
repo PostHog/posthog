@@ -3,11 +3,12 @@ import json
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_registry.backend.models import MCPRegistryServer, MCPRegistryTool
 from products.mcp_registry.backend.probe import (
@@ -33,7 +34,7 @@ def _response(
 _INIT_RESULT = {"jsonrpc": "2.0", "id": 1, "result": {"serverInfo": {"name": "demo"}, "capabilities": {}}}
 
 
-class TestShallowProbe(SimpleTestCase):
+class TestShallowProbe(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

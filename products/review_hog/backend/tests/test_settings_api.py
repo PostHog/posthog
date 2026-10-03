@@ -1,11 +1,12 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models import Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.review_hog.backend.api.settings import ReviewUserSettingsSerializer
 from products.review_hog.backend.models import ReviewUserSettings
@@ -172,7 +173,7 @@ class TestReviewUserSettingsAPI(APIBaseTest):
         assert row.urgency_threshold == "must_fix"
 
 
-class TestReviewUserSettingsValidation(SimpleTestCase):
+class TestReviewUserSettingsValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(["low", "high"])
     def test_flash_effort_rejects_values_outside_its_supported_choices(self, effort: str) -> None:
         serializer = ReviewUserSettingsSerializer(data={"flash_reasoning_effort": effort}, partial=True)

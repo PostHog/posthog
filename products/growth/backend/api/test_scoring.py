@@ -3,9 +3,9 @@ import json
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache, load_active_lists
 from products.growth.backend.models import (
@@ -21,7 +21,7 @@ _API = "/api/growth_enrichment_scoring/"
 _FORMULA = "return { 'status': 'scored', 'score': if(enrichments.ai_pilled.ai_pilled == true, 15, 0), 'components': { 'ai_pilled': if(enrichments.ai_pilled.ai_pilled == true, 15, 0) } };"
 
 
-class TestScoringRequest(SimpleTestCase):
+class TestScoringRequest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("empty", "", 10), ("syntax", "return {", 10), ("sample", _FORMULA, 11)])
     def test_invalid_preview_is_rejected(self, _name: str, source: str, sample: int) -> None:
         serializer = ScoringPreviewRequestSerializer(

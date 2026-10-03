@@ -4,8 +4,6 @@ import json
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import httpx
 from openai import BadRequestError
 from parameterized import parameterized
@@ -27,9 +25,10 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.targets import SESSION_ID_ALLOWLIST_KEY, TRACE_ID_ALLOWLIST_KEY
 from posthog.temporal.ai_observability.eval_reports.types import RunEvalReportAgentInput
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestSystemPromptFormat(SimpleTestCase):
+class TestSystemPromptFormat(ClickhouseFreeSimpleTestCase):
     def _build_prompt(
         self, output_type: str = "boolean", guidance: str = "", evaluation_target: str = "generation"
     ) -> str:
@@ -145,7 +144,7 @@ class TestSystemPromptFormat(SimpleTestCase):
             self.assertNotIn(fragment, formatted)
 
 
-class TestComputeMetrics(SimpleTestCase):
+class TestComputeMetrics(ClickhouseFreeSimpleTestCase):
     @patch.object(graph, "_fetch_period_summary")
     def test_computes_sentiment_rates_from_all_known_labels(self, mock_fetch):
         mock_fetch.side_effect = [
@@ -195,7 +194,7 @@ class TestComputeMetrics(SimpleTestCase):
             )
 
 
-class TestFallbackContent(SimpleTestCase):
+class TestFallbackContent(ClickhouseFreeSimpleTestCase):
     def test_zero_runs_produces_no_runs_message(self):
         metrics = EvalReportMetrics(
             total_runs=0,
@@ -278,7 +277,7 @@ class TestFallbackContent(SimpleTestCase):
         self.assertNotIn("pass rate", body.lower())
 
 
-class TestValidateAgentOutput(SimpleTestCase):
+class TestValidateAgentOutput(ClickhouseFreeSimpleTestCase):
     def _valid_content(self) -> EvalReportContent:
         return EvalReportContent(
             title="A valid punchline",
@@ -384,7 +383,7 @@ class TestValidateAgentOutput(SimpleTestCase):
         self.assertIn(session_id, reason or "")
 
 
-class TestAppendReferencesSection(SimpleTestCase):
+class TestAppendReferencesSection(ClickhouseFreeSimpleTestCase):
     def test_no_citations_leaves_sections_untouched(self):
         content = EvalReportContent(
             title="t",
@@ -431,7 +430,7 @@ class TestAppendReferencesSection(SimpleTestCase):
         self.assertEqual(content.sections[-1].title, "References")
 
 
-class TestRunEvalReportAgentRouting(SimpleTestCase):
+class TestRunEvalReportAgentRouting(ClickhouseFreeSimpleTestCase):
     """The report agent builds its LLM client via the shared ai-gateway helper.
 
     Pins the gateway routing at the call site: reverting to a direct ChatOpenAI(...)
@@ -491,7 +490,7 @@ class TestRunEvalReportAgentRouting(SimpleTestCase):
         self.assertIs(mock_create_agent.call_args.kwargs["model"], mock_build_llm.return_value)
 
 
-class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
+class TestRunEvalReportAgentDeadIdGuard(ClickhouseFreeSimpleTestCase):
     """The dead-ID guard reads the handled IDs off the finished agent state.
 
     Opaque IDs are not UUID-shaped, so the guard only catches them while the
@@ -540,7 +539,7 @@ class TestRunEvalReportAgentDeadIdGuard(SimpleTestCase):
         self.assertEqual(content.sections[0].content, f"See {session_id}.")
 
 
-class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
+class TestRunEvalReportAgentMetricsUnavailable(ClickhouseFreeSimpleTestCase):
     @patch.object(graph, "build_flex_first_chat_client")
     @patch.object(graph, "create_react_agent")
     @patch.object(graph, "_compute_metrics")
@@ -580,7 +579,7 @@ class TestRunEvalReportAgentMetricsUnavailable(SimpleTestCase):
         self.assertEqual(content.sections, [])
 
 
-class TestRunEvalReportAgentInstrumentation(SimpleTestCase):
+class TestRunEvalReportAgentInstrumentation(ClickhouseFreeSimpleTestCase):
     @patch.object(graph.logger, "info")
     @patch.object(graph, "build_langchain_callbacks")
     @patch.object(graph, "create_react_agent")

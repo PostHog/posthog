@@ -2,12 +2,13 @@ import hmac
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.ingress.github.provider import CORE_CONSUMERS, SPECS, build_github_provider
 from posthog.ingress.verify.schemes import VerificationOutcome
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 BODY = b'{"action":"created"}'
 INSTANCE_SECRET = "posthog-app-secret"
@@ -19,7 +20,7 @@ def _signature(secret: str) -> str:
 
 
 @override_settings(STAMPHOG_GITHUB_APP_WEBHOOK_SECRET=STAMPHOG_SECRET)
-class TestGitHubProvider(SimpleTestCase):
+class TestGitHubProvider(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("posthog_app", "posthog", INSTANCE_SECRET, STAMPHOG_SECRET),

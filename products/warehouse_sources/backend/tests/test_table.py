@@ -6,7 +6,6 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
@@ -19,6 +18,7 @@ from posthog.hogql.escape_sql import escape_param_clickhouse
 from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -518,7 +518,7 @@ class TestSchemaInferenceMode(BaseTest):
         assert mock_sync_execute.call_count == 5
 
 
-class TestGetHogqlFieldForColumn(SimpleTestCase):
+class TestGetHogqlFieldForColumn(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # Old-style metadata is just the ClickHouse type string, resolved through a mapping

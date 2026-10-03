@@ -1,10 +1,9 @@
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.scout_naming import (
@@ -18,7 +17,7 @@ from products.skills.backend.api.skill_services import MAX_SKILL_NAME_LENGTH
 from products.skills.backend.models.skills import LLMSkill
 
 
-class TestSlugifyScoutName(SimpleTestCase):
+class TestSlugifyScoutName(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("spaces and acronyms", "My APM scout", "my-apm-scout"),

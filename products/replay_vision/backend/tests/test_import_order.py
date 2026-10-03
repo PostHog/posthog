@@ -3,12 +3,13 @@ import sys
 import subprocess
 
 from django.conf import settings
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-class TestImportOrder(SimpleTestCase):
+
+class TestImportOrder(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("prompt_questions", "products.replay_vision.backend.prompt_questions"),

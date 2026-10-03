@@ -1,20 +1,19 @@
 import time_machine
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from fakeredis import FakeRedis
 from parameterized import parameterized
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from posthog.redis import TEST_clear_clients
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, TEST_reset_scripts, consume, peek, refund
 
 # 1 token per second, so refill math reads directly in seconds.
 ONE_PER_SECOND = Budget(burst=10, per_hour=3600)
 
 
-class TestTokenBucket(SimpleTestCase):
+class TestTokenBucket(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         TEST_clear_clients()
         TEST_reset_scripts()

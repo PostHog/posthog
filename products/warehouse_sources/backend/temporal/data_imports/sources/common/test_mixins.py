@@ -6,13 +6,14 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.db import OperationalError
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.temporal.common.errors import NonReportableError
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     MISSING_INTEGRATION_MESSAGE,
@@ -37,7 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
-class TestIsHostSafe(SimpleTestCase):
+class TestIsHostSafe(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("private_10", "10.0.0.1"),
@@ -280,7 +281,7 @@ class TestIsHostSafe(SimpleTestCase):
             mock_logger.warning.assert_not_called()
 
 
-class TestBracketHost(SimpleTestCase):
+class TestBracketHost(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("ipv6", "2606:4700:4700::1111", "[2606:4700:4700::1111]"),
@@ -293,7 +294,7 @@ class TestBracketHost(SimpleTestCase):
         assert bracket_host(host) == expected
 
 
-class TestValidateDatabaseHostMixin(SimpleTestCase):
+class TestValidateDatabaseHostMixin(ClickhouseFreeSimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_blocks_private_ip(self):
         mixin = ValidateDatabaseHostMixin()
@@ -329,7 +330,7 @@ class FakeConfig:
     ssh_tunnel: FakeSSHTunnelConfig | None = None
 
 
-class TestSSHTunnelHostValidation(SimpleTestCase):
+class TestSSHTunnelHostValidation(ClickhouseFreeSimpleTestCase):
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_ssh_tunnel_with_internal_host_blocked(self):
         mixin = SSHTunnelMixin()
@@ -384,7 +385,7 @@ class TestSSHTunnelHostValidation(SimpleTestCase):
         assert expected in error  # type: ignore
 
 
-class TestConnectionOpenLogging(SimpleTestCase):
+class TestConnectionOpenLogging(ClickhouseFreeSimpleTestCase):
     def test_direct_connection_logs_open_event(self):
         config = FakeConfig(ssh_tunnel=FakeSSHTunnelConfig(enabled=False, host=""))
         with patch(f"{_MIXINS_MODULE}.logger") as mock_logger:
@@ -451,7 +452,7 @@ class TestConnectionOpenLogging(SimpleTestCase):
         assert all(call.kwargs["team_id"] == 42 for call in mock_logger.info.call_args_list)
 
 
-class TestTunnelYieldsLoopbackOnly(SimpleTestCase):
+class TestTunnelYieldsLoopbackOnly(ClickhouseFreeSimpleTestCase):
     # ClickHouse bypasses the egress proxy for tunneled connections on the strength of the
     # tunnel branch only ever yielding its own loopback bind. A tunnel bound anywhere else
     # must be refused, not silently handed to a proxy-bypassing client.
@@ -467,7 +468,7 @@ class TestTunnelYieldsLoopbackOnly(SimpleTestCase):
                     pass
 
 
-class TestSSHTunnelHostIsCheckedAtConnect(SimpleTestCase):
+class TestSSHTunnelHostIsCheckedAtConnect(ClickhouseFreeSimpleTestCase):
     # The SSH hop is a raw socket that no egress proxy sees, and the sync path reaches these
     # entry points without ever running `ssh_tunnel_is_valid`, so what they do here is the only
     # control on where the tunnel's first connection goes.
@@ -512,7 +513,7 @@ class TestSSHTunnelHostIsCheckedAtConnect(SimpleTestCase):
             mock_ssh.from_config.return_value.get_tunnel.assert_not_called()
 
 
-class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
+class TestOAuthMixinIntegrationFetchResilience(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("pool_wait_timeout", "query_wait_timeout"),
@@ -632,7 +633,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert str(integration_id) not in MISSING_INTEGRATION_MESSAGE
 
 
-class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
+class TestDirectHostIsCheckedAtConnect(ClickhouseFreeSimpleTestCase):
     # A direct database connection is a raw socket that the HTTP egress proxy never sees, and the
     # sync path reaches these entry points from stored config without re-running
     # `is_database_host_valid`, so what they do here is the only control on where it connects.
@@ -697,7 +698,7 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
         assert not error_message_matches(str(exc.value), Any_Source_Errors.keys())
 
 
-class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
+class TestDirectHostRejectionIsNonRetryable(ClickhouseFreeSimpleTestCase):
     # The rejection is a config problem only the customer can fix, so it has to stop the schedule
     # the way its SSH counterpart does. Raising it through the real path couples the wording to the
     # registered pattern: reword one without the other and this fails. It is also a
@@ -719,7 +720,7 @@ class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
         assert error_message_matches(str(exc.value), Any_Source_Errors.keys())
 
 
-class TestCheckResolvedAddresses(SimpleTestCase):
+class TestCheckResolvedAddresses(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("internal_first", ["10.0.0.5", "203.0.113.5"]),

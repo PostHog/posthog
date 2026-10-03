@@ -3,8 +3,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from posthog.async_migrations.definition import AsyncMigrationOperationSQL
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import (
@@ -17,6 +15,7 @@ from posthog.async_migrations.utils import (
 )
 from posthog.constants import AnalyticsDBMS
 from posthog.models.async_migration import AsyncMigrationError, MigrationStatus
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 pytestmark = [
     pytest.mark.async_migrations,
@@ -30,7 +29,7 @@ DEFAULT_CH_OP = AsyncMigrationOperationSQL(sql="SELECT 1", rollback=None, timeou
 DEFAULT_POSTGRES_OP = AsyncMigrationOperationSQL(database=AnalyticsDBMS.POSTGRES, sql="SELECT 1", rollback=None)
 
 
-class TestExecuteOp(SimpleTestCase):
+class TestExecuteOp(ClickhouseFreeSimpleTestCase):
     @patch("posthog.clickhouse.client.sync_execute")
     def test_execute_op_clickhouse(self, mock_sync_execute):
         execute_op(DEFAULT_CH_OP, "some_id")

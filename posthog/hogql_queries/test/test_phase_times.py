@@ -1,9 +1,8 @@
-from django.test import SimpleTestCase
-
 from posthog.hogql_queries.phase_times import compute_phase_times
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestComputePhaseTimes(SimpleTestCase):
+class TestComputePhaseTimes(ClickhouseFreeSimpleTestCase):
     def test_runner_tree_rollups_convert_to_ms_and_default_none_when_absent(self) -> None:
         result = compute_phase_times({"./rate_limiters": 0.012, "./cache_write": 0.003, "./query": 0.5})
         self.assertEqual(result, {"rate_limiters_ms": 12.0, "cache_write_ms": 3.0, "flight_wait_ms": None})

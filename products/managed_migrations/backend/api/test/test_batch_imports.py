@@ -8,11 +8,12 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 
 from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.admin.batch_imports import BatchImportAdmin
@@ -473,7 +474,7 @@ class TestBatchImportConfigBuilder(BaseTest):
 
 
 @override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport")
-class TestBatchImportS3AuthValidation(SimpleTestCase):
+class TestBatchImportS3AuthValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

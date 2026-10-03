@@ -6,13 +6,13 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
 
 from posthog.models.utils import uuid7
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
 
@@ -685,7 +685,7 @@ class TestGenerateIntentDigest(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestM
         assert result.digest == "Fresh."
 
 
-class TestResolveIntentThemes(SimpleTestCase):
+class TestResolveIntentThemes(ClickhouseFreeSimpleTestCase):
     CORPUS = [
         ("check the signups funnel", "query_run"),
         ("compare to last week", "query_run"),

@@ -14,14 +14,13 @@ import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -1787,7 +1786,7 @@ def corrupt_system_tzdata() -> Iterator[None]:
             zoneinfo.ZoneInfo.clear_cache()
 
 
-class TestScheduledChangesWithoutReadableTzdata(SimpleTestCase):
+class TestScheduledChangesWithoutReadableTzdata(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("unreadable_zone", "America/New_York"), ("unreadable_utc", "UTC")])
     def test_corrupt_tzif_file_falls_back_to_utc(self, _name: str, tz_name: str) -> None:
         with corrupt_system_tzdata():

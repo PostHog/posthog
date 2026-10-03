@@ -1,9 +1,8 @@
-from django.test import SimpleTestCase
-
 from posthog.credentials import AWSKeyPair
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestAWSKeyPair(SimpleTestCase):
+class TestAWSKeyPair(ClickhouseFreeSimpleTestCase):
     def test_secret_is_absent_from_repr_but_still_readable(self):
         pair = AWSKeyPair.unsafe_from_strings("AKIAEXAMPLE", "the-secret")
 

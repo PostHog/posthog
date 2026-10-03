@@ -1,12 +1,11 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework.exceptions import ParseError
 
 from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tracing.backend.presentation.views import SpansViewSet, _serialize_compare_rows
 
@@ -19,7 +18,7 @@ class _FakeRow:
         return {"value": self.value}
 
 
-class TestSerializeCompareRows(SimpleTestCase):
+class TestSerializeCompareRows(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # None means "no comparison requested" and must stay null; an empty list means
@@ -36,7 +35,7 @@ class TestSerializeCompareRows(SimpleTestCase):
         self.assertEqual(_serialize_compare_rows([_FakeRow(1), _FakeRow(2)]), [{"value": 1}, {"value": 2}])
 
 
-class TestQueryBody(SimpleTestCase):
+class TestQueryBody(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("array_body", ["x"]),

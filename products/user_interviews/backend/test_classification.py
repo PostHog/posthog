@@ -1,12 +1,12 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.user_interviews.backend.classification import derive_auto_classifications
 from products.user_interviews.backend.models import UserInterviewClassification
 
 
-class TestDeriveAutoClassifications(SimpleTestCase):
+class TestDeriveAutoClassifications(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty transcript has no parseable turns", "", []),

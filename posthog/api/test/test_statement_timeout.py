@@ -1,13 +1,13 @@
 from posthog.test.base import BaseTest
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError, connection
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from prometheus_client import Counter
 from rest_framework.exceptions import APIException
 
 from posthog.api.statement_timeout import is_query_canceled, statement_timeout
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 TEST_TIMED_OUT_COUNTER = Counter("test_statement_timeout_total", "Test only.")
 
@@ -32,7 +32,7 @@ class TestStatementTimeoutInsideAnOuterTransaction(BaseTest):
         assert current_statement_timeout() == outer_value
 
 
-class TestIsQueryCanceled(SimpleTestCase):
+class TestIsQueryCanceled(ClickhouseFreeSimpleTestCase):
     @staticmethod
     def _wrapped_error(**attrs: str) -> OperationalError:
         # Django surfaces the driver's error as its own OperationalError with the original attached

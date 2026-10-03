@@ -4,12 +4,11 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.test import SimpleTestCase
-
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
@@ -559,7 +558,7 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
         assert stranded.type == NodeType.MAT_VIEW
 
 
-class TestDeleteDagSchedules(SimpleTestCase):
+class TestDeleteDagSchedules(ClickhouseFreeSimpleTestCase):
     def _run(self, schedule_ids, *, delete=None):
         temporal = temporal_listing(schedule_ids)
         with (

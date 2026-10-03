@@ -1,9 +1,9 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.dataset.labeling import build_training_features_sql
 from products.autoresearch.backend.training.recipe_validation import (
@@ -16,7 +16,7 @@ from products.autoresearch.backend.training.recipe_validation import (
 ANCHORED = "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id, a.cutoff_ts"
 
 
-class TestRecipeValidation(SimpleTestCase):
+class TestRecipeValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("absent", "SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id"),

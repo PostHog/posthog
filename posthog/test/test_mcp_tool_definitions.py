@@ -5,9 +5,9 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import SimpleTestCase
 
 from posthog.mcp_tool_definitions import get_mcp_tool_definitions, mcp_tool_required_scopes
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _SCHEMA_DIR = Path(settings.BASE_DIR) / "services" / "mcp" / "schema"
 
@@ -34,7 +34,7 @@ def _definition(**overrides) -> dict:
     }
 
 
-class TestMcpToolDefinitions(SimpleTestCase):
+class TestMcpToolDefinitions(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         get_mcp_tool_definitions.cache_clear()
         mcp_tool_required_scopes.cache_clear()

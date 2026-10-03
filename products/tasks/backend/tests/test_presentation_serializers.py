@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import time_machine
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -17,6 +16,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.model_catalogue import GatewayModel
@@ -34,7 +34,7 @@ from products.tasks.backend.presentation.serializers import (
 )
 
 
-class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
+class TestSandboxEnvironmentWriteSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("scheme", "https://example.com"),
@@ -72,7 +72,7 @@ class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
             tasks_facade.normalize_sandbox_allowed_domains(domains)
 
 
-class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
+class TestTaskWriteSerializerOriginProduct(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("image_builder", True),
@@ -90,7 +90,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
         assert ("origin_product" in serializer.errors) is expected_rejected
 
 
-class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
+class TestTaskRunLivingArtifactCreateRequestSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("blank_content", {"name": "canvas", "content": ""}, True),
@@ -102,7 +102,7 @@ class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
         assert serializer.is_valid() is expected_valid
 
 
-class TestTaskRunCreateRequestSerializer(SimpleTestCase):
+class TestTaskRunCreateRequestSerializer(ClickhouseFreeSimpleTestCase):
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
     def test_schedule_requires_start_run(self) -> None:
         serializer = TaskCreateSerializer(data={"scheduled_at": "2026-09-19T12:00:00Z"})
@@ -280,7 +280,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         mock_resolve_url_hosts_ips.assert_not_called()
 
 
-class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
+class TestTaskRunArtifactUploadSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("at the ceiling", TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES, True),
@@ -305,7 +305,7 @@ class TestTaskRunArtifactUploadSerializer(SimpleTestCase):
             assert f"{megabytes}MB attachment limit" in str(serializer.errors["content"])
 
 
-class TestCredentialResponseSerializer(SimpleTestCase):
+class TestCredentialResponseSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ({"token": ""},),

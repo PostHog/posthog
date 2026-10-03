@@ -1,8 +1,8 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.user_interviews.backend.facade.api import has_replied, parse_interviewee_identifier
 from products.user_interviews.backend.facade.contracts import IntervieweeIdentity
@@ -26,7 +26,7 @@ class TestParseIntervieweeIdentifier(APIBaseTest):
         )
 
 
-class TestLinkageValidation(SimpleTestCase):
+class TestLinkageValidation(ClickhouseFreeSimpleTestCase):
     # A UUIDv7 (version nibble 7); a UUIDv4 for the wrong-version case.
     _V7 = "018f0b7a-0000-7000-8000-000000000000"
     _V4 = "018f0b7a-0000-4000-8000-000000000000"

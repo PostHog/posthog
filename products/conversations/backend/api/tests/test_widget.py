@@ -5,7 +5,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,6 +13,7 @@ from rest_framework.test import APIClient
 
 from posthog.models.comment import Comment
 from posthog.rate_limit import WidgetTeamPollThrottle
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
 from products.conversations.backend.models import SigningSecret, Ticket
@@ -1489,7 +1489,7 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
-class TestWidgetAuthSerializer(SimpleTestCase):
+class TestWidgetAuthSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -1540,7 +1540,7 @@ class TestWidgetAuthSerializer(SimpleTestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
 
 
-class TestWidgetContextSanitization(SimpleTestCase):
+class TestWidgetContextSanitization(ClickhouseFreeSimpleTestCase):
     def _serializer(self, **overrides):
         return WidgetMessageSerializer(
             data={

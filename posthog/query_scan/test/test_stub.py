@@ -1,5 +1,3 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -8,6 +6,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import HogQLPrinter
 
 from posthog.query_scan.stub import stub_in_subqueries
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def print_hogql(node: ast.Expr) -> str:
@@ -15,7 +14,7 @@ def print_hogql(node: ast.Expr) -> str:
     return HogQLPrinter(context=HogQLContext(team_id=0)).visit(node)
 
 
-class TestStubInSubqueries(SimpleTestCase):
+class TestStubInSubqueries(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

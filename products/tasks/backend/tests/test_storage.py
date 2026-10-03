@@ -4,16 +4,16 @@ import threading
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import redis
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.facade.contracts import TaskRunLogAppendUnserialized
 from products.tasks.backend.storage import append_jsonl_object
 
 
-class TestAppendJsonlObject(SimpleTestCase):
+class TestAppendJsonlObject(ClickhouseFreeSimpleTestCase):
     @patch("products.tasks.backend.storage.get_client")
     @patch("products.tasks.backend.storage.object_storage.write")
     @patch("products.tasks.backend.storage.object_storage.read")

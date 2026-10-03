@@ -1,13 +1,13 @@
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import (
@@ -26,7 +26,7 @@ def _streamed_text(mock_client: MagicMock) -> str:
     )
 
 
-class TestSlackThreadHandler(SimpleTestCase):
+class TestSlackThreadHandler(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty", "", "Unknown error"),
@@ -327,7 +327,7 @@ def _button_texts(action_block: dict) -> list[str]:
     return [element["text"]["text"] for element in action_block["elements"]]
 
 
-class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
+class TestSlackThreadHandlerWithoutTaskUrl(ClickhouseFreeSimpleTestCase):
     """A ``task_url=None`` payload signals the recipient does not have PostHog Desktop access.
 
     Each renderer must drop the PostHog button (or the entire actions block when
@@ -419,7 +419,7 @@ class TestSlackThreadHandlerWithoutTaskUrl(SimpleTestCase):
         assert kwargs["blocks"][1]["text"]["text"] == "boom"
 
 
-class TestPostPrOpenedReplyTarget(SimpleTestCase):
+class TestPostPrOpenedReplyTarget(ClickhouseFreeSimpleTestCase):
     """``post_pr_opened`` no longer owns the mention-target decision — the
     caller resolves the Slack user id and passes it in. The handler just
     embeds it (or omits the prefix entirely when it's ``None``).
@@ -458,7 +458,7 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
         assert kwargs["text"].startswith(expected_text_start)
 
 
-class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
+class TestPostPrOpenedPersonalGithubHint(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("bot_authored", True, True), ("user_authored", False, False)])
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_integration", return_value=Integration(team_id=7))
@@ -490,7 +490,7 @@ class TestPostPrOpenedPersonalGithubHint(SimpleTestCase):
             assert "/project/7/settings/user-personal-integrations|Connect your GitHub>" in text
 
 
-class TestReplyFooterGate(SimpleTestCase):
+class TestReplyFooterGate(ClickhouseFreeSimpleTestCase):
     def _handler(self, footer: RunFooter | None = None) -> SlackThreadHandler:
         context = SlackThreadContext(
             integration_id=1,
@@ -515,7 +515,7 @@ class TestReplyFooterGate(SimpleTestCase):
         assert any(chunk.get("type") == "blocks" for chunk in chunks)
 
 
-class TestFooterNeverCostsTheAnswer(SimpleTestCase):
+class TestFooterNeverCostsTheAnswer(ClickhouseFreeSimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_a_rejected_footer_reposts_the_answer_as_plain_text(self, mock_get_client, mock_get_integration) -> None:
@@ -540,7 +540,7 @@ class TestFooterNeverCostsTheAnswer(SimpleTestCase):
         assert not retry.get("blocks")
 
 
-class TestStreamClosedBySlack(SimpleTestCase):
+class TestStreamClosedBySlack(ClickhouseFreeSimpleTestCase):
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_the_answer_is_posted_in_the_thread_and_the_closed_stream_gets_nothing_more(
@@ -569,7 +569,7 @@ class TestStreamClosedBySlack(SimpleTestCase):
         assert posted["text"].startswith("<@U123>")
 
 
-class TestRelayedAnswerFooter(SimpleTestCase):
+class TestRelayedAnswerFooter(ClickhouseFreeSimpleTestCase):
     def _handler(self, footer: RunFooter) -> SlackThreadHandler:
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
         return SlackThreadHandler(context, footer)
@@ -611,7 +611,7 @@ class TestRelayedAnswerFooter(SimpleTestCase):
             assert kwargs["blocks"][0]["expand"] is True
 
 
-class TestDeletedTriggerMessage(SimpleTestCase):
+class TestDeletedTriggerMessage(ClickhouseFreeSimpleTestCase):
     """A run whose prompt has been deleted has nobody left to answer, so it says nothing."""
 
     def setUp(self) -> None:
@@ -662,7 +662,7 @@ class TestDeletedTriggerMessage(SimpleTestCase):
         mock_client.chat_startStream.assert_not_called()
 
 
-class TestForkMenuOnReplies(SimpleTestCase):
+class TestForkMenuOnReplies(ClickhouseFreeSimpleTestCase):
     """Where the fork menu attaches, on the plain-post path."""
 
     def _handler(self) -> SlackThreadHandler:
@@ -714,7 +714,7 @@ class TestForkMenuOnReplies(SimpleTestCase):
         assert "accessory" not in blocks[0]
 
 
-class TestMarkdownAnswerBlocks(SimpleTestCase):
+class TestMarkdownAnswerBlocks(ClickhouseFreeSimpleTestCase):
     """Under the gate the answer carries a `markdown` block, which takes no accessory and caps
     at a different length than the `section` it replaces."""
 

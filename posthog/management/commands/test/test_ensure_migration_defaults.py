@@ -6,7 +6,7 @@ from typing import Any
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
@@ -19,6 +19,7 @@ from posthog.management.commands.ensure_migration_defaults import (
     _STREAMLIT_OAUTH_CLIENT_ID,
 )
 from posthog.models.oauth import OAuthApplication
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
@@ -61,7 +62,7 @@ def _placeholders(value: Any) -> set[str]:
     return set()
 
 
-class TestSeededDashboardTemplates(SimpleTestCase):
+class TestSeededDashboardTemplates(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(label, template, tile) for label, template, tile in _insight_tiles()])
     def test_insight_tile_carries_a_query(self, _label: str, _template: dict[str, Any], tile: dict[str, Any]) -> None:
         assert tile.get("query"), "create_from_template builds insights from `query`, so a tile without one is blank"

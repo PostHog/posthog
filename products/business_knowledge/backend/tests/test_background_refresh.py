@@ -4,11 +4,11 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models.scoping import team_scope
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.models import (
@@ -112,7 +112,7 @@ class TestHostSerializedBatches(BaseTest):
         assert batches == [[RefreshSourceInputs(team_id=7, source_id="x")]]
 
 
-class TestEmbeddingReconciliation(SimpleTestCase):
+class TestEmbeddingReconciliation(ClickhouseFreeSimpleTestCase):
     def test_uses_dedicated_offline_clickhouse_user(self) -> None:
         chunk_id = uuid4()
         with (

@@ -1,14 +1,13 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from rest_framework import status
 
 from posthog.api.sdk_health import get_team_data
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestGetTeamData(SimpleTestCase):
+class TestGetTeamData(ClickhouseFreeSimpleTestCase):
     @patch("posthog.api.sdk_health.get_client")
     def test_reads_v2_team_cache(self, mock_get_client: MagicMock) -> None:
         redis_client = MagicMock()

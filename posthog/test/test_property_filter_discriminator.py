@@ -1,5 +1,3 @@
-from django.test.testcases import SimpleTestCase
-
 from parameterized import parameterized
 from pydantic import BaseModel, ValidationError
 
@@ -43,6 +41,8 @@ from posthog.schema import (
     WorkflowVariablePropertyFilter,
 )
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+
 
 # Mirrors TrendsQueryWithTemplateVariables in filter_to_query.py: subclassing a schema
 # model from another module only works if the parent's annotations resolved at class
@@ -51,7 +51,7 @@ class TrendsQuerySubclassedElsewhere(TrendsQuery):
     pass
 
 
-class TestPropertyFilterDiscriminator(SimpleTestCase):
+class TestPropertyFilterDiscriminator(ClickhouseFreeSimpleTestCase):
     # The AnyPropertyFilter union was an undiscriminated smart union — Pydantic walked
     # every member per item, so one malformed filter produced an error per member and
     # valid filters paid for the walk. bin/patch-schema-property-filter-discriminator.py

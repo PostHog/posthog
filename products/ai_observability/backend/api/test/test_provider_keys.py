@@ -6,7 +6,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 import httpx
@@ -15,6 +14,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
@@ -29,7 +29,7 @@ from products.ai_observability.backend.models.provider_keys import LLMProviderKe
 from products.ai_observability.backend.models.taggers import Tagger
 
 
-class TestProviderKeySerializer(SimpleTestCase):
+class TestProviderKeySerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(LLMProxyCompletionSerializer,), (TaggerModelConfigurationWriteSerializer,)])
     def test_system_one_is_not_a_completion_provider(self, serializer_class: type[serializers.Serializer]) -> None:
         serializer = serializer_class(

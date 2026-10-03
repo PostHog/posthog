@@ -3,8 +3,6 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -24,10 +22,12 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+
 from products.warehouse_sources.backend.facade.source_management import ClickHouseConnectionError
 
 
-class TestDirectClickHouseTable(SimpleTestCase):
+class TestDirectClickHouseTable(ClickhouseFreeSimpleTestCase):
     def _table(self, database: str) -> DirectClickHouseTable:
         return DirectClickHouseTable(
             name="events",
@@ -150,7 +150,7 @@ class TestClickHouseAdapterExecute(BaseTest):
         self.assertEqual(str(error.exception), "Read timed out")
 
 
-class TestClickHouseReadOnlyGuard(SimpleTestCase):
+class TestClickHouseReadOnlyGuard(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("select", "SELECT * FROM events"),
@@ -226,7 +226,7 @@ class TestClickHouseReadOnlyGuard(SimpleTestCase):
             ensure_read_only_raw_clickhouse_statement(sql)
 
 
-class TestClickHouseRowCap(SimpleTestCase):
+class TestClickHouseRowCap(ClickhouseFreeSimpleTestCase):
     def _stream_client(self, blocks: list[list[tuple]]) -> MagicMock:
         stream = MagicMock()
         stream.source.column_names = ["n"]

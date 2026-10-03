@@ -3,8 +3,6 @@ import dataclasses
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.cdp.migrations import coerce_input_value, migrate_legacy_plugins
@@ -12,12 +10,13 @@ from posthog.cdp.templates._siteapps.template_notification_bar import template a
 from posthog.cdp.templates._siteapps.template_pineapple_mode import template as pineapple_mode
 from posthog.cdp.templates.helpers import mock_transpile
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
 
 
-class TestCoerceInputValue(SimpleTestCase):
+class TestCoerceInputValue(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("boolean_yes", {"type": "boolean"}, "Yes", True),

@@ -1,10 +1,9 @@
 from typing import Any
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.github.merge_queue import MergeQueueState
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 TRUNK = {"login": "trunk-io[bot]", "type": "Bot"}
 LINK = "https://app.trunk.io/example-org/merge-queue/repo-id/4242"
@@ -14,7 +13,7 @@ def trunk_comment(body: str) -> dict[str, Any]:
     return {"user": TRUNK, "body": body}
 
 
-class TestMergeQueueState(SimpleTestCase):
+class TestMergeQueueState(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

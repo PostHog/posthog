@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.customer_analytics.backend.presentation.views.views import _ScopeGatedAccessControl
 
@@ -17,7 +17,7 @@ class _FakeModel:
         self._meta = _Meta(model_name)
 
 
-class TestScopeGatedAccessControl(SimpleTestCase):
+class TestScopeGatedAccessControl(ClickhouseFreeSimpleTestCase):
     def _gate(self, scopes: list[str]) -> tuple[_ScopeGatedAccessControl, MagicMock]:
         inner = MagicMock()
         inner.check_access_level_for_object.return_value = True

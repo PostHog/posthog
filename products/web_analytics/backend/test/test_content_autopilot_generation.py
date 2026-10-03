@@ -7,7 +7,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 import httpx
 from anthropic import APIConnectionError
@@ -20,6 +19,7 @@ from posthog.egress.firecrawl.client import (
     FirecrawlSearchFailed,
     FirecrawlSearchResult,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.web_analytics.backend.content_autopilot import generation
 from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits
@@ -584,7 +584,7 @@ class _DroppingStreamClient:
         return _FakeStream(events())
 
 
-class TestCallJson(SimpleTestCase):
+class TestCallJson(ClickhouseFreeSimpleTestCase):
     def test_retries_a_stream_that_drops_mid_response(self) -> None:
         client = _DroppingStreamClient()
 
@@ -653,7 +653,7 @@ Yes.
 """
 
 
-class TestApplyEdits(SimpleTestCase):
+class TestApplyEdits(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -711,7 +711,7 @@ class TestApplyEdits(SimpleTestCase):
         assert "a\n\n\nb" in applied.markdown
 
 
-class TestSearchSitePages(SimpleTestCase):
+class TestSearchSitePages(ClickhouseFreeSimpleTestCase):
     def test_maps_results_onto_sitemap_pages_and_drops_other_sites(self) -> None:
         results = FirecrawlSearch(
             query="q",
@@ -740,7 +740,7 @@ class TestSearchSitePages(SimpleTestCase):
             assert search_site_pages("best replay tool", site_origin="https://example.com", site_urls=SITE_PAGES) == []
 
 
-class TestFetchSitePage(SimpleTestCase):
+class TestFetchSitePage(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("full_twin", REPLAY_DOC, REPLAY_DOC, None),
@@ -780,7 +780,7 @@ class TestFetchSitePage(SimpleTestCase):
         assert absent is None or absent not in document.text
 
 
-class TestValidationChecks(SimpleTestCase):
+class TestValidationChecks(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("relative_known", "[a](/pricing)", True),
@@ -913,7 +913,7 @@ class TestValidationChecks(SimpleTestCase):
         assert documents == [fetched]
 
 
-class TestValidateImprovement(SimpleTestCase):
+class TestValidateImprovement(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("edit_that_only_removes_a_section", GOOD_MARKDOWN.split("## Frequently asked questions")[0], True),

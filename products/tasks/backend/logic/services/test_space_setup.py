@@ -3,11 +3,10 @@ import json
 from datetime import date
 from pathlib import Path
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, INTERNAL_SCOPES
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.facade.contracts import (
     SPACE_SETUP_SCOPES,
@@ -26,7 +25,7 @@ from products.tasks.backend.presentation.serializers import ChannelSetupWriteSer
 CHANNEL_ID = "170feb6b-c847-4fbf-8beb-7932a89c1bc9"
 
 
-class TestBuildSpaceSetupPrompt(SimpleTestCase):
+class TestBuildSpaceSetupPrompt(ClickhouseFreeSimpleTestCase):
     def test_goal_prompt_carries_every_loop_brief_with_placeholders_filled(self):
         request = SpaceSetupRequest(
             kind="goal",
@@ -112,7 +111,7 @@ class TestBuildSpaceSetupPrompt(SimpleTestCase):
             )
 
 
-class TestChannelSetupWriteSerializer(SimpleTestCase):
+class TestChannelSetupWriteSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("goal_without_goal", {"kind": "goal"}, "goal"),
@@ -143,7 +142,7 @@ class TestChannelSetupWriteSerializer(SimpleTestCase):
         )
 
 
-class TestSpaceSetupScopes(SimpleTestCase):
+class TestSpaceSetupScopes(ClickhouseFreeSimpleTestCase):
     def test_every_tool_the_setup_steps_name_is_callable_with_the_setup_scopes(self):
         definitions = json.loads(
             (Path(__file__).parents[5] / "services" / "mcp" / "schema" / "tool-definitions-all.json").read_text()

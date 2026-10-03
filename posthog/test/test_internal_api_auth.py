@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import AuthenticationFailed
@@ -11,9 +11,10 @@ from rest_framework.request import Request
 
 from posthog.auth import InternalAPIAuthentication
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestInternalAPIAuthWithoutDatabase(SimpleTestCase):
+class TestInternalAPIAuthWithoutDatabase(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.authentication = InternalAPIAuthentication()

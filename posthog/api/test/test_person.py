@@ -20,7 +20,6 @@ from posthog.test.base import (
 )
 from unittest import mock
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -49,6 +48,7 @@ from posthog.models.person.util import (
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -2596,7 +2596,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotIn(distinct_ids[200], results)
 
 
-class TestTagClientQueryId(SimpleTestCase):
+class TestTagClientQueryId(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         reset_query_tags()

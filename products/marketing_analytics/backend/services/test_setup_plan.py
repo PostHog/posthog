@@ -1,12 +1,11 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.services.attribution_health import AttributionHealthResponse
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
@@ -131,7 +130,7 @@ def _attribution(total=1000, matched=900) -> AttributionHealthResponse:
     )
 
 
-class SetupPlanTestCase(SimpleTestCase):
+class SetupPlanTestCase(ClickhouseFreeSimpleTestCase):
     """Every leaf the plan gathers is mocked; these tests are about how the plan
     composes, ranks and explains, not about the leaves' own logic."""
 

@@ -3,13 +3,14 @@ from datetime import date, timedelta
 from posthog.test.base import BaseTest
 
 from django.db import connection
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs  # noqa: F401  breaks an import cycle
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
 from products.cohorts.backend.backfill.inventory import (
@@ -58,7 +59,7 @@ def _facts(**overrides: object) -> RunFacts:
     return RunFacts(**{**defaults, **overrides})  # type: ignore[arg-type]
 
 
-class TestClassifyRun(SimpleTestCase):
+class TestClassifyRun(ClickhouseFreeSimpleTestCase):
     def test_seeding_run_with_chunks_at_the_attempt_cap_is_stalled(self) -> None:
         now = timezone.now()
 

@@ -1,7 +1,5 @@
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -12,6 +10,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.query_scan.event_filter import EventFilterOutcome, classify_event_filter, combine_event_filter
 from posthog.query_scan.explain import QueryPlan, parse_query_plan
 from posthog.query_scan.test.test_explain import events_read_node, load_plan
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _KEY_USED_PLAN = parse_query_plan(load_plan("plan_event_filter_used"))
 _KEY_UNUSED_PLAN = parse_query_plan(load_plan("plan_no_event_filter"))
@@ -124,7 +123,7 @@ class TestClassifyEventFilter(BaseTest):
         self.assertIs(outcome.hidden_from_plan, expected_hidden_from_plan)
 
 
-class TestCombineEventFilter(SimpleTestCase):
+class TestCombineEventFilter(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # A used key overrules a tree fault that is not a negation.

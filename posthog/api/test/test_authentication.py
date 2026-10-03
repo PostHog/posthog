@@ -18,7 +18,7 @@ from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -68,6 +68,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -2542,7 +2543,7 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
-class TestWidgetAuthentication(SimpleTestCase):
+class TestWidgetAuthentication(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(Team.DoesNotExist,), (Team.MultipleObjectsReturned,)])
     def test_invalid_token_fails_authentication(self, lookup_error: type[Exception]) -> None:
         request = Request(APIRequestFactory().get("/", HTTP_X_CONVERSATIONS_TOKEN="test-widget-token"))
@@ -2551,7 +2552,7 @@ class TestWidgetAuthentication(SimpleTestCase):
                 WidgetAuthentication().authenticate(request)
 
 
-class TestSyntheticUser(SimpleTestCase):
+class TestSyntheticUser(ClickhouseFreeSimpleTestCase):
     def _team(self, team_id=42):
         return type("FakeTeam", (), {"id": team_id})()
 
@@ -2599,7 +2600,7 @@ class TestSyntheticUser(SimpleTestCase):
         self.assertEqual(b.user_permissions, [])
 
 
-class TestExtractPhsToken(SimpleTestCase):
+class TestExtractPhsToken(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
 

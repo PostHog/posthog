@@ -1,11 +1,10 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.slack.markdown import opens_with_line_anchored_markdown
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestOpensWithLineAnchoredMarkdown(SimpleTestCase):
+class TestOpensWithLineAnchoredMarkdown(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("heading", "## Heading\n\nBody."),

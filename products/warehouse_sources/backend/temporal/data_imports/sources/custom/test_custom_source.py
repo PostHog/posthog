@@ -10,7 +10,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import requests
 from parameterized import parameterized
@@ -18,6 +18,7 @@ from requests import Response
 from urllib3.response import HTTPResponse
 
 from posthog.models import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.models import ExternalDataSource
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
@@ -98,7 +99,7 @@ def _minimal_manifest(base_url: str = "https://api.example.com") -> dict:
     }
 
 
-class TestValidateManifest(SimpleTestCase):
+class TestValidateManifest(ClickhouseFreeSimpleTestCase):
     def test_accepts_minimal_manifest(self):
         validate_manifest(_minimal_manifest())
 
@@ -309,7 +310,7 @@ class TestValidateManifest(SimpleTestCase):
         assert "grant_type" in str(ctx.exception)
 
 
-class TestValidateManifestUrls(SimpleTestCase):
+class TestValidateManifestUrls(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("http_127", "http://127.0.0.1/api"),
@@ -431,7 +432,7 @@ class TestValidateManifestUrls(SimpleTestCase):
         assert ok, err
 
 
-class TestCustomSourceAssembleManifest(SimpleTestCase):
+class TestCustomSourceAssembleManifest(ClickhouseFreeSimpleTestCase):
     def test_rejects_invalid_json(self):
         source = CustomSource()
         config = CustomSourceConfig(manifest_json="{not json}")
@@ -1044,7 +1045,7 @@ class TestCustomSourceOAuth2SecretAdoption(BaseTest):
         assert row.sensitive_config["client_secret"] == "cs"
 
 
-class TestCustomSourceGetSchemas(SimpleTestCase):
+class TestCustomSourceGetSchemas(ClickhouseFreeSimpleTestCase):
     def test_returns_one_schema_per_resource(self):
         manifest = _minimal_manifest()
         manifest["resources"].append(
@@ -1105,7 +1106,7 @@ def _oauth2_manifest() -> dict:
     return manifest
 
 
-class TestCustomSourceValidateCredentials(SimpleTestCase):
+class TestCustomSourceValidateCredentials(ClickhouseFreeSimpleTestCase):
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_returns_true_on_2xx(self, mock_session):
         response = MagicMock(status_code=200, text="{}")
@@ -1482,7 +1483,7 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert err is not None
 
 
-class TestManifestRequestHosts(SimpleTestCase):
+class TestManifestRequestHosts(ClickhouseFreeSimpleTestCase):
     def _manifest(self, base_url: str, resource_paths: list[str]) -> str:
         return json.dumps(
             {
@@ -1642,7 +1643,7 @@ class TestManifestRequestHosts(SimpleTestCase):
         assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
 
 
-class TestCustomSourceSourceForPipeline(SimpleTestCase):
+class TestCustomSourceSourceForPipeline(ClickhouseFreeSimpleTestCase):
     def test_invalid_manifest_raises_non_retryable(self):
         # A permanent config error must fail fast, not burn the Temporal retry budget.
         source = CustomSource()
@@ -1791,7 +1792,7 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
 
 
-class TestCustomSourceNonRetryableErrors(SimpleTestCase):
+class TestCustomSourceNonRetryableErrors(ClickhouseFreeSimpleTestCase):
     def test_missing_resource_message_is_classified_non_retryable(self):
         # The message `source_for_pipeline` raises when a schema points to a resource
         # the manifest no longer defines must be recognized by the source's classifier,
@@ -2017,7 +2018,7 @@ def _add_nested_child(m: dict) -> None:
     )
 
 
-class TestCustomSourceFanoutValidation(SimpleTestCase):
+class TestCustomSourceFanoutValidation(ClickhouseFreeSimpleTestCase):
     def test_accepts_valid_fanout(self):
         validate_manifest(_fanout_manifest())
 
@@ -2086,7 +2087,7 @@ class TestCustomSourceFanoutValidation(SimpleTestCase):
         assert err is not None and "nonexistent" in err
 
 
-class TestFanoutChain(SimpleTestCase):
+class TestFanoutChain(ClickhouseFreeSimpleTestCase):
     def test_top_level_resource_has_no_ancestors(self):
         manifest = _fanout_manifest()
         chain = _fanout_chain(manifest, "forms")
@@ -2134,7 +2135,7 @@ class TestFanoutChain(SimpleTestCase):
             _fanout_chain(manifest, "responses")
 
 
-class TestCustomSourceFanoutPipeline(SimpleTestCase):
+class TestCustomSourceFanoutPipeline(ClickhouseFreeSimpleTestCase):
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_child_schema_runs_parent_and_child(self, mock_resources):
         # Selecting the child must hand the engine BOTH resources (parent first)
@@ -2415,7 +2416,7 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
         ]
 
 
-class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
+class TestCustomSourceFanoutSchemasAndProbe(ClickhouseFreeSimpleTestCase):
     def test_child_resource_is_its_own_schema(self):
         manifest = _fanout_manifest()
         manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
@@ -2454,7 +2455,7 @@ class TestCustomSourceFanoutSchemasAndProbe(SimpleTestCase):
         assert probed_urls == ["https://api.example.com/forms"]
 
 
-class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
+class TestCustomSourceIncrementalDatetimeFormat(ClickhouseFreeSimpleTestCase):
     def _manifest(self, datetime_format=None) -> dict:
         manifest = _minimal_manifest()
         incremental = {"cursor_path": "updated_at", "start_param": "since"}
@@ -2557,7 +2558,7 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
 
 
-class TestCustomSourceIncrementalStartParam(SimpleTestCase):
+class TestCustomSourceIncrementalStartParam(ClickhouseFreeSimpleTestCase):
     _OMIT = object()
 
     def _manifest(self, start_param) -> dict:
@@ -2595,7 +2596,7 @@ class TestCustomSourceIncrementalStartParam(SimpleTestCase):
         assert err is not None and "start_param" in err and "'users'" in err
 
 
-class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
+class TestCustomSourceIncrementalUnsupportedKeys(ClickhouseFreeSimpleTestCase):
     def _manifest(self) -> dict:
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["incremental"] = {
@@ -2630,7 +2631,7 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
 
-class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
+class TestCustomSourcePaginatorUnsupportedKeys(ClickhouseFreeSimpleTestCase):
     def _manifest(self) -> dict:
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["paginator"] = {
@@ -2673,7 +2674,7 @@ def _apikey_manifest() -> dict:
     return manifest
 
 
-class TestPreviewSession(SimpleTestCase):
+class TestPreviewSession(ClickhouseFreeSimpleTestCase):
     def test_send_pins_no_redirect_streams_and_default_timeout(self):
         prepared = requests.Request("GET", "https://acme.example.com/").prepare()
         response = Response()
@@ -2690,7 +2691,7 @@ class TestPreviewSession(SimpleTestCase):
         assert forwarded["timeout"] == (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
 
 
-class TestJsonTypeLabel(SimpleTestCase):
+class TestJsonTypeLabel(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("null", None, "null"),
@@ -2707,7 +2708,7 @@ class TestJsonTypeLabel(SimpleTestCase):
         assert _json_type_label(value) == expected
 
 
-class TestCustomSourcePreviewResource(SimpleTestCase):
+class TestCustomSourcePreviewResource(ClickhouseFreeSimpleTestCase):
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_returns_rows_and_inferred_columns(self, mock_resources):
         mock_resources.return_value = [
@@ -2976,7 +2977,7 @@ def _classify_non_retryable(error: Exception) -> bool:
     return any(key in str(error) for key in non_retryable_errors)
 
 
-class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
+class TestCustomSourceOAuth2NonRetryableClassification(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # A token-endpoint failure that carries no standard OAuth error code (a bare 4xx body or
@@ -3064,7 +3065,7 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
         assert not _classify_non_retryable(ctx.exception), str(ctx.exception)
 
 
-class TestCustomSourceHttpNonRetryableClassification(SimpleTestCase):
+class TestCustomSourceHttpNonRetryableClassification(ClickhouseFreeSimpleTestCase):
     def test_404_is_non_retryable_with_a_url_free_message(self):
         # A 404 on a manifest-configured URL is deterministic, so it must be classified
         # non-retryable to stop the loop, and its message must not echo the customer's hostname.

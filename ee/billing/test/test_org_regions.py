@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.billing.salesforce_enrichment.org_regions import fetch_org_regions
 
@@ -12,7 +12,7 @@ CONFLICT_ORG = "00000000-0000-4000-8000-000000000005"
 PARTLY_UNKNOWN_ORG = "00000000-0000-4000-8000-000000000006"
 
 
-class TestFetchOrgRegions(SimpleTestCase):
+class TestFetchOrgRegions(ClickhouseFreeSimpleTestCase):
     @patch("ee.billing.salesforce_enrichment.org_regions.duckgres_cursor")
     def test_maps_licenses_to_regions_and_never_defaults(self, mock_cursor_ctx):
         mock_cursor = MagicMock()

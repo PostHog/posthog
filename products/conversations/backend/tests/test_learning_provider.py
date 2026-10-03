@@ -2,11 +2,11 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from posthog.models import Team
 from posthog.models.comment import Comment
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.business_knowledge.backend.learning import providers as providers_mod
 from products.business_knowledge.backend.learning.contracts import evidence_key_for
@@ -19,7 +19,7 @@ from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket
 
 
-class TestConversationsLearningProviderRegistration(SimpleTestCase):
+class TestConversationsLearningProviderRegistration(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self._saved = providers_mod._providers.copy()

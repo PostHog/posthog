@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -21,6 +21,7 @@ from posthog.schema import (
 )
 
 from posthog.models import Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
@@ -75,7 +76,7 @@ def _create_agent_tools_node(
     return mode_manager.tools_node
 
 
-class TestAgentCompactionInput(SimpleTestCase):
+class TestAgentCompactionInput(ClickhouseFreeSimpleTestCase):
     async def test_repeated_compaction_preserves_model_input_and_iteration_count(self) -> None:
         toolkit = MagicMock()
         toolkit.get_tools = AsyncMock(return_value=[])

@@ -1,15 +1,16 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models.async_deletion.celery_fallback import celery_sweeps_enabled, dagster_sweep_is_active
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 GATE = "posthog.models.async_deletion.celery_fallback"
 
 
-class TestCelerySweepGating(SimpleTestCase):
+class TestCelerySweepGating(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("cloud_us", "US", False, False),
@@ -47,7 +48,7 @@ class TestCelerySweepGating(SimpleTestCase):
             assert dagster_sweep_is_active() is False
 
 
-class TestCelerySweepTaskGuards(SimpleTestCase):
+class TestCelerySweepTaskGuards(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("cohorts", "posthog.tasks.tasks.clickhouse_clear_removed_data", "delete_cohorts.sweep_cohort_deletions"),

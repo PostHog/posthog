@@ -1,9 +1,9 @@
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.llm.config import ProviderConfig
 
 
-class TestProviderConfig(SimpleTestCase):
+class TestProviderConfig(ClickhouseFreeSimpleTestCase):
     def test_provider_config_immutable(self):
         config = ProviderConfig(api_key="test-key", base_url="https://example.com")
         assert config.api_key == "test-key"

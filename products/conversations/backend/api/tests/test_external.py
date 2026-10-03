@@ -4,7 +4,6 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -16,6 +15,7 @@ from rest_framework.test import APIClient
 from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.api.ticket_actions import _truncate_bytes
 from products.conversations.backend.models import Ticket
@@ -960,7 +960,7 @@ class TestExternalTicketAPI(BaseTest):
         )
 
 
-class TestTruncateBytes(SimpleTestCase):
+class TestTruncateBytes(ClickhouseFreeSimpleTestCase):
     def test_drops_a_joiner_the_cut_left_dangling(self):
         # The cut lands inside the emoji following a joiner, so errors="ignore" drops the
         # partial character and would otherwise end the preview on the joiner itself.

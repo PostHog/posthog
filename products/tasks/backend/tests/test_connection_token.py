@@ -5,13 +5,15 @@ from typing import cast
 
 import pytest
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_CONNECTION_AUDIENCE,
@@ -64,7 +66,7 @@ def _fake_run(state: dict | None = None, origin_product: str = "user_created", *
     )
 
 
-class TestSandboxJwtRotation(SimpleTestCase):
+class TestSandboxJwtRotation(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         reset_sandbox_jwt_key_cache()

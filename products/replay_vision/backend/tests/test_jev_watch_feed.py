@@ -5,7 +5,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -13,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.redis import get_client
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayError,
@@ -69,7 +69,7 @@ def _prose_row(observation_id: object, summary: str) -> dict[str, Any]:
     }
 
 
-class TestWatchFeedRankerFlag(SimpleTestCase):
+class TestWatchFeedRankerFlag(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("flag_off", None, "weighted-score"),
@@ -84,7 +84,7 @@ class TestWatchFeedRankerFlag(SimpleTestCase):
             assert watch_feed_ranker(1) == expected
 
 
-class TestJudgeScannerWindow(SimpleTestCase):
+class TestJudgeScannerWindow(ClickhouseFreeSimpleTestCase):
     def test_a_window_larger_than_one_chunk_is_judged_across_requests(self) -> None:
         rows = [_prose_row(uuid4(), f"summary {index}") for index in range(WINDOW_CHUNK_SIZE + 6)]
         with patch(_API) as api:
@@ -228,7 +228,7 @@ def _feed_row(
     return row
 
 
-class TestRankWatchFeedByJev(SimpleTestCase):
+class TestRankWatchFeedByJev(ClickhouseFreeSimpleTestCase):
     def test_watchable_rows_rank_by_probability_and_filler_pads_only_to_the_floor(self) -> None:
         # A judged-low row falls to the same recency filler tier as an unjudged one, so a stale low
         # judgment never outranks a fresh observation the sweep has not seen yet, and its card never
@@ -309,7 +309,7 @@ class TestRankWatchFeedByJev(SimpleTestCase):
         assert ranked[2].reason == {"kind": "jev_watchable", "jev_probability": 0.55}
 
 
-class TestWatchRankCache(SimpleTestCase):
+class TestWatchRankCache(ClickhouseFreeSimpleTestCase):
     def test_stored_ranks_round_trip_and_malformed_values_are_dropped_or_clamped(self) -> None:
         team_id = 990_001
         scanner_id, other_scanner_id, missing_scanner_id = uuid4(), uuid4(), uuid4()

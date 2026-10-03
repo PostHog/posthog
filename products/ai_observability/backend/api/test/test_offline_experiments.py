@@ -4,7 +4,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from drf_spectacular.generators import SchemaGenerator
@@ -18,6 +17,7 @@ from posthog.models import OrganizationMembership, Project, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.offline_experiment_reads import OfflineScorerViewSet
@@ -394,7 +394,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertFalse(OfflineEvaluationResult.objects.for_team(self.team.id).exists())
 
 
-class TestOfflineExperimentValidationErrors(SimpleTestCase):
+class TestOfflineExperimentValidationErrors(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -451,7 +451,7 @@ class TestOfflineExperimentValidationErrors(SimpleTestCase):
         self.assertEqual(response.data, {"type": "validation_error", **expected[0], "errors": expected})
 
 
-class TestOfflineExperimentActionSchemas(SimpleTestCase):
+class TestOfflineExperimentActionSchemas(ClickhouseFreeSimpleTestCase):
     def test_read_pages_are_object_envelopes_instead_of_arrays_of_pages(self) -> None:
         router = SimpleRouter()
         router.register("offline_experiments", OfflineExperimentViewSet, basename="offline_experiments")

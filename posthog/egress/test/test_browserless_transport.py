@@ -1,13 +1,12 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 import requests
 from parameterized import parameterized
 
 from posthog.egress.browserless.observability import browserless_egress
 from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request, fleet_scope
 from posthog.egress.limiter.policies import Priority
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _TOKEN = "s3cret-fleet-token"
 _URL = "https://browserless.example.com/screenshot?token=s3cret-fleet-token"
@@ -19,7 +18,7 @@ def _ok_response() -> requests.Response:
     return response
 
 
-class TestBrowserlessFleetScope(SimpleTestCase):
+class TestBrowserlessFleetScope(ClickhouseFreeSimpleTestCase):
     def test_the_token_never_reaches_the_scope_label(self) -> None:
         # The scope is a Prometheus label, so it travels to dashboards and alerts.
         scope = fleet_scope(_URL, _TOKEN)
@@ -45,7 +44,7 @@ class TestBrowserlessFleetScope(SimpleTestCase):
         assert fleet_scope("https://browserless.internal/screenshot", "") != ""
 
 
-class TestBrowserlessTransport(SimpleTestCase):
+class TestBrowserlessTransport(ClickhouseFreeSimpleTestCase):
     def test_a_call_is_gated_on_its_fleet_and_recorded(self) -> None:
         with (
             patch("posthog.egress.browserless.transport.consume_browserless_sync", return_value=True) as consume,

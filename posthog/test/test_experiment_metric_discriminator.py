@@ -1,12 +1,12 @@
-from django.test.testcases import SimpleTestCase
-
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import ExperimentMetric
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-class TestExperimentMetricDiscriminator(SimpleTestCase):
+
+class TestExperimentMetricDiscriminator(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # Each payload uses the mean-metric shape (`source`) but declares a non-mean
@@ -103,7 +103,7 @@ class TestExperimentMetricDiscriminator(SimpleTestCase):
         ExperimentMetric.model_validate(payload)
 
 
-class TestExperimentMetricSourceDiscriminator(SimpleTestCase):
+class TestExperimentMetricSourceDiscriminator(ClickhouseFreeSimpleTestCase):
     # The inner union `EventsNode | ActionsNode | ExperimentDataWarehouseNode` used by
     # mean.source, funnel.series, ratio.numerator/denominator, and
     # retention.start_event/completion_event was undiscriminated — Pydantic would walk

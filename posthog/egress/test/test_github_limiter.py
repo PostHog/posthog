@@ -3,7 +3,6 @@ import uuid
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 import requests
 from parameterized import parameterized
@@ -29,6 +28,7 @@ from posthog.egress.github.limiter import (
     remember_observed_core_limit,
 )
 from posthog.egress.limiter.policies import DEFAULT_RESERVE, Priority, resolve_policy
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _response(*, status: int = 200, headers: dict[str, str] | None = None) -> requests.Response:
@@ -42,7 +42,7 @@ def _core_headers(limit: str) -> dict[str, str]:
     return {"X-RateLimit-Resource": "core", "X-RateLimit-Limit": limit}
 
 
-class GitHubLimiterTestCase(SimpleTestCase):
+class GitHubLimiterTestCase(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         _observed_memo.clear()
@@ -184,7 +184,7 @@ class TestInteractiveDemandMarker(GitHubLimiterTestCase):
             assert has_interactive_demand(self.installation_id) is True
 
 
-class TestClassifyGithubResource(SimpleTestCase):
+class TestClassifyGithubResource(ClickhouseFreeSimpleTestCase):
     # The routing that this whole fix hinges on: a /search/code call charged to core would sail
     # through the 5k/hour budget while GitHub 403/429s it at 10/min. Guards that each URL lands on
     # the resource GitHub actually meters it against.
@@ -203,7 +203,7 @@ class TestClassifyGithubResource(SimpleTestCase):
         assert classify_github_resource(url) == expected
 
 
-class TestSearchResourcePolicies(SimpleTestCase):
+class TestSearchResourcePolicies(ClickhouseFreeSimpleTestCase):
     # The static search budgets and the reserve ladder attach: a regression here silently reverts
     # /search/code to the flat core budget (the bug this fix closes) or drops the shedding ladder.
     @parameterized.expand(
@@ -221,7 +221,7 @@ class TestSearchResourcePolicies(SimpleTestCase):
         assert policy.reserve_fraction(Priority.CRITICAL) == 0.0
 
 
-class TestInstallationKeyResource(SimpleTestCase):
+class TestInstallationKeyResource(ClickhouseFreeSimpleTestCase):
     # The resource -> domain mapping plus the key round-trip: a broken mapping keys the wrong meter,
     # and a broken round-trip means the tier lookup reads the wrong installation.
     @parameterized.expand(

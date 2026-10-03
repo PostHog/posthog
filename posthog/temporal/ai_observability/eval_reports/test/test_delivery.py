@@ -1,7 +1,5 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.delivery import (
@@ -24,13 +22,14 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportMetrics,
     ReportSection,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _generation_citation_map(generation_id: str, trace_id: str) -> CitationMap:
     return _build_citation_map([Citation(generation_id=generation_id, trace_id=trace_id, reason="example")])
 
 
-class TestLinkifyCitations(SimpleTestCase):
+class TestLinkifyCitations(ClickhouseFreeSimpleTestCase):
     def test_links_cited_generation_id_in_backticks(self):
         text = "See `12345678-1234-1234-1234-123456789abc` here."
         citation_map = _generation_citation_map("12345678-1234-1234-1234-123456789abc", "trace-abc")
@@ -160,7 +159,7 @@ class TestLinkifyCitations(SimpleTestCase):
         self.assertIn("/traces/trace%255D%2528id", result)
 
 
-class TestRenderSectionHtml(SimpleTestCase):
+class TestRenderSectionHtml(ClickhouseFreeSimpleTestCase):
     """v2: renderer takes a title directly, no more SECTION_TITLES lookup."""
 
     def test_renders_title_as_h2(self):
@@ -204,7 +203,7 @@ class TestRenderSectionHtml(SimpleTestCase):
         self.assertIn("<em>emphasis</em>", html)
 
 
-class TestRenderSectionMrkdwn(SimpleTestCase):
+class TestRenderSectionMrkdwn(ClickhouseFreeSimpleTestCase):
     def test_renders_title_bold(self):
         result = _render_section_mrkdwn("Summary", "Some content", project_id=1, citation_map={})
         self.assertIn("*Summary*", result)
@@ -223,7 +222,7 @@ class TestRenderSectionMrkdwn(SimpleTestCase):
         self.assertIn("item 2", result)
 
 
-class TestStripRedundantLeadingHeading(SimpleTestCase):
+class TestStripRedundantLeadingHeading(ClickhouseFreeSimpleTestCase):
     def test_strips_exact_match(self):
         content = "## Executive Summary\n\nPass rate is 94%."
         result = _strip_redundant_leading_heading(content, "Executive Summary")
@@ -275,7 +274,7 @@ class TestStripRedundantLeadingHeading(SimpleTestCase):
         self.assertTrue(result.startswith("*Summary*"))
 
 
-class TestFormatPeriodForDisplay(SimpleTestCase):
+class TestFormatPeriodForDisplay(ClickhouseFreeSimpleTestCase):
     def test_formats_utc_iso_timestamp(self):
         result = _format_period_for_display("2026-04-08T14:01:42.951661+00:00")
         self.assertEqual(result, "Apr 08, 2026 14:01 UTC")
@@ -294,7 +293,7 @@ class TestFormatPeriodForDisplay(SimpleTestCase):
         self.assertIsNone(result)
 
 
-class TestInlineEmailStyles(SimpleTestCase):
+class TestInlineEmailStyles(ClickhouseFreeSimpleTestCase):
     def test_adds_table_styles(self):
         html = "<table><tr><th>A</th></tr><tr><td>1</td></tr></table>"
         styled = _inline_email_styles(html)
@@ -306,7 +305,7 @@ class TestInlineEmailStyles(SimpleTestCase):
         self.assertEqual(html, _inline_email_styles(html))
 
 
-class TestMetricsBlockHtml(SimpleTestCase):
+class TestMetricsBlockHtml(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(["boolean", "numeric"])
     def test_renders_all_counts(self, output_type: str) -> None:
         metrics = EvalReportMetrics(
@@ -386,7 +385,7 @@ class TestMetricsBlockHtml(SimpleTestCase):
         self.assertNotIn("Fail", html)
 
 
-class TestDeliverReport(SimpleTestCase):
+class TestDeliverReport(ClickhouseFreeSimpleTestCase):
     """End-to-end tests for deliver_report — mocks the email+slack sub-functions."""
 
     def _make_v2_content_dict(self, title: str = "A nice punchline") -> dict:
@@ -532,7 +531,7 @@ class TestDeliverReport(SimpleTestCase):
         self.assertEqual(run.delivery_status, "partial_failure")
 
 
-class TestDeliverSlackReport(SimpleTestCase):
+class TestDeliverSlackReport(ClickhouseFreeSimpleTestCase):
     """Tests for the Slack delivery path, with the Slack client mocked."""
 
     def _make_report_run(self, sections=None):

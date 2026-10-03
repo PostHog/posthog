@@ -3,10 +3,10 @@ from datetime import UTC, datetime
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.logic.ci_signals_config import (
@@ -22,7 +22,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 from products.signals.backend.models import SignalSourceConfig
 
 
-class TestScopeEnrollment(SimpleTestCase):
+class TestScopeEnrollment(ClickhouseFreeSimpleTestCase):
     def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
         # An action's extra HTTP methods (`@action.mapping.<verb>`) dispatch under the mapped
         # handler's name, so each mapped name needs its own scope enrollment too.

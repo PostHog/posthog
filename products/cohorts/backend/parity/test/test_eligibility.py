@@ -2,9 +2,9 @@ import json
 import math
 from pathlib import Path
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.parity.eligibility import screen_team
 
@@ -12,7 +12,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "eligibility_golden.json"
 _CASES = json.loads(_FIXTURE.read_text())["cases"]
 
 
-class TestEligibilityGoldenVectors(SimpleTestCase):
+class TestEligibilityGoldenVectors(ClickhouseFreeSimpleTestCase):
     def test_long_acyclic_ref_chain_does_not_hit_recursion_limit(self) -> None:
         chain_length = 2000  # comfortably past Python's default recursion limit
         cohorts: dict[int, dict] = {

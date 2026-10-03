@@ -3,14 +3,13 @@ from uuid import uuid4
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult, CodeBasedVerifier
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 @pytest.mark.disable_mock_code_based_verifier
-class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
+class TestCodeBasedVerifierSuppressionIntegration(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.mock_user = MagicMock()
         self.mock_user.pk = 123

@@ -2,9 +2,9 @@ from unittest.mock import MagicMock
 
 from django.core.management.base import CommandError
 from django.db import NotSupportedError, OperationalError
-from django.test import SimpleTestCase
 
 from posthog.management.commands.migrate import UNSUPPORTED_DATABASE_EXIT_CODE, check_database_version
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def fake_connection(error: Exception) -> MagicMock:
@@ -13,7 +13,7 @@ def fake_connection(error: Exception) -> MagicMock:
     return connection
 
 
-class TestCheckDatabaseVersion(SimpleTestCase):
+class TestCheckDatabaseVersion(ClickhouseFreeSimpleTestCase):
     def test_stops_with_recovery_steps_on_an_unsupported_server(self):
         error = NotSupportedError("PostgreSQL 14 or later is required (found 11.22).")
 

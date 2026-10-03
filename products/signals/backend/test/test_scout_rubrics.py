@@ -10,13 +10,14 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.presentation.scout_rubrics import ScoutRubricGenerateSerializer, ScoutRubricSaveSerializer
@@ -54,7 +55,7 @@ def custom_criterion() -> ScoutRubricCriterion:
     )
 
 
-class TestRubricValidation(SimpleTestCase):
+class TestRubricValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("at_limit", 2000, True), ("over_limit", 2001, False)])
     def test_generation_context_is_bounded(self, _name: str, length: int, valid: bool) -> None:
         serializer = ScoutRubricGenerateSerializer(data={"context": "x" * length})

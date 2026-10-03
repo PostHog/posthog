@@ -1,8 +1,8 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.schema import MarkdownBlock, SessionReplayBlock
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.tiptap import (
@@ -13,7 +13,7 @@ from ee.hogai.tools.create_notebook.tiptap import (
 )
 
 
-class TestParseInline(SimpleTestCase):
+class TestParseInline(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain text", "hello world", [{"type": "text", "text": "hello world"}]),
@@ -60,7 +60,7 @@ class TestParseInline(SimpleTestCase):
         assert _parse_inline(text) == expected
 
 
-class TestMarkdownToTiptapNodes(SimpleTestCase):
+class TestMarkdownToTiptapNodes(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -175,7 +175,7 @@ class TestMarkdownToTiptapNodes(SimpleTestCase):
         assert nodes[3]["type"] == "codeBlock"
 
 
-class TestBlocksToTiptapDoc(SimpleTestCase):
+class TestBlocksToTiptapDoc(ClickhouseFreeSimpleTestCase):
     def test_empty_blocks_with_title(self):
         doc = blocks_to_tiptap_doc([], title="My Notebook")
         assert doc["type"] == "doc"
@@ -244,7 +244,7 @@ class TestBlocksToTiptapDoc(SimpleTestCase):
         assert "ph-recording" in types
 
 
-class TestTiptapDocToText(SimpleTestCase):
+class TestTiptapDocToText(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("none_doc", None, ""),

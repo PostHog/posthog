@@ -3,13 +3,12 @@ from typing import Any, get_args
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog import schema
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.product_analytics.backend.facade.models import Insight
 from products.product_analytics.backend.presentation.insight import (
@@ -21,7 +20,7 @@ from products.product_analytics.backend.presentation.insight import (
 from ee.api.test.base import LicensedTestMixin
 
 
-class TestMCPInsightSerializer(SimpleTestCase):
+class TestMCPInsightSerializer(ClickhouseFreeSimpleTestCase):
     def test_preserves_explicit_box_plot_grouping_nulls(self) -> None:
         normalized_query = MCPInsightSerializer().validate_query(
             {

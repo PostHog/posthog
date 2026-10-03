@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.discussion_notes import _build_note_content, _extract_question
 from products.signals.backend.models import SignalReport
@@ -19,7 +19,7 @@ _ACTION_PROMPT = (
 )
 
 
-class TestExtractQuestion(SimpleTestCase):
+class TestExtractQuestion(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("strips_url_prefix", _PROMPT, None, None, "Is this still happening?"),

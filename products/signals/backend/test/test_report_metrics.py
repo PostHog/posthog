@@ -2,14 +2,13 @@ from datetime import UTC, datetime
 
 import time_machine
 
-from django.test import SimpleTestCase
-
 from pydantic import ValidationError
 
 from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.report_metrics import (
     DEFAULT_LIVE_METRIC_DATE_FROM,
@@ -47,7 +46,7 @@ def _affected_users_metric(metric_id: str = "affected-users", role: str = "prima
     )
 
 
-class TestReportMetric(SimpleTestCase):
+class TestReportMetric(ClickhouseFreeSimpleTestCase):
     def test_default_daily_range_produces_fourteen_buckets(self) -> None:
         date_range = QueryDateRange(
             team=Team(timezone="UTC"),
@@ -691,7 +690,7 @@ class TestReportMetric(SimpleTestCase):
         assert revenue.unit == "USD"
 
 
-class TestMetricBatchError(SimpleTestCase):
+class TestMetricBatchError(ClickhouseFreeSimpleTestCase):
     def test_accepts_one_primary_and_supporting_metrics(self) -> None:
         primary = _affected_users_metric()
         supporting = ReportMetric.model_validate(
@@ -732,7 +731,7 @@ class TestMetricBatchError(SimpleTestCase):
         assert f"at most {MAX_REPORT_METRICS}" in (metric_batch_error(metrics) or "")
 
 
-class TestReportMetricSerializerRejectsBooleans(SimpleTestCase):
+class TestReportMetricSerializerRejectsBooleans(ClickhouseFreeSimpleTestCase):
     def test_boolean_value_is_not_coerced_into_a_measurement(self) -> None:
         # DRF's FloatField coerces `true`/`false` to 1.0/0.0, so the write path needs its own guard
         # beyond the pydantic model. Cover both the snapshot value and the comparison value.

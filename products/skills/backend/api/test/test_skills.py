@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -19,6 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 
@@ -2937,7 +2937,7 @@ class TestLLMSkillOwners(APIBaseTest):
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]
 
 
-class TestLLMSkillDescriptionCapSplit(SimpleTestCase):
+class TestLLMSkillDescriptionCapSplit(ClickhouseFreeSimpleTestCase):
     def test_write_serializers_cap_at_spec_limit_while_reads_reflect_storage(self) -> None:
         # The 1024 spec cap gates writes only. Reads expose the 4096 column limit so legacy rows above
         # the cap serialize out; a read schema capped at 1024 would misdescribe those rows.
@@ -3017,7 +3017,7 @@ class TestSkillContentDigests(APIBaseTest):
         assert stamped_file.content_sha256 == self._digest_of("# Notes ✅")
 
 
-class TestSpecProblems(SimpleTestCase):
+class TestSpecProblems(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("clean", "my-skill", "Does things.", ["references/guide.md"], []),

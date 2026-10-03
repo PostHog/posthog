@@ -8,7 +8,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
 from django.db import connection
-from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -29,6 +28,7 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.role import Role
 from products.error_tracking.backend.models import (
@@ -55,7 +55,7 @@ def get_path_to(fixture_file: str) -> str:
     return os.path.join(file_dir, "fixtures", fixture_file)
 
 
-class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
+class TestErrorTrackingIssueAssignRequestSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("user", "not-a-user-id"),
@@ -71,7 +71,7 @@ class TestErrorTrackingIssueAssignRequestSerializer(SimpleTestCase):
         assert "id" in serializer.errors["assignee"]
 
 
-class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(SimpleTestCase):
+class TestErrorTrackingSymbolSetBulkCheckUploadSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("at_limit", BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS, True),

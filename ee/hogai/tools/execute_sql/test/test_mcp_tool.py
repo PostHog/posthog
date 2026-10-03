@@ -1,8 +1,6 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
-
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
@@ -11,6 +9,7 @@ from posthog.schema import HogQLNotice, HogQLQuery
 from posthog.event_usage import EventSource
 from posthog.models import EventDefinition, Organization, Team, User
 from posthog.sync import database_sync_to_async
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
@@ -26,7 +25,7 @@ from ee.hogai.tools.execute_sql.mcp_tool import (
 )
 
 
-class TestExecuteSQLMCPOutputLimits(SimpleTestCase):
+class TestExecuteSQLMCPOutputLimits(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("default", EventSource.MCP, True),

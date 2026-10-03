@@ -3,7 +3,7 @@ from typing import cast
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.authentication import BaseAuthentication, SessionAuthentication
@@ -15,6 +15,7 @@ from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthen
 from posthog.models import Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.rate_limit import PersonalApiKeyRateThrottle
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.api.offline_experiment_access import (
     OfflineEvaluationIngestionBurstThrottle,
@@ -44,7 +45,7 @@ class _AuthenticatedRequest(Request):
         "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "offline-eval-throttles"}
     }
 )
-class TestOfflineExperimentThrottles(SimpleTestCase):
+class TestOfflineExperimentThrottles(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         cache.clear()
         self.addCleanup(cache.clear)

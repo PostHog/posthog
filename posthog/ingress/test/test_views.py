@@ -12,7 +12,7 @@ from django.core.cache import caches
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError
 from django.http import HttpRequest
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 import structlog.testing
 from parameterized import parameterized
@@ -42,6 +42,7 @@ from posthog.ingress.vapi.provider import VapiProvider
 from posthog.ingress.verify.schemes import Verification, VerificationOutcome
 from posthog.ingress.views import build_webhook_view
 from posthog.regions import SECONDARY_REGION_DOMAIN
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SECRET = "s3cret"
 
@@ -135,7 +136,7 @@ class _FormBodyGitHubProvider(GitHubProvider):
         return json.loads(request.POST["payload"])
 
 
-class TestWebhookView(SimpleTestCase):
+class TestWebhookView(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.factory = RequestFactory()
         self.dispatcher = Mock()
@@ -522,7 +523,7 @@ def _consumer(
 
 
 @override_settings(CACHES=LOCMEM_CACHES)
-class _DispatchingViewTestCase(SimpleTestCase):
+class _DispatchingViewTestCase(ClickhouseFreeSimpleTestCase):
     """A view driving the real dispatcher and registry, rather than a mocked one."""
 
     def setUp(self) -> None:
@@ -952,7 +953,7 @@ class TestUnacceptedDelivery(_DispatchingViewTestCase):
         self.assertEqual(self.handler.call_count, 2)
 
 
-class TestForwardToSecondaryRegion(SimpleTestCase):
+class TestForwardToSecondaryRegion(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.body = json.dumps({"action": "opened"}).encode()
         self.request = RequestFactory().post(

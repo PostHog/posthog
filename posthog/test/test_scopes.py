@@ -2,8 +2,6 @@ import re
 import runpy
 from pathlib import Path
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.scopes import (
@@ -31,9 +29,10 @@ from posthog.scopes import (
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestDowngradeScopesToReadOnly(SimpleTestCase):
+class TestDowngradeScopesToReadOnly(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty_string", "", ""),
@@ -85,7 +84,7 @@ INTERNAL_SCOPE_CASES = [
 ]
 
 
-class TestScopeSets(SimpleTestCase):
+class TestScopeSets(ClickhouseFreeSimpleTestCase):
     def test_all_scopes_matches_scope_descriptions_keys(self) -> None:
         self.assertEqual(ALL_SCOPES, frozenset(get_scope_descriptions().keys()))
 
@@ -157,7 +156,7 @@ class TestScopeSets(SimpleTestCase):
             self.assertLessEqual(len(scope), 100, f"{scope} exceeds OAuthApplication.scopes CharField max_length=100")
 
 
-class TestGetOAuthScopesSupported(SimpleTestCase):
+class TestGetOAuthScopesSupported(ClickhouseFreeSimpleTestCase):
     def test_signal_scout_internal_write_is_not_advertised(self) -> None:
         # Security invariant — the scout sandbox token carries `signal_scout_internal:write`
         # but is minted by direct DB insert (posthog/temporal/oauth.py), never via /authorize.
@@ -189,7 +188,7 @@ class TestGetOAuthScopesSupported(SimpleTestCase):
             )
 
 
-class TestGetScopeDescriptions(SimpleTestCase):
+class TestGetScopeDescriptions(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("signal_scout_internal:read",),
@@ -212,7 +211,7 @@ class TestGetScopeDescriptions(SimpleTestCase):
                 assert f"{obj}:{action}" in descriptions
 
 
-class TestScopesWithinCeiling(SimpleTestCase):
+class TestScopesWithinCeiling(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("subset_of_explicit_ceiling", ["query:read"], ["query:read", "insight:read"], True),
@@ -324,7 +323,7 @@ class TestScopesWithinCeiling(SimpleTestCase):
         assert effective_ceiling(app_scopes) == expected
 
 
-class TestScopesOutsideCeiling(SimpleTestCase):
+class TestScopesOutsideCeiling(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("subset_within_ceiling_none_rejected", ["query:read"], ["query:read", "insight:read"], []),
@@ -357,7 +356,7 @@ class TestScopesOutsideCeiling(SimpleTestCase):
             assert within is (outside == [])
 
 
-class TestNarrowScopesToCeiling(SimpleTestCase):
+class TestNarrowScopesToCeiling(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
@@ -392,7 +391,7 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
         assert narrow_scopes_to_ceiling(requested, app_scopes) == expected
 
 
-class TestClampScopesToCeiling(SimpleTestCase):
+class TestClampScopesToCeiling(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("subset_of_ceiling_passes_through", ["query:read"], ["query:read", "insight:read"], ["query:read"]),
@@ -464,7 +463,7 @@ def _real_scopes(count: int) -> list[str]:
 LONG_HEAD = _real_scopes(MIN_SCOPES_BEFORE_TRUNCATION)
 
 
-class TestIsTruncatedScopeRequest(SimpleTestCase):
+class TestIsTruncatedScopeRequest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("cut_mid_token", [*LONG_HEAD, "can"], True),
@@ -485,7 +484,7 @@ class TestIsTruncatedScopeRequest(SimpleTestCase):
         assert is_truncated_scope_request(requested) is expected
 
 
-class TestFilterToUnprivilegedScopes(SimpleTestCase):
+class TestFilterToUnprivilegedScopes(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("keeps_unprivileged", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
@@ -513,7 +512,7 @@ class TestFilterToUnprivilegedScopes(SimpleTestCase):
         ]
 
 
-class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
+class TestProjectSecretAPIKeyScopeParity(ClickhouseFreeSimpleTestCase):
     # The settings scope picker builds its checkboxes from the frontend copy of this list,
     # so a scope added on the backend alone is allowed by the API but has no UI to grant it.
     def test_frontend_list_matches_backend(self) -> None:

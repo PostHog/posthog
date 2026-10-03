@@ -6,7 +6,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -26,6 +26,7 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.utils import uuid7
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
@@ -46,7 +47,7 @@ def _d(year: int, month: int, day: int, hour: int = 0) -> datetime:
     return datetime(year, month, day, hour, tzinfo=_UTC)
 
 
-class TestCurrentPeriodBoundary(SimpleTestCase):
+class TestCurrentPeriodBoundary(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # The boundary is the start of the first still-evolving bucket. Below

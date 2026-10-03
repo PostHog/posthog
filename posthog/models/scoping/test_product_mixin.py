@@ -13,13 +13,13 @@ This file just verifies the abstract base itself is wired up correctly.
 """
 
 from django.db import models
-from django.test import SimpleTestCase
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.product_mixin import ProductTeamModel
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestProductTeamModelWiring(SimpleTestCase):
+class TestProductTeamModelWiring(ClickhouseFreeSimpleTestCase):
     def test_objects_is_team_scoped_manager(self) -> None:
         """The default manager is fail-closed by team scope."""
         self.assertIsInstance(ProductTeamModel._meta.managers_map["objects"], TeamScopedManager)

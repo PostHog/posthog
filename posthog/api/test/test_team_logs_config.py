@@ -1,13 +1,12 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.team import TeamLogsConfigSerializer
 from posthog.models import OrganizationMembership, Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
@@ -237,7 +236,7 @@ INVALID_KEY_LISTS = [
 ]
 
 
-class TestTeamLogsConfigSerializerValidation(SimpleTestCase):
+class TestTeamLogsConfigSerializerValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [(f"{field}_{name}", field, keys) for field in KEY_LIST_FIELDS for name, keys in INVALID_KEY_LISTS]
     )

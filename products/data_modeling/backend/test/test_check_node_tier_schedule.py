@@ -6,11 +6,11 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_modeling.backend.logic.cohort_scheduling import Tier
 from products.data_modeling.backend.logic.tier_membership import EPHEMERAL_SKIPPED, SCHEDULED, LiveTier, classify_node
@@ -22,7 +22,7 @@ from products.data_modeling.backend.test.helpers import metric_node
 TEMPORAL_READ = "products.data_modeling.backend.management.commands.check_node_tier_schedule.Command._read_live_tiers"
 
 
-class TestClassifyNodeEphemeral(SimpleTestCase):
+class TestClassifyNodeEphemeral(ClickhouseFreeSimpleTestCase):
     def _tier(self, node_id: str, seconds: int = 900) -> LiveTier:
         return LiveTier(
             schedule_id=f"dag:{seconds}",

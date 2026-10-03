@@ -1,7 +1,6 @@
 from posthog.test.base import BaseTest
 
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -17,6 +16,7 @@ from posthog.models.event_filter_config import (
     validate_filter_tree,
     validate_test_cases,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _cond(field: str = "event_name", operator: str = "exact", value: str = "pageview") -> dict:
@@ -35,7 +35,7 @@ def _not(child: dict) -> dict:
     return {"type": "not", "child": child}
 
 
-class TestValidateFilterTree(SimpleTestCase):
+class TestValidateFilterTree(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("simple_condition", _cond()),
@@ -86,7 +86,7 @@ class TestValidateFilterTree(SimpleTestCase):
         validate_filter_tree(node)
 
 
-class TestValidateCondition(SimpleTestCase):
+class TestValidateCondition(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("missing_field", {"type": "condition", "operator": "exact", "value": "x"}, "missing required key 'field'"),
@@ -128,7 +128,7 @@ class TestValidateCondition(SimpleTestCase):
         self.assertIn(expected_msg, str(ctx.exception))
 
 
-class TestValidateNodeStructure(SimpleTestCase):
+class TestValidateNodeStructure(ClickhouseFreeSimpleTestCase):
     def test_not_missing_child(self):
         with self.assertRaises(ValidationError) as ctx:
             validate_filter_tree({"type": "not"})
@@ -151,7 +151,7 @@ class TestValidateNodeStructure(SimpleTestCase):
         self.assertIn("children[1]", str(ctx.exception))
 
 
-class TestPruneFilterTree(SimpleTestCase):
+class TestPruneFilterTree(ClickhouseFreeSimpleTestCase):
     def test_removes_empty_group(self):
         self.assertIsNone(prune_filter_tree({"type": "and", "children": []}))
 
@@ -174,7 +174,7 @@ class TestPruneFilterTree(SimpleTestCase):
         self.assertEqual(prune_filter_tree(_or(_and(_or(cond)))), _or(cond))
 
 
-class TestPruneFilterTreePreservesGroupRoot(SimpleTestCase):
+class TestPruneFilterTreePreservesGroupRoot(ClickhouseFreeSimpleTestCase):
     """
     Regression: pruning must never leave a non-group (condition or NOT) at the
     root. The tree editor can only add conditions/groups inside an and/or node,
@@ -205,7 +205,7 @@ class TestPruneFilterTreePreservesGroupRoot(SimpleTestCase):
         self.assertIsNone(prune_filter_tree(_or()))
 
 
-class TestEvaluateFilterTree(SimpleTestCase):
+class TestEvaluateFilterTree(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("exact_match", _cond("event_name", "exact", "pageview"), {"event_name": "pageview"}, True),
@@ -245,7 +245,7 @@ class TestEvaluateFilterTree(SimpleTestCase):
         self.assertTrue(evaluate_filter_tree(_not(_cond("event_name", "exact", "pageview")), {"event_name": "click"}))
 
 
-class TestTreeHasConditions(SimpleTestCase):
+class TestTreeHasConditions(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("bare_condition", _cond(), True),
@@ -261,7 +261,7 @@ class TestTreeHasConditions(SimpleTestCase):
         self.assertEqual(tree_has_conditions(tree), expected)
 
 
-class TestValidateTestCases(SimpleTestCase):
+class TestValidateTestCases(ClickhouseFreeSimpleTestCase):
     def test_valid_test_case(self):
         validate_test_cases([{"event_name": "pageview", "expected_result": "drop"}])
 
@@ -291,7 +291,7 @@ class TestValidateTestCases(SimpleTestCase):
         self.assertIn("must be a string", str(ctx.exception))
 
 
-class TestRunTestCases(SimpleTestCase):
+class TestRunTestCases(ClickhouseFreeSimpleTestCase):
     def test_passing_test_cases(self):
         tree = _cond("event_name", "exact", "pageview")
         test_cases = [

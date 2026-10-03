@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import jwt
 import requests
@@ -11,6 +11,7 @@ import requests
 from posthog.integration_secrets.callers import IntegrationCaller
 from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretInRecoveryError
 from posthog.jwt import PosthogJwtAudience
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import TrackedHTTPAdapter
@@ -44,7 +45,7 @@ def _body(value: str) -> dict[str, Any]:
     }
 
 
-class TestSessionProperties(SimpleTestCase):
+class TestSessionProperties(ClickhouseFreeSimpleTestCase):
     """Two properties of the session that are cheap to lose and expensive to have lost."""
 
     # The response body on this path is the credential in plaintext. Sample capture stores request
@@ -76,7 +77,7 @@ class TestSessionProperties(SimpleTestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestHelper(SimpleTestCase):
+class TestHelper(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         flag = mock.patch(FLAG, return_value=True)
         flag.start()
@@ -145,7 +146,7 @@ class TestHelper(SimpleTestCase):
                 assert integration_secrets.get_secret(KEY) == "token"
 
 
-class TestServiceOff(SimpleTestCase):
+class TestServiceOff(ClickhouseFreeSimpleTestCase):
     # With the service unconfigured — self-hosted, local development — the client reads the same
     # environment value the source reads today. This is what makes a migrated call site a no-op
     # until the key actually moves.
@@ -156,7 +157,7 @@ class TestServiceOff(SimpleTestCase):
                 assert integration_secrets.get_secret(KEY) == "from-env"
 
 
-class TestNoRequestsExceptionEscapes(SimpleTestCase):
+class TestNoRequestsExceptionEscapes(ClickhouseFreeSimpleTestCase):
     @override_settings(**SERVICE_SETTINGS)
     def test_transport_failure_is_typed(self) -> None:
         from posthog.integration_secrets.errors import IntegrationServiceUnreachableError
@@ -170,7 +171,7 @@ class TestNoRequestsExceptionEscapes(SimpleTestCase):
 
 
 @override_settings(**SERVICE_SETTINGS)
-class TestSettingsFallbackBridge(SimpleTestCase):
+class TestSettingsFallbackBridge(ClickhouseFreeSimpleTestCase):
     """The temporary bridge that lets call sites move before their keys do.
 
     Every test here is about a boundary of it. The bridge is the risky part of this migration:

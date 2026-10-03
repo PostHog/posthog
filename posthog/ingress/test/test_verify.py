@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.db import InterfaceError, OperationalError
-from django.test import SimpleTestCase
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -17,6 +16,7 @@ from parameterized import parameterized
 from posthog.ingress.verify.errors import VerifierUnavailable
 from posthog.ingress.verify.jwt import _JWKS_CLIENTS, SIGNING_KEY_FACT, BearerJwt, _jwks_client
 from posthog.ingress.verify.schemes import HmacSha256, HmacSignature, SnsSignature, Verification, VerificationOutcome
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 SECRET = "s3cret"
 BODY = b'{"action":"opened"}'
@@ -26,7 +26,7 @@ def _digest(body: bytes = BODY, secret: str = SECRET, digest: str = "sha256") ->
     return hmac.digest(secret.encode(), body, digest)
 
 
-class TestHmacSha256(SimpleTestCase):
+class TestHmacSha256(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("github_hex_prefix", "hex", "sha256="),
@@ -255,7 +255,7 @@ class TestHmacSha256(SimpleTestCase):
                 self.assertEqual(scheme.rejects_headers(headers), expected)
 
 
-class TestSnsSignature(SimpleTestCase):
+class TestSnsSignature(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.allowed = frozenset({"arn:aws:sns:eu-west-1:1:ses-events"})
 
@@ -307,7 +307,7 @@ SERVICE_URL = "https://connector.example.com/emea/"
 KEY_ID = "signing-key-1"
 
 
-class TestBearerJwt(SimpleTestCase):
+class TestBearerJwt(ClickhouseFreeSimpleTestCase):
     private_key: rsa.RSAPrivateKey
 
     @classmethod

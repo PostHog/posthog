@@ -3,8 +3,6 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.temporal.ai.slack_app.attachments import (
@@ -17,6 +15,7 @@ from posthog.temporal.ai.slack_app.attachments import (
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.services.slack_messages import SlackFileRef, SlackThreadMessage, encode_slack_file_refs
 
@@ -43,7 +42,7 @@ def _message_with(ts: str, *files: SlackFileRef) -> SlackThreadMessage:
     return SlackThreadMessage(ts=ts, files_json=encode_slack_file_refs(list(files)))
 
 
-class TestSlackAttachments(SimpleTestCase):
+class TestSlackAttachments(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("declared_mimetype", "text/plain", "text", "text/plain"),

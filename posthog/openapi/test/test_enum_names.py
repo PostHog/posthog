@@ -1,10 +1,10 @@
 from django.db import models
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.enums import LabeledStrEnum
 from posthog.openapi.enum_names import build_derived_overrides, derive_enum_name
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class Fruit(models.TextChoices):
@@ -32,7 +32,7 @@ class Crate(LabeledStrEnum):
     PLASTIC = "plastic"
 
 
-class TestDeriveEnumName(SimpleTestCase):
+class TestDeriveEnumName(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain class", "Fruit", "FruitEnum"),
@@ -46,7 +46,7 @@ class TestDeriveEnumName(SimpleTestCase):
         assert derive_enum_name(qualname) == expected
 
 
-class TestBuildDerivedOverrides(SimpleTestCase):
+class TestBuildDerivedOverrides(ClickhouseFreeSimpleTestCase):
     def test_registers_class_under_derived_name(self) -> None:
         overrides = build_derived_overrides([Fruit, Basket], {})
         assert overrides == {"FruitEnum": Fruit, "BasketEnum": Basket}

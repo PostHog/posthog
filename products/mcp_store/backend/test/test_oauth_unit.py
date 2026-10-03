@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import requests
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_store.backend.oauth import (
     SSRFBlockedError,
@@ -14,7 +14,7 @@ from products.mcp_store.backend.oauth import (
 )
 
 
-class TestResolveIssuer(SimpleTestCase):
+class TestResolveIssuer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -109,7 +109,7 @@ class TestResolveIssuer(SimpleTestCase):
             _resolve_issuer(metadata, "https://origin.com")
 
 
-class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
+class TestAuthServerMetadataDiscoveryChain(ClickhouseFreeSimpleTestCase):
     """Verifies the MCP-spec-mandated discovery chain for authorization server metadata.
 
     Spec: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
@@ -275,7 +275,7 @@ class TestAuthServerMetadataDiscoveryChain(SimpleTestCase):
         assert mock_get.call_count == 2
 
 
-class TestSSRFProtection(SimpleTestCase):
+class TestSSRFProtection(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -303,7 +303,7 @@ class TestSSRFProtection(SimpleTestCase):
             func(**kwargs)  # type: ignore[operator]
 
 
-class TestValidateEndpointsBoundToIssuer(SimpleTestCase):
+class TestValidateEndpointsBoundToIssuer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

@@ -1,8 +1,8 @@
 from unittest import mock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
@@ -14,7 +14,7 @@ from products.cohorts.backend.backfill.pinning import (
 from products.cohorts.backend.models.cohort import Cohort
 
 
-class TestBackfillPinning(SimpleTestCase):
+class TestBackfillPinning(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("day", 3, 3),

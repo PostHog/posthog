@@ -1,8 +1,6 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 import duckdb
 from parameterized import parameterized
 
@@ -21,6 +19,8 @@ from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
+
 
 def _table(**overrides) -> DirectMotherDuckTable:
     kwargs = {
@@ -35,7 +35,7 @@ def _table(**overrides) -> DirectMotherDuckTable:
     return DirectMotherDuckTable(**kwargs)
 
 
-class TestDirectMotherDuckTable(SimpleTestCase):
+class TestDirectMotherDuckTable(ClickhouseFreeSimpleTestCase):
     def test_renders_quoted_three_part_name(self):
         # Safe lowercase identifiers stay bare (the escaper quotes only when needed).
         self.assertEqual(_table().to_printed_duckdb(None), "sample_data.nyc.taxi")
@@ -92,7 +92,7 @@ class TestDirectMotherDuckPrinting(BaseTest):
             self._print(is_direct_query=False, dialect="clickhouse")
 
 
-class TestMotherDuckReadOnlyGuard(SimpleTestCase):
+class TestMotherDuckReadOnlyGuard(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("select", "SELECT * FROM sample_data.nyc.taxi"),
@@ -163,7 +163,7 @@ class TestMotherDuckReadOnlyGuard(SimpleTestCase):
             ensure_read_only_raw_motherduck_statement(sql)
 
 
-class TestPlaceholderConversion(SimpleTestCase):
+class TestPlaceholderConversion(ClickhouseFreeSimpleTestCase):
     def test_converts_named_placeholders(self):
         sql, values = convert_pyformat_placeholders(
             "SELECT * FROM t WHERE a = %(hogql_val_0)s AND b = %(hogql_val_1)s",
@@ -180,7 +180,7 @@ class TestPlaceholderConversion(SimpleTestCase):
         self.assertEqual(values, {})
 
 
-class TestDuckDBTypeMapping(SimpleTestCase):
+class TestDuckDBTypeMapping(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("BIGINT", "Int64"),
@@ -208,7 +208,7 @@ class TestDuckDBTypeMapping(SimpleTestCase):
         self.assertEqual(duckdb_type_to_clickhouse_type(duckdb_type), expected)
 
 
-class TestMotherDuckRowCap(SimpleTestCase):
+class TestMotherDuckRowCap(ClickhouseFreeSimpleTestCase):
     def test_returns_rows_under_cap(self):
         connection = duckdb.connect(":memory:")
         connection.execute("SELECT * FROM range(3)")

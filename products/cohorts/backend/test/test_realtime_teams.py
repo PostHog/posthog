@@ -3,16 +3,17 @@ import importlib
 
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
 import posthog.settings.cohorts as cohorts_settings
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team, is_realtime_cohort_team
 
 
-class TestIsRealtimeCohortTeam(SimpleTestCase):
+class TestIsRealtimeCohortTeam(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("all_keyword", "all", 999, True),
@@ -44,7 +45,7 @@ class TestIsRealtimeCohortTeam(SimpleTestCase):
             self.assertEqual(is_realtime_cohort_team(team_id), expected)
 
 
-class TestIsCohortBackfillTriggerTeam(SimpleTestCase):
+class TestIsCohortBackfillTriggerTeam(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # Only Python parses this setting, so unlike the realtime allowlist it fails closed on a
@@ -61,7 +62,7 @@ class TestIsCohortBackfillTriggerTeam(SimpleTestCase):
             self.assertEqual(is_cohort_backfill_trigger_team(team_id), expected)
 
 
-class TestRealtimeCohortAllowlistSetting(SimpleTestCase):
+class TestRealtimeCohortAllowlistSetting(ClickhouseFreeSimpleTestCase):
     def _reload_allowlist(self) -> str:
         self.addCleanup(importlib.reload, cohorts_settings)
         importlib.reload(cohorts_settings)

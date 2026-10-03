@@ -10,7 +10,6 @@ from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.db import transaction
-from django.test import SimpleTestCase
 
 import structlog
 from celery import current_app
@@ -24,6 +23,7 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.dispatch.loading import reset_consumer_registry
 from posthog.models import Integration, OrganizationMembership, Team, User
 from posthog.models.organization import Organization
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models import AccessControl
 from products.customer_analytics.backend.logic.feature_request_github import (
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models import FeatureRequest
 
 
-class TestFeatureRequestGitHubIssueUrl(SimpleTestCase):
+class TestFeatureRequestGitHubIssueUrl(ClickhouseFreeSimpleTestCase):
     def test_normalizes_issue_comment_url_and_rejects_non_issue_paths(self) -> None:
         self.assertEqual(
             _parse_issue_url("https://github.com/PostHog/PostHog/issues/42#issuecomment-1"),
@@ -164,7 +164,7 @@ class TestFeatureRequestGitHubIssueUrl(SimpleTestCase):
         process_delivery.assert_not_called()
 
 
-class TestFeatureRequestGitHubIngress(SimpleTestCase):
+class TestFeatureRequestGitHubIngress(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         reset_consumer_registry()
         cache.clear()

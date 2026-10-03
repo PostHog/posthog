@@ -5,7 +5,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -13,6 +12,7 @@ from posthog.hogql.database.database import Database
 
 from posthog.models import Team
 from posthog.models.scoping import team_scope
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.data_catalog.backend.logic.lineage import (
     LineageSyncOutcome,
@@ -334,7 +334,7 @@ class TestBackfillMetricLineage(BaseTest):
         assert "system" not in node.properties
 
 
-class TestLineageTaskRegistration(SimpleTestCase):
+class TestLineageTaskRegistration(ClickhouseFreeSimpleTestCase):
     def test_the_sync_task_is_registered_from_the_tasks_package(self) -> None:
         # Celery autodiscovery imports the package, not the modules under it. Without the re-export
         # in tasks/__init__.py a worker never registers this task and discards every message.

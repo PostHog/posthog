@@ -6,7 +6,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
 from django.db import IntegrityError, connection, transaction
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from drf_spectacular.plumbing import get_override
@@ -17,6 +16,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import (
@@ -61,7 +61,7 @@ def _setup_team():
     return team
 
 
-class TestNumericEvaluationSerializer(SimpleTestCase):
+class TestNumericEvaluationSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("min", 0), ("passing_rule", {"operator": "gte", "threshold": 7})])
     def test_boolean_patch_rejects_numeric_settings(self, key: str, value: object) -> None:
         evaluation = Evaluation(
@@ -119,7 +119,7 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
             serializer.validate({"output_type": "numeric"})
 
 
-class TestModelConfigurationSerializer(SimpleTestCase):
+class TestModelConfigurationSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
     def test_system_one_supports_evaluation_output_types(
         self, output_type: str, output_config: dict[str, float]
@@ -194,7 +194,7 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         self.assertEqual(serializer.errors[missing_field][0].code, "required")
 
 
-class TestTargetConfigFieldSchema(SimpleTestCase):
+class TestTargetConfigFieldSchema(ClickhouseFreeSimpleTestCase):
     def test_every_oneof_branch_requires_the_discriminator(self) -> None:
         """Orval only emits a discriminated zod union (one that picks a branch by `strategy` alone,
         without matching optional fields against it) when every `oneOf` branch requires `strategy`.

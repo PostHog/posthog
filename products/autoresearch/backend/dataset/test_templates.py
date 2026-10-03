@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.autoresearch.backend.dataset.labeling import (
     LABELER_QUERY_MODIFIERS,
@@ -18,7 +18,7 @@ from products.autoresearch.backend.dataset.templates import (
 )
 
 
-class TestTemplateDefinitions(SimpleTestCase):
+class TestTemplateDefinitions(ClickhouseFreeSimpleTestCase):
     def test_all_five_templates_present(self) -> None:
         self.assertEqual(
             set(TEMPLATES.keys()),
@@ -66,7 +66,7 @@ class TestTemplateDefinitions(SimpleTestCase):
         self.assertEqual(t.requires_activity_resolution, requires_activity_resolution)
 
 
-class TestTemplateSpecsCompile(SimpleTestCase):
+class TestTemplateSpecsCompile(ClickhouseFreeSimpleTestCase):
     # Drift guard: every template's population spec must have a registered compiler in
     # labeling.py, in both row mode (inference/eligible count) and anchor mode (training).
 
@@ -80,7 +80,7 @@ class TestTemplateSpecsCompile(SimpleTestCase):
             self.assertTrue(anchor.anchor_having_parts)
 
 
-class TestResolveActivityEvent(SimpleTestCase):
+class TestResolveActivityEvent(ClickhouseFreeSimpleTestCase):
     def test_ranks_candidates_over_identified_users_only(self) -> None:
         # Training and scoring only see identified users, so an event that only anonymous
         # traffic emits must not be chosen as the activity signal.
@@ -118,7 +118,7 @@ class TestResolveActivityEvent(SimpleTestCase):
         self.assertEqual(alternatives, expected_alternatives)
 
 
-class TestResolveTemplate(SimpleTestCase):
+class TestResolveTemplate(ClickhouseFreeSimpleTestCase):
     def _make_team(self) -> MagicMock:
         team = MagicMock()
         team.pk = 1

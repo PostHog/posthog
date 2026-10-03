@@ -2,8 +2,6 @@ from typing import cast
 
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -14,8 +12,10 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
-class TestFingerprintQueryShape(SimpleTestCase):
+
+class TestFingerprintQueryShape(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

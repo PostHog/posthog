@@ -5,8 +5,6 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.schema import ActorsQuery, PersonPropertyFilter, PropertyOperator
@@ -23,6 +21,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models.utils import UUIDT
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
@@ -553,7 +552,7 @@ class TestHogQLCursorPaginator(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(paginator.order_field, "timestamp")
 
 
-class TestAlertPaginator(SimpleTestCase):
+class TestAlertPaginator(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("SELECT 1 LIMIT {n}",),

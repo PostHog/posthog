@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
 from django.http import HttpRequest
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory
 
 from parameterized import parameterized
 
@@ -11,6 +11,7 @@ from posthog.ingress.providers import UnknownApp, WebhookProvider
 from posthog.ingress.slack.provider import build_slack_interactivity_provider, build_slack_provider
 from posthog.ingress.sns.provider import build_sns_provider
 from posthog.ingress.views import build_webhook_view
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _github(app: str) -> WebhookProvider:
@@ -39,7 +40,7 @@ BUILDERS = [
 ]
 
 
-class TestProviderAppNames(SimpleTestCase):
+class TestProviderAppNames(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(BUILDERS)
     def test_an_unknown_app_is_refused_at_build(
         self, provider: str, builder: Callable[[str], WebhookProvider], declared_app: str, unknown_app: str
@@ -89,7 +90,7 @@ UNCONFIGURED_ENDPOINTS = [
 ]
 
 
-class TestUnconfiguredEndpoints(SimpleTestCase):
+class TestUnconfiguredEndpoints(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(UNCONFIGURED_ENDPOINTS)
     def test_a_missing_secret_still_answers_403_with_no_reason(
         self,

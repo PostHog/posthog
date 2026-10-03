@@ -4,7 +4,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from rest_framework.status import HTTP_200_OK, HTTP_403_FORBIDDEN
 
@@ -15,6 +14,7 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings.data_stores import CLICKHOUSE_AUX_CLUSTER, CLICKHOUSE_CLUSTER
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -450,7 +450,7 @@ class TestPrecomputeHealth(APIBaseTest):
         self.assertEqual(resp.json()["unavailable_sections"], [])
 
 
-class TestCacheTableStats(SimpleTestCase):
+class TestCacheTableStats(ClickhouseFreeSimpleTestCase):
     def test_reads_each_table_from_its_own_cluster(self):
         # The metric-events sharded table lives on the aux cluster; reading system.parts only on
         # the main cluster silently reported it as empty in prod. This fails if the per-cluster

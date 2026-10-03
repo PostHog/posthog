@@ -3,11 +3,10 @@ from uuid import uuid4
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.redis import get_client
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.replay_vision.backend.enqueue_claims import (
     _RELEASE_GRACE_SECONDS,
@@ -20,7 +19,7 @@ from products.replay_vision.backend.enqueue_claims import (
 )
 
 
-class TestEnqueueClaims(SimpleTestCase):
+class TestEnqueueClaims(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.team_id = 990_001
         self.scanner_id = uuid4()

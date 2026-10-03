@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory
 
 from parameterized import parameterized
 
@@ -17,6 +17,7 @@ from posthog.csp_middleware import (
     narrowed_app_policy,
     object_storage_upload_source,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _parse_policies(header: str) -> list[dict[str, list[str]]]:
@@ -447,7 +448,7 @@ class TestCSPMiddleware(APIBaseTest):
 
 
 @override_settings(CLOUD_DEPLOYMENT="LOCAL")
-class TestAppCspHeaderName(SimpleTestCase):
+class TestAppCspHeaderName(ClickhouseFreeSimpleTestCase):
     def _request(
         self, path: str, *, distinct_id: str | None = "abc", email: str = "someone@posthog.com"
     ) -> HttpRequest:
@@ -539,7 +540,7 @@ class TestAppCspHeaderName(SimpleTestCase):
         )
 
 
-class TestNarrowedAppPolicy(SimpleTestCase):
+class TestNarrowedAppPolicy(ClickhouseFreeSimpleTestCase):
     def test_swaps_the_wildcards_and_keeps_every_other_source(self) -> None:
         app_policy = [
             "default-src 'self'",
@@ -568,7 +569,7 @@ class TestNarrowedAppPolicy(SimpleTestCase):
         ]
 
 
-class TestObjectStorageUploadSource(SimpleTestCase):
+class TestObjectStorageUploadSource(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -601,7 +602,7 @@ class TestObjectStorageUploadSource(SimpleTestCase):
             assert object_storage_upload_source() == "https://storage.example.com/posthog"
 
 
-class TestViewManagedCsp(SimpleTestCase):
+class TestViewManagedCsp(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # The workflow asset endpoint sandboxes captured email HTML and leaves frame-ancestors

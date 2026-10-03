@@ -1,11 +1,11 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError, CustomerIOTrackClient
 
 
-class TestCustomerIOTrackClient(SimpleTestCase):
+class TestCustomerIOTrackClient(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.track_client = CustomerIOTrackClient(site_id="site_abc", api_key="key_123", region="us")
 

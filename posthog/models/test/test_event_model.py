@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -13,6 +13,7 @@ from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
 from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
 from posthog.models.property.util import build_selector_regex
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.test.test_journeys import journeys_for
 
 
@@ -158,7 +159,7 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
 
 
-class TestSelectorRegexMatching(SimpleTestCase):
+class TestSelectorRegexMatching(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -319,7 +320,7 @@ class TestSelectorRegexMatching(SimpleTestCase):
         self.assertEqual(bool(re.search(regex, elements_to_string(elements))), expected)
 
 
-class TestSelectorRegexMonotonicity(SimpleTestCase):
+class TestSelectorRegexMonotonicity(ClickhouseFreeSimpleTestCase):
     SELECTORS = [
         ".flex",
         ".class",

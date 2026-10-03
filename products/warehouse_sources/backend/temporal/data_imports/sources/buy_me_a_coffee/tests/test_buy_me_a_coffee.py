@@ -5,12 +5,14 @@ from urllib.parse import parse_qs, urlsplit
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import structlog
 from parameterized import parameterized
 from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buy_me_a_coffee.buy_me_a_coffee import (
     BuyMeACoffeeResumeConfig,
@@ -28,7 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 
 @override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT=6379)
-class TestBuyMeACoffee(SimpleTestCase):
+class TestBuyMeACoffee(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.source = BuyMeACoffeeSource()

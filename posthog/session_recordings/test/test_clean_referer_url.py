@@ -1,11 +1,10 @@
-from django.test.testcases import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.session_recordings.session_recording_api import clean_referer_url
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestCleanRefererUrl(SimpleTestCase):
+class TestCleanRefererUrl(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("https://example.com/project/1234/", "unknown"),

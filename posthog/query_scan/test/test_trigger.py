@@ -4,8 +4,6 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -42,6 +40,7 @@ from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.slot import slot_key
 from posthog.query_scan.tree_facts import TreeFacts
 from posthog.query_scan.trigger import _open_filters_placeholder, maybe_trigger_query_scan
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 FLAG = QueryScanFlag(mode=QueryScanMode.SHOW, floor_ms=1000, event_ratio=0.1, persons_ratio=0.5)
 
@@ -117,7 +116,7 @@ def _printing(values: dict[str, Any]) -> Any:
     return print_with_values
 
 
-class TestQueryScanTrigger(SimpleTestCase):
+class TestQueryScanTrigger(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.redis = mock.Mock()
@@ -528,7 +527,7 @@ class TestSubqueryVerdicts(BaseTest):
         ] == [("not_used", "wrapped")]
 
 
-class TestOpenFiltersPlaceholder(SimpleTestCase):
+class TestOpenFiltersPlaceholder(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("no placeholder at all", HogQLQuery(query="select count() from events"), False),

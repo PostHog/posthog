@@ -2,13 +2,14 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.quick_filters import QuickFilterSerializer
 from posthog.models.quick_filter import QuickFilter
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -160,7 +161,7 @@ class TestQuickFilters(APIBaseTest):
 MANUAL_OPTION = {"id": "prod", "value": "production", "label": "Production", "operator": "exact"}
 
 
-class TestQuickFilterSerializerOptions(SimpleTestCase):
+class TestQuickFilterSerializerOptions(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("auto_discovery_without_options", {"type": "auto-discovery"}, None, True, []),

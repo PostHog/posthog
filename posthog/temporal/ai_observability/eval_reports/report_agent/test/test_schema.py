@@ -1,7 +1,5 @@
 """Tests for the v2 eval report schema."""
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.output_types import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
@@ -14,11 +12,12 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     EvalReportMetrics,
     ReportSection,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.models.evaluation_configs import REPORTABLE_OUTPUT_TYPES
 
 
-class TestOutputTypeRegistry(SimpleTestCase):
+class TestOutputTypeRegistry(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("numeric", {"min": 0, "max": 10, "passing_rule": {"operator": "gte", "threshold": 7}}),
@@ -50,7 +49,7 @@ class TestOutputTypeRegistry(SimpleTestCase):
         self.assertSetEqual(set(REPORTABLE_OUTPUT_TYPES), set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES))
 
 
-class TestCitation(SimpleTestCase):
+class TestCitation(ClickhouseFreeSimpleTestCase):
     def test_to_dict(self):
         c = Citation(generation_id="a-gen-id", trace_id="a-trace-id", reason="high_cost")
         self.assertEqual(
@@ -95,7 +94,7 @@ class TestCitation(SimpleTestCase):
         self.assertEqual(Citation.from_dict(original.to_dict()), original)
 
 
-class TestReportSection(SimpleTestCase):
+class TestReportSection(ClickhouseFreeSimpleTestCase):
     def test_to_dict(self):
         s = ReportSection(title="Summary", content="Pass rate is 94%.")
         self.assertEqual(s.to_dict(), {"title": "Summary", "content": "Pass rate is 94%."})
@@ -115,7 +114,7 @@ class TestReportSection(SimpleTestCase):
         self.assertEqual(ReportSection.from_dict(original.to_dict()), original)
 
 
-class TestEvalReportMetrics(SimpleTestCase):
+class TestEvalReportMetrics(ClickhouseFreeSimpleTestCase):
     def test_to_dict(self):
         m = EvalReportMetrics(
             total_runs=100,
@@ -215,7 +214,7 @@ class TestEvalReportMetrics(SimpleTestCase):
         self.assertEqual(EvalReportMetrics.from_dict(original.to_dict()), original)
 
 
-class TestEvalReportContent(SimpleTestCase):
+class TestEvalReportContent(ClickhouseFreeSimpleTestCase):
     def test_default_is_empty(self):
         c = EvalReportContent()
         self.assertEqual(c.title, "")
@@ -304,7 +303,7 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(content.metrics.total_runs, 5)
 
 
-class TestSectionBounds(SimpleTestCase):
+class TestSectionBounds(ClickhouseFreeSimpleTestCase):
     def test_min_and_max_constants(self):
         # Contract with the agent prompt — if these change, prompt must change too.
         self.assertEqual(MIN_REPORT_SECTIONS, 1)

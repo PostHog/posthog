@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.db import OperationalError
-from django.test import Client, SimpleTestCase
+from django.test import Client
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,6 +19,7 @@ from posthog.ingress.contracts import DeliveryOwnership
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.api.tests.mailgun_signing import (
     SENDER_STATUS_REQUEST,
@@ -764,7 +765,7 @@ class TestCustomerEmailIngestion(MailgunWebhookTestMixin, BaseTest):
         assert not EmailThread.objects.for_team(self.team.id).exists()
 
 
-class TestForwardingChallengeTokens(SimpleTestCase):
+class TestForwardingChallengeTokens(ClickhouseFreeSimpleTestCase):
     def test_stops_reading_headers_after_reaching_the_token_limit(self) -> None:
         class HeaderValues(list[list[str]]):
             def __iter__(self) -> Iterator[list[str]]:
@@ -779,7 +780,7 @@ class TestForwardingChallengeTokens(SimpleTestCase):
         assert len(tokens) == MAX_FORWARDING_CHALLENGE_TOKENS
 
 
-class TestParseAddresses(SimpleTestCase):
+class TestParseAddresses(ClickhouseFreeSimpleTestCase):
     def test_recipient_count_is_capped(self) -> None:
         header = ", ".join(f"user{index}@example.com" for index in range(MAX_RECIPIENTS + 50))
 
@@ -788,7 +789,7 @@ class TestParseAddresses(SimpleTestCase):
         assert len(parsed) == MAX_RECIPIENTS
 
 
-class TestParseSentAt(SimpleTestCase):
+class TestParseSentAt(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # A far-future Date header is rejected and falls back to the authenticated timestamp.
@@ -817,7 +818,7 @@ OUTBOUND_OWNERSHIP_DELIVERY = {
 }
 
 
-class TestOwnershipOfATimedOutChannelLookup(SimpleTestCase):
+class TestOwnershipOfATimedOutChannelLookup(ClickhouseFreeSimpleTestCase):
     STATEMENT_TIMEOUT = OperationalError("canceling statement due to statement timeout")
 
     @parameterized.expand(

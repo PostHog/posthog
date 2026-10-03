@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.db import models
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -16,6 +15,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -953,7 +953,7 @@ class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
         )
 
 
-class AccountCapToFieldLengthTest(SimpleTestCase):
+class AccountCapToFieldLengthTest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("name",), ("external_id",)])
     def test_caps_value_to_field_max_length(self, field_name):
         max_length = cast(models.CharField, Account._meta.get_field(field_name)).max_length

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 
@@ -21,6 +21,7 @@ from posthog.stable_chunks import (
     read_stable_chunks_manifest,
     stable_chunks_choice,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import get_context_for_template, render_template
 
 VALID_MANIFEST = {
@@ -32,7 +33,7 @@ FLAG_ON = {STABLE_CHUNKS_FLAG: True}
 FLAG_OFF = {STABLE_CHUNKS_FLAG: False}
 
 
-class TestStableChunks(SimpleTestCase):
+class TestStableChunks(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("valid", VALID_MANIFEST, True),

@@ -2,8 +2,6 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 import structlog.testing
 from parameterized import parameterized
 from rest_framework import status
@@ -11,6 +9,7 @@ from rest_framework import status
 from posthog.models import Organization, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.managed_migrations.backend.api.support_batch_imports import BatchImportSupportDetailSerializer
 from products.managed_migrations.backend.models.batch_import_utils import (
@@ -21,7 +20,7 @@ from products.managed_migrations.backend.models.batch_import_utils import (
 from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType
 
 
-class TestRedactPartKey(SimpleTestCase):
+class TestRedactPartKey(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("s3_object_key", "2024/01/events-0001.jsonl.gz", "2024/01/events-0001.jsonl.gz"),

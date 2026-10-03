@@ -4,7 +4,7 @@ from typing import Optional, cast
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -30,6 +30,7 @@ from posthog.helpers.email_utils import (
     validate_message_body,
 )
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestEmailNormalizer(TestCase):
@@ -212,7 +213,7 @@ class TestEmailValidationHelper(TestCase):
             user.delete()
 
 
-class TestStripEmailAlias(SimpleTestCase):
+class TestStripEmailAlias(ClickhouseFreeSimpleTestCase):
     def test_strip_email_alias(self):
         test_cases = [
             ("someuser+someprefix@domain.com", "someuser@domain.com"),
@@ -227,7 +228,7 @@ class TestStripEmailAlias(SimpleTestCase):
                 self.assertEqual(strip_email_alias(input_email), expected)
 
 
-class TestRejectPlusAddressedEmail(SimpleTestCase):
+class TestRejectPlusAddressedEmail(ClickhouseFreeSimpleTestCase):
     def test_rejects_plus_in_local_part(self):
         with self.assertRaises(serializers.ValidationError) as ctx:
             reject_plus_addressed_email("someuser+alias@domain.com")
@@ -308,7 +309,7 @@ class TestUserExistsWithGmailCanonical(TestCase):
             user.delete()
 
 
-class TestESPSuppressionCheck(SimpleTestCase):
+class TestESPSuppressionCheck(ClickhouseFreeSimpleTestCase):
     def test_returns_not_suppressed_for_empty_email(self):
         result = check_esp_suppression("")
 
@@ -454,7 +455,7 @@ class TestESPSuppressionCheck(SimpleTestCase):
             self.assertEqual(result.reason, ESPSuppressionReason.API_FAILURE_FALLBACK)
 
 
-class TestESPSuppressionAnalytics(SimpleTestCase):
+class TestESPSuppressionAnalytics(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("success_cache_suppressed", True, "suppressed", "success_cache", False, None, None),
@@ -522,7 +523,7 @@ class TestESPSuppressionAnalytics(SimpleTestCase):
             self.assertEqual(call_kwargs["properties"]["error_type"], expected_error_type)
 
 
-class TestValidateDisplayName(SimpleTestCase):
+class TestValidateDisplayName(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "Marius", "Marius"),
@@ -588,7 +589,7 @@ class TestValidateDisplayName(SimpleTestCase):
         self.assertEqual(detail[0].code, expected_code)
 
 
-class TestValidateMessageBody(SimpleTestCase):
+class TestValidateMessageBody(ClickhouseFreeSimpleTestCase):
     def test_allows_newlines(self) -> None:
         value = "Hey!\nWelcome to the team.\nCheers."
         self.assertEqual(validate_message_body(value), value)
@@ -636,7 +637,7 @@ class TestValidateMessageBody(SimpleTestCase):
         self.assertEqual(validate_message_body("   \n\t  "), "   \n\t  ")
 
 
-class TestSanitizeDisplayName(SimpleTestCase):
+class TestSanitizeDisplayName(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain", "Acme Inc", "Acme Inc"),
@@ -686,7 +687,7 @@ class TestSanitizeDisplayName(SimpleTestCase):
         self.assertEqual(result, "their organization")
 
 
-class TestSanitizeMessageBody(SimpleTestCase):
+class TestSanitizeMessageBody(ClickhouseFreeSimpleTestCase):
     def test_returns_validated_value(self) -> None:
         value = "Hey!\nWelcome aboard."
         self.assertEqual(sanitize_message_body(value), value)
@@ -710,7 +711,7 @@ class TestSanitizeMessageBody(SimpleTestCase):
         self.assertEqual(sanitize_message_body(""), "")
 
 
-class TestSanitizeEmailString(SimpleTestCase):
+class TestSanitizeEmailString(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # Plain text passes through (with html.escape only).

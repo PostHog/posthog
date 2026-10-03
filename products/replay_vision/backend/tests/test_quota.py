@@ -5,13 +5,13 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.date_util import start_of_month
 from posthog.models import Organization, Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.replay_vision.backend import quota
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -465,7 +465,7 @@ class TestRebackfillUsageScannerId(_VisionQuotaTestCase):
         assert orphan.scanner_id is None
 
 
-class TestScannerBudgetBlocked(SimpleTestCase):
+class TestScannerBudgetBlocked(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("uncapped", None, 10_000, False, False, None),
@@ -738,7 +738,7 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         assert snapshot.period_end == end
 
 
-class TestCurrentPeriodBounds(SimpleTestCase):
+class TestCurrentPeriodBounds(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("current_period_kept", "2026-08-15", "2026-09-15", "2026-09-01", "2026-08-15", "2026-09-15"),
@@ -966,7 +966,7 @@ class TestObserveQuotaEnforcement(_VisionQuotaTestCase):
             mock_sync_connect.assert_not_called()
 
 
-class TestBillingPeriodValidation(SimpleTestCase):
+class TestBillingPeriodValidation(ClickhouseFreeSimpleTestCase):
     START = datetime(2026, 7, 1, tzinfo=UTC)
 
     def test_accepts_ordered_bounds(self) -> None:

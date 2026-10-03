@@ -1,7 +1,9 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.conversations.backend.cache import (
     MESSAGES_CACHE_TTL,
@@ -24,7 +26,7 @@ from products.conversations.backend.cache import (
 )
 
 
-class TestIdentityTicketsCacheNamespace(SimpleTestCase):
+class TestIdentityTicketsCacheNamespace(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         cache.clear()
 

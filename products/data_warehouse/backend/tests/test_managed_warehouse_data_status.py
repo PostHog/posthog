@@ -5,11 +5,12 @@ from uuid import uuid4
 import time_machine
 
 from django.db.models import QuerySet
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
@@ -45,7 +46,7 @@ class _AllowAllSourceAccess:
 ALLOW_ALL_SOURCE_ACCESS = cast(UserAccessControl, _AllowAllSourceAccess())
 
 
-class TestSourceTableReadiness(SimpleTestCase):
+class TestSourceTableReadiness(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("failed_needs_attention", ManagedWarehouseSourceJobStatus.FAILED, "needs_attention"),
@@ -88,7 +89,7 @@ class TestSourceTableReadiness(SimpleTestCase):
 
 
 @time_machine.travel("2026-07-13", tick=False)
-class TestDatasetStatus(SimpleTestCase):
+class TestDatasetStatus(ClickhouseFreeSimpleTestCase):
     def _partition(
         self,
         *,
@@ -207,7 +208,7 @@ def _table(
     }
 
 
-class TestSortSourceTables(SimpleTestCase):
+class TestSortSourceTables(ClickhouseFreeSimpleTestCase):
     def test_a_stalled_table_among_dozens_lands_on_the_first_page(self) -> None:
         # The table paginates at 20 rows. A team importing dozens of tables would otherwise have the
         # one that needs attention scattered anywhere by schema_id (a UUID), with no way to find it.
@@ -241,7 +242,7 @@ class TestSortSourceTables(SimpleTestCase):
         ]
 
 
-class TestRollupSources(SimpleTestCase):
+class TestRollupSources(ClickhouseFreeSimpleTestCase):
     def test_counts_applied_schemas_independent_of_readiness_label(self) -> None:
         stripe_id = str(uuid4())
         tables = [

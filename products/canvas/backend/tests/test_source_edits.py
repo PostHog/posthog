@@ -1,8 +1,8 @@
 from typing import Any
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.canvas.backend.source import CANVAS_ENTRY_HTML
 from products.canvas.backend.source_edits import apply_source_edits
@@ -15,7 +15,7 @@ def replace(old: str, new: str, **extra: Any) -> dict[str, Any]:
     return {"op": "str_replace", "path": "src/card.tsx", "old_string": old, "new_string": new, **extra}
 
 
-class TestApplySourceEdits(SimpleTestCase):
+class TestApplySourceEdits(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (

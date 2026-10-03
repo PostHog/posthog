@@ -2,8 +2,6 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -16,6 +14,7 @@ from posthog.api.tagged_item import (
 )
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
@@ -434,7 +433,7 @@ SERIALIZER_VARIANTS = [
 ]
 
 
-class TestBulkUpdateTagsRequestValidation(SimpleTestCase):
+class TestBulkUpdateTagsRequestValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(SERIALIZER_VARIANTS)
     def test_rejects_too_many_tags(self, _name, serializer_class, make_ids):
         serializer = serializer_class(

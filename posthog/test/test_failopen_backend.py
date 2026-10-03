@@ -1,15 +1,15 @@
 from unittest import mock
 
 from django.db import OperationalError, ProgrammingError
-from django.test import SimpleTestCase
 
 from posthog.db_backends.failopen.base import CircuitOpenError, DatabaseWrapper
 from posthog.db_circuit_breaker import BreakerDecision
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 ALIAS = "visual_review_db_reader"
 
 
-class TestFailOpenBackend(SimpleTestCase):
+class TestFailOpenBackend(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.wrapper = DatabaseWrapper.__new__(DatabaseWrapper)

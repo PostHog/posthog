@@ -1,13 +1,12 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
@@ -416,7 +415,7 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
 
-class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
+class TestSignalSourceConfigSerializerValidation(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("valid", {"linear_team_ids": ["team-1", "team-2"]}, True),

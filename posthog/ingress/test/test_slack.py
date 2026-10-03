@@ -2,12 +2,13 @@ import json
 from typing import Any
 from urllib.parse import urlencode
 
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory
 
 from parameterized import parameterized
 
 from posthog.ingress.providers import InvalidPayload
 from posthog.ingress.slack.provider import build_slack_interactivity_provider
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 URL = "/webhooks/slack/interactivity"
 FORM_CONTENT_TYPE = "application/x-www-form-urlencoded"
@@ -22,7 +23,7 @@ def _form_request(payload_field: str, headers: dict[str, str] | None = None) -> 
     )
 
 
-class TestSlackInteractivityProvider(SimpleTestCase):
+class TestSlackInteractivityProvider(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         self.provider = build_slack_interactivity_provider(secret_getter=lambda: "slack-signing-secret")
 

@@ -1,10 +1,10 @@
 from io import BytesIO
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework.exceptions import ParseError
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.api.offline_experiment_parser import (
     MAX_UPLOAD_BODY_BYTES,
@@ -17,7 +17,7 @@ from products.ai_observability.backend.api.offline_experiment_parser import (
 DEEPEST_NESTING = (MAX_UPLOAD_BODY_BYTES - len(b'{"items":0}')) // 2
 
 
-class TestOfflineEvaluationJSONParser(SimpleTestCase):
+class TestOfflineEvaluationJSONParser(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("missing", None), ("understated", "1"), ("overstated", str(MAX_UPLOAD_BODY_BYTES * 2))])
     def test_body_read_is_bounded_independently_of_content_length(self, _name: str, content_length: str | None) -> None:
         metadata = {} if content_length is None else {"CONTENT_LENGTH": content_length}

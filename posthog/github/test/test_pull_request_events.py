@@ -2,15 +2,14 @@ import uuid
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.github.metrics import GitHubWebhookAnalyticsEvent
 from posthog.github.pull_request_events import PullRequestAttribution, capture_pr_event
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestProductPullRequestAttribution(SimpleTestCase):
+class TestProductPullRequestAttribution(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("created", "opened", False, "pr_created"),

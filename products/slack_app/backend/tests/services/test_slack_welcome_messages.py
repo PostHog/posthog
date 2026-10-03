@@ -4,7 +4,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -12,6 +11,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
@@ -70,7 +70,7 @@ def test_assistant_pane_welcome_carries_no_markup_the_container_drops():
     assert "<" not in pane and ">" not in pane
 
 
-class TestWelcomeMessages(SimpleTestCase):
+class TestWelcomeMessages(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(BUILDERS)
     def test_links_the_home_tab_when_the_app_id_is_known(self, _name, build):
         _, blocks = build(_integration(app_id="A_WELCOME"))

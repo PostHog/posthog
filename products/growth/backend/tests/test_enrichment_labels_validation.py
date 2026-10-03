@@ -4,9 +4,9 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.growth.backend.enrichment.labels import (
     MAX_INPUT_COLUMNS,
@@ -34,7 +34,7 @@ def _dict_depth(value: Any) -> int:
     return 0
 
 
-class TestToDomainEmailDetection(SimpleTestCase):
+class TestToDomainEmailDetection(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("at_mention_not_email", "We build AI @scale for product teams"),
@@ -51,7 +51,7 @@ class TestToDomainEmailDetection(SimpleTestCase):
         assert to_domain("hello@acme.com") == "acme.com"
 
 
-class TestBoundInputsTotalSize(SimpleTestCase):
+class TestBoundInputsTotalSize(ClickhouseFreeSimpleTestCase):
     def test_serialized_total_is_capped_regardless_of_per_value_bounding(self) -> None:
         # Per-value bounding alone lets 40 columns x 4000 chars still exceed any reasonable
         # prompt budget - the serialized-size check is what actually caps spend.
@@ -63,7 +63,7 @@ class TestBoundInputsTotalSize(SimpleTestCase):
         assert bounded
 
 
-class TestDepthBoundedRecursion(SimpleTestCase):
+class TestDepthBoundedRecursion(ClickhouseFreeSimpleTestCase):
     def test_deeply_nested_value_does_not_raise_recursion_error(self) -> None:
         nested: Any = "leaf"
         for _ in range(100):
@@ -78,7 +78,7 @@ class TestDepthBoundedRecursion(SimpleTestCase):
         assert _dict_depth(bounded["field"]) <= MAX_INPUT_DEPTH
 
 
-class TestValidateOutputFields(SimpleTestCase):
+class TestValidateOutputFields(ClickhouseFreeSimpleTestCase):
     def _config(self, output_fields: list[dict]) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -110,7 +110,7 @@ class TestValidateOutputFields(SimpleTestCase):
         validate_output_fields(config)
 
 
-class TestClassifyPayloadValidatesConfigBeforeSpending(SimpleTestCase):
+class TestClassifyPayloadValidatesConfigBeforeSpending(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("unknown_output_type", [{"key": "flag", "type": "integer"}]),
@@ -137,7 +137,7 @@ class TestClassifyPayloadValidatesConfigBeforeSpending(SimpleTestCase):
         client.chat.completions.create.assert_not_called()
 
 
-class TestUnitIntervalRangeCheckIsTypeSafe(SimpleTestCase):
+class TestUnitIntervalRangeCheckIsTypeSafe(ClickhouseFreeSimpleTestCase):
     def test_a_string_typed_confidence_field_raises_output_parse_error_not_type_error(self) -> None:
         # verdict_field_key already tolerates a schema with a "confidence" key typed as a string;
         # the 0-1 range check used to run outside the try block and raise a bare TypeError there,
@@ -161,7 +161,7 @@ class TestUnitIntervalRangeCheckIsTypeSafe(SimpleTestCase):
         assert client.chat.completions.create.call_count == 1
 
 
-class TestStringCoercionRejectsNullAndCollections(SimpleTestCase):
+class TestStringCoercionRejectsNullAndCollections(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("json_null", None),
@@ -190,7 +190,7 @@ class TestStringCoercionRejectsNullAndCollections(SimpleTestCase):
             classify_payload(config, {"company": "Acme"}, None, client)
 
 
-class TestIsUnknownOutput(SimpleTestCase):
+class TestIsUnknownOutput(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -227,7 +227,7 @@ class TestSignupDomainHostnameValidation(BaseTest):
         assert signup_domain_for_organization(self.organization) is None
 
 
-class TestCallAndParseGatewayEdgeCases(SimpleTestCase):
+class TestCallAndParseGatewayEdgeCases(ClickhouseFreeSimpleTestCase):
     def _config(self) -> EnrichmentPromptConfig:
         return EnrichmentPromptConfig(
             name="test_label",
@@ -303,7 +303,7 @@ def _client_returning(payload: dict[str, Any]) -> MagicMock:
     return client
 
 
-class TestOutputTokenCapParameter(SimpleTestCase):
+class TestOutputTokenCapParameter(ClickhouseFreeSimpleTestCase):
     def test_the_cap_is_sent_as_max_completion_tokens(self) -> None:
         # The OpenAI API rejects max_tokens for gpt-5 and o-series models. It reaches them today
         # only because the gateway's litellm rewrites it, and config.model is operator-editable so
@@ -317,7 +317,7 @@ class TestOutputTokenCapParameter(SimpleTestCase):
         assert "max_tokens" not in kwargs
 
 
-class TestDeclaredOutputFieldRange(SimpleTestCase):
+class TestDeclaredOutputFieldRange(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("only_min", [{"key": "score", "type": "number", "min": 0}]),
@@ -356,7 +356,7 @@ class TestDeclaredOutputFieldRange(SimpleTestCase):
         assert "between 0.0 and 100.0" in json.dumps(messages)
 
 
-class TestTooManyInputFieldsIsRejected(SimpleTestCase):
+class TestTooManyInputFieldsIsRejected(ClickhouseFreeSimpleTestCase):
     def test_more_input_fields_than_reach_the_prompt_is_a_config_error(self) -> None:
         # bound_inputs keeps only the first MAX_INPUT_COLUMNS, and drops the tail from both the
         # prompt and the stored record with nothing in either to say so.
@@ -369,7 +369,7 @@ class TestTooManyInputFieldsIsRejected(SimpleTestCase):
         client.chat.completions.create.assert_not_called()
 
 
-class TestBoundingReport(SimpleTestCase):
+class TestBoundingReport(ClickhouseFreeSimpleTestCase):
     def test_a_dropped_column_is_named(self) -> None:
         original = {f"f{i}": "x" for i in range(MAX_INPUT_COLUMNS + 2)}
 

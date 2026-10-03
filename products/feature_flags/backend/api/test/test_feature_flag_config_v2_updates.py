@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError, connection, transaction
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -24,6 +24,7 @@ from posthog.api.utils import ServiceRequest
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
@@ -79,7 +80,7 @@ def config(*rules: dict, **extra: Any) -> dict:
     return {"version": 2, "return_type": "boolean", "default_value": False, "rules": list(rules), **extra}
 
 
-class TestWriterAdmission(SimpleTestCase):
+class TestWriterAdmission(ClickhouseFreeSimpleTestCase):
     def test_the_gate_evaluates_locally_for_the_project_and_captures_nothing(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
             assert config_writes.v2_write_limits(42) is not None

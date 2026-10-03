@@ -6,7 +6,7 @@ import pytest
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 import psycopg
 from parameterized import parameterized
@@ -18,6 +18,7 @@ from posthog.management.commands.apply_persons_migrations import (
     _runs_outside_transaction,
 )
 from posthog.persons_db import persons_db_connection
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 def _persons_fetchall(query: str, params: list | None = None) -> list[tuple]:
@@ -32,7 +33,7 @@ def _persons_execute(statements: list[str]) -> None:
             cursor.execute(statement)
 
 
-class TestNoTransactionMarker(SimpleTestCase):
+class TestNoTransactionMarker(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("first_line", "-- no-transaction\nCREATE INDEX CONCURRENTLY a ON t (c);", True),
@@ -47,7 +48,7 @@ class TestNoTransactionMarker(SimpleTestCase):
         assert _runs_outside_transaction(sql_content) is expected
 
 
-class TestMultipleStatementDetection(SimpleTestCase):
+class TestMultipleStatementDetection(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("single_statement", "CREATE INDEX CONCURRENTLY i ON t (c);", False),
@@ -65,7 +66,7 @@ class TestMultipleStatementDetection(SimpleTestCase):
         assert _holds_multiple_statements(sql_content) is expected
 
 
-class TestConcurrentIndexTarget(SimpleTestCase):
+class TestConcurrentIndexTarget(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("create", "CREATE INDEX CONCURRENTLY IF NOT EXISTS i ON t (c);", "i"),

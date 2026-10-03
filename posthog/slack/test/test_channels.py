@@ -1,15 +1,14 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.slack.channels import SlackChannel, clip_text, find_channel
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 _TEAM_CHANNEL = SlackChannel(channel_id="C1", shared=False)
 _SHARED_CHANNEL = SlackChannel(channel_id="C2", shared=True)
 _CHANNELS = {"team-devex": _TEAM_CHANNEL, "partners": _SHARED_CHANNEL}
 
 
-class TestFindChannel(SimpleTestCase):
+class TestFindChannel(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("plain_name", "team-devex", False, _TEAM_CHANNEL, "found"),
@@ -27,7 +26,7 @@ class TestFindChannel(SimpleTestCase):
         self.assertEqual((match.channel, match.reason), (channel, reason))
 
 
-class TestClipText(SimpleTestCase):
+class TestClipText(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("shorter_than_the_limit_is_untouched", "one line", 20, "one line"),

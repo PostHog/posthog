@@ -2,9 +2,9 @@ import math
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.cohorts.backend.parity.classifier import (
     VERDICT_FAIL,
@@ -41,7 +41,7 @@ def _config(**overrides) -> ClassifierConfig:
     return ClassifierConfig(**defaults)
 
 
-class TestClassifier(SimpleTestCase):
+class TestClassifier(ClickhouseFreeSimpleTestCase):
     def test_excluded_cohort_is_skipped_not_gated(self) -> None:
         row = classify_cohort(
             screened=_screened(EXCLUDED_HAS_DROPPED_LEAF),

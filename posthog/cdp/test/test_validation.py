@@ -3,8 +3,6 @@ import json
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -21,6 +19,7 @@ from posthog.cdp.validation import (
     reserved_functions_used,
 )
 from posthog.models.integration import Integration
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.messaging.backend.api.design_validation import validate_design
 
@@ -1393,7 +1392,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         assert validated["tags"]["value"] == value
 
 
-class TestTaskInputTypeValidation(SimpleTestCase):
+class TestTaskInputTypeValidation(ClickhouseFreeSimpleTestCase):
     # The task_* input types are authored programmatically (workflow API, MCP agents), so the
     # serializer is the only guard against a payload shape the tasks endpoint would reject at
     # run time - long after the workflow saved fine.
@@ -1428,7 +1427,7 @@ class TestTaskInputTypeValidation(SimpleTestCase):
                 validate_inputs(schema, inputs)
 
 
-class TestReservedFunctionsUsed(SimpleTestCase):
+class TestReservedFunctionsUsed(ClickhouseFreeSimpleTestCase):
     # The worker's async function registry is global, so the save-time check is the only thing
     # that stops user-authored hog from reaching a handler only PostHog's machinery should call.
     @parameterized.expand(

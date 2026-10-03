@@ -3,9 +3,9 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_RESOURCE_ID_METADATA_KEY,
@@ -262,7 +262,7 @@ class TestSchemaDiscoveryReconcile(BaseTest):
         assert other_removed.should_sync is False
 
 
-class TestSchemaNameMatchesAutoSyncPatterns(SimpleTestCase):
+class TestSchemaNameMatchesAutoSyncPatterns(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("no_patterns", "raw_events", None, True),

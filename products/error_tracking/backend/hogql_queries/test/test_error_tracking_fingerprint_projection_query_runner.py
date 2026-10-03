@@ -5,7 +5,6 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -14,6 +13,7 @@ from rest_framework.response import Response
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import ErrorTrackingFingerprintProjectionBurstRateThrottle
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_projection_query_runner import (
     FingerprintEmbedding,
@@ -21,7 +21,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_fingerprint_pr
 )
 
 
-class TestFingerprintEmbeddingProjection(SimpleTestCase):
+class TestFingerprintEmbeddingProjection(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("single", [[1.0, 0.0, 0.0]]),

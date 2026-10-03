@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from opentelemetry.metrics import NoOpMeter
 from opentelemetry.sdk.metrics.export import MetricExporter, MetricExportResult
@@ -14,6 +14,7 @@ from prometheus_client import (
 )
 
 from posthog.otel_metrics import OtelInstrumentFactory, get_otel_meter, reset_otel_metrics_for_tests
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class _CapturingExporter(MetricExporter):
@@ -32,7 +33,7 @@ class _CapturingExporter(MetricExporter):
         pass
 
 
-class TestOtelMetrics(SimpleTestCase):
+class TestOtelMetrics(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         reset_otel_metrics_for_tests()
         self.addCleanup(reset_otel_metrics_for_tests)

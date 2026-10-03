@@ -5,15 +5,14 @@ from typing import Any
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from posthog.models import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.demo.events import MarketingEventGenerator
 from products.marketing_analytics.backend.demo.world import EVENT_PAGEVIEW
 
 
-class TestMarketingDemoTraffic(SimpleTestCase):
+class TestMarketingDemoTraffic(ClickhouseFreeSimpleTestCase):
     def test_traffic_has_returning_visitors_and_multi_page_sessions(self) -> None:
         now = dt.datetime(2026, 8, 1, tzinfo=dt.UTC)
         with patch("products.marketing_analytics.backend.demo.events.create_event") as capture:

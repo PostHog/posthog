@@ -1,14 +1,14 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from requests import ConnectTimeout, ReadTimeout
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.facade.domain_research import normalize_target, research_domain
 
 
-class TestResearchDomain(SimpleTestCase):
+class TestResearchDomain(ClickhouseFreeSimpleTestCase):
     def test_an_invalid_address_literal_has_no_research_target(self) -> None:
         assert normalize_target("[1.2.3.4]") is None
 

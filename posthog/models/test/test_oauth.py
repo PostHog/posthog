@@ -4,7 +4,7 @@ import time_machine
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -22,6 +22,7 @@ from posthog.models.oauth import (
     revoke_oauth_token_session,
 )
 from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestOAuthModels(TestCase):
@@ -659,7 +660,7 @@ class TestOAuthModels(TestCase):
         self.assertIsNone(other_app.sessions_revoked_at)
 
 
-class TestCarriesProvisioningConfig(SimpleTestCase):
+class TestCarriesProvisioningConfig(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # The backfill writes a config to every row, so an ordinary OAuth app ends up with a
@@ -689,7 +690,7 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
         assert app.carries_provisioning_config is expected
 
 
-class TestNormalizeRateLimits(SimpleTestCase):
+class TestNormalizeRateLimits(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # The old fixed-field shape stored these two for "no override" and "unlimited".
@@ -708,7 +709,7 @@ class TestNormalizeRateLimits(SimpleTestCase):
         assert ProvisioningConfig(rate_limits=stored).rate_limits == expected
 
 
-class TestNormalizeCimdUrl(SimpleTestCase):
+class TestNormalizeCimdUrl(ClickhouseFreeSimpleTestCase):
     # `CIMDVerificationToken.cimd_url` stores this function's output directly, and migration
     # 1296_backfill_cimd_verification_token_url keeps a frozen copy of the same logic. Changing
     # what any of these inputs normalize to silently unverifies every stored token bound to a

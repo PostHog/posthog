@@ -5,7 +5,6 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +20,7 @@ from posthog.schema import (
 
 from posthog.models import Team
 from posthog.models.utils import uuid7
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.hogql_queries.web_goals import NoActionsError
@@ -45,7 +45,7 @@ DIGEST_QUERY_CASES = [
 ]
 
 
-class TestDigestQueryFailures(SimpleTestCase):
+class TestDigestQueryFailures(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(DIGEST_QUERY_CASES)
     def test_query_exceptions_are_not_zero_traffic(
         self, query: Callable[..., object], runner_name: str, *_: object

@@ -1,6 +1,6 @@
-from django.test import SimpleTestCase
-
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from common.hogvm.python.stl import STL
 
@@ -16,7 +16,7 @@ LOWER_MAX_ARGS_THAN_HOGQL = {
 }
 
 
-class TestHogStlArity(SimpleTestCase):
+class TestHogStlArity(ClickhouseFreeSimpleTestCase):
     def test_no_builtin_accepts_fewer_arguments_than_hogql(self) -> None:
         too_strict = []
         for name, stl_fn in STL.items():

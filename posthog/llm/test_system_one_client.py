@@ -2,7 +2,7 @@ import json
 
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import httpx
 from parameterized import parameterized
@@ -25,6 +25,7 @@ from posthog.llm.system_one_client import (
     build_system_one_client,
     system_one_configured,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 GATEWAY_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 FALLBACK = TypeSafeFallback(model="jev-1.13.0", source="test", priority=Priority.BATCH)
@@ -57,7 +58,7 @@ def _build(typesafe_fallback: TypeSafeFallback | None = FALLBACK) -> SystemOneCl
 
 
 @override_settings(CLOUD_DEPLOYMENT="LOCAL")
-class TestBuildSystemOneClient(SimpleTestCase):
+class TestBuildSystemOneClient(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("gateway_wins", {**GATEWAY, "TYPESAFE_API_KEY": "ts-key"}, GatewaySystemOneClient, GATEWAY_MODEL),

@@ -2,13 +2,12 @@ from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
@@ -501,7 +500,7 @@ class TestPropertyAccessControlViewSet(APIBaseTest):
         assert len(response.json()["access_controls"]) == 1
 
 
-class TestPropertyAccessControlUpdateSerializer(SimpleTestCase):
+class TestPropertyAccessControlUpdateSerializer(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ({},),

@@ -1,14 +1,13 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 import posthog.tasks.tasks
 from posthog.redis import get_client
 from posthog.tasks.poll_query_performance import poll_query_performance, query_manager_from_initial_query_id
 from posthog.tasks.tasks import Polling
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestPollQueryPerformance(SimpleTestCase):
+class TestPollQueryPerformance(ClickhouseFreeSimpleTestCase):
     def test_query_manager_from_initial_query_id_succeeds(self) -> None:
         self.assertIsNotNone(query_manager_from_initial_query_id("1_00008400-e29b-41d4-a716-446655440000_fwefwef"))
         self.assertIsNotNone(query_manager_from_initial_query_id("123123_550e8400-e29b-41d4-a716-446655440000_fwefwef"))
@@ -59,7 +58,7 @@ class TestPollQueryPerformance(SimpleTestCase):
         )
 
 
-class TestPollQueryPerformanceTask(SimpleTestCase):
+class TestPollQueryPerformanceTask(ClickhouseFreeSimpleTestCase):
     @patch("posthog.tasks.tasks.logger.error")
     def test_poll_query_performance_does_not_run_if_last_update_does_not_match(
         self, mock_logger_error: MagicMock

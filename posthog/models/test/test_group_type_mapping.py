@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -24,6 +24,7 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
     update_group_type_mapping_fields,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 
@@ -57,7 +58,7 @@ PERSONHOG_SUCCESS_DATA = [
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
 
 
-class TestGetGroupTypesForProject(SimpleTestCase):
+class TestGetGroupTypesForProject(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_id = 999
         _clear_cache(self.project_id)
@@ -130,7 +131,7 @@ class TestGetGroupTypesForProject(SimpleTestCase):
         assert result == []
 
 
-class TestGetGroupTypesForTeam(SimpleTestCase):
+class TestGetGroupTypesForTeam(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.team_id = 42
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
@@ -171,7 +172,7 @@ class TestGetGroupTypesForTeam(SimpleTestCase):
         assert result == []
 
 
-class TestGetGroupTypesForProjects(SimpleTestCase):
+class TestGetGroupTypesForProjects(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_ids = [1, 2, 3]
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
@@ -259,7 +260,7 @@ class TestGetGroupTypesForProjects(SimpleTestCase):
         }
 
 
-class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
+class TestGetGroupTypesForProjectsReplicaReconfirm(ClickhouseFreeSimpleTestCase):
     """The batch fetch reads at eventual consistency; a lagging or inconsistent replica
     can return an empty mapping for a project that authoritatively has group types. That
     silent empty is what drove the flag-cache write to try to erase a populated mapping.
@@ -406,7 +407,7 @@ class TestGetGroupTypesForProjectsReplicaReconfirm(SimpleTestCase):
         assert result[self.empty_pid] == []
 
 
-class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
+class TestGetGroupTypesForProjectCacheBehavior(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_id = 888
         _clear_cache(self.project_id)
@@ -474,7 +475,7 @@ class TestGetGroupTypesForProjectCacheBehavior(SimpleTestCase):
         assert get_safe_cache(stale_key) == PERSONHOG_SUCCESS_DATA
 
 
-class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
+class TestGetGroupTypesForTeamEdgeCases(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self._client_patcher = patch(_CLIENT_PATCH, return_value=MagicMock())
         self._client_patcher.start()
@@ -497,7 +498,7 @@ class TestGetGroupTypesForTeamEdgeCases(SimpleTestCase):
         mock_objects.filter.assert_not_called()
 
 
-class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
+class TestCountGroupTypeMappingsPerTeam(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self._mock_client = MagicMock()
         self._client_patcher = patch(_CLIENT_PATCH, return_value=self._mock_client)
@@ -546,7 +547,7 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
 # ── Write helper tests ─────────────────────────────────────────────
 
 
-class TestUpdateGroupTypeMappingFields(SimpleTestCase):
+class TestUpdateGroupTypeMappingFields(ClickhouseFreeSimpleTestCase):
     def _make_instance(self):
         instance = MagicMock()
         instance.project_id = 1
@@ -620,7 +621,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert b'"email"' in req.default_columns
 
 
-class TestDeleteGroupTypeMapping(SimpleTestCase):
+class TestDeleteGroupTypeMapping(ClickhouseFreeSimpleTestCase):
     def _make_instance(self):
         instance = MagicMock()
         instance.project_id = 1
@@ -643,7 +644,7 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
         instance.delete.assert_not_called()
 
 
-class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
+class TestClearDashboardFromGroupTypeMapping(ClickhouseFreeSimpleTestCase):
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
     @patch(_CLIENT_PATCH)
     def test_personhog_success_reads_then_updates(self, mock_get_client, mock_invalidate):
@@ -723,7 +724,7 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
 # ── Terminal-failure hardening tests ──────────────────────────────────
 
 
-class TestTerminalFetchFailureMetric(SimpleTestCase):
+class TestTerminalFetchFailureMetric(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_id = 7777
         _clear_cache(self.project_id)
@@ -771,7 +772,7 @@ class TestTerminalFetchFailureMetric(SimpleTestCase):
         )
 
 
-class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
+class TestGetGroupTypesForProjectsFailClosed(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_ids = [101, 102]
         for pid in self.project_ids:
@@ -823,7 +824,7 @@ class TestGetGroupTypesForProjectsFailClosed(SimpleTestCase):
         assert result == {101: [], 102: []}
 
 
-class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
+class TestRecordGroupTypesFetchFailureThrottle(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.operation = "get_group_types_for_projects"
         safe_cache_delete(f"group_types_failure_capture_throttle:{self.operation}")
@@ -858,7 +859,7 @@ class TestRecordGroupTypesFetchFailureThrottle(SimpleTestCase):
         assert second_kwargs["capture_throttled"] is True
 
 
-class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
+class TestProjectHasGroupTypesAuthoritatively(ClickhouseFreeSimpleTestCase):
     _PROJECT_IDS = (123, 777, 888)
     _DIRECT_PATCH = "posthog.models.group_type_mapping._fetch_group_types_for_project_direct"
     _SAMPLE_ROW = {
@@ -929,7 +930,7 @@ class TestProjectHasGroupTypesAuthoritatively(SimpleTestCase):
 
 # Missing client (PERSONHOG_ADDR unset) raises RuntimeError; read paths must recover
 # like a DatabaseError instead of letting it escape and 500 the caller.
-class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
+class TestUnconfiguredClientDegradesGracefully(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_id = 314159
         _clear_cache(self.project_id)
@@ -957,7 +958,7 @@ class TestUnconfiguredClientDegradesGracefully(SimpleTestCase):
         assert project_has_group_types_authoritatively(self.project_id) is True
 
 
-class TestDictToGroupTypeMappingModel(SimpleTestCase):
+class TestDictToGroupTypeMappingModel(ClickhouseFreeSimpleTestCase):
     def test_builds_model_from_full_dict(self):
         row = {
             "group_type": "organization",
@@ -1004,7 +1005,7 @@ class TestDictToGroupTypeMappingModel(SimpleTestCase):
         assert obj.team_id is None
 
 
-class TestGetGroupTypeMappingInstance(SimpleTestCase):
+class TestGetGroupTypeMappingInstance(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.project_id = 777
         _clear_cache(self.project_id)

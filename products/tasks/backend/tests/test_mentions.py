@@ -1,11 +1,11 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.mentions import extract_mention_emails
 
 
-class ExtractMentionEmailsTest(SimpleTestCase):
+class ExtractMentionEmailsTest(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("single_mention", "hey @[Ann](ann@example.com), thoughts?", {"ann@example.com"}),

@@ -1,6 +1,6 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.temporal.babysit_pr.snapshot import (
     CONFLICT_KEY,
@@ -29,7 +29,7 @@ CHECK = FailingCheck(key="CI/backend")
 COMMENT = CommentItem(id="M1", author="coderabbit", body_excerpt="3 nits")
 
 
-class TestBabysitJournal(SimpleTestCase):
+class TestBabysitJournal(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("fresh_thread", BabysitJournal(), True),
@@ -121,7 +121,7 @@ class TestBabysitJournal(SimpleTestCase):
         assert [c.id for c in remaining.comments] == ["M0"]
 
 
-class TestAttentionSetCapping(SimpleTestCase):
+class TestAttentionSetCapping(ClickhouseFreeSimpleTestCase):
     def test_capped_keeps_the_newest_rendered_items_and_passes_checks_and_conflict_through(self):
         threads = [ReviewThreadItem(id=f"T{i}", last_comment_id="C1") for i in range(5)]
         comments = [CommentItem(id=f"M{i}") for i in range(5)]

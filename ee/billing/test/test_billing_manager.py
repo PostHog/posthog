@@ -12,7 +12,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import jwt
 import requests
@@ -23,6 +23,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.logs.backend.models import LogsRetentionRule
 
@@ -68,7 +69,7 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
     return data
 
 
-class TestFundingStatusParsing(SimpleTestCase):
+class TestFundingStatusParsing(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (
@@ -963,7 +964,7 @@ class TestBillingManager(BaseTest):
         assert organization.has_active_subscription is expected
 
 
-class TestBillingSession(SimpleTestCase):
+class TestBillingSession(ClickhouseFreeSimpleTestCase):
     def test_the_session_keeps_no_cookies(self):
         # Every call to billing is server-to-server and carries a bearer token for one
         # organization. A cookie set on one response must not ride along on the next request,
@@ -979,7 +980,7 @@ class TestBillingSession(SimpleTestCase):
         self.assertEqual(len(http_session.cookies), 0)
 
 
-class TestBillingProviderWebhookSigning(SimpleTestCase):
+class TestBillingProviderWebhookSigning(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         self.license = SimpleNamespace(key="license_id::license_secret")
         self.organization = cast(Organization, SimpleNamespace(id="org_123", name="Test Org"))

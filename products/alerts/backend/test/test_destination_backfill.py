@@ -3,11 +3,10 @@ from uuid import uuid4
 
 from posthog.test.base import BaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.alerts.backend.destination_backfill import (
     INSIGHT_CHART_BLOCK,
@@ -44,7 +43,7 @@ def slack_inputs(blocks: list[Any]) -> dict[str, Any]:
     }
 
 
-class TestBlocksWithChart(SimpleTestCase):
+class TestBlocksWithChart(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("no divider above the buttons", [HEADER_BLOCK, CONTEXT_BLOCK, ACTIONS_BLOCK]),

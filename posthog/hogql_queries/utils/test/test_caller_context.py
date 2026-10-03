@@ -1,12 +1,11 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tag_queries
 from posthog.hogql_queries.utils.caller_context import map_in_caller_context
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestMapInCallerContext(SimpleTestCase):
+class TestMapInCallerContext(ClickhouseFreeSimpleTestCase):
     def tearDown(self):
         reset_query_tags()
         super().tearDown()

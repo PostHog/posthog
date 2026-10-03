@@ -1,15 +1,14 @@
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.workos_radar import RadarVerdict, _decide_outcome
 
 from products.security.backend.tests.helpers import exempt_rule, seed_rules
 
 
-class TestRadarCallSite(SimpleTestCase):
+class TestRadarCallSite(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([(RadarVerdict.BLOCK,), (RadarVerdict.CHALLENGE,)])
     def test_exempt_address_bypasses(self, verdict: RadarVerdict) -> None:
         seed_rules(exempt_rule(targetType="email_domain", targetValue="partner.example", scope="signup_risk"))
@@ -43,7 +42,7 @@ class TestRadarCallSite(SimpleTestCase):
             assert _decide_outcome(RadarVerdict.BLOCK, "trusted@example.org", "", "", "93.184.216.1") == "block"
 
 
-class TestRedisBypassEquivalence(SimpleTestCase):
+class TestRedisBypassEquivalence(ClickhouseFreeSimpleTestCase):
     """What the deleted Redis list did, restated against access rules.
 
     The old check was one line: `sismember(key, email.lower())`, consulted only for a

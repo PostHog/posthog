@@ -12,8 +12,6 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
@@ -35,6 +33,7 @@ from posthog.tasks.ai_observability_usage_report import (
     get_teams_with_ai_events,
     send_ai_observability_usage_reports,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 from posthog.utils import get_previous_day
 
 
@@ -1202,7 +1201,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
 
 
 @time_machine.travel("2022-01-10T00:01:00Z", tick=False)
-class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
+class TestAIObservabilityUsageReportTaskWiring(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("scheduled", None, False, "2022-01-10T00:00:00+00:00", "scheduled"),

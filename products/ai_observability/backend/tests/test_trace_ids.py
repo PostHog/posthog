@@ -1,6 +1,6 @@
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.ai_observability.backend.presentation.trace_ids import (
     MalformedTraceIdSegmentError,
@@ -8,7 +8,7 @@ from products.ai_observability.backend.presentation.trace_ids import (
 )
 
 
-class TestDecodeTraceIdSegment(SimpleTestCase):
+class TestDecodeTraceIdSegment(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("abc", "YWJj"),

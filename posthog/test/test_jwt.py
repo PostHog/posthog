@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import jwt
 from parameterized import parameterized
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, signing_key_fingerprint
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 PRIMARY = "primary-signing-key"
 ROTATED = "rotated-new-signing-key"
@@ -28,7 +29,7 @@ def _raw_token(
 
 
 @override_settings(JWT_SIGNING_KEY=PRIMARY, JWT_SIGNING_KEY_FALLBACKS=[])
-class TestJwt(SimpleTestCase):
+class TestJwt(ClickhouseFreeSimpleTestCase):
     def test_encode_does_not_tag_token_with_a_key_id(self):
         # Tokens stay untagged so the header leaks nothing about which key signed them.
         token = encode_jwt({"id": 7}, timedelta(minutes=5), AUD)
@@ -134,7 +135,7 @@ class TestJwt(SimpleTestCase):
         assert len(signing_key_fingerprint(PRIMARY)) == 16
 
 
-class TestJwtSigningKeyDefaults(SimpleTestCase):
+class TestJwtSigningKeyDefaults(ClickhouseFreeSimpleTestCase):
     def test_signing_key_settings_default_to_secret_key(self):
         # With no JWT_SIGNING_KEY* env set (the test environment), JWT signing transparently
         # reuses SECRET_KEY and its fallbacks, so nothing breaks until a key is provisioned.

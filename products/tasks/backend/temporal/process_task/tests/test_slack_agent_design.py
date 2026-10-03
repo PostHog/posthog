@@ -2,7 +2,7 @@ from typing import ClassVar
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -11,6 +11,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.tasks.backend.models import Task, TaskRun
@@ -25,7 +26,7 @@ from products.tasks.backend.temporal.process_task.utils import record_message_ac
 PROJECT_URL = "https://us.posthog.com/project/7"
 
 
-class TestStreamedAnswerCodeElements(SimpleTestCase):
+class TestStreamedAnswerCodeElements(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("backticks", "```", True),

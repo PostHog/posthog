@@ -3,7 +3,6 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +11,7 @@ from rest_framework import serializers, status
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.canvas.backend.connectors import (
     MAX_RESULT_BYTES,
@@ -409,7 +409,7 @@ class TestCanvasConnectors(CanvasAPIBaseTest):
         mock_call.assert_not_called()
 
 
-class TestConnectorResultBounds(SimpleTestCase):
+class TestConnectorResultBounds(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("unicode", "😀"), ("escape", "\\"), ("quotes", '"'), ("control", "\n")])
     def test_preview_including_json_envelope_stays_within_byte_limit(self, _name: str, value: str) -> None:
         result, truncated = _bounded({"data": value * MAX_RESULT_BYTES})
@@ -417,7 +417,7 @@ class TestConnectorResultBounds(SimpleTestCase):
         assert len(json.dumps(result).encode("utf-8")) <= MAX_RESULT_BYTES
 
 
-class TestGitHubReadTools(SimpleTestCase):
+class TestGitHubReadTools(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         client_patch = patch("products.canvas.backend.connectors._github_client")
         self.github = client_patch.start().return_value

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import TestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -10,6 +10,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.tasks.backend.loop_notifications import _channel_enabled, dispatch_loop_event
 from products.tasks.backend.models import Loop
@@ -17,7 +18,7 @@ from products.tasks.backend.models import Loop
 LOOP_NOTIFICATIONS_MODULE = "products.tasks.backend.loop_notifications"
 
 
-class TestChannelEnabled(SimpleTestCase):
+class TestChannelEnabled(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("enabled_and_subscribed", {"enabled": True, "events": ["run_completed"]}, "run_completed", True),

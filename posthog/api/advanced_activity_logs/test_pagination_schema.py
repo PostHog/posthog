@@ -1,12 +1,11 @@
-from django.test import SimpleTestCase
-
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.advanced_activity_logs.viewset import ActivityLogPagination
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
-class TestActivityLogPaginationSchema(SimpleTestCase):
+class TestActivityLogPaginationSchema(ClickhouseFreeSimpleTestCase):
     def test_count_is_not_required_because_cursor_responses_omit_it(self):
         schema = ActivityLogPagination().get_paginated_response_schema({"type": "array"})
 

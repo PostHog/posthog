@@ -3,11 +3,10 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.marketing_analytics.backend.services.attribution_health import (
     AttributionHealthEntry,
@@ -149,7 +148,7 @@ class TestComputeOverallStatus:
         assert _compute_overall_status(diags) == expected
 
 
-class TestGetMarketingDiagnostic(SimpleTestCase):
+class TestGetMarketingDiagnostic(ClickhouseFreeSimpleTestCase):
     def setUp(self):
         super().setUp()
         self.team = Team(id=1)

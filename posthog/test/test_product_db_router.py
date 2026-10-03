@@ -1,10 +1,11 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from posthog.product_db_config import ProductDBRoute, load_product_db_routes
 from posthog.product_db_router import ProductDBRouter, check_product_db_routes, get_product_db_routes
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 FAKE_PRODUCT_DATABASES: dict[str, dict] = {
     "default": {},
@@ -14,7 +15,7 @@ FAKE_PRODUCT_DATABASES: dict[str, dict] = {
 
 
 @override_settings(DATABASES=FAKE_PRODUCT_DATABASES)
-class TestProductDBRouter(SimpleTestCase):
+class TestProductDBRouter(ClickhouseFreeSimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.router = ProductDBRouter(
@@ -58,7 +59,7 @@ class TestProductDBRouter(SimpleTestCase):
         self.assertIsNone(router.db_for_write(model))
 
 
-class TestProductDBRouteLoading(SimpleTestCase):
+class TestProductDBRouteLoading(ClickhouseFreeSimpleTestCase):
     def test_loads_visual_review_db_routing_yaml(self) -> None:
         routes = load_product_db_routes(Path(__file__).resolve().parents[2])
         visual_review_routes = [route for route in routes if route.app_label == "visual_review"]
@@ -68,7 +69,7 @@ class TestProductDBRouteLoading(SimpleTestCase):
         self.assertTrue(visual_review_routes[0].source.endswith("products/db_routing.yaml"))
 
 
-class TestProductDBRouteChecks(SimpleTestCase):
+class TestProductDBRouteChecks(ClickhouseFreeSimpleTestCase):
     @override_settings(BASE_DIR=Path(__file__).resolve().parents[2])
     def test_check_passes_for_valid_route_config(self) -> None:
         get_product_db_routes.cache_clear()

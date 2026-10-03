@@ -1,11 +1,10 @@
 import json
 from pathlib import Path
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.query_scan.explain import parse_query_plan
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -43,7 +42,7 @@ def min_max_read(condition: str, keys: list[str]) -> list[dict[str, object]]:
     return [{"Plan": events_read_node(condition, keys)}]
 
 
-class TestExplainParsing(SimpleTestCase):
+class TestExplainParsing(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             # fixture, primary key columns, event in the key, granules after the last step, the

@@ -1,8 +1,6 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock
 
-from django.test import SimpleTestCase
-
 import pydantic
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -30,6 +28,7 @@ from posthog.hogql_queries.validation.rules import (
     validate_series_fan_out,
 )
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 
 class TestRequireAtLeastOneSeries(BaseTest):
@@ -138,7 +137,7 @@ def _cohort_breakdown(count: int) -> BreakdownFilter:
     return BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=list(range(1, count + 1)))
 
 
-class TestValidateSeriesFanOut(SimpleTestCase):
+class TestValidateSeriesFanOut(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("at_the_limit", 200, None, False),
@@ -207,7 +206,7 @@ class TestValidateSeriesFanOut(SimpleTestCase):
         validate_series_fan_out(query, cohort_breakdown_expands=False)
 
 
-class TestSeriesLengthSchemaLimit(SimpleTestCase):
+class TestSeriesLengthSchemaLimit(ClickhouseFreeSimpleTestCase):
     @parameterized.expand([("trends", TrendsQuery), ("stickiness", StickinessQuery)])
     def test_series_longer_than_the_limit_is_rejected_before_the_runner(self, _name: str, query_class) -> None:
         query_class(series=_series(MAX_EXPANDED_INSIGHT_QUERIES))

@@ -2,7 +2,8 @@ import re
 from pathlib import Path
 
 from django.conf import settings
-from django.test import SimpleTestCase
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "message_preferences"
 STYLESHEET = Path(settings.BASE_DIR) / "frontend" / "public" / "message-preferences.css"
@@ -55,7 +56,7 @@ def _selector_present(css: str, utility: str) -> bool:
     return re.search(r"\." + escaped + r"(?![a-zA-Z0-9_-])", css) is not None
 
 
-class TestMessagePreferenceStyles(SimpleTestCase):
+class TestMessagePreferenceStyles(ClickhouseFreeSimpleTestCase):
     def test_every_class_in_the_templates_is_in_the_compiled_stylesheet(self) -> None:
         css = STYLESHEET.read_text()
 

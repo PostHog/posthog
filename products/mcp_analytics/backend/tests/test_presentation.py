@@ -5,7 +5,6 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import serializers, status
@@ -18,6 +17,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
     WORKFLOW_EXECUTION_TIMEOUT,
     WORKFLOW_NAME,
 )
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
@@ -772,7 +772,7 @@ class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, Clickhou
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-class TestSharedFilterQueryParams(SimpleTestCase):
+class TestSharedFilterQueryParams(ClickhouseFreeSimpleTestCase):
     QUERY_SERIALIZERS = [
         ("sessions_list", MCPSessionListQuerySerializer),
         ("tool_calls", MCPSessionToolCallsQuerySerializer),
@@ -811,7 +811,7 @@ class TestSharedFilterQueryParams(SimpleTestCase):
         assert "properties" in serializer.errors
 
 
-class TestMCPSessionListQuerySerializer(SimpleTestCase):
+class TestMCPSessionListQuerySerializer(ClickhouseFreeSimpleTestCase):
     def test_defaults_when_pagination_params_omitted(self) -> None:
         serializer = MCPSessionListQuerySerializer(data={})
         assert serializer.is_valid(), serializer.errors
@@ -836,7 +836,7 @@ class TestMCPSessionListQuerySerializer(SimpleTestCase):
             assert error_field in serializer.errors
 
 
-class TestMCPSessionToolCallsQuerySerializer(SimpleTestCase):
+class TestMCPSessionToolCallsQuerySerializer(ClickhouseFreeSimpleTestCase):
     def test_defaults_when_pagination_params_omitted(self) -> None:
         serializer = MCPSessionToolCallsQuerySerializer(data={})
         assert serializer.is_valid(), serializer.errors

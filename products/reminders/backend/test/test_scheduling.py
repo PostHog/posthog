@@ -1,14 +1,14 @@
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
+
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.reminders.backend.scheduling import compute_next_fire_at, exceeds_daily_frequency_cap, resolve_timezone
 
 
-class TestComputeNextFireAt(SimpleTestCase):
+class TestComputeNextFireAt(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("daily", datetime(2026, 6, 15, 9, 0, tzinfo=UTC), datetime(2026, 6, 16, 9, 0, tzinfo=UTC)),
@@ -28,7 +28,7 @@ class TestComputeNextFireAt(SimpleTestCase):
         self.assertEqual(result, datetime(2026, 6, 16, 13, 0, tzinfo=UTC))
 
 
-class TestDailyFrequencyCap(SimpleTestCase):
+class TestDailyFrequencyCap(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             ("0 9 * * *", False),
@@ -47,7 +47,7 @@ class TestDailyFrequencyCap(SimpleTestCase):
         self.assertEqual(exceeds_daily_frequency_cap(cron_expression), expected_exceeds)
 
 
-class TestResolveTimezone(SimpleTestCase):
+class TestResolveTimezone(ClickhouseFreeSimpleTestCase):
     @parameterized.expand(
         [
             (None, "UTC"),
@@ -57,4 +57,4 @@ class TestResolveTimezone(SimpleTestCase):
         ]
     )
     def test_resolve_timezone(self, tz_name: str | None, expected: str) -> None:
-        self.assertEqual(resolve_timezone(tz_name), ZoneInfo(expected))
+        self.assertEqual(resolve_timezone(tz_name).key, expected)

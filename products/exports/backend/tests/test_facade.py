@@ -3,11 +3,10 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.user import User
+from posthog.test.clickhouse_free import ClickhouseFreeSimpleTestCase
 
 from products.exports.backend.facade.api import (
     _validate_adhoc_export_context,
@@ -18,7 +17,7 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 
 
-class TestValidateAdhocExportContext(SimpleTestCase):
+class TestValidateAdhocExportContext(ClickhouseFreeSimpleTestCase):
     def test_accepts_insight_viz_wrapped_source(self):
         _validate_adhoc_export_context(
             {"source": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "a"}]}}}
@@ -110,7 +109,7 @@ class TestGetDeliveryImageUrl(BaseTest):
         )
 
 
-class TestAdhocRenderRequiresQueryAccess(SimpleTestCase):
+class TestAdhocRenderRequiresQueryAccess(ClickhouseFreeSimpleTestCase):
     def test_a_user_without_query_access_cannot_render_an_ad_hoc_query(self):
         context = {
             "source": {
