@@ -42,6 +42,12 @@ describe('recipientsLogic', () => {
         ])
     }
 
+    async function searchForJamie(): Promise<void> {
+        await expectLogic(logic, () => logic.actions.setSearch('jamie')).toDispatchActions([
+            'loadAudienceRecipientsSuccess',
+        ])
+    }
+
     beforeEach(() => {
         requests = []
         initKeaTests()
@@ -95,11 +101,16 @@ describe('recipientsLogic', () => {
         logic.actions.loadNextPage()
         await expectLogic(logic)
             .toDispatchActions(['loadAudienceRecipientsSuccess'])
-            .toMatchValues({ recipients: [recipient('sam@example.com')], hasNextPage: false, hasPreviousPage: true })
+            .toMatchValues({
+                recipients: [recipient('sam@example.com')],
+                currentPage: 2,
+                hasNextPage: false,
+                hasPreviousPage: true,
+            })
 
         await expectLogic(logic, () => logic.actions.loadPreviousPage())
             .toDispatchActions(['loadAudienceRecipientsSuccess'])
-            .toMatchValues({ hasNextPage: true, hasPreviousPage: false })
+            .toMatchValues({ currentPage: 1, hasNextPage: true, hasPreviousPage: false })
 
         expect(requests.map((params) => params.get('cursor'))).toEqual([null, 'after-jamie', null])
         expect(requests.every((params) => params.get('limit') === '50')).toBe(true)
@@ -249,7 +260,13 @@ describe('recipientsLogic', () => {
 
         logic.actions.retryLoadRecipients()
 
-        expect(logic.values).toMatchObject({ recipientsView: 'loading', recipients: [] })
+        expect(logic.values).toMatchObject({
+            recipientsView: 'loading',
+            recipients: [],
+            currentPage: null,
+            hasNextPage: false,
+            hasPreviousPage: false,
+        })
         answerRetry()
         await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsFailure'])
         expect(logic.values.recipientsView).toBe('error')
@@ -257,23 +274,40 @@ describe('recipientsLogic', () => {
 
     it.each([
         {
-            name: 'a search is sent',
-            failing: false,
+            name: 'a search finds recipients',
             setUp: async (): Promise<void> => {},
             act: (): void => logic.actions.setSearch('jamie'),
-            expected: [['audience recipients filtered', {}]],
+            expected: [['audience recipients filtered', { has_results: true }]],
+        },
+        {
+            name: 'a search finds nobody',
+            respond: (): MockResponse => [200, { results: [], next_cursor: null }],
+            setUp: async (): Promise<void> => {},
+            act: (): void => logic.actions.setSearch('nobody'),
+            expected: [['audience recipients filtered', { has_results: false }]],
+        },
+        {
+            name: 'the search is cleared with the button',
+            setUp: searchForJamie,
+            act: (): void => logic.actions.clearSearch(),
+            expected: [['audience recipients search cleared', {}]],
+        },
+        {
+            name: 'the search text is deleted',
+            setUp: searchForJamie,
+            act: (): void => logic.actions.setSearch(''),
+            expected: [['audience recipients search cleared', {}]],
         },
         {
             name: 'the next page opens',
-            failing: false,
             setUp: async (): Promise<void> => {},
             act: (): void => logic.actions.loadNextPage(),
             expected: [['audience recipients paged', { direction: 'next' }]],
         },
         {
-            name: 'the previous page opens',
-            failing: false,
+            name: 'a search goes back to its first page',
             setUp: async (): Promise<void> => {
+                await searchForJamie()
                 await expectLogic(logic, () => logic.actions.loadNextPage()).toDispatchActions([
                     'loadAudienceRecipientsSuccess',
                 ])
@@ -283,7 +317,7 @@ describe('recipientsLogic', () => {
         },
         {
             name: 'a failed load is retried',
-            failing: true,
+            respond: (): MockResponse => [500, { detail: 'Query timed out' }],
             setUp: async (): Promise<void> => {
                 await expectLogic(logic, () => logic.actions.setSearch('slow')).toDispatchActions([
                     'loadAudienceRecipientsFailure',
@@ -292,10 +326,10 @@ describe('recipientsLogic', () => {
             act: (): void => logic.actions.retryLoadRecipients(),
             expected: [['audience recipients retried', {}]],
         },
-    ])('tracks it when $name', async ({ failing, setUp, act, expected }) => {
+    ])('tracks it when $name', async ({ respond, setUp, act, expected }) => {
         await mountLogic()
-        if (failing) {
-            useRecipientsResponse(() => [500, { detail: 'Query timed out' }])
+        if (respond) {
+            useRecipientsResponse(respond)
         }
         await setUp()
         const capture = jest.spyOn(posthog, 'capture')
@@ -307,7 +341,7 @@ describe('recipientsLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event.startsWith('audience '))).toEqual(expected)
     })
 
-    it('keeps the current page on screen without a toast when the next page fails', async () => {
+    it('keeps the current page on screen without a toast when the next page fails, and retries that page', async () => {
         await mountLogic()
         const toastError = jest.spyOn(lemonToast, 'error')
         useRecipientsResponse((params) =>
@@ -325,6 +359,14 @@ describe('recipientsLogic', () => {
             hasNextPage: true,
         })
         expect(toastError).not.toHaveBeenCalled()
+
+        useRecipientsResponse((params) => [200, PAGES_BY_CURSOR[params.get('cursor') ?? '']])
+        await expectLogic(logic, () => logic.actions.retryLoadRecipients()).toDispatchActions([
+            'loadAudienceRecipientsSuccess',
+        ])
+
+        expect(requests.at(-1)?.get('cursor')).toBe('after-jamie')
+        expect(logic.values).toMatchObject({ loadFailed: false, recipients: [recipient('sam@example.com')] })
     })
 
     it.each(['', '   '])('shows the empty view for a team with no recipient and the search %j', async (search) => {
