@@ -1190,6 +1190,71 @@ export function createTown(world, canvas) {
         rainbow.visible = rainbowMaterial.uniforms.uStrength.value > 0.01
     })
 
+    // Rainbow shooting stars cross the sky while the rainbow is on: a head with a tail of every color.
+    const RAINBOW_COLORS = [0xff3b30, 0xff9500, 0xffd60a, 0x34c759, 0x32ade6, 0x5856d6, 0xaf52de]
+    const MAX_SHOOTING_STARS = 6
+    /** @type {Array<{ group: THREE.Group, velocity: THREE.Vector3, life: number, maxLife: number }>} */
+    let shootingStars = []
+    // A point in the sky at a distance from the camera, from where it sits on the screen (-1 to 1 each way).
+    const skyPoint = (/** @type {number} */ screenX, /** @type {number} */ screenY, distance = 60) => {
+        const direction = new THREE.Vector3(screenX, screenY, 0.5).unproject(camera).sub(camera.position).normalize()
+        return camera.position.clone().addScaledVector(direction, distance)
+    }
+    function shootStar() {
+        const direction = Math.random() < 0.5 ? 1 : -1
+        const maxLife = 2.6 + Math.random() * 0.8
+        const from = skyPoint(-direction * 1.15, 0.85 + Math.random() * 0.2)
+        const to = skyPoint(direction * 1.15, 0.5 + Math.random() * 0.3)
+        const velocity = to.sub(from).divideScalar(maxLife)
+        const back = velocity.clone().normalize().negate()
+        const group = new THREE.Group()
+        // Two beads per color make the tail read as one streak.
+        for (let index = 0; index < RAINBOW_COLORS.length * 2; index++) {
+            group.add(
+                mesh(
+                    sphere(0.42 - index * 0.02, 1),
+                    new THREE.MeshBasicMaterial({
+                        color: RAINBOW_COLORS[Math.floor(index / 2)],
+                        transparent: true,
+                        opacity: 1 - index * 0.05,
+                        fog: false,
+                    }),
+                    back
+                        .clone()
+                        .multiplyScalar(index * 0.55)
+                        .toArray(),
+                    { cast: false, receive: false }
+                )
+            )
+        }
+        group.position.copy(from)
+        scene.add(group)
+        shootingStars.push({ group, velocity, life: 0, maxLife })
+    }
+    let shootingStarDebt = 0
+    animations.push((dt) => {
+        if (rainbowMaterial.uniforms.uStrength.value > 0.3 && shootingStars.length < MAX_SHOOTING_STARS) {
+            shootingStarDebt += dt * 2
+            while (shootingStarDebt >= 1 && shootingStars.length < MAX_SHOOTING_STARS) {
+                shootingStarDebt -= 1
+                shootStar()
+            }
+        }
+        shootingStars.forEach((star) => {
+            star.life += dt
+            star.group.position.addScaledVector(star.velocity, dt)
+            const fade = Math.min(1, (star.maxLife - star.life) / 0.5)
+            star.group.children.forEach((piece, index) => {
+                piece.material.opacity = Math.max(0, fade) * (1 - index * 0.05)
+            })
+            if (star.life >= star.maxLife) {
+                scene.remove(star.group)
+                star.group.children.forEach((piece) => piece.material.dispose())
+            }
+        })
+        shootingStars = shootingStars.filter((star) => star.life < star.maxLife)
+    })
+
     // A ring on the ground where the player clicked.
     const marker = mesh(
         new THREE.RingGeometry(0.34, 0.5, 28),
