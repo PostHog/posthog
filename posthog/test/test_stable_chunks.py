@@ -11,6 +11,7 @@ from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import User
 from posthog.stable_chunks import (
@@ -73,7 +74,7 @@ class TestStableChunks(SimpleTestCase):
         [
             ("param on beats a cookie off and the flag off", "?stable_chunks=1", "0", FLAG_OFF, True, True),
             ("param off beats the flag on", "?stable_chunks=0", None, FLAG_ON, True, False),
-            ("fallback beats a cookie on", "?stable_chunks=fallback", "1", None, True, False),
+            ("fallback beats a cookie on", "?stable_chunks=fallback", "1", None, False, False),
             ("fallback beats the flag on", "?stable_chunks=fallback", None, FLAG_ON, True, False),
             ("cookie on beats the flag off", "", "1", FLAG_OFF, True, True),
             ("cookie off beats the flag on", "", "0", FLAG_ON, True, False),
@@ -81,16 +82,37 @@ class TestStableChunks(SimpleTestCase):
             ("flag off", "", None, FLAG_OFF, True, False),
             ("flag without a local definition", "", None, {}, True, False),
             ("flags not evaluated", "", None, None, True, False),
-            ("anonymous with the flag on", "", None, FLAG_ON, False, False),
+            ("anonymous with the flag on", "", None, FLAG_ON, False, True),
+            ("anonymous with the flag off", "", None, FLAG_OFF, False, False),
+            ("anonymous without a local definition", "", None, {}, False, False),
         ]
     )
-    def test_choice_precedence(self, _name, query, cookie, feature_flags, authenticated, expected):
+    def test_choice_precedence(
+        self,
+        _name: str,
+        query: str,
+        cookie: str | None,
+        feature_flags: dict[str, bool] | None,
+        authenticated: bool,
+        expected: bool,
+    ) -> None:
         request = RequestFactory().get(f"/{query}")
         request.user = User() if authenticated else AnonymousUser()
         if cookie:
             request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
+        bootstrapped_flags = feature_flags if authenticated else None
+        locally_evaluated_flag = None if authenticated else (feature_flags or {}).get(STABLE_CHUNKS_FLAG)
+        fallback_labels = {"authenticated": str(authenticated).lower()}
+        fallbacks_before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
 
-        assert stable_chunks_choice(request, feature_flags) == expected
+        with patch("posthoganalytics.feature_enabled", return_value=locally_evaluated_flag) as feature_enabled:
+            assert stable_chunks_choice(request, bootstrapped_flags) == expected
+
+        for call in feature_enabled.call_args_list:
+            assert call.kwargs["only_evaluate_locally"] is True
+            assert call.kwargs["send_feature_flag_events"] is False
+        fallbacks_after = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
+        assert fallbacks_after - fallbacks_before == (1 if query == "?stable_chunks=fallback" else 0)
 
     @parameterized.expand(
         [
