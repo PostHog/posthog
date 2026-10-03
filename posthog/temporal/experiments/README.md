@@ -100,8 +100,8 @@ can outlive its hour. This one starts other workflows and returns, so a single s
 `SKIP` overlap policy covers it.
 
 It skips an experiment whose recalculation is already running, or whose last one finished within
-the hour. That freshness check ignores `timeseries_sync` rows: new timeseries executions no longer
-write them, and the rows from before that change are still on file.
+the hour. That freshness check ignores `timeseries_sync` rows, which carry a timeseries run's
+window rather than a full recalculation.
 
 The coordinator never waits for the runs it starts. Each run's outcome lands on its own
 `ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and
