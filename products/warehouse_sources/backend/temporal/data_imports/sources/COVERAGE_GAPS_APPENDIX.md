@@ -4117,7 +4117,7 @@ Note: Diffed against the machine-readable OpenAPI spec (api-docs.honeycomb.io/ap
 
 ## HoorayHR — gaps
 
-Today (15): `availability`, `contracts`, `document_categories`, `employment_term_assignments`, `employment_terms`, `entities`, `labels`, `leave_types`, `sick_leave_dossiers`, `sick_leave_phases`, `teams_information`, `time_off`, `time_tracking`, `users`, `work_location_categories`
+Today (18): `availability`, `contracts`, `document_categories`, `employment_term_assignments`, `employment_terms`, `entities`, `external_leave_budgets`, `external_leave_types`, `labels`, `leave_types`, `public_holidays`, `sick_leave_dossiers`, `sick_leave_phases`, `teams_information`, `time_off`, `time_tracking`, `users`, `work_location_categories`
 
 Diffed against: <https://api.hoorayhr.io/swagger.json>
 
@@ -4128,7 +4128,7 @@ Diffed against: <https://api.hoorayhr.io/swagger.json>
 - [ ] `/working-today` — daily who-is-working snapshot for headcount/availability reporting (low)
 - [ ] `/time-zones` — static lookup for user time zone codes (low)
 
-Note: Fetched the OpenAPI spec at https://api.hoorayhr.io/swagger.json (linked from https://api.hoorayhr.io/documentation). 15 of the 21 GET-listable resources are already covered.
+Note: Fetched the OpenAPI spec at https://api.hoorayhr.io/swagger.json (linked from https://api.hoorayhr.io/documentation). 18 of the 21 GET-listable resources are already covered.
 
 ## Hubplanner — gaps
 

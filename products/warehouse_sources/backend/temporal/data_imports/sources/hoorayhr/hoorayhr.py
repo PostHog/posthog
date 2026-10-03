@@ -28,6 +28,9 @@ def _client_config(api_key: str) -> ClientConfig:
         # No pagination is documented on any list endpoint — each table is a single bare-array
         # page, full refresh only.
         "paginator": "single_page",
+        "request_timeout": (10.0, 60.0),
+        # Responses carry employee records and leave balances the generic sample scrubbers don't target.
+        "capture": False,
     }
 
 
