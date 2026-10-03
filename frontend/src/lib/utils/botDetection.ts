@@ -719,6 +719,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AtlasSearchBot',
         definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
     },
+    {
+        pattern: 'MySearchBot',
+        definition: { name: 'MySearchBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Unknown' },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -864,6 +868,19 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'MrAnandPortfolio',
         definition: { name: 'MrAnandPortfolio', category: 'http_client', trafficType: 'Bot', operator: 'mranand.com' },
+    },
+    {
+        pattern: 'attosearch-research',
+        definition: {
+            name: 'attosearch-research',
+            category: 'http_client',
+            trafficType: 'Bot',
+            operator: 'attosearch',
+        },
+    },
+    {
+        pattern: 'SemavoraAuditLab',
+        definition: { name: 'SemavoraAuditLab', category: 'http_client', trafficType: 'Bot', operator: 'Semavora' },
     },
     {
         pattern: 'PostHogImageFetcherBot',

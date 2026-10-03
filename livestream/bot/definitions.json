@@ -1842,6 +1842,12 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "MySearchBot",
+    "name": "MySearchBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -2006,6 +2012,18 @@
   {
     "pattern": "MrAnandPortfolio",
     "name": "MrAnandPortfolio",
+    "category": "http_client",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "attosearch-research",
+    "name": "attosearch-research",
+    "category": "http_client",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SemavoraAuditLab",
+    "name": "SemavoraAuditLab",
     "category": "http_client",
     "traffic_type": "Bot"
   },
