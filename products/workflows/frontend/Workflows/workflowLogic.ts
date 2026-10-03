@@ -2861,7 +2861,8 @@ export interface workflowLogicMeta {
             hogFunctionTemplatesByIdLoading: boolean,
             scheduleStartsAt: string | null,
             saveAttemptedActionIds: string[] | null,
-            integrations: IntegrationType[] | null
+            integrations: IntegrationType[] | null,
+            originalWorkflow: HogFlow | null
         ) => Record<string, HogFlowActionValidationResult | null>
         workflowHasActionErrors: (
             workflow: HogFlow,

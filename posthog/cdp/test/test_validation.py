@@ -775,19 +775,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
-            ("single_sender", False),
-            ("rotation_with_one_unverified_sender", True),
+            ("single_sender", False, False),
+            ("rotation_with_one_unverified_sender", True, False),
+            ("replacing_a_live_sender", False, True),
         ]
     )
-    def test_unverified_sender_blocks_the_workflow_from_going_live(self, _name, rotation):
+    def test_unverified_sender_blocks_the_workflow_from_going_live(self, _name, rotation, replaces_live_sender):
         verified = self._create_email_integration("posthog.com")
         unverified = self._create_unverified_email_integration()
-        from_value = {"integrationId": verified.id if rotation else unverified.id}
+        from_value: dict[str, int | list[int]] = {"integrationId": verified.id if rotation else unverified.id}
         if rotation:
             from_value["integrationIds"] = [verified.id, unverified.id]
 
         with pytest.raises(ValidationError) as ctx:
-            self._validate_email_from(from_value, require_verified_sender=True)
+            self._validate_email_from(
+                from_value,
+                require_verified_sender=True,
+                live_from={"integrationId": verified.id} if replaces_live_sender else None,
+            )
         assert 'The email sender "hello@example.dev" is not verified yet' in str(ctx.value.detail)
 
     def test_deleted_sender_blocks_the_workflow_from_going_live(self):

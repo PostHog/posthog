@@ -135,9 +135,9 @@ def _validate_email_sender_verified(from_value: dict, context: dict) -> None:
     senders = _email_senders(new_sender_ids, get_team().id, context)
     for integration_id in sorted(new_sender_ids):
         sender = senders[integration_id]
-        if sender == _UNKNOWN_EMAIL_SENDER:
+        if sender is _UNKNOWN_EMAIL_SENDER:
             raise serializers.ValidationError(
-                {"input": "The email sender no longer exists. Choose a different sender under Channels."}
+                {"input": "The email sender no longer exists. Choose a different sender for this step."}
             )
         if not sender.verified:
             raise serializers.ValidationError(
