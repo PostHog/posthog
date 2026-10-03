@@ -7,7 +7,7 @@ import { Provider } from 'kea'
 import { useMocks } from '~/mocks/jest'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
-import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { GroupTypeIndex, PropertyDefinitionType, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
@@ -310,6 +310,44 @@ describe('PropertyValue', () => {
         await waitFor(() => {
             expect(onSet).toHaveBeenLastCalledWith(['Acme Corp'])
         })
+    })
+
+    it('keeps the suggested values when it mounts with values already loaded and a refresh changes them', async () => {
+        const editor = (
+            <Provider>
+                <PropertyValue
+                    propertyKey="$browser"
+                    type={PropertyFilterType.Event}
+                    operator={PropertyOperator.Exact}
+                    onSet={jest.fn()}
+                    value={[]}
+                />
+            </Provider>
+        )
+        const { unmount } = render(editor)
+        await waitFor(() => expect(propertyDefinitionsModel.values.options['$browser']?.status).toBe('loaded'))
+        unmount()
+
+        const refreshedValues = { results: [{ name: 'Edge' }], refreshing: false }
+        useMocks({
+            get: {
+                '/api/event/values': refreshedValues,
+                '/api/environments/:team/events/values': refreshedValues,
+            },
+        })
+        render(editor)
+        await userEvent.setup().click(screen.getByRole('textbox'))
+        await screen.findByText('Chrome')
+
+        propertyDefinitionsModel.actions.loadPropertyValues({
+            endpoint: undefined,
+            type: PropertyDefinitionType.Event,
+            newInput: undefined,
+            propertyKey: '$browser',
+        })
+        await screen.findByText('Edge', undefined, { timeout: 3000 })
+
+        expect(screen.getByText('Chrome')).toBeInTheDocument()
     })
 
     it('allows text when a polymorphic property overrides a globally inferred numeric type', async () => {

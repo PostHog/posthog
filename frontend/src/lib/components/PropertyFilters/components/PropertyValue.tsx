@@ -241,7 +241,9 @@ export function PropertyValue({
 
     // reset the suggested and offered values when propertyKey changes
     useEffect(() => {
-        setInitialSuggestedValues({ propertyKey, set: new Set(), orderedKeys: [] })
+        setInitialSuggestedValues((prev) =>
+            prev.propertyKey === propertyKey ? prev : { propertyKey, set: new Set(), orderedKeys: [] }
+        )
         offeredValues.current = new Set()
     }, [propertyKey])
 
