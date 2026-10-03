@@ -401,7 +401,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                             identifier,
                             category_key: props.category?.key,
                         })
-                        lemonToast.success(values.words.unsubscribedList.added(identifier))
+                        lemonToast.success(values.words.unsubscribedList.added(identifier, props.category?.name))
                         actions.loadOptOutPersons()
                         return result
                     } catch (e) {

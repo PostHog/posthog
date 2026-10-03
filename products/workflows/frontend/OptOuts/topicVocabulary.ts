@@ -43,7 +43,7 @@ export interface TopicVocabulary {
         importOtherTopic: string
         importIsSafe: string
         importResult: (added: string, total: string) => string
-        added: (identifier: string) => string
+        added: (identifier: string, topicName?: string) => string
         removed: (identifier: string, topicName?: string) => string
         addFailed: string
         removeFailed: string
@@ -199,7 +199,7 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
         importIsSafe:
             'Importing never resubscribes anyone, so you can upload the same file twice. A file exported from here imports back as it is.',
         importResult: (added, total) => `Added ${added} unsubscribes from ${total} rows.`,
-        added: (identifier) => `${identifier} is unsubscribed`,
+        added: (identifier, topicName) => `${identifier} is unsubscribed from ${topicName ?? 'all marketing'}`,
         removed: (identifier, topicName) =>
             topicName
                 ? `${identifier} is subscribed to ${topicName} again`
