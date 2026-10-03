@@ -6,7 +6,7 @@ import hashlib
 import dataclasses
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import timedelta
 from time import monotonic
 from typing import Any, Final, NamedTuple, Optional, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -56,7 +56,6 @@ from posthog.api.app_metrics2 import (
     AppMetricsTotalsResponseSerializer,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
-    fetch_app_metric_totals_by_team_and_source,
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
@@ -205,10 +204,12 @@ from products.workflows.backend.presentation.views.message_assets import (
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.email_sending_allowance import team_email_sending_allowance
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
 )
+from products.workflows.backend.services.sending_limits import get_team_sending_limits
 from products.workflows.backend.services.timing_reschedule import (
     get_all_timing_action_ids,
     get_timing_reschedule_action_ids,
@@ -219,7 +220,6 @@ from products.workflows.backend.services.workflow_email_health import (
     resume_workflow_email_sending,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -2087,57 +2087,6 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
-SENDING_ALLOWANCE_CACHE_SECONDS = 60
-
-
-@frozen
-class EmailSendingAllowance:
-    """A project's sending tier, what it allows, and how much of that it has used."""
-
-    tier: int
-    max_tier: int
-    emails_per_hour: int
-    emails_per_day: int
-    max_batch_audience: int
-    emails_sent_last_hour: int
-    emails_sent_last_day: int
-    enforced: bool
-
-
-def _team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
-    """
-    Usage comes from the send metrics rather than the worker's token buckets, so the numbers match
-    what the rest of this page reports. Cached briefly because the endpoint reloads on every search
-    keystroke while these two aggregations do not depend on the search.
-    """
-    cache_key = f"workflows_email_sending_allowance_{team_id}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    resolved = resolve_team_email_sending_tier(team_id)
-    now = timezone.now()
-    allowance = EmailSendingAllowance(
-        tier=resolved.tier,
-        max_tier=max_email_sending_tier(),
-        emails_per_hour=resolved.limits.per_hour,
-        emails_per_day=resolved.limits.per_day,
-        max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
-        emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
-        enforced=resolved.enforced,
-    )
-    cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
-    return allowance
-
-
-def _team_email_sends_since(team_id: int, after: datetime) -> int:
-    totals = fetch_app_metric_totals_by_team_and_source(
-        app_source="hog_flow", name=["email_sent"], after=after, team_ids=[team_id]
-    )
-    return sum(counts.get("email_sent", 0) for counts in totals.get(team_id, {}).values())
-
-
 AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
 # Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
 # re-dialled on every request, short enough that a just-fixed config recovers within a minute.
@@ -2620,6 +2569,34 @@ class EmailSendingSuspensionStatusSerializer(serializers.Serializer):
         read_only=True,
         allow_blank=True,
         help_text="Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended.",
+    )
+
+
+class WorkflowSendingLimitsSerializer(serializers.Serializer):
+    """Project-wide limits that stop or delay workflow sends, for the scene-wide notice."""
+
+    email_quota_limited = serializers.BooleanField(
+        read_only=True,
+        help_text="True while the organization is over its workflow email quota, so email steps are skipped.",
+    )
+    destination_quota_limited = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while the organization is over its workflow destination quota, so destination and push "
+            "steps are skipped."
+        ),
+    )
+    email_daily_cap_reached = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while the project has sent as many emails in the last 24 hours as its sending tier allows "
+            "per day. Emails are delayed, not dropped, until the cap frees up."
+        ),
+    )
+    emails_per_day = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="How many emails the project's sending tier allows per day; null while the tiers are not enforced.",
     )
 
 
@@ -7104,9 +7081,7 @@ class HogFlowViewSet(
                     "email_sending_suspension_reason": suspension_reason if suspended_at is not None else "",
                     # Same gate again: the allowance is project-wide, so an object-level grant is
                     # not enough to read it.
-                    "sending_allowance": _team_email_sending_allowance(self.team_id)
-                    if can_read_all_workflows
-                    else None,
+                    "sending_allowance": team_email_sending_allowance(self.team_id) if can_read_all_workflows else None,
                 }
             ).data
         )
@@ -7145,6 +7120,20 @@ class HogFlowViewSet(
                 }
             ).data
         )
+
+    @extend_schema(
+        operation_id="hog_flows_sending_limits_retrieve",
+        responses={200: WorkflowSendingLimitsSerializer},
+    )
+    @action(detail=False, methods=["GET"], pagination_class=None, filter_backends=[], url_path="sending_limits")
+    def sending_limits(self, request: Request, **kwargs) -> Response:
+        """
+        Which project-wide limits currently block or delay sends, for the scene-wide notice.
+
+        Every project member sees this, like the suspension read: a quota or cap stops everyone's
+        sends, so hiding it would leave silent send failures unexplained.
+        """
+        return Response(WorkflowSendingLimitsSerializer(get_team_sending_limits(self.team)).data)
 
     @extend_schema(
         operation_id="hog_flows_resume_email_sending",
