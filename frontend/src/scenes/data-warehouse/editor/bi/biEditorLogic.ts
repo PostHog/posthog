@@ -463,9 +463,14 @@ export interface biEditorLogicMeta {
         dataPaneFieldsLoading: (
             config: BIConfig,
             tableFieldsStatus: TableFieldsStatus,
-            databaseLoading: boolean
+            databaseLoading: boolean,
+            databaseConnectionId: string | null
         ) => boolean
-        dataPaneFieldsError: (config: BIConfig, tableFieldsStatus: TableFieldsStatus) => boolean
+        dataPaneFieldsError: (
+            config: BIConfig,
+            tableFieldsStatus: TableFieldsStatus,
+            databaseConnectionId: string | null
+        ) => boolean
         filteredDataPaneFields: (dataPaneFields: BIDataPaneFields, dataPaneSearch: string) => BIDataPaneFields
     }
 }
@@ -754,14 +759,28 @@ export const biEditorLogic = kea<biEditorLogicType>([
                     : { dimensions: [], measures: [] },
         ],
         dataPaneFieldsLoading: [
-            (selectors) => [selectors.config, selectors.tableFieldsStatus, selectors.databaseLoading],
-            (config: BIConfig, tableFieldsStatus: TableFieldsStatus, databaseLoading: boolean): boolean =>
-                !!config.source && (databaseLoading || tableFieldsStatus[config.source.table] === 'loading'),
+            (selectors) => [
+                selectors.config,
+                selectors.tableFieldsStatus,
+                selectors.databaseLoading,
+                selectors.databaseConnectionId,
+            ],
+            (
+                config: BIConfig,
+                tableFieldsStatus: TableFieldsStatus,
+                databaseLoading: boolean,
+                connectionId: string | null
+            ): boolean =>
+                !!config.source &&
+                (config.source.connectionId ?? null) === connectionId &&
+                (databaseLoading || tableFieldsStatus[config.source.table] === 'loading'),
         ],
         dataPaneFieldsError: [
-            (selectors) => [selectors.config, selectors.tableFieldsStatus],
-            (config: BIConfig, tableFieldsStatus: TableFieldsStatus): boolean =>
-                !!config.source && tableFieldsStatus[config.source.table] === 'error',
+            (selectors) => [selectors.config, selectors.tableFieldsStatus, selectors.databaseConnectionId],
+            (config: BIConfig, tableFieldsStatus: TableFieldsStatus, connectionId: string | null): boolean =>
+                !!config.source &&
+                (config.source.connectionId ?? null) === connectionId &&
+                tableFieldsStatus[config.source.table] === 'error',
         ],
         filteredDataPaneFields: [
             (selectors) => [selectors.dataPaneFields, selectors.dataPaneSearch],
@@ -943,10 +962,11 @@ export const biEditorLogic = kea<biEditorLogicType>([
             })
         },
     })),
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         config: (config: BIConfig, oldConfig: BIConfig | undefined) => {
             if (
                 config.source &&
+                (config.source.connectionId ?? null) === values.databaseConnectionId &&
                 (!oldConfig?.source || getBIDataSourceKey(config.source) !== getBIDataSourceKey(oldConfig.source))
             ) {
                 actions.hydrateTableFields([config.source.table])

@@ -2549,6 +2549,23 @@ describe('sqlEditorLogic', () => {
             biLogic.unmount()
         })
 
+        it('ignores hydration and status from a different connection', async () => {
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            databaseLogic.actions.hydrateTableFieldsFailure(['events'])
+            await expectLogic(databaseLogic, () =>
+                biLogic.actions.restoreState({
+                    editorView: BIEditorView.BI,
+                    config: { ...config, source: { table: 'events', connectionId: 'other-connection' } },
+                })
+            ).toNotHaveDispatchedActions(['hydrateTableFields'])
+            expect(biLogic.values.dataPaneFieldsError).toBe(false)
+            databaseLogic.actions.hydrateTableFieldsStart(['events'])
+            expect(biLogic.values.dataPaneFieldsLoading).toBe(false)
+            biLogic.unmount()
+        })
+
         it('hydrates fields when the schema arrives after restoring a worksheet', async () => {
             await expectLogic(databaseLogic).toFinishAllListeners()
             const biLogic = biEditorLogic({ tabId: TAB_ID })
