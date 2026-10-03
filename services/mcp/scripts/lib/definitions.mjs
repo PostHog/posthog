@@ -89,14 +89,16 @@ export function isToolsConfig(parsed) {
 }
 
 /**
- * Tools on one operation share one Orval body schema, so only exclusions every enabled tool shares may leave it.
- * @param {Iterable<{ enabled?: boolean, operation?: string, exclude_params?: string[] }>} tools
+ * Tools on one operation share one Orval body schema, so only exclusions that every enabled tool reading it shares may leave it.
+ * An input_schema tool brings its own schema and never reads the Orval body.
+ * @param {Iterable<{ enabled?: boolean, operation?: string, input_schema?: string, exclude_params?: string[] }>} tools
  * @returns {Map<string, string[]>}
  */
 export function sharedSchemaExclusions(tools) {
+    /** @type {Map<string, string[]>} */
     const shared = new Map()
     for (const tool of tools) {
-        if (!tool?.enabled || !tool?.operation) {
+        if (!tool?.enabled || !tool?.operation || tool.input_schema) {
             continue
         }
         const excluded = tool.exclude_params ?? []

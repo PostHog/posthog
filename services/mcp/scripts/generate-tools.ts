@@ -1084,15 +1084,15 @@ function schemaExcludedFieldsFor(
 ): Set<string> {
     const toolsOnCategory = Object.values({ ...category.tools, [toolName]: config })
     const shared = new Set(sharedSchemaExclusions(toolsOnCategory).get(config.operation))
-    const unionBodyFields = unionBodyFieldNames(resolved, spec)
+    const composedBodyFields = composedBodyFieldNames(resolved, spec)
     for (const field of config.exclude_params ?? []) {
         if (shared.has(field)) {
             continue
         }
         const reason = field.includes('.')
             ? 'it is nested'
-            : unionBodyFields.has(field)
-              ? 'the request body is a union'
+            : composedBodyFields.has(field)
+              ? 'the request body composes several schemas'
               : undefined
         if (reason) {
             throw new Error(
@@ -1104,10 +1104,10 @@ function schemaExcludedFieldsFor(
     return shared
 }
 
-function unionBodyFieldNames(resolved: ResolvedOperation, spec: OpenApiSpec): Set<string> {
+function composedBodyFieldNames(resolved: ResolvedOperation, spec: OpenApiSpec): Set<string> {
     const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
     const bodySchema = bodySchemaRef ? resolveSchema(spec, bodySchemaRef) : undefined
-    if (!bodySchema?.anyOf && !bodySchema?.oneOf) {
+    if (!bodySchema?.allOf && !bodySchema?.anyOf && !bodySchema?.oneOf) {
         return new Set()
     }
     return new Set(flattenBodySchemaProperties(spec, bodySchema).properties.keys())

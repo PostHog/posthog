@@ -13,6 +13,10 @@ tools:
     things-create:
         operation: things_create
         enabled: false
+    things-create-from-template:
+        operation: things_create
+        enabled: true
+        input_schema: ThingsCreateFromTemplateSchema
     widgets-email-create:
         operation: widgets_create
         enabled: true

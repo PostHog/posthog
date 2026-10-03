@@ -835,6 +835,9 @@ describe('exclude_params on an operation shared by several tools', () => {
         const emailCode = generate('things-email-create', emailTool)
         expect(emailCode).toContain(`ThingsCreateBody.omit({ 'kind': true })`)
         expect(emailCode).not.toContain('body["kind"] = params')
+
+        const bothExcludeKind = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-create': emailTool } }
+        expect(generate('things-email-create', emailTool, bothExcludeKind)).not.toContain('.omit(')
     })
 
     const unionBodyResolved = (): ResolvedOperation =>
@@ -858,9 +861,31 @@ describe('exclude_params on an operation shared by several tools', () => {
             },
         })
 
+    const allOfBodyResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                allOf: [
+                                    { type: 'object', properties: { kind: { type: 'string' } } },
+                                    { type: 'object', properties: { name: { type: 'string' } } },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
     it.each([
         { name: 'a nested field', excluded: 'config.secret', resolved: thingsCreateResolved },
         { name: 'a field of a union body', excluded: 'kind', resolved: unionBodyResolved },
+        { name: 'a field of an allOf body', excluded: 'kind', resolved: allOfBodyResolved },
     ])('rejects $name that only some tools on the operation exclude', ({ excluded, resolved }) => {
         const tool: ToolConfig = { operation: 'things_create', enabled: true, exclude_params: [excluded] }
         const category = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-email-create': tool } }
