@@ -128,7 +128,16 @@ export const recipientDetailLogic: LogicWrapper<recipientDetailLogicType> = kea<
         recipient: [
             NOT_LOOKED_UP as RecipientLookup | undefined,
             {
-                loadAudienceRecipient: async () => await lookUpRecipient(props.email),
+                loadAudienceRecipient: async (_, breakpoint) => {
+                    try {
+                        const recipient = await lookUpRecipient(props.email)
+                        breakpoint()
+                        return recipient
+                    } catch (error) {
+                        breakpoint()
+                        throw error
+                    }
+                },
             },
         ],
     })),

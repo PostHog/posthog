@@ -62,13 +62,18 @@ export const recipientTimelineLogic: LogicWrapper<recipientTimelineLogicType> = 
         timeline: [
             null as RecipientTimelineEvent[] | null,
             {
-                loadRecipientTimeline: async (): Promise<RecipientTimelineEvent[]> => {
-                    const response = await api.queryHogQL<RecipientTimelineRow[]>(recipientTimelineQuery(props.email), {
-                        scene: 'Audience',
-                        productKey: ProductKey.WORKFLOWS,
-                        name: 'audience_recipient_timeline',
-                    })
-                    return response.results.map(toRecipientTimelineEvent)
+                loadRecipientTimeline: async (_, breakpoint): Promise<RecipientTimelineEvent[]> => {
+                    try {
+                        const response = await api.queryHogQL<RecipientTimelineRow[]>(
+                            recipientTimelineQuery(props.email),
+                            { scene: 'Audience', productKey: ProductKey.WORKFLOWS, name: 'audience_recipient_timeline' }
+                        )
+                        breakpoint()
+                        return response.results.map(toRecipientTimelineEvent)
+                    } catch (error) {
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],

@@ -30,8 +30,12 @@ export const scene: SceneExport = {
 
 function RecipientsTabContent(): JSX.Element {
     useMountedLogic(recipientsLogic)
-    const { selectedEmail } = useValues(audienceSceneLogic)
-    return selectedEmail ? <RecipientDetail email={selectedEmail} /> : <AudienceRecipients />
+    const { selectedEmail, returnedFromRecipient } = useValues(audienceSceneLogic)
+    return selectedEmail ? (
+        <RecipientDetail email={selectedEmail} />
+    ) : (
+        <AudienceRecipients autoFocusSearch={returnedFromRecipient} />
+    )
 }
 
 const AUDIENCE_SCENE_TABS: LemonTab<AudienceTab>[] = [

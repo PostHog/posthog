@@ -69,10 +69,11 @@ export const optOutSceneLogic = kea<optOutSceneLogicType>([
                         return null
                     }
                     const preferencesPage = window.open(response.preferences_url, '_blank')
-                    if (preferencesPage) {
-                        // pinned: analytics event name
-                        posthog.capture('messaging preferences page opened')
+                    if (!preferencesPage) {
+                        return null
                     }
+                    // pinned: analytics event name
+                    posthog.capture('messaging preferences page opened')
                     return response.preferences_url
                 } catch {
                     lemonToast.error('Failed to generate workflows preferences link')

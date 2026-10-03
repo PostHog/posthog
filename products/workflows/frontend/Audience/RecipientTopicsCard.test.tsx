@@ -52,7 +52,8 @@ describe('RecipientTopicsCard', () => {
             />
         )
 
-        const rows = await screen.findAllByTestId('audience-recipient-topic')
+        await screen.findByText('Receipts')
+        const rows = screen.getAllByTestId('audience-recipient-topic')
         expect(rows.map((row) => row.textContent)).toEqual([
             'All marketingEvery marketing topic at onceSubscribed',
             'NewsletterUnsubscribed',

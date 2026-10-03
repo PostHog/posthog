@@ -27,6 +27,7 @@ function isAudienceTab(tab: string | undefined): tab is AudienceTab {
 export interface audienceSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     currentTab: AudienceTab
+    returnedFromRecipient: boolean
     selectedEmail: string | null
 }
 
@@ -75,6 +76,14 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
                 setCurrentTab: () => null,
             },
         ],
+        returnedFromRecipient: [
+            false,
+            {
+                closeRecipient: () => true,
+                openRecipient: () => false,
+                setCurrentTab: () => false,
+            },
+        ],
     }),
     selectors({
         breadcrumbs: [
@@ -84,9 +93,17 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
             ],
         ],
     }),
-    urlToAction(({ actions }) => ({
-        [urls.audience()]: () => actions.setCurrentTab(DEFAULT_AUDIENCE_TAB),
-        [urls.audience(':tab' as AudienceTab)]: ({ tab }) =>
-            actions.setCurrentTab(isAudienceTab(tab) ? tab : DEFAULT_AUDIENCE_TAB),
-    })),
+    urlToAction(({ actions, values }) => {
+        // Paging a table or opening the side panel changes only the search or hash; that must not close a recipient.
+        const showTab = (tab: AudienceTab): void => {
+            if (tab !== values.currentTab) {
+                actions.setCurrentTab(tab)
+            }
+        }
+        return {
+            [urls.audience()]: () => showTab(DEFAULT_AUDIENCE_TAB),
+            [urls.audience(':tab' as AudienceTab)]: ({ tab }) =>
+                showTab(isAudienceTab(tab) ? tab : DEFAULT_AUDIENCE_TAB),
+        }
+    }),
 ])

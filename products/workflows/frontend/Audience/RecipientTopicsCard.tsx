@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonCard } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -9,6 +9,8 @@ import type { MessageCategoryApi, RecipientApi } from 'products/messaging/fronte
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { TopicStatusTag } from './TopicStatusTag'
 
+type TopicStatus = RecipientApi['all_marketing']
+
 function TopicRow({
     name,
     description,
@@ -16,10 +18,10 @@ function TopicRow({
 }: {
     name: string
     description?: string
-    status: RecipientApi['all_marketing']
+    status: TopicStatus
 }): JSX.Element {
     return (
-        <div className="flex items-center justify-between gap-2 py-1">
+        <div className="flex items-center justify-between gap-2 py-1" data-attr="audience-recipient-topic">
             <div className="flex flex-col min-w-0">
                 <span className="font-medium wrap-anywhere">{name}</span>
                 {description && <span className="text-xs text-secondary wrap-anywhere">{description}</span>}
@@ -29,12 +31,16 @@ function TopicRow({
     )
 }
 
+function explicitTopicStatus(recipient: RecipientApi, topicKey: string): TopicStatus | undefined {
+    return Object.hasOwn(recipient.topics, topicKey) ? recipient.topics[topicKey] : undefined
+}
+
 function isShownTopic(topic: MessageCategoryApi, recipient: RecipientApi): boolean {
-    return topic.category_type !== 'transactional' || topic.key in recipient.topics
+    return topic.category_type !== 'transactional' || explicitTopicStatus(recipient, topic.key) !== undefined
 }
 
 export function RecipientTopicsCard({ recipient }: { recipient: RecipientApi }): JSX.Element {
-    const { categories } = useValues(optOutCategoriesLogic)
+    const { categories, categoriesLoading } = useValues(optOutCategoriesLogic)
     const topics = categories.filter((topic) => isShownTopic(topic, recipient))
 
     return (
@@ -46,14 +52,18 @@ export function RecipientTopicsCard({ recipient }: { recipient: RecipientApi }):
                     description="Every marketing topic at once"
                     status={recipient.all_marketing}
                 />
-                {topics.map((topic) => (
-                    <TopicRow
-                        key={topic.key}
-                        name={topic.name}
-                        description={topic.description}
-                        status={recipient.topics[topic.key] ?? 'NO_PREFERENCE'}
-                    />
-                ))}
+                {categoriesLoading ? (
+                    <LemonSkeleton className="h-8 my-1" repeat={2} />
+                ) : (
+                    topics.map((topic) => (
+                        <TopicRow
+                            key={topic.key}
+                            name={topic.name}
+                            description={topic.description}
+                            status={explicitTopicStatus(recipient, topic.key) ?? 'NO_PREFERENCE'}
+                        />
+                    ))
+                )}
             </div>
             <p className="m-0 text-xs text-secondary">
                 {recipient.preferences_updated_at ? (

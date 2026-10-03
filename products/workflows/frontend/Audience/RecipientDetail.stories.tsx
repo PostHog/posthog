@@ -200,3 +200,8 @@ export const SuppressedNarrow: Story = recipientStory({
     containerWidth: NARROW_SCENE_WIDTH,
 })
 export const NotFound: Story = recipientStory({ email: 'nobody@example.com', engagementEventsCaptured: true })
+export const NotFoundNarrow: Story = recipientStory({
+    email: 'nobody@example.com',
+    engagementEventsCaptured: true,
+    containerWidth: NARROW_SCENE_WIDTH,
+})

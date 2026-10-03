@@ -9,7 +9,7 @@ import { RecipientsBody } from './RecipientsBody'
 import { RECIPIENT_SEARCH_MAX_LENGTH, recipientsLogic } from './recipientsLogic'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
-export function AudienceRecipients(): JSX.Element {
+export function AudienceRecipients({ autoFocusSearch = false }: { autoFocusSearch?: boolean }): JSX.Element {
     const { search, loadFailed, accessDenied, recipientsView } = useValues(recipientsLogic)
     const { setSearch, clearSearch, retryLoadRecipients } = useActions(recipientsLogic)
     const searchInputRef = useRef<HTMLInputElement>(null)
@@ -29,6 +29,7 @@ export function AudienceRecipients(): JSX.Element {
                 placeholder="Search by email address"
                 aria-label="Search recipients by email address"
                 inputRef={searchInputRef}
+                autoFocus={autoFocusSearch}
                 value={search}
                 maxLength={RECIPIENT_SEARCH_MAX_LENGTH}
                 onChange={setSearch}

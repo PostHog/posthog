@@ -52,15 +52,15 @@ describe('writeToClipboard', () => {
 
     it('keeps the text it selects for the fallback copy out of autocapture', async () => {
         setClipboard(undefined)
-        const selectedElementClasses: string[] = []
+        const copiedFromClasses: string[] = []
         execCommand.mockImplementation(() => {
-            selectedElementClasses.push(document.activeElement?.className ?? '')
+            copiedFromClasses.push(document.querySelector('textarea')?.className ?? 'no textarea')
             return true
         })
 
         await writeToClipboard('jamie@example.com')
 
-        expect(selectedElementClasses).toEqual(['ph-no-capture'])
+        expect(copiedFromClasses).toEqual(['ph-no-capture'])
     })
 
     // Browsers do not all accept text/html in a ClipboardItem, so a rich copy that a browser refuses has
