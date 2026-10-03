@@ -29152,9 +29152,16 @@ export namespace Schemas {
       Unknown: 'unknown',
     } as const;
 
+    /**
+     * Field definitions owned by a virtual table, independent of its printed parent table.
+     */
+    export type DatabaseSchemaFieldFieldsSchema = {[key: string]: DatabaseSchemaField} | null;
+
     export interface DatabaseSchemaField {
       chain?: (string | number)[] | null;
       fields?: string[] | null;
+      /** Field definitions owned by a virtual table, independent of its printed parent table. */
+      fields_schema?: DatabaseSchemaFieldFieldsSchema;
       hogql_value: string;
       id?: string | null;
       name: string;
