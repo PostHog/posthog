@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,11 +15,11 @@ import { recipientsLogic } from './recipientsLogic'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
 describe('UnreachablePersonsNotice', () => {
-    function usePersonsWithoutEmail(count: number): void {
+    function useCoverageResponse(response: [number, unknown]): void {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_recipients/': { results: [], next_cursor: null },
-                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: count },
+                '/api/projects/:team_id/messaging_recipients/coverage/': () => response,
             },
         })
     }
@@ -33,7 +34,7 @@ describe('UnreachablePersonsNotice', () => {
     })
 
     it('opens the filtered persons list and tracks how many persons it shows', async () => {
-        usePersonsWithoutEmail(1342)
+        useCoverageResponse([200, { persons_without_email: 1342 }])
         const capture = jest.spyOn(posthog, 'capture')
         render(<UnreachablePersonsNotice />)
 
@@ -46,12 +47,25 @@ describe('UnreachablePersonsNotice', () => {
         ])
     })
 
-    it('stays hidden when every person has an email property', async () => {
-        usePersonsWithoutEmail(0)
+    it.each([
+        {
+            name: 'every person has an email property',
+            response: [200, { persons_without_email: 0 }],
+            action: 'loadAudienceCoverageSuccess',
+        },
+        {
+            name: 'the count fails to load',
+            response: [500, { detail: 'Query timed out' }],
+            action: 'loadAudienceCoverageFailure',
+        },
+    ] as const)('stays hidden without a toast when $name', async ({ response, action }) => {
+        useCoverageResponse([response[0], response[1]])
+        const toastError = jest.spyOn(lemonToast, 'error')
         const { container } = render(<UnreachablePersonsNotice />)
 
-        await expectLogic(recipientsLogic).toDispatchActions(['loadAudienceCoverageSuccess'])
+        await expectLogic(recipientsLogic).toDispatchActions([action])
 
         expect(container).toBeEmptyDOMElement()
+        expect(toastError).not.toHaveBeenCalled()
     })
 })

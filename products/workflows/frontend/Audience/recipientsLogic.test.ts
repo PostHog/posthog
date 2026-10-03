@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -77,9 +78,9 @@ describe('recipientsLogic', () => {
         jest.useFakeTimers()
 
         logic.actions.setSearch('ja')
-        logic.actions.setSearch('jam')
+        await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS - 1)
         logic.actions.setSearch('jamie')
-        jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS)
+        await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
         jest.useRealTimers()
         await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
 
@@ -90,7 +91,6 @@ describe('recipientsLogic', () => {
         await mountLogic()
 
         logic.actions.loadNextPage()
-        expect(logic.values.hasNextPage).toBe(false)
         logic.actions.loadNextPage()
         await expectLogic(logic)
             .toDispatchActions(['loadAudienceRecipientsSuccess'])
@@ -102,6 +102,19 @@ describe('recipientsLogic', () => {
 
         expect(requests.map((params) => params.get('cursor'))).toEqual([null, 'after-jamie', null])
         expect(requests.every((params) => params.get('limit') === '50')).toBe(true)
+    })
+
+    it('keeps paging back available when a later page comes back empty', async () => {
+        await mountLogic()
+        useRecipientsResponse((params) =>
+            params.get('cursor') ? [200, { results: [], next_cursor: null }] : [200, PAGES_BY_CURSOR['']]
+        )
+
+        await expectLogic(logic, () => logic.actions.loadNextPage()).toDispatchActions([
+            'loadAudienceRecipientsSuccess',
+        ])
+
+        expect(logic.values).toMatchObject({ recipientsView: 'results', recipients: [], hasPreviousPage: true })
     })
 
     it('starts a new search from the first page', async () => {
@@ -116,6 +129,22 @@ describe('recipientsLogic', () => {
 
         expect(requests.at(-1)?.get('cursor')).toBeNull()
         expect(requests.at(-1)?.get('search')).toBe('sam')
+    })
+
+    it('stays on the current page when the trimmed search does not change', async () => {
+        await mountLogic()
+        await expectLogic(logic, () => logic.actions.loadNextPage()).toDispatchActions([
+            'loadAudienceRecipientsSuccess',
+        ])
+        jest.useFakeTimers()
+
+        logic.actions.setSearch(' ')
+        await jest.advanceTimersByTimeAsync(SEARCH_DEBOUNCE_MS)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests.map((params) => params.get('cursor'))).toEqual([null, 'after-jamie'])
+        expect(logic.values.recipients).toEqual([recipient('sam@example.com')])
     })
 
     it('ignores paging while a new search waits for its debounce', async () => {
@@ -154,12 +183,16 @@ describe('recipientsLogic', () => {
         failSlowSearch()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.recipientsView).toBe('results')
-        expect(logic.values.recipients).toEqual(PAGES_BY_CURSOR[''].results)
+        expect(logic.values).toMatchObject({
+            recipientsView: 'results',
+            loadFailed: false,
+            recipients: PAGES_BY_CURSOR[''].results,
+        })
     })
 
-    it('keeps the current page on screen when the next page fails', async () => {
+    it('keeps the current page on screen without a toast when the next page fails', async () => {
         await mountLogic()
+        const toastError = jest.spyOn(lemonToast, 'error')
         useRecipientsResponse((params) =>
             params.get('cursor') ? [500, { detail: 'Query timed out' }] : [200, PAGES_BY_CURSOR['']]
         )
@@ -174,6 +207,7 @@ describe('recipientsLogic', () => {
             recipients: PAGES_BY_CURSOR[''].results,
             hasNextPage: true,
         })
+        expect(toastError).not.toHaveBeenCalled()
     })
 
     it.each([
