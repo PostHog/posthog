@@ -1,17 +1,28 @@
 import { LemonCard, Link } from '@posthog/lemon-ui'
 
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { RecipientApi, RecipientPersonApi } from 'products/messaging/frontend/generated/api.schemas'
 
 function MorePersons({ count }: { count: number }): JSX.Element | null {
     if (count <= 0) {
         return null
     }
+    return <span className="text-xs text-secondary">and {pluralize(count, 'more person', 'more persons')}</span>
+}
+
+function PersonRow({ person }: { person: RecipientPersonApi }): JSX.Element {
+    const name = person.name?.trim()
     return (
-        <span className="text-xs text-secondary">
-            and {count === 1 ? '1 more person' : `${count.toLocaleString()} more persons`}
-        </span>
+        <div className="flex flex-wrap items-center justify-between gap-x-2 py-1">
+            <Link to={urls.personByUUID(person.uuid)} className="font-medium wrap-anywhere">
+                {name || person.distinct_id || 'Unnamed person'}
+            </Link>
+            {name && person.distinct_id && (
+                <span className="text-xs text-secondary wrap-anywhere">{person.distinct_id}</span>
+            )}
+        </div>
     )
 }
 
@@ -30,14 +41,7 @@ export function RecipientPersonsCard({ recipient }: { recipient: RecipientApi })
                     <p className="m-0 text-xs text-secondary">Persons whose email property is this address.</p>
                     <div className="flex flex-col divide-y">
                         {persons.map((person) => (
-                            <div key={person.uuid} className="flex flex-wrap items-center justify-between gap-x-2 py-1">
-                                <Link to={urls.personByUUID(person.uuid)} className="font-medium wrap-anywhere">
-                                    {person.name ?? person.distinct_id}
-                                </Link>
-                                {person.name && (
-                                    <span className="text-xs text-secondary wrap-anywhere">{person.distinct_id}</span>
-                                )}
-                            </div>
+                            <PersonRow key={person.uuid} person={person} />
                         ))}
                     </div>
                     <MorePersons count={personCount - persons.length} />
