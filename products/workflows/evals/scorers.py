@@ -28,7 +28,7 @@ from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.workflows.evals.simulated_email_domains import DOMAIN_CONNECT_SYNC_UX
 
 __all__ = [
-    "APPLY_URL_TOOL",
+    "APPLY_URL_PATH",
     "AvoidedTool",
     "BoundedVerifyPolling",
     "FinalMessageJudge",
@@ -37,8 +37,6 @@ __all__ = [
     "RecordsHandoffJudge",
     "SendersInProject",
     "SharedApplyUrl",
-    "VERIFY_TOOL",
-    "read_senders",
 ]
 
 APPLY_URL_TOOL = "integrations-domain-connect-apply-url-create"
