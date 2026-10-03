@@ -62,6 +62,7 @@ from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, R
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
+    RESEARCH_REPOSITORY_REASON_PREFIX,
     RunAgenticReportInput,
     _load_linked_report_context,
     _load_previous_research,
@@ -954,20 +955,41 @@ async def test_run_agentic_report_activity_keeps_a_scout_repository_correction(m
     assert [json.loads(selection.content)["repository"] for selection in selections] == ["acme/other"]
 
 
+_CONNECTED = ["acme/web-app", "posthog/posthog"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "name,agent_selected,code_repository,expected_repository,expected_autostart",
+    "name,agent_selected,reason,connected,code_repository,expected_repository,expected_autostart",
     [
-        ("connected_repository_replaces_the_guess", True, "Acme/Web-App", "acme/web-app", False),
-        ("unreachable_repository_clears_the_guess", True, "acme/billing-service", None, False),
-        ("same_repository_keeps_the_guess", True, "posthog/posthog", "posthog/posthog", True),
-        ("no_code_repository_keeps_the_guess", True, None, "posthog/posthog", True),
-        ("a_pin_is_not_a_guess", False, "acme/web-app", "posthog/posthog", True),
+        ("connected_repository_replaces_the_guess", True, "guess", _CONNECTED, "Acme/Web-App", "acme/web-app", False),
+        ("unreachable_repository_clears_the_guess", True, "guess", _CONNECTED, "acme/billing", None, False),
+        ("same_repository_keeps_the_guess", True, "guess", _CONNECTED, "posthog/posthog", "posthog/posthog", True),
+        ("no_code_repository_keeps_the_guess", True, "guess", _CONNECTED, None, "posthog/posthog", True),
+        ("a_pin_is_not_a_guess", False, "guess", _CONNECTED, "acme/web-app", "posthog/posthog", True),
+        ("an_unavailable_installation_keeps_the_guess", True, "guess", [], "acme/billing", "posthog/posthog", True),
+        (
+            "a_research_selection_is_not_a_guess",
+            True,
+            f"{RESEARCH_REPOSITORY_REASON_PREFIX} `posthog/posthog`.",
+            _CONNECTED,
+            "acme/web-app",
+            "posthog/posthog",
+            True,
+        ),
     ],
 )
 async def test_run_agentic_report_activity_reconciles_the_selection_with_research(
-    monkeypatch, ateam, name, agent_selected, code_repository, expected_repository, expected_autostart
+    monkeypatch,
+    ateam,
+    name,
+    agent_selected,
+    reason,
+    connected,
+    code_repository,
+    expected_repository,
+    expected_autostart,
 ):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
@@ -975,7 +997,7 @@ async def test_run_agentic_report_activity_reconciles_the_selection_with_researc
     selector = await database_sync_to_async(Task.objects.create)(team=ateam, title="selector", description="d")
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.list_team_connected_repositories",
-        lambda team_id: ["acme/web-app", "posthog/posthog"],
+        lambda team_id: connected,
     )
     output = _build_research_output()
     output.code_repository = code_repository
@@ -987,7 +1009,7 @@ async def test_run_agentic_report_activity_reconciles_the_selection_with_researc
         output,
         repo_selection=RepoSelectionResult(
             repository="posthog/posthog",
-            reason="guess",
+            reason=reason,
             task_id=str(selector.id) if agent_selected else None,
         ),
     )

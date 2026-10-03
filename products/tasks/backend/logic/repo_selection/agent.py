@@ -459,9 +459,11 @@ make the request the vendor's problem. A project can capture its own billing eve
 
 Before you decide that a third party (an analytics vendor, a payment provider, a cloud host) owns the
 behavior, find explicit evidence: the context says the behavior happens inside that vendor's own
-service, and no candidate contains the code that emits or handles it. Grep `tree_paths` and the
-README for the event name, error message, or feature first. A match in a candidate is ownership
-evidence for that candidate. `reason` must name the ownership evidence you used.
+service, and no candidate contains the application code that emits or handles it. Grep `tree_paths`
+and the README for the event name, error message, or feature first. A match in a candidate is
+ownership evidence for that candidate. When a candidate holds the vendor's own service and the match
+is in that service, the behavior belongs to that candidate.
+`reason` must name the ownership evidence you used.
 
 ## When to return `null`
 
