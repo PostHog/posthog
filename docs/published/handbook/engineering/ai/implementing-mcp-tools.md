@@ -328,6 +328,11 @@ Product teams own their definitions and control which operations are exposed as 
    For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
+   Several tools can share one `operation` and still hide different fields with `exclude_params`.
+   Each tool hides only the fields it lists.
+   Two kinds of field are the exception: a nested field such as `steps.*.selector_regex`, and a field of a request body that combines several schemas with `allOf`, `anyOf` or `oneOf`.
+   Hide one of those on every enabled tool on the operation, or on none. Otherwise the build fails.
+
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the

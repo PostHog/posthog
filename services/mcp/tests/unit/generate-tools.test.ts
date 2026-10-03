@@ -882,26 +882,45 @@ describe('exclude_params on an operation shared by several tools', () => {
             },
         })
 
-    it.each([
+    const exclusionsNoToolCanOmitAlone = [
         { name: 'a nested field', excluded: 'config.secret', resolved: thingsCreateResolved },
         { name: 'a field of a union body', excluded: 'kind', resolved: unionBodyResolved },
         { name: 'a field of an allOf body', excluded: 'kind', resolved: allOfBodyResolved },
-    ])('rejects $name that only some tools on the operation exclude', ({ excluded, resolved }) => {
+    ]
+    const generateWithSibling = (
+        excluded: string,
+        resolved: () => ResolvedOperation,
+        siblingExcludes: string[]
+    ): string => {
         const tool: ToolConfig = { operation: 'things_create', enabled: true, exclude_params: [excluded] }
-        const category = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-email-create': tool } }
+        const sibling: ToolConfig = { operation: 'things_create', enabled: true, exclude_params: siblingExcludes }
+        const category = { ...defaultCategory, tools: { 'things-create': sibling, 'things-email-create': tool } }
+        return generateToolCode(
+            'things-email-create',
+            tool,
+            resolved(),
+            category,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        ).code
+    }
 
-        expect(() =>
-            generateToolCode(
-                'things-email-create',
-                tool,
-                resolved(),
-                category,
-                makeSpec(),
-                new Set<string>(),
-                stubGetQuerySchema
+    it.each(exclusionsNoToolCanOmitAlone)(
+        'rejects $name that only some tools on the operation exclude',
+        ({ excluded, resolved }) => {
+            expect(() => generateWithSibling(excluded, resolved, [])).toThrow(
+                `Tool "things-email-create" cannot omit "${excluded}" on its own`
             )
-        ).toThrow(`Tool "things-email-create" cannot omit "${excluded}" on its own`)
-    })
+        }
+    )
+
+    it.each(exclusionsNoToolCanOmitAlone)(
+        'accepts $name that every tool on the operation excludes',
+        ({ excluded, resolved }) => {
+            expect(generateWithSibling(excluded, resolved, [excluded])).not.toContain('.omit(')
+        }
+    )
 })
 
 describe('anyOf / oneOf body schemas (discriminated unions)', () => {
