@@ -49,7 +49,9 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     />
                     <Markdown>
                         These steps need `@opentelemetry/sdk-logs` 0.220.0 or later. The `@latest` tags upgrade any
-                        older version already in your project.
+                        older version already in your project. OpenTelemetry lists Node.js 18 (18.19 or later) and
+                        Node.js 20.6 or later as supported for versions 0.220.0 through 0.222.0. Later releases may
+                        change this.
                     </Markdown>
                 </>
             ),
