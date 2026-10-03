@@ -445,9 +445,9 @@ export function readableExcerpt(text: string): string {
         .replace(BARE_INTEGER, (match) => Number(match).toLocaleString('en-US'))
 }
 
-const HEADLINE_CHARS = 170
+const HEADLINE_CHARS = 155
 // A clause break wins over a word break only when it keeps most of the sentence's room.
-const MIN_CLAUSE_CHARS = 130
+const MIN_CLAUSE_CHARS = 120
 
 const QUOTE_MARK = /“|”|(?<=^|\s)["']|["'](?=[\s.,;:!?]|$)/g
 

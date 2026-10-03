@@ -172,7 +172,7 @@ describe('todayReportPresentation', () => {
         [
             'a long sentence, cut at its last clause',
             'Pressing Apply on the shipping rules settings screen does not keep the new rates, which means every edit to the rates is dropped and the merchant has to write to the help desk about it before the next billing run.',
-            'Pressing Apply on the shipping rules settings screen does not keep the new rates, which means every edit to the rates is dropped and the merchant has to write…',
+            'Pressing Apply on the shipping rules settings screen does not keep the new rates, which means every edit to the rates is dropped and the merchant has…',
         ],
         [
             'a long sentence, never cut inside a quotation',

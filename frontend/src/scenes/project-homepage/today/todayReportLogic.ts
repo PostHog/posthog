@@ -19,6 +19,7 @@ import type { BriefingItemStateEnumApi } from 'products/today/frontend/generated
 
 import { reportItemState } from './todayBriefingItems'
 import { fetchExcerptChoice, fetchKeyClauses } from './todayJev'
+import { jevCacheKey, readJevCache, writeJevCache } from './todayJevCache'
 import { TodayKeyClause, TodayKeyClauseRequest, renderedText } from './todayKeyClauses'
 import { todayLogic } from './todayLogic'
 import {
@@ -301,8 +302,16 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 actions.excerptChosen(key, null)
                 return
             }
+            const cacheKey = jevCacheKey('excerpt', finding, ...excerpts)
+            const cached = readJevCache<number | null>(cacheKey)
+            if (cached !== undefined) {
+                actions.excerptChosen(key, cached)
+                return
+            }
             try {
-                actions.excerptChosen(key, await fetchExcerptChoice(finding, excerpts))
+                const choice = await fetchExcerptChoice(finding, excerpts)
+                writeJevCache(cacheKey, choice)
+                actions.excerptChosen(key, choice)
             } catch {
                 actions.excerptChosen(key, null)
             }
@@ -312,8 +321,17 @@ export const todayReportLogic = kea<todayReportLogicType>([
             if (!missing.length || !values.jevEnabled || isSampleReportId(props.reportId)) {
                 return
             }
+            const summary = values.currentReport?.summary ?? ''
+            const cacheKey = jevCacheKey('marks', summary, ...missing.map((request) => request.text))
+            const cached = readJevCache<Record<string, TodayKeyClause[]>>(cacheKey)
+            if (cached) {
+                actions.keyClausesLoaded(cached)
+                return
+            }
             try {
-                actions.keyClausesLoaded(await fetchKeyClauses(missing, values.currentReport?.summary ?? ''))
+                const found = await fetchKeyClauses(missing, summary)
+                writeJevCache(cacheKey, found)
+                actions.keyClausesLoaded(found)
             } catch {
                 actions.keyClausesLoaded(Object.fromEntries(missing.map((request) => [request.text, []])))
             }
