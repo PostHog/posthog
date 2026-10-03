@@ -648,7 +648,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                 markLogoEdited: (_, { logoEdited }) => logoEdited,
                 loadEmailBrandInitialSuccess: (_, { initial }) =>
                     initial.brand
-                        ? initial.brand.edited.logo || (!!initial.brand.logo && !initial.brand.sources.logo)
+                        ? initial.brand.edited.logo || (!!initial.brand.logo && !initial.brand.sources?.logo)
                         : false,
             },
         ],
@@ -726,7 +726,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                 loadEmailBrandInitialSuccess: (_, { initial }) =>
                     initial.brand
                         ? brandFields.filter(
-                              (field) => !initial.brand!.sources[field] && initial.brand![field] !== emptyBrand[field]
+                              (field) => !initial.brand!.sources?.[field] && initial.brand![field] !== emptyBrand[field]
                           )
                         : [],
             },
