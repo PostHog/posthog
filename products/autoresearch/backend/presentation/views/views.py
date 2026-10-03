@@ -403,7 +403,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         description=(
             "Validate a proposed pipeline's target event and population before creating it. "
             "Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: "
-            "'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other "
+            "'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other "
             "'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create."
         ),
     )
@@ -495,7 +495,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         responses={
             200: OpenApiResponse(
                 response=AutoresearchRunSerializer,
-                description="The created inference run. Check rows_scored and status.",
+                description=(
+                    "The inference run, with status running. If a run for the pipeline is already running, "
+                    "this is that run. Poll the run until its status is completed or failed."
+                ),
             ),
             400: OpenApiResponse(
                 description=(
@@ -506,9 +509,11 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         },
         summary="Run inference (score users)",
         description=(
-            "Score the inference population using the champion model and emit autoresearch_prediction "
-            "events for each scored user, and sets the pipeline's output_person_property on each scored person. "
-            "In production this is triggered by the daily Temporal inference workflow."
+            "Start scoring the inference population using the champion model. Scoring runs in the background: "
+            "it emits autoresearch_prediction events for each scored user and sets the pipeline's "
+            "output_person_property on each scored person. The response returns at once with the running run. "
+            "A second request while a run is running returns that run and starts nothing. "
+            "The daily Temporal inference workflow also scores each pipeline on its cadence."
         ),
     )
     # Scoring sets the pipeline's output property on every scored person, so it needs person:write too.
@@ -937,6 +942,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 model_explanation=data.get("model_explanation") or {},
                 recommended_next=data.get("recommended_next") or "",
                 distillation=data.get("distillation") or "",
+                report_notebook_short_id=data.get("report_notebook_short_id") or "",
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")

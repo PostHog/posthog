@@ -1,6 +1,7 @@
 import uuid
 import base64
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -68,6 +70,7 @@ MOCK_VALIDATION_ERROR = ValidationResult(
 
 
 _VIEWS = "products.autoresearch.backend.presentation.views.views"
+_FACADE = "products.autoresearch.backend.facade.api"
 
 
 class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
@@ -357,10 +360,51 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_trained_pipeline() if paused else self._make_pipeline()
         pipeline.status = AutoresearchPipeline.Status.PAUSED if paused else AutoresearchPipeline.Status.RUNNING
         pipeline.save(update_fields=["status"])
-        with patch("products.autoresearch.backend.inference.scoring.run_inference_for_pipeline") as mock_score:
+        with patch(f"{_FACADE}._start_inference_workflow") as mock_start:
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
-        mock_score.assert_not_called()
+        mock_start.assert_not_called()
+        assert not AutoresearchRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
+
+    @parameterized.expand(
+        [
+            ("nothing_running_starts_a_run", None, True),
+            ("a_running_run_is_returned", timedelta(minutes=1), False),
+            ("a_stale_running_run_does_not_block", timedelta(hours=6), True),
+        ]
+    )
+    def test_score_starts_one_background_run(self, _name: str, running_age: timedelta | None, starts: bool):
+        pipeline = self._make_trained_pipeline()
+        existing = None
+        if running_age is not None:
+            existing = AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status=AutoresearchRun.Status.RUNNING,
+                started_at=django_timezone.now() - running_age,
+            )
+        with patch(f"{_FACADE}._start_inference_workflow") as mock_start:
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "running"
+        if not starts:
+            assert existing is not None
+            assert resp.json()["id"] == str(existing.id)
+            mock_start.assert_not_called()
+            return
+        assert existing is None or resp.json()["id"] != str(existing.id)
+        mock_start.assert_called_once()
+        assert mock_start.call_args.kwargs["run_id"] == resp.json()["id"]
+        assert mock_start.call_args.kwargs["user_id"] == self.user.id
+
+    def test_score_fails_the_run_when_the_workflow_cannot_start(self):
+        pipeline = self._make_trained_pipeline()
+        with patch(f"{_FACADE}._start_inference_workflow", side_effect=RuntimeError("temporal down")):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/score/")
+        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        run = AutoresearchRun.objects.for_team(self.team.pk).get(pipeline=pipeline)
+        assert run.status == AutoresearchRun.Status.FAILED
+        assert "temporal down" in run.error
 
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
 
@@ -584,19 +628,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == gate_status
         mock_run_training.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("score", "products.autoresearch.backend.inference.scoring.run_inference_for_pipeline"),
-            (
-                "validate_online",
-                "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline",
-            ),
-        ]
-    )
-    def test_scoring_actions_with_a_deleted_target_action_return_400(self, path: str, runner: str):
+    def test_validate_online_with_a_deleted_target_action_returns_400(self):
         pipeline = self._make_trained_pipeline()
-        with patch(runner, side_effect=Action.DoesNotExist):
-            resp = self.client.post(f"{self.base_url}/{pipeline.id}/{path}/")
+        with patch(
+            "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline",
+            side_effect=Action.DoesNotExist,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/validate_online/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
@@ -618,7 +656,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             action.steps_json = []
         action.save()
         with (
-            patch("products.autoresearch.backend.inference.scoring.run_inference_for_pipeline") as mock_score,
+            patch(f"{_FACADE}._start_inference_workflow") as mock_score,
             patch(
                 "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline"
             ) as mock_validate,

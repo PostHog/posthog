@@ -20,7 +20,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { ProjectNotice } from '../navigation/ProjectNotice'
-import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
+import { SceneTitlePanelButton } from '../scenes/components/SceneTitlePanelButton'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
 import { MinimalNavigation } from './components/MinimalNavigation'
@@ -54,8 +54,10 @@ export function Navigation({
         leftNavWidth: todayLeftNavWidth,
         todayRailEnabled: todayRail,
         sidebarVisible: todaySidebarVisible,
+        phoneLayout: todayPhoneLayout,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
+    const todayPhone = todayRail && todayPhoneLayout
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -134,7 +136,17 @@ export function Navigation({
                 }
             >
                 {showMinimalNavigation && <MinimalNavigation />}
-                <main className={mode === 'zen' ? 'p-4' : undefined}>{children}</main>
+                <main
+                    className={
+                        mode === 'zen'
+                            ? 'p-4'
+                            : mode === 'embedded'
+                              ? '@container/main-content min-h-screen p-4'
+                              : undefined
+                    }
+                >
+                    {children}
+                </main>
             </div>
         )
     }
@@ -151,8 +163,9 @@ export function Navigation({
             </a>
             <div
                 className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': mobileLayout && !todayRail,
+                    'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
                     TodayAppLayout: todayRail,
+                    'TodayAppLayout--phone': todayPhone,
                 })}
                 style={
                     {
@@ -185,11 +198,14 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden lg:rounded border-t lg:border border-primary relative lg:mr-1 lg:mb-1 lg:mt-1',
-                            {
-                                'rounded border mr-1 mb-1 mt-1': todayRail,
-                                'rounded-r-none': sidePanelOpen,
-                            }
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
+                            // Under the Today layout the shell draws the seam against the content in quill's border.
+                            todayRail
+                                ? null
+                                : [
+                                      'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
+                                      sidePanelOpen && 'rounded-r-none',
+                                  ]
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
                     >
@@ -199,8 +215,10 @@ export function Navigation({
                             tabIndex={0}
                             id="main-content"
                             className={cn(
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t focus-visible:outline-none flex flex-col',
+                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
                                 {
+                                    // The Today layout's content meets the chrome on straight seams.
+                                    'rounded-t': !todayRail,
                                     'p-0': noPaddingScene,
                                     'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
                                 }

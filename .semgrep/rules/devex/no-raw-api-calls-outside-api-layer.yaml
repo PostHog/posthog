@@ -1,0 +1,130 @@
+rules:
+    - id: no-api-request-outside-api-layer
+      message: |
+          `new ApiRequest()` outside `frontend/src/lib/api.ts`. It puts a hand-written URL builder
+          and an unchecked response type at the call site, so a backend change breaks it at runtime
+          instead of at compile time. `prefer-codegen-api` blocks `api.get(...)` and its siblings,
+          and this shape does the same job.
+
+          Call the generated function instead: `products/<product>/frontend/generated/api.ts` for a
+          product endpoint, `frontend/src/generated/core/api.ts` for a core endpoint. If no
+          generated function covers the endpoint, add its OpenAPI schema (`/improving-drf-endpoints`)
+          and run `hogli build:openapi`.
+
+          Agents: invoke the `adopting-generated-api-types` skill
+          (`.agents/skills/adopting-generated-api-types/SKILL.md`) for the migration workflow.
+
+          Only a URL that the server returns (a pagination `next` link, an export download) or a
+          route outside the API may stay raw. Mark it with
+          `// nosemgrep: no-api-request-outside-api-layer -- <reason>` on the line above.
+      severity: WARNING
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - 'frontend/src/**'
+              - 'products/*/frontend/**'
+          exclude:
+              - 'frontend/src/lib/api.ts'
+              - 'frontend/src/toolbar/**'
+              - '**/generated/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+              - '**/*.stories.ts'
+              - '**/*.stories.tsx'
+              - '**/mocks/**'
+              - '**/__mocks__/**'
+      pattern: new ApiRequest(...)
+      metadata:
+          category: best-practice
+
+    - id: no-raw-fetch-to-api-outside-api-layer
+      message: |
+          Raw `fetch(...)` to a PostHog `/api/...` URL. It skips the shared request layer (CSRF
+          header, error handling, region and project handling) and puts an unchecked URL and
+          response type at the call site.
+
+          Call the generated function instead: `products/<product>/frontend/generated/api.ts` for a
+          product endpoint, `frontend/src/generated/core/api.ts` for a core endpoint. If no
+          generated function covers the endpoint, add its OpenAPI schema (`/improving-drf-endpoints`)
+          and run `hogli build:openapi`.
+
+          Agents: invoke the `adopting-generated-api-types` skill
+          (`.agents/skills/adopting-generated-api-types/SKILL.md`) for the migration workflow.
+
+          A public page that cannot use the app request layer, or a route outside the API, may stay
+          raw. Mark it with `// nosemgrep: no-raw-fetch-to-api-outside-api-layer -- <reason>` on
+          the line above. Toolbar code has its own rule, `toolbar-no-raw-fetch`.
+      severity: WARNING
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - 'frontend/src/**'
+              - 'products/*/frontend/**'
+          exclude:
+              - 'frontend/src/lib/api.ts'
+              - 'frontend/src/toolbar/**'
+              - '**/generated/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+              - '**/*.stories.ts'
+              - '**/*.stories.tsx'
+              - '**/mocks/**'
+              - '**/__mocks__/**'
+      patterns:
+          - pattern-either:
+                - pattern: fetch($URL, ...)
+                - pattern: window.fetch($URL, ...)
+                - pattern: globalThis.fetch($URL, ...)
+          # A string or template literal that starts with `/api/`, optionally after a `${host}` part.
+          # The URL is a literal at the call, or a local constant that holds a literal
+          # (constant propagation).
+          - metavariable-pattern:
+                metavariable: $URL
+                pattern-either:
+                    - pattern-regex: '^[`''"](?:\$\{[^}]*\})?/api/'
+                    - pattern: |
+                          "=~/^\/api\//"
+      metadata:
+          category: best-practice
+
+    - id: no-axios-in-frontend
+      message: |
+          `axios` import in frontend code. The app talks to the PostHog API through the generated
+          clients (`frontend/src/generated/core/`, `products/<product>/frontend/generated/`), which
+          share one request layer for CSRF, errors and typing. A second HTTP client forks that
+          layer.
+
+          Call the generated function instead. If no generated function covers the endpoint, add
+          its OpenAPI schema (`/improving-drf-endpoints`) and run `hogli build:openapi`.
+
+          Agents: invoke the `adopting-generated-api-types` skill
+          (`.agents/skills/adopting-generated-api-types/SKILL.md`) for the migration workflow.
+      severity: WARNING
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - 'frontend/src/**'
+              - 'products/*/frontend/**'
+          exclude:
+              - 'frontend/src/lib/api.ts'
+              - 'frontend/src/toolbar/**'
+              - '**/generated/**'
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+              - '**/*.stories.ts'
+              - '**/*.stories.tsx'
+              - '**/mocks/**'
+              - '**/__mocks__/**'
+      pattern-either:
+          - pattern: import $X from 'axios'
+          - pattern: import * as $X from 'axios'
+          - pattern: import {...} from 'axios'
+          - pattern: require('axios')
+      metadata:
+          category: best-practice

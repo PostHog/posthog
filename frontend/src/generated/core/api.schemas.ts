@@ -684,6 +684,12 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type ProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
+
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
@@ -2703,7 +2709,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: ProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -2778,6 +2788,12 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     onboarding_completed_at?: string | null
     updated_at?: string
 }
+
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type PatchedProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
 
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
@@ -3572,7 +3588,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: PatchedProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -3915,6 +3935,20 @@ export interface EmojiSuggestionApi {
 export interface EmojiSearchResponseApi {
     /** Related emojis, or an empty list. */
     suggestions: EmojiSuggestionApi[]
+}
+
+export interface EventPropertyValueApi {
+    /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+    name: string
+    /** How many times the value occurs, when the lookup counts values. */
+    count?: number
+}
+
+export interface EventPropertyValuesResponseApi {
+    /** Values of the property that match the request. */
+    results: EventPropertyValueApi[]
+    /** True when these results come from a stale cache and a refresh runs in the background. */
+    refreshing: boolean
 }
 
 /**
@@ -5272,6 +5306,11 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /**
+     * The offset to pass to get the next page, or null when this page is the last one.
+     * @nullable
+     */
+    next_offset: number | null
     /** Total number of repositories matching the search query, across all pages. */
     total: number
 }
@@ -5749,6 +5788,33 @@ export type EmojiSearchSuggestRetrieveParams = {
     query: string
 }
 
+export type EventsValuesRetrieveParams = {
+    /**
+     * Only read values from events with these names. Repeat to pass several. Required with a personal API key. Projects that read values from the precomputed property values table ignore this filter.
+     */
+    event_name?: string[]
+    format?: EventsValuesRetrieveFormat
+    /**
+     * Read 'key' as an events table column, not a property.
+     */
+    is_column?: boolean
+    /**
+     * The property to list values for.
+     */
+    key: string
+    /**
+     * Only return values that contain this text, ignoring case.
+     */
+    value?: string
+}
+
+export type EventsValuesRetrieveFormat = (typeof EventsValuesRetrieveFormat)[keyof typeof EventsValuesRetrieveFormat]
+
+export const EventsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -5994,6 +6060,10 @@ export type UsersIntegrationsGithubBranchesRetrieveParams = {
 }
 
 export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean
     /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
