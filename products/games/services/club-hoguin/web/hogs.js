@@ -34,6 +34,15 @@ export async function loadSprites() {
  * @param {any} world
  * @param {() => number} serverNow the server clock, estimated
  */
+// A light color of its own for every hedgehog, from its id, so two with the same look still tell apart.
+function pastel(/** @type {string} */ id) {
+    let hash = 0
+    for (const char of id) {
+        hash = (hash * 31 + char.charCodeAt(0)) >>> 0
+    }
+    return new THREE.Color().setHSL((hash % 360) / 360, 0.7, 0.86)
+}
+
 export function createHogs(town, sprites, world, serverNow) {
     const geometry = new THREE.PlaneGeometry(1, 1)
     geometry.translate(0, 0.5 - FEET, 0)
@@ -94,6 +103,7 @@ export function createHogs(town, sprites, world, serverNow) {
             group,
             body,
             hat,
+            tint: view.npc ? WHITE : pastel(view.id),
             x: view.x,
             y: view.y,
             // The walk the hedgehog is on. Its position at any moment follows from this and the clock.
@@ -195,7 +205,7 @@ export function createHogs(town, sprites, world, serverNow) {
             }
         },
         update(/** @type {number} */ dt, /** @type {number} */ time) {
-            const tint = WHITE.clone().lerp(NIGHT_TINT, town.nightValue() * 0.55)
+            const night = town.nightValue() * 0.55
             const serverTime = serverNow()
             for (const hog of hogs.values()) {
                 if (!hog.view.npc) {
@@ -229,10 +239,10 @@ export function createHogs(town, sprites, world, serverNow) {
                 }
                 const flip = hog.facing === 'left'
                 showFrame(hog.body, frames[index], flip)
-                hog.body.material.color.copy(tint)
+                hog.body.material.color.copy(hog.tint).lerp(NIGHT_TINT, night)
                 if (hog.hat) {
                     showFrame(hog.hat, hog.hat.userData.frame, flip)
-                    hog.hat.material.color.copy(tint)
+                    hog.hat.material.color.copy(WHITE).lerp(NIGHT_TINT, night)
                     // The head dips on every other walk frame, and the hat goes with it.
                     hog.hat.position.y = hog.moving && index % 2 ? -FRAME_HEIGHT / 80 : 0
                 }
