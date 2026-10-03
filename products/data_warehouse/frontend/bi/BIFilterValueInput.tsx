@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonInput, LemonInputSelect } from '@posthog/lemon-ui'
 
@@ -17,7 +18,8 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
     const { config } = useValues(biEditorLogic)
     const { setFilterValue, updateFilter } = useActions(biEditorLogic)
     const filter = config.filters[index]
-    const valuesLogic = biFilterValuesLogic({ query: buildBIFilterOptionsQuery(config, index) })
+    const [focused, setFocused] = useState(false)
+    const valuesLogic = biFilterValuesLogic({ query: buildBIFilterOptionsQuery(config, index), active: focused })
     const { options, optionsLoading, optionsError } = useValues(valuesLogic)
     const { loadOptions } = useActions(valuesLogic)
     if (!filter || ['last_7_days', 'is_set', 'is_not_set', 'custom'].includes(filter.operator)) {
@@ -33,11 +35,8 @@ export function BIFilterValueInput({ index }: { index: number }): JSX.Element | 
                     options={(options ?? []).map((value) => ({ key: value, label: value || '(empty string)' }))}
                     loading={optionsLoading}
                     status={validationError ? 'danger' : 'default'}
-                    onFocus={() => {
-                        if (options === null && !optionsLoading) {
-                            loadOptions()
-                        }
-                    }}
+                    onFocus={() => setFocused(true)}
+                    onBlur={() => setFocused(false)}
                     onChange={(values) => updateFilter(index, { values })}
                     placeholder={filter.operator === 'in' ? 'All values' : 'No excluded values'}
                     title={`Values for ${filter.field.name}`}
