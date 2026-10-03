@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
+import { AICreditsSection } from './AICreditsSection'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
@@ -210,6 +211,8 @@ export function Billing(): JSX.Element {
             )}
 
             {!showBillingSummary && <StripePortalButton />}
+
+            <AICreditsSection />
 
             {!couponsOverviewLoading && activeCoupons.length > 0 && (
                 <div className="mt-6 max-w-300">

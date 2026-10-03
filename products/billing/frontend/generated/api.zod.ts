@@ -30,6 +30,17 @@ export const BillingActivateAuthorizeStatusCreateBody = /* @__PURE__ */ zod.obje
     billing_limit: zod.number(),
 })
 
+/**
+ * @summary Buy AI credits with the card on file
+ */
+
+export const BillingAiCreditsTopUpCreateBody = /* @__PURE__ */ zod.object({
+    amount_usd: zod
+        .number()
+        .min(1)
+        .describe('Amount to buy in USD. Use one of the amounts the AI credits endpoint returns.'),
+})
+
 export const billingCouponsClaimCreateBodyPlanMax = 100
 
 export const BillingCouponsClaimCreateBody = /* @__PURE__ */ zod.object({

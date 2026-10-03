@@ -18,6 +18,12 @@ tools:
     billing-activate-create:
         operation: billing_activate_create
         enabled: false
+    billing-ai-credits-retrieve:
+        operation: billing_ai_credits_retrieve
+        enabled: false
+    billing-ai-credits-top-up-create:
+        operation: billing_ai_credits_top_up_create
+        enabled: false
     billing-alerts-check-now-create:
         operation: billing_alerts_check_now_create
         enabled: false
