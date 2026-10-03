@@ -21,6 +21,7 @@ export function CSPReportingSettings(): JSX.Element {
     const [includeDistinctId, setIncludeDistinctId] = useState(false)
     const [includeVersion, setIncludeVersion] = useState(true)
     const [includeSampleRate, setIncludeSampleRate] = useState(false)
+    const [discardIp, setDiscardIp] = useState(false)
 
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -92,6 +93,12 @@ export function CSPReportingSettings(): JSX.Element {
                         onChange={setIncludeSampleRate}
                         disabledReason={restrictedReason}
                     />
+                    <LemonCheckbox
+                        label="discard_ip: don't store the IP address of the browser that sent the report. Keeps IP addresses off your violation reports without changing any other event."
+                        checked={discardIp}
+                        onChange={setDiscardIp}
+                        disabledReason={restrictedReason}
+                    />
                 </div>
             </div>
             <div className="flex flex-col gap-y-2">
@@ -104,6 +111,7 @@ export function CSPReportingSettings(): JSX.Element {
                             session_id: includeSessionId ? 'ADD_THE_SESSION_ID' : undefined,
                             distinct_id: includeDistinctId ? 'ADD_THE_DISTINCT_ID' : undefined,
                             sample_rate: includeSampleRate ? '0.5' : undefined,
+                            discard_ip: discardIp ? 1 : undefined,
                         }).url
                     }
                 </CodeSnippet>
