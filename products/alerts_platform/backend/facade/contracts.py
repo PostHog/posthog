@@ -234,7 +234,7 @@ class GroupTransition:
 
     The condition and the source config a message also needs stay on the history row the
     delivery addresses, because `source_config` is an unbounded filter tree and one per
-    transition would blow the payload bound `MAX_PREVIEWS_PER_CYCLE` was sized against.
+    transition would blow the payload bound `MAX_DELIVERIES_PER_CYCLE` was sized against.
     """
 
     grouping_key: str
