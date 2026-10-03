@@ -17,7 +17,6 @@ export type TodaySignalDestination =
     | { kind: 'read' }
 
 const PLAYER_LEAD_IN_SECONDS = 5
-const RECORDING_SOURCES = new Set(['replay_vision', 'session_replay'])
 const SLACK_LINK = /https?:\/\/[\w.-]*slack\.com\/\S+/i
 
 export function newestFirst(signals: SignalNodeApi[]): SignalNodeApi[] {
@@ -62,73 +61,75 @@ function playerStart(extra: Record<string, unknown>, offset: number | null): num
         .valueOf()
 }
 
-export function signalDestination(
-    signal: Pick<SignalNodeApi, 'source_product' | 'source_type' | 'source_id' | 'content' | 'extra'>
-): TodaySignalDestination {
+type DestinationSignal = Pick<SignalNodeApi, 'source_product' | 'source_type' | 'source_id' | 'content' | 'extra'>
+type SourceLink = (signal: DestinationSignal, extra: Record<string, unknown>) => TodaySignalDestination | null
+
+function link(to: string | null, label: string, external: boolean): TodaySignalDestination | null {
+    return to ? { kind: 'link', to, external, label } : null
+}
+
+function recording(_: DestinationSignal, extra: Record<string, unknown>): TodaySignalDestination | null {
+    const sessionId = textOf(extra.session_id)
+    if (!sessionId) {
+        return null
+    }
+    const offset = recordingOffsetSeconds(extra)
+    return {
+        kind: 'recording',
+        sessionId,
+        startAt: playerStart(extra, offset),
+        offset: offset !== null ? colonDelimitedDuration(offset, 2) : null,
+    }
+}
+
+function errorIssue(signal: DestinationSignal, extra: Record<string, unknown>): TodaySignalDestination | null {
+    const fingerprint = textOf(extra.fingerprint)
+    const to = signal.source_id ? urls.errorTrackingIssue(signal.source_id, fingerprint ? { fingerprint } : {}) : null
+    return link(to, 'Open issue', false)
+}
+
+function analyticsView(_: DestinationSignal, extra: Record<string, unknown>): TodaySignalDestination | null {
+    const notebook = textOf(extra.notebook_short_id)
+    const insight = textOf(extra.insight_short_id)
+    return (
+        link(notebook && urls.notebook(notebook), 'Open investigation', false) ??
+        link(insight && urls.insightView(insight as InsightShortId), 'Open insight', false)
+    )
+}
+
+function scoutSource(signal: DestinationSignal): TodaySignalDestination | null {
+    const file = signalCodeFile(signal)
+    const shortFinding = signal.content.length <= 240
+    return (
+        link(signalSlackThread(signal), 'Open thread', true) ??
+        link(file && shortFinding ? githubFileUrl(file) : null, 'Open file', true)
+    )
+}
+
+const SOURCE_LINKS: Record<string, SourceLink> = {
+    replay_vision: recording,
+    session_replay: recording,
+    error_tracking: errorIssue,
+    conversations: (signal) =>
+        link(conversationsTicketUrl({ source_id: signal.source_id, extra: signal.extra }), 'Open ticket', false),
+    analytics: analyticsView,
+    github: (signal, extra) =>
+        link(
+            safeHttpUrl(textOf(extra.html_url) ?? ''),
+            isPullRequest(signal) ? 'Open pull request' : 'Open issue',
+            true
+        ),
+    signals_scout: scoutSource,
+}
+
+export function signalDestination(signal: DestinationSignal): TodaySignalDestination {
     const extra = signalExtra(signal)
-    const sessionId = RECORDING_SOURCES.has(signal.source_product) ? textOf(extra.session_id) : null
-    if (sessionId) {
-        const offset = recordingOffsetSeconds(extra)
-        return {
-            kind: 'recording',
-            sessionId,
-            startAt: playerStart(extra, offset),
-            offset: offset !== null ? colonDelimitedDuration(offset, 2) : null,
-        }
+    const own = SOURCE_LINKS[signal.source_product]?.(signal, extra)
+    if (own) {
+        return own
     }
-    if (signal.source_product === 'error_tracking' && signal.source_id) {
-        const fingerprint = typeof extra.fingerprint === 'string' ? extra.fingerprint : undefined
-        return {
-            kind: 'link',
-            to: urls.errorTrackingIssue(signal.source_id, fingerprint ? { fingerprint } : {}),
-            external: false,
-            label: 'Open issue',
-        }
-    }
-    if (signal.source_product === 'conversations') {
-        const to = conversationsTicketUrl({ source_id: signal.source_id, extra: signal.extra })
-        if (to) {
-            return { kind: 'link', to, external: false, label: 'Open ticket' }
-        }
-    }
-    if (signal.source_product === 'analytics') {
-        const notebook = textOf(extra.notebook_short_id)
-        if (notebook) {
-            return { kind: 'link', to: urls.notebook(notebook), external: false, label: 'Open investigation' }
-        }
-        const insight = textOf(extra.insight_short_id)
-        if (insight) {
-            return {
-                kind: 'link',
-                to: urls.insightView(insight as InsightShortId),
-                external: false,
-                label: 'Open insight',
-            }
-        }
-    }
-    if (signal.source_product === 'github') {
-        const to = safeHttpUrl(textOf(extra.html_url) ?? '')
-        if (to) {
-            return {
-                kind: 'link',
-                to,
-                external: true,
-                label: isPullRequest(signal) ? 'Open pull request' : 'Open issue',
-            }
-        }
-    }
-    if (signal.source_product === 'signals_scout') {
-        const to = signalSlackThread(signal)
-        if (to) {
-            return { kind: 'link', to, external: true, label: 'Open thread' }
-        }
-        const file = signalCodeFile(signal)
-        if (file && signal.content.length <= 240) {
-            return { kind: 'link', to: githubFileUrl(file), external: true, label: 'Open file' }
-        }
-    }
-    const link = genericSignalLink({ source_product: signal.source_product, source_id: signal.source_id, extra })
-    return link ? { kind: 'link', to: link.to, external: link.external, label: 'Open' } : { kind: 'read' }
+    const generic = genericSignalLink({ source_product: signal.source_product, source_id: signal.source_id, extra })
+    return link(generic?.to ?? null, 'Open', generic?.external ?? false) ?? { kind: 'read' }
 }
 
 export function signalSlackThread(signal: Pick<SignalNodeApi, 'source_product' | 'content'>): string | null {

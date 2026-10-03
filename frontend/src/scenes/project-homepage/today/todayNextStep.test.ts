@@ -4,6 +4,8 @@ import { inFlightPullRequest, reportWorkKind, todayNextStep } from './todayNextS
 import { todayReportSections } from './todayReportSections'
 import { report } from './todayTestFixtures'
 
+const RUN = { taskId: 't1', runId: 'r1' }
+
 const CLAIMED_BY_TASK = report({
     assignee: {
         kind: 'task',
@@ -24,7 +26,7 @@ describe('todayNextStep', () => {
                     { url: 'https://github.com/example/web/pull/1', state: 'draft', merged: false },
                 ] as unknown as SignalReport['pull_requests'],
             }),
-            false,
+            null,
             {
                 primary: { kind: 'review', url: 'https://github.com/example/web/pull/1', label: 'Review draft PR #1' },
                 note: null,
@@ -33,27 +35,30 @@ describe('todayNextStep', () => {
         [
             'a task that claimed the report and has no run yet',
             CLAIMED_BY_TASK,
-            false,
+            null,
             { primary: { kind: 'start' }, note: 'A PostHog task picked this up on 11 Aug.' },
         ],
         [
             'a task that claimed the report and runs',
             CLAIMED_BY_TASK,
-            true,
-            { primary: { kind: 'open_task', label: 'Open the running task' }, note: null },
+            RUN,
+            {
+                primary: { kind: 'open_task', label: 'Open the running task', taskId: 't1', runId: 'r1' },
+                note: null,
+            },
         ],
         [
             'a fix already in flight',
             report({ already_addressed: true }),
-            false,
+            null,
             { primary: null, note: 'A fix is already in flight. The full report links to it.' },
         ],
-        ['an untouched report', report({}), false, { primary: { kind: 'start' }, note: null }],
-    ])('names the next step for %s', (_, input, hasRun, expected) => {
+        ['an untouched report', report({}), null, { primary: { kind: 'start' }, note: null }],
+    ])('names the next step for %s', (_, input, runningTask, expected) => {
         const { primary, note } = todayNextStep(input, {
             proposal: todayReportSections(input.summary).proposal,
             slotClaimed: false,
-            hasRun,
+            runningTask,
         })
         expect({ primary, note }).toEqual(expected)
     })

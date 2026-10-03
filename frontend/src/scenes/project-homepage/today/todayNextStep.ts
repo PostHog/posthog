@@ -7,9 +7,9 @@ import { primaryReportPullRequest } from 'products/signals/frontend/inbox/utils/
 
 import { shortDate } from './todayProse'
 
-type TodayPrimaryAction =
+export type TodayPrimaryAction =
     | { kind: 'review'; url: string; label: string }
-    | { kind: 'open_task'; label: string }
+    | { kind: 'open_task'; label: string; taskId: string; runId: string }
     | { kind: 'start' }
 
 interface TodayNextStep {
@@ -21,7 +21,7 @@ interface TodayNextStep {
 interface TodayNextStepContext {
     proposal: string | null
     slotClaimed: boolean
-    hasRun: boolean
+    runningTask: { taskId: string; runId: string } | null
 }
 
 const START: TodayPrimaryAction = { kind: 'start' }
@@ -82,8 +82,9 @@ export function todayNextStep(report: SignalReport, context: TodayNextStepContex
     }
     const assignee = report.assignee ?? null
     if (context.slotClaimed || assignee?.kind === 'task') {
-        if (context.hasRun) {
-            return { primary: { kind: 'open_task', label: 'Open the running task' }, note: null, pickedUp: true }
+        if (context.runningTask) {
+            const primary = { kind: 'open_task' as const, label: 'Open the running task', ...context.runningTask }
+            return { primary, note: null, pickedUp: true }
         }
         return {
             primary: inFlightReview(report, context.proposal) ?? START,

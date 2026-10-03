@@ -23,6 +23,50 @@ function previewLink(preview: TodaySignalPreview, quote: TodayCodeQuoteState | n
     return preview.code.length > 0 && quote !== null ? null : preview.open
 }
 
+function DetailLink({
+    reportId,
+    signal,
+    open,
+    showsCode,
+}: {
+    reportId: string
+    signal: SignalNodeApi
+    open: TodayPreviewLink | null
+    showsCode: boolean
+}): JSX.Element | null {
+    if (open) {
+        return (
+            <Button
+                variant="link-muted"
+                size="sm"
+                className="-me-2 px-2"
+                nativeButton={false}
+                render={<LinkPrimitive to={open.to} target={open.external ? '_blank' : undefined} />}
+                data-attr={citedSource(signal) === 'slack' ? 'today-report-signal-slack' : 'today-report-signal-open'}
+            >
+                {open.label}
+                {open.external ? <IconExternal /> : <IconArrowRight />}
+            </Button>
+        )
+    }
+    if (showsCode) {
+        return null
+    }
+    return (
+        <Button
+            variant="link-muted"
+            size="sm"
+            className="-me-2 px-2"
+            nativeButton={false}
+            render={<LinkPrimitive to={urls.inboxReport('reports', reportId)} />}
+            data-attr="today-report-signal-full-report"
+        >
+            Open in the full report
+            <IconArrowRight />
+        </Button>
+    )
+}
+
 export function TodayEvidenceDetail({
     id,
     reportId,
@@ -38,7 +82,6 @@ export function TodayEvidenceDetail({
     const quote = preview.code.length ? quoteState(codeQuotes[signal.signal_id]) : null
     const open = previewLink(preview, quote)
     const facts = [signalSourceLabel(signal), ...preview.facts]
-    const linksToReport = !open && !preview.code.length
     const time = dayjs(signal.timestamp)
 
     return (
@@ -70,36 +113,7 @@ export function TodayEvidenceDetail({
                             {time.format(time.isSame(dayjs(), 'year') ? 'D MMM, HH:mm' : 'D MMM YYYY, HH:mm')}
                         </time>
                     </Text>
-                    {open && (
-                        <Button
-                            variant="link-muted"
-                            size="sm"
-                            className="-me-2 px-2"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={open.to} target={open.external ? '_blank' : undefined} />}
-                            data-attr={
-                                citedSource(signal) === 'slack'
-                                    ? 'today-report-signal-slack'
-                                    : 'today-report-signal-open'
-                            }
-                        >
-                            {open.label}
-                            {open.external ? <IconExternal /> : <IconArrowRight />}
-                        </Button>
-                    )}
-                    {linksToReport && (
-                        <Button
-                            variant="link-muted"
-                            size="sm"
-                            className="-me-2 px-2"
-                            nativeButton={false}
-                            render={<LinkPrimitive to={urls.inboxReport('reports', reportId)} />}
-                            data-attr="today-report-signal-full-report"
-                        >
-                            Open in the full report
-                            <IconArrowRight />
-                        </Button>
-                    )}
+                    <DetailLink reportId={reportId} signal={signal} open={open} showsCode={preview.code.length > 0} />
                 </div>
             </div>
         </div>
