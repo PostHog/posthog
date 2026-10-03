@@ -6655,17 +6655,17 @@ snapshots:
     products-data-catalog-metric-lineage--no-warehouse-access--light:
         hash: v1.k794b7964.d24fc4898fd69d316912802e328f3a6e2e94cee4cf106d8893597da97dbf73af.UOfef0QXupztuN6lJ1r5vYH5FiYFRHx_eqHRlY-34CQ
     products-data-modeling-lineage-graph--canvas--dark:
-        hash: v1.k794b7964.7a843fa31e6bee6160f6d308d5d8a1b26d8f110741f914c427150e6a6f53e555.2O-4iOAEMchOc6BaSDiC-Hvrhai-a2QMg1b0-yis9A4
+        hash: v1.k794b7964.dfc9cecd5fe04ca15b3030156b8a22b1e7e856ca02ba62a45acb9f18e8e4363f.OMoHNsARLj6RjX4bCuo2KF33IMbCanui8ZqWzGhIczk
     products-data-modeling-lineage-graph--canvas--light:
-        hash: v1.k794b7964.97977a4c30ab6a8fc5afdecb1ed6e9892d7fab579580cd250a0d3362fbbf6e87.R8w2a2xrAV5cL984OpFZzMY3zelheXpdTkoS2FPKeSs
+        hash: v1.k794b7964.abbc2578ede8d828962ca36072f7f3192b2f595879d2df310d2b8304da15c9dc.8xbTQ8AJrMZhoqk4vMGuUxKW1IBiljeLpuubCXYKCkM
     products-data-modeling-lineage-graph--dark-mode--dark:
         hash: v1.k794b7964.dbaa1992239d54c653a2132b63857ca77420a178b662c000fb93e7fded648a19.XVks3zJgtqjlm24-mHsgMx3boV8KNZNtXN5dcph4LWw
     products-data-modeling-lineage-graph--dark-mode--light:
         hash: v1.k794b7964.bc8a6b5f4e177299e6b7ca346135a43ecbd3048405692bb1e75a8747f695c12d.Cg73TPpnrS5uZDxIKIWiV4BhszAzKFH_dSHExM_kkJM
     products-data-modeling-lineage-graph--draggable-nodes--dark:
-        hash: v1.k794b7964.e7fa348d01185cb0caead49e88f43afcc2885992c4a4b79f59fc34da6f19bca5.WfK2u7q2UakJ496Kt9G7l76XIhBA-49hcrL2MlwGS4w
+        hash: v1.k794b7964.07a5ee7f200d2b6b0f19c1c2295c0351810959cb4782ffdf368616f76bcea019.pM9SXd5270zePRVh34lXqpalGz5Wz_WDdO_5uEi232g
     products-data-modeling-lineage-graph--draggable-nodes--light:
-        hash: v1.k794b7964.dfc5bc62d287ed88c8dfa9630052ea2f67037f2e3d7440d95560f7fc99824a3e.po-hGnD-1T6eHcFvVKT5ZmshWvlAiioiNIfH4z5Lw28
+        hash: v1.k794b7964.423039b18ad74e8b8a0f512bed923afebb082d520175c27a37852ae961d79f0f.nrCG91Mj_M54zDZb4ZL1DLh8Gedgm_DOmhPKh_zGEVQ
     products-data-modeling-lineage-graph--empty-state--dark:
         hash: v1.k794b7964.9870c50d45ee1583472d6a98917a350892a8c2d8e29c20d17138eb68b8b52d60.yi6jAXaHCs0dh9kUIVgf6aWiVa8Btlb2b9xUQw_q4VE
     products-data-modeling-lineage-graph--empty-state--light:
@@ -6687,21 +6687,25 @@ snapshots:
     products-data-modeling-lineage-graph--loading-focused--light:
         hash: v1.k794b7964.ad5f3bb5a4c9a5193cf69e525d90f14a6593bcd863437ae10d7148c798720278.N7js9PPoiXJKVTgurWgbO00-kxtsO-gsKxcFaaZAhPo
     products-data-modeling-lineage-graph--moved-node-focus--dark:
-        hash: v1.k794b7964.104d9527724d974ab4b4d6482ff8e7c9ab7865bcd0598d160e3727fd94989c7c.IoqXmWo1wJlpwX22IL_FBQKV58RLpNmvOgIzxky6qaI
+        hash: v1.k794b7964.3c88300ce8234129cbe1809432f3545a596ea655166149faaf5fce6f23ce4c18.pyjkoADBv8Js6lTGxe2HYEa_N2j2cAiq0g9qbwTkH_4
     products-data-modeling-lineage-graph--moved-node-focus--light:
-        hash: v1.k794b7964.526c6f5cc22548b7fb466ed640a7add56aaa64ac0282ae60e01b38cfc50ca7f1.Nrl9rYDuPwqzmSMwBCLldb8SBiNn031dS_cIgevFJZA
+        hash: v1.k794b7964.cd86fa8aae566ba968e6f427aac7244c098b983627b71bbaa977ead163dea928.b99WA-4QaTu5AO5y2aOxScBgDW9s_DWoU0VXbJeEd8M
+    products-data-modeling-lineage-graph--narrow-canvas--dark:
+        hash: v1.k794b7964.1c8595f58c615df292fb49f20c6a5baa270fb748fa352e00b61a22f198bef927.RO7E7WU6C-rcB3X_ehW13eY8II9DroOk63RrtEUZCwQ
+    products-data-modeling-lineage-graph--narrow-canvas--light:
+        hash: v1.k794b7964.607c0429769d365d295ac605cdbadd234773b26cf48cb9e6349dea953baed856._YpaiX9ffz0Cx-r5WxQLV6PLKzNhsu34nbsXN3hVOIM
     products-data-modeling-lineage-graph--reset-moved-nodes--dark:
-        hash: v1.k794b7964.15e5e88b4178f0347d9ebae1f83d8a236fb988fbc621204f2ed568717c9b0b08.z7W9cDpbkr85TkgQHo9H6-fXSsVQ5irrpJUU3HhU2Lg
+        hash: v1.k794b7964.bf54d50c1f529389bb45a9d7d21aa6e735e73773952fea70f08b0ea6803396cc.oeEbgWmB_ekBNdk2Ng5-9L4blVGhsovaAPYrwUzI3K4
     products-data-modeling-lineage-graph--reset-moved-nodes--light:
-        hash: v1.k794b7964.b54ae28affd8c87b5762de3905c081e087a5d2c6ef78ab3335ffb55e12972130.W9m2cQGMi-7XuGKMEtcWkE9L5SQ8rM-UY0Ktgn7IWO8
+        hash: v1.k794b7964.58aa75c5200337a71da0b9e4eb6455df23e16c91592982406f1934d9fcab4173.uvZ46-W9atDhcT0R_h9rtD0s4Z4UItW3nnL-9DDi6Lg
     products-data-modeling-lineage-graph--search-focus--dark:
-        hash: v1.k794b7964.bb7fd2d6e2a32b2ae732793749f5c3378b9ddeed90115a169515e50611fc0558.hzBxXCNRLcqtZ_OV-8RcnASe8V2kyVEPHXqAlYkrmtY
+        hash: v1.k794b7964.c6bbd5662f44ae3c049af510a720695e8dc4e32fc3aa62a3e46c9721cf3c8cf4.5J3A6g_ZGj4lHduTNNFde5_FR6AJF1fpMfdLwdmp77U
     products-data-modeling-lineage-graph--search-focus--light:
-        hash: v1.k794b7964.3d11e7ae38507207bbe6cc4e4a2e836551851f548b320ba9e68434a7f28955e4.5xbCZPz04Wxs56vbST3OAyMzXApj7I5Mn-p1Iummm5s
+        hash: v1.k794b7964.01b0ba3eef46ca6062549746c987d16be44d29b49a359b9d50f61b6a493f1282.XYFsMELihoJxhKSk1w5Dir9tjglJ7cuc53lrnpVO5GU
     products-data-modeling-lineage-graph--selector-focus--dark:
-        hash: v1.k794b7964.d3226e0d54f2c6a0fb7cbc6780adbf9f7e4297ab739c291be627c3c3b648fe70.IDq0v9lnIZuiJNAJVtEUOXYJRZZvBdp-mtGrFRhahno
+        hash: v1.k794b7964.8a4d94fd9e9218ed6d6c51add35561489602b263b639b8d3037d94c9c6c38cc5.4KGmwfgzcseL11b9Wkt3uAQ7CYcvWUhDD1ahUEcqUS0
     products-data-modeling-lineage-graph--selector-focus--light:
-        hash: v1.k794b7964.3d864c004ba10e4965d2dd21416e56c24ed0920a1947558f1637b4a4188c7f2d.Bq_kGJNOot-IwoTiPYugFocCo6kP5f8szxMmW38B4RY
+        hash: v1.k794b7964.ea66ffeafce86f35e88b88278d614e73b67a987603cc0fbeecc4e2fea3e0b709.g5XUGqtsw1n6fL5bbbaz8FyztTggLARgUUKsDlQ9QiI
     products-data-modeling-lineage-graph--single-node--dark:
         hash: v1.k794b7964.3a7800242792b8dd49d06a252b0ccf609de5be3bf5b077e28904ca2ef46b9150.3jN6spC1a4TJhjq6LOuaDGym92gQz9Xw2KUfy0Br-D8
     products-data-modeling-lineage-graph--single-node--light:
