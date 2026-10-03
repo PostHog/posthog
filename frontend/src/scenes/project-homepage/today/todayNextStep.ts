@@ -19,7 +19,7 @@ interface TodayNextStep {
 }
 
 interface TodayNextStepContext {
-    proposal: string | null
+    solution: string | null
     slotClaimed: boolean
     runningTask: { taskId: string; runId: string } | null
 }
@@ -48,21 +48,21 @@ function claimant(assignee: NonNullable<SignalReport['assignee']>): string {
 
 function inFlightReview(
     report: Pick<SignalReport, 'summary' | 'repo_slug'>,
-    proposal: string | null
+    solution: string | null
 ): TodayPrimaryAction | null {
-    const pullRequest = inFlightPullRequest(report, proposal)
+    const pullRequest = inFlightPullRequest(report, solution)
     return pullRequest ? { kind: 'review', url: pullRequest.url, label: `View PR #${pullRequest.number}` } : null
 }
 
-function alreadyAddressed(report: SignalReport, proposal: string | null): TodayNextStep {
-    const review = inFlightReview(report, proposal)
+function alreadyAddressed(report: SignalReport, solution: string | null): TodayNextStep {
+    const review = inFlightReview(report, solution)
     if (review) {
         return { primary: review, note: null, pickedUp: false }
     }
-    const proposalNamesFix = pullRequestsIn(proposal, report.repo_slug).size > 0
+    const solutionNamesFix = pullRequestsIn(solution, report.repo_slug).size > 0
     return {
         primary: null,
-        note: proposalNamesFix ? null : 'A fix is already in flight. The full report links to it.',
+        note: solutionNamesFix ? null : 'A fix is already in flight. The full report links to it.',
         pickedUp: false,
     }
 }
@@ -87,20 +87,20 @@ export function todayNextStep(report: SignalReport, context: TodayNextStepContex
             return { primary, note: null, pickedUp: true }
         }
         return {
-            primary: inFlightReview(report, context.proposal) ?? START,
+            primary: inFlightReview(report, context.solution) ?? START,
             note: `A PostHog task picked this up${pickedUpOn(assignee?.claimed_at)}.`,
             pickedUp: true,
         }
     }
     if (assignee?.kind === 'user' || assignee?.kind === 'agent') {
         return {
-            primary: inFlightReview(report, context.proposal) ?? START,
+            primary: inFlightReview(report, context.solution) ?? START,
             note: `${claimant(assignee)} picked this up${pickedUpOn(assignee.claimed_at)}.`,
             pickedUp: true,
         }
     }
     if (report.already_addressed) {
-        return alreadyAddressed(report, context.proposal)
+        return alreadyAddressed(report, context.solution)
     }
     return { primary: START, note: null, pickedUp: false }
 }
@@ -133,9 +133,9 @@ function onlyPullRequest(
 
 export function inFlightPullRequest(
     report: Pick<SignalReport, 'summary' | 'repo_slug'>,
-    proposal: string | null
+    solution: string | null
 ): { url: string; number: string } | null {
-    return onlyPullRequest(proposal, report.repo_slug) ?? onlyPullRequest(report.summary, report.repo_slug)
+    return onlyPullRequest(solution, report.repo_slug) ?? onlyPullRequest(report.summary, report.repo_slug)
 }
 
 type TodayWorkKind = 'implement' | 'investigate'

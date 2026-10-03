@@ -1,5 +1,6 @@
+import type { KeyClauseApi } from 'products/today/frontend/generated/api.schemas'
+
 import type { TodayMarkedFigure } from './todayFigureSources'
-import type { TodayKeyClause } from './todayKeyClauses'
 import { inlineSegments } from './todayProse'
 
 export type TodayMarkedPiece =
@@ -8,7 +9,7 @@ export type TodayMarkedPiece =
     | { kind: 'figure'; key: string; figure: TodayMarkedFigure; order: number }
 
 interface TodayMarkedRun {
-    keyClause: TodayKeyClause | null
+    keyClause: KeyClauseApi | null
     pieces: TodayMarkedPiece[]
 }
 
@@ -23,7 +24,7 @@ function textPieces(
     segment: number,
     offset: number,
     figures: TodayMarkedFigure[],
-    keyClauses: TodayKeyClause[]
+    keyClauses: KeyClauseApi[]
 ): PlacedPiece[] {
     const own = figures.filter((figure) => figure.segment === segment)
     const insideFigure = (point: number): boolean => own.some((figure) => point > figure.start && point < figure.end)
@@ -43,7 +44,7 @@ function textPieces(
     })
 }
 
-function placedPieces(markdown: string, figures: TodayMarkedFigure[], keyClauses: TodayKeyClause[]): PlacedPiece[] {
+function placedPieces(markdown: string, figures: TodayMarkedFigure[], keyClauses: KeyClauseApi[]): PlacedPiece[] {
     let offset = 0
     return inlineSegments(markdown).flatMap((segment, index) => {
         const from = offset
@@ -63,7 +64,7 @@ function placedPieces(markdown: string, figures: TodayMarkedFigure[], keyClauses
 export function markedRuns(
     markdown: string,
     figures: TodayMarkedFigure[],
-    keyClauses: TodayKeyClause[]
+    keyClauses: KeyClauseApi[]
 ): TodayMarkedRun[] {
     const runs: TodayMarkedRun[] = []
     for (const { piece, from, to } of placedPieces(markdown, figures, keyClauses)) {

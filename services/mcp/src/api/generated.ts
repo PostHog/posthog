@@ -41677,6 +41677,29 @@ export namespace Schemas {
       readonly docs_url: string;
     }
 
+    export interface ExcerptChoice {
+      /**
+         * The excerpt that shows what the finding describes, or null when unsure.
+         * @nullable
+         */
+      index: number | null;
+    }
+
+    export interface ExcerptChoiceQuery {
+      /**
+         * The finding the code excerpts should show.
+         * @maxLength 6000
+         */
+      finding: string;
+      /**
+         * Candidate code excerpts, best scored first.
+         * @minItems 2
+         * @maxItems 5
+         * @items.maxLength 2000
+         */
+      excerpts: string[];
+    }
+
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
@@ -57468,6 +57491,70 @@ export namespace Schemas {
     }
 
     /**
+     * * `problem` - Problem
+     * * `cause` - Cause
+     * * `fix` - Fix
+     */
+    export type KeyClauseRoleEnum = typeof KeyClauseRoleEnum[keyof typeof KeyClauseRoleEnum];
+
+
+    export const KeyClauseRoleEnum = {
+      Problem: 'problem',
+      Cause: 'cause',
+      Fix: 'fix',
+    } as const;
+
+    export interface KeyClause {
+      /** Where the clause starts in its text. */
+      start: number;
+      /** Where the clause ends in its text. */
+      end: number;
+      /** The clause as it appears in the text. */
+      text: string;
+      /** What the clause tells the reader.
+       *
+       * * `problem` - Problem
+       * * `cause` - Cause
+       * * `fix` - Fix */
+      role: KeyClauseRoleEnum;
+      /** Sentences from the report that explain the clause further. */
+      expansion: string[];
+    }
+
+    export interface KeyClauseRequest {
+      /**
+         * A text the page shows, as the reader sees it.
+         * @maxLength 4000
+         */
+      text: string;
+      /**
+         * The roles to look for in this text: problem, cause or fix.
+         * @maxItems 3
+         */
+      roles: KeyClauseRoleEnum[];
+    }
+
+    export interface TextKeyClauses {
+      /** The text the clauses belong to, as it was sent. */
+      text: string;
+      /** The clauses worth marking in the text. */
+      key_clauses: KeyClause[];
+    }
+
+    export interface KeyClauses {
+      /** The marks for each text, in the order they were sent. */
+      texts: TextKeyClauses[];
+    }
+
+    export interface KeyClausesQuery {
+      /**
+         * The texts to mark, at most 3.
+         * @maxItems 3
+         */
+      requests: KeyClauseRequest[];
+    }
+
+    /**
      * One chunk in a drill-down window over a single knowledge document.
      *
      * Output-only — the rows come from the `get_document_window` logic helper
@@ -69915,6 +70002,21 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
+    export interface SignalReportSections {
+      /** The first paragraph of the summary before any section heading. */
+      lead: string;
+      /**
+         * The body under the summary's Impact heading, or null when it has none.
+         * @nullable
+         */
+      impact: string | null;
+      /**
+         * The body under the summary's Solution heading or one of its aliases, or null when it has none.
+         * @nullable
+         */
+      solution: string | null;
+    }
+
     /**
      * * `potential` - Potential
      * * `candidate` - Candidate
@@ -70280,6 +70382,8 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and Solution headings, as markdown with chart links reduced to their text. */
+      readonly sections: SignalReportSections;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -90315,6 +90419,8 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and Solution headings, as markdown with chart links reduced to their text. */
+      readonly sections: SignalReportSections;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;

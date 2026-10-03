@@ -11,6 +11,10 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BriefingApi,
     CandidateListApi,
+    ExcerptChoiceApi,
+    ExcerptChoiceQueryApi,
+    KeyClausesApi,
+    KeyClausesQueryApi,
     TodayBriefingRefreshCreateParams,
     TodayBriefingRetrieveParams,
     TodayCandidatesRetrieveParams,
@@ -106,5 +110,48 @@ export const todayCandidatesRetrieve = async (
     return apiMutator<CandidateListApi>(getTodayCandidatesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTodayExcerptChoiceCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/today/excerpt_choice/`
+}
+
+/**
+ * Asks the decision model which of several code excerpts shows what a finding describes. Returns null when it is unsure. 404 when the person may not use Jev.
+ * @summary Pick the code excerpt a finding describes
+ */
+export const todayExcerptChoiceCreate = async (
+    projectId: string,
+    excerptChoiceQueryApi: ExcerptChoiceQueryApi,
+    options?: RequestInit
+): Promise<ExcerptChoiceApi> => {
+    return apiMutator<ExcerptChoiceApi>(getTodayExcerptChoiceCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(excerptChoiceQueryApi),
+    })
+}
+
+export const getTodayReportsKeyClausesCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/today/reports/${reportId}/key_clauses/`
+}
+
+/**
+ * For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.
+ * @summary Mark the key clauses of a report
+ */
+export const todayReportsKeyClausesCreate = async (
+    projectId: string,
+    reportId: string,
+    keyClausesQueryApi: KeyClausesQueryApi,
+    options?: RequestInit
+): Promise<KeyClausesApi> => {
+    return apiMutator<KeyClausesApi>(getTodayReportsKeyClausesCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(keyClausesQueryApi),
     })
 }

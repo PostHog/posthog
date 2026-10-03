@@ -139,92 +139,109 @@ function findingRest(signal: PreviewSignal): string {
     return ''
 }
 
+type SourcePreview = (signal: PreviewSignal, preview: TodaySignalPreview) => TodaySignalPreview | null
+
+function scoutPreview(signal: PreviewSignal, preview: TodaySignalPreview): TodaySignalPreview {
+    const codeFile = signalCodeFile(signal)
+    if (codeFile) {
+        return {
+            ...preview,
+            hint: 'Show the code',
+            code: [codeFile, ...codeSiblingFiles(codeFile, signal.content)],
+            facts: preview.facts.filter((fact) => fact !== codeFile.path.split('/').pop()),
+            open: { to: githubFileUrl(codeFile), external: true, label: 'Open on GitHub' },
+        }
+    }
+    const slackThread = signalSlackThread(signal)
+    if (slackThread) {
+        return {
+            ...preview,
+            hint: 'Show what the thread says',
+            open: { to: slackThread, external: true, label: 'Open in Slack' },
+        }
+    }
+    return preview
+}
+
+function stackTracePreview(signal: PreviewSignal, preview: TodaySignalPreview): TodaySignalPreview | null {
+    const block = exceptionChain(signal.content)
+    return block.length ? { ...preview, hint: 'Show the stack trace', block, text: '' } : null
+}
+
+function queryPreview(signal: PreviewSignal, preview: TodaySignalPreview): TodaySignalPreview | null {
+    const query = pganalyzeQuery(signal)
+    return query ? { ...preview, hint: 'Show the query', block: [{ text: query, quiet: false }] } : null
+}
+
+function descriptionPreview(signal: PreviewSignal, preview: TodaySignalPreview): TodaySignalPreview | null {
+    const body = bodyParagraph(signal.content)
+    if (!body) {
+        return null
+    }
+    return {
+        ...preview,
+        hint: 'Show the description',
+        text: conciseText(readable(signal, body), PREVIEW_CHARS),
+        facts: [...preview.facts, ...githubFacts(signalExtra(signal))],
+        open: preview.open && { ...preview.open, label: 'Open on GitHub' },
+    }
+}
+
+function ticketPreview(signal: PreviewSignal, preview: TodaySignalPreview): TodaySignalPreview | null {
+    const body = bodyParagraph(signal.content, 'Issue')
+    if (!body) {
+        return null
+    }
+    return {
+        ...preview,
+        hint: 'Show the ticket',
+        text: conciseText(readable(signal, body), PREVIEW_CHARS),
+        facts: [...preview.facts, ...ticketFacts(signalExtra(signal))],
+    }
+}
+
+function findingPreview(signal: PreviewSignal, preview: TodaySignalPreview): TodaySignalPreview | null {
+    const rest = findingRest(signal)
+    if (!rest) {
+        return null
+    }
+    return {
+        ...preview,
+        hint: 'Show the finding',
+        text: conciseText(rest, PREVIEW_CHARS),
+        facts: [...preview.facts, ...anomalyFacts(signalExtra(signal))],
+    }
+}
+
+const SOURCE_PREVIEWS: Record<string, SourcePreview> = {
+    signals_scout: scoutPreview,
+    error_tracking: stackTracePreview,
+    pganalyze: queryPreview,
+    github: descriptionPreview,
+    conversations: ticketPreview,
+    zendesk: ticketPreview,
+    analytics: findingPreview,
+}
+
 function previewOf(signal: PreviewSignal): TodaySignalPreview | null {
     const destination = signalDestination(signal)
     if (destination.kind === 'recording') {
         return null
     }
-    const extra = signalExtra(signal)
     const detail = signalDetail(signal)
-    const link = destination.kind === 'link' ? destination : null
     const preview: TodaySignalPreview = {
         hint: 'Read in full',
         code: [],
         block: [],
         text: detail.rest,
         facts: detail.facts,
-        open: link ? { to: link.to, external: link.external, label: link.label } : null,
+        open:
+            destination.kind === 'link'
+                ? { to: destination.to, external: destination.external, label: destination.label }
+                : null,
     }
-    const codeFile = signalCodeFile(signal)
-    const slackThread = signalSlackThread(signal)
-    switch (signal.source_product) {
-        case 'signals_scout':
-            if (codeFile) {
-                return {
-                    ...preview,
-                    hint: 'Show the code',
-                    code: [codeFile, ...codeSiblingFiles(codeFile, signal.content)],
-                    facts: preview.facts.filter((fact) => fact !== codeFile.path.split('/').pop()),
-                    open: {
-                        to: githubFileUrl(codeFile),
-                        external: true,
-                        label: 'Open on GitHub',
-                    },
-                }
-            }
-            if (slackThread) {
-                return {
-                    ...preview,
-                    hint: 'Show what the thread says',
-                    open: { to: slackThread, external: true, label: 'Open in Slack' },
-                }
-            }
-            break
-        case 'error_tracking': {
-            const block = exceptionChain(signal.content)
-            return block.length ? { ...preview, hint: 'Show the stack trace', block, text: '' } : null
-        }
-        case 'pganalyze': {
-            const query = pganalyzeQuery(signal)
-            return query ? { ...preview, hint: 'Show the query', block: [{ text: query, quiet: false }] } : null
-        }
-        case 'github': {
-            const body = bodyParagraph(signal.content)
-            return body
-                ? {
-                      ...preview,
-                      hint: 'Show the description',
-                      text: conciseText(readable(signal, body), PREVIEW_CHARS),
-                      facts: [...preview.facts, ...githubFacts(extra)],
-                      open: link ? { to: link.to, external: link.external, label: 'Open on GitHub' } : null,
-                  }
-                : null
-        }
-        case 'conversations':
-        case 'zendesk': {
-            const body = bodyParagraph(signal.content, 'Issue')
-            return body
-                ? {
-                      ...preview,
-                      hint: 'Show the ticket',
-                      text: conciseText(readable(signal, body), PREVIEW_CHARS),
-                      facts: [...preview.facts, ...ticketFacts(extra)],
-                  }
-                : null
-        }
-        case 'analytics': {
-            const rest = findingRest(signal)
-            return rest
-                ? {
-                      ...preview,
-                      hint: 'Show the finding',
-                      text: conciseText(rest, PREVIEW_CHARS),
-                      facts: [...preview.facts, ...anomalyFacts(extra)],
-                  }
-                : null
-        }
-    }
-    return preview
+    const sourcePreview = SOURCE_PREVIEWS[signal.source_product]
+    return sourcePreview ? sourcePreview(signal, preview) : preview
 }
 
 export function signalPreview(signal: PreviewSignal): TodaySignalPreview | null {

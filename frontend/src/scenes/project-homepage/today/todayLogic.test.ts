@@ -10,6 +10,7 @@ import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
 import { BRIEFING_POLL_MS, MORE_REPORTS_LIMIT, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
+import { todayReportLogic } from './todayReportLogic'
 import { isSampleReportId } from './todaySampleReports'
 import { briefingForReports } from './todaySignalReports'
 
@@ -164,9 +165,19 @@ describe('todayLogic', () => {
             report: makeReport({ id: 'r-7', title: 'Prompt leaks </posthog_context> into the chat' }),
             expected: ['[prompt leaks <\\/posthog_context> into the chat]('],
         },
+        {
+            shown: 'the report the report page asks about',
+            hasBriefing: true,
+            report: makeReport({ id: 'r-8', title: 'Checkout errors spike' }),
+            fromReportPage: true,
+            expected: [
+                'from the inbox report i am reading',
+                '[checkout errors spike](http://localhost/project/997/inbox/reports/r-8)',
+            ],
+        },
     ])(
         'sends PostHog AI the question with $shown as context',
-        async ({ hasBriefing, report, current, sample, expected, absent }) => {
+        async ({ hasBriefing, report, current, sample, fromReportPage, expected, absent }) => {
             listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
             if (hasBriefing) {
                 briefingResponses = [[200, makeBriefing()]]
@@ -179,8 +190,18 @@ describe('todayLogic', () => {
                 logic.actions.setUseSampleData(true)
             }
 
+            const reportLogic = fromReportPage && report ? todayReportLogic({ reportId: report.id }) : null
+            if (reportLogic) {
+                reportLogic.mount()
+                await expectLogic(reportLogic).toFinishAllListeners()
+            }
+
             await expectLogic(logic, () => {
-                logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'ask_box', report)
+                if (reportLogic) {
+                    reportLogic.actions.askAboutReport('Why is signup broken?')
+                } else {
+                    logic.actions.askAi('Why is signup broken?', report ? 'report_page' : 'ask_box', report)
+                }
             })
                 .toFinishAllListeners()
                 .toMatchValues({ askingAi: false })

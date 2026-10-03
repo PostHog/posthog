@@ -9,8 +9,12 @@ from rest_framework import status
 
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
+from products.today.backend.logic.jev import JevPick
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
+from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY, FakeJev
+
+REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 
 
 @patch("products.today.backend.logic.briefings.sync_connect")
@@ -148,3 +152,32 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert DailyBriefing.objects.for_team(self.team.id).filter(user_id=other.id).count() == 1
         assert DailyBriefing.objects.for_team(self.team.id).count() == 2
+
+    @parameterized.expand(
+        [
+            ("flag on", True, REPORT_ID, status.HTTP_200_OK),
+            ("flag off", False, REPORT_ID, status.HTTP_404_NOT_FOUND),
+            ("not a report id", True, "report-1", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_key_clauses_answer_only_people_who_may_use_jev(
+        self, _sync_connect: MagicMock, _name: str, flag: bool, report_id: str, expected: int
+    ) -> None:
+        jev = FakeJev([CART_TEXT], {CAUSE: JevPick(label="cause", probability=0.9)}, {CAUSE: CAUSE_EXPLAINED})
+        with (
+            self._flag(flag),
+            patch("products.today.backend.facade.api.signals.report_summary", return_value=SUMMARY),
+            patch("products.today.backend.facade.api.GatewayJev", return_value=jev),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/today/reports/{report_id}/key_clauses/",
+                {"requests": [{"text": CART_TEXT, "roles": ["problem", "cause"]}]},
+                format="json",
+            )
+
+        assert response.status_code == expected
+        if expected == status.HTTP_200_OK:
+            [text] = response.json()["texts"]
+            assert [(clause["text"], clause["role"], clause["expansion"]) for clause in text["key_clauses"]] == [
+                (CAUSE, "cause", [CAUSE_EXPLAINED])
+            ]

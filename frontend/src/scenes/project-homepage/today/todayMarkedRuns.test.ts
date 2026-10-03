@@ -1,6 +1,7 @@
+import type { KeyClauseApi, KeyClauseRoleEnumApi } from 'products/today/frontend/generated/api.schemas'
+
 import { findFigures } from './todayFigures'
 import type { TodayMarkedFigure } from './todayFigureSources'
-import { TodayClauseRole, TodayKeyClause, textClauses } from './todayKeyClauses'
 import { TodayMarkedPiece, markedRuns } from './todayMarkedRuns'
 import { inlineSegments, renderedText } from './todayProse'
 
@@ -12,13 +13,15 @@ function figuresIn(markdown: string): TodayMarkedFigure[] {
     )
 }
 
-function keyClausesIn(markdown: string, picks: [TodayClauseRole, string][]): TodayKeyClause[] {
-    const clauses = textClauses(renderedText(markdown))
-    return picks.flatMap(([role, text]) =>
-        clauses
-            .filter((clause) => clause.text === text)
-            .map((clause) => ({ ...clause, role, confidence: 0.9, expansion: ['The report explains it.'] }))
-    )
+function keyClausesIn(markdown: string, picks: [KeyClauseRoleEnumApi, string][]): KeyClauseApi[] {
+    const shown = renderedText(markdown)
+    return picks.map(([role, text]) => ({
+        start: shown.indexOf(text),
+        end: shown.indexOf(text) + text.length,
+        text,
+        role,
+        expansion: ['The report explains it.'],
+    }))
 }
 
 function described(piece: TodayMarkedPiece): [string, string] {
@@ -36,7 +39,7 @@ describe('todayMarkedRuns', () => {
             [
                 ['problem', 'Shoppers in 41 teams see an empty cart'],
                 ['cause', 'because syncCart drops the session token'],
-            ] as [TodayClauseRole, string][],
+            ] as [KeyClauseRoleEnumApi, string][],
             [
                 [
                     'problem',

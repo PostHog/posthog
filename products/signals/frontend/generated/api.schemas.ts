@@ -116,6 +116,21 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
+export interface SignalReportSectionsApi {
+    /** The first paragraph of the summary before any section heading. */
+    lead: string
+    /**
+     * The body under the summary's Impact heading, or null when it has none.
+     * @nullable
+     */
+    impact: string | null
+    /**
+     * The body under the summary's Solution heading or one of its aliases, or null when it has none.
+     * @nullable
+     */
+    solution: string | null
+}
+
 /**
  * * `potential` - Potential
  * * `candidate` - Candidate
@@ -615,6 +630,8 @@ export interface SignalReportListApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and Solution headings, as markdown with chart links reduced to their text. */
+    readonly sections: SignalReportSectionsApi
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number
@@ -834,6 +851,8 @@ export interface SignalReportApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and Solution headings, as markdown with chart links reduced to their text. */
+    readonly sections: SignalReportSectionsApi
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number

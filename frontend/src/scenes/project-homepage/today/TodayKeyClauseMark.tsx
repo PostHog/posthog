@@ -6,10 +6,11 @@ import { Button, Text } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { TodayHoverMark } from './TodayHoverMark'
-import type { TodayKeyClause, TodayClauseRole } from './todayKeyClauses'
+import type { KeyClauseApi, KeyClauseRoleEnumApi } from 'products/today/frontend/generated/api.schemas'
 
-const ROLE_LABEL: Record<TodayClauseRole, string> = {
+import { TodayHoverMark } from './TodayHoverMark'
+
+const ROLE_LABEL: Record<KeyClauseRoleEnumApi, string> = {
     problem: 'The problem',
     cause: 'The cause',
     fix: 'The fix',
@@ -20,7 +21,7 @@ export function TodayKeyClauseMark({
     reportId,
     children,
 }: {
-    keyClause: TodayKeyClause
+    keyClause: KeyClauseApi
     reportId: string
     children: ReactNode
 }): JSX.Element {

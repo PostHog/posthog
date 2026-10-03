@@ -1,6 +1,5 @@
 import type { RepositoryFileApi } from 'products/business_knowledge/frontend/generated/api.schemas'
 
-import type { JevClient } from './todayJev'
 import type { TodayCodeFile } from './todaySignalText'
 
 const CODE_SPAN = /`([^`\n]{3,80})`/g
@@ -22,9 +21,6 @@ const MAX_EXCERPT_CANDIDATES = 5
 const CANDIDATE_SLACK = 2
 const MAX_SIBLING_FILES = 2
 const BARE_FILE_NAME = /`([\w-]+\.[a-z]{1,5})`/gi
-const EXCERPT_QUESTION = 'Which numbered code excerpt shows the code that the finding describes?'
-const EXCERPT_LABELS = ['1', '2', '3', '4', '5']
-const MIN_EXCERPT_PROBABILITY = 0.5
 const IMPORT_LINE = /^\s*(import\b|from\s+\S+\s+import\b|export\s+\{.*\}\s+from\b)/
 
 interface ScoredAnchor {
@@ -145,17 +141,4 @@ export function findCodeQuote(
         }
     }
     return best
-}
-
-export async function askWhichExcerpt(
-    finding: string,
-    candidates: TodayCodeWindow[],
-    jev: JevClient
-): Promise<number | null> {
-    const item = [
-        `Finding:\n${finding}`,
-        ...candidates.map((candidate, index) => `Code excerpt ${index + 1}:\n${candidate.lines.join('\n')}`),
-    ].join('\n\n')
-    const [pick] = await jev.choice([item], EXCERPT_QUESTION, EXCERPT_LABELS.slice(0, candidates.length))
-    return pick && pick.probability >= MIN_EXCERPT_PROBABILITY ? Number(pick.label) - 1 : null
 }

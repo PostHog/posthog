@@ -12,22 +12,38 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
+from posthog.utils import UUID_REGEX
 
 from products.signals.backend.facade import api as signals
 
-from ..facade import api
-from .serializers import BriefingSerializer, CandidateListSerializer, TodayQuerySerializer
+from ..facade import api, contracts
+from ..facade.enums import KeyClauseRole
+from .serializers import (
+    BriefingSerializer,
+    CandidateListSerializer,
+    ExcerptChoiceQuerySerializer,
+    ExcerptChoiceSerializer,
+    KeyClausesQuerySerializer,
+    KeyClausesSerializer,
+    TodayQuerySerializer,
+)
 
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["briefing", "candidates"]
+    scope_object_read_actions = ["briefing", "candidates", "key_clauses", "excerpt_choice"]
     scope_object_write_actions = ["refresh"]
 
     def _user(self) -> User:
         user = cast(User, self.request.user)
         # No briefing for this person: the page shows the report list instead.
         if not api.may_get_briefing(user, self.team):
+            raise NotFound()
+        return user
+
+    def _jev_user(self) -> User:
+        user = cast(User, self.request.user)
+        if not api.may_ask_jev(user, self.team):
             raise NotFound()
         return user
 
@@ -78,3 +94,36 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team, user=user, timezone_name=request.validated_query_data.get("timezone")
         )
         return Response(CandidateListSerializer(candidates).data)
+
+    @validated_request(
+        request_serializer=KeyClausesQuerySerializer,
+        responses={200: OpenApiResponse(response=KeyClausesSerializer)},
+        summary="Mark the key clauses of a report",
+        description="For each text the report page shows, the clauses that state the problem, its cause or the fix, each with sentences from the report that explain it. Only clauses the report explains further are returned, at most 2 across all texts. 404 when the report is missing or the person may not use Jev.",
+    )
+    @action(detail=False, methods=["post"], url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses")
+    def key_clauses(self, request: Request, report_id: str, **kwargs) -> Response:
+        requests = [
+            contracts.KeyClauseRequest(text=item["text"], roles=[KeyClauseRole(role) for role in item["roles"]])
+            for item in request.validated_data["requests"]
+        ]
+        texts = api.report_key_clauses(team=self.team, user=self._jev_user(), report_id=report_id, requests=requests)
+        if texts is None:
+            raise NotFound()
+        return Response(KeyClausesSerializer({"texts": texts}).data)
+
+    @validated_request(
+        request_serializer=ExcerptChoiceQuerySerializer,
+        responses={200: OpenApiResponse(response=ExcerptChoiceSerializer)},
+        summary="Pick the code excerpt a finding describes",
+        description="Asks the decision model which of several code excerpts shows what a finding describes. Returns null when it is unsure. 404 when the person may not use Jev.",
+    )
+    @action(detail=False, methods=["post"], url_path="excerpt_choice")
+    def excerpt_choice(self, request: Request, **kwargs) -> Response:
+        index = api.pick_code_excerpt(
+            team=self.team,
+            user=self._jev_user(),
+            finding=request.validated_data["finding"],
+            excerpts=request.validated_data["excerpts"],
+        )
+        return Response(ExcerptChoiceSerializer({"index": index}).data)

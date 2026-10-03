@@ -359,6 +359,92 @@ export interface CandidateListApi {
     more_reports_count: number
 }
 
+export interface ExcerptChoiceQueryApi {
+    /**
+     * The finding the code excerpts should show.
+     * @maxLength 6000
+     */
+    finding: string
+    /**
+     * Candidate code excerpts, best scored first.
+     * @minItems 2
+     * @maxItems 5
+     * @items.maxLength 2000
+     */
+    excerpts: string[]
+}
+
+export interface ExcerptChoiceApi {
+    /**
+     * The excerpt that shows what the finding describes, or null when unsure.
+     * @nullable
+     */
+    index: number | null
+}
+
+/**
+ * * `problem` - Problem
+ * * `cause` - Cause
+ * * `fix` - Fix
+ */
+export type KeyClauseRoleEnumApi = (typeof KeyClauseRoleEnumApi)[keyof typeof KeyClauseRoleEnumApi]
+
+export const KeyClauseRoleEnumApi = {
+    Problem: 'problem',
+    Cause: 'cause',
+    Fix: 'fix',
+} as const
+
+export interface KeyClauseRequestApi {
+    /**
+     * A text the page shows, as the reader sees it.
+     * @maxLength 4000
+     */
+    text: string
+    /**
+     * The roles to look for in this text: problem, cause or fix.
+     * @maxItems 3
+     */
+    roles: KeyClauseRoleEnumApi[]
+}
+
+export interface KeyClausesQueryApi {
+    /**
+     * The texts to mark, at most 3.
+     * @maxItems 3
+     */
+    requests: KeyClauseRequestApi[]
+}
+
+export interface KeyClauseApi {
+    /** Where the clause starts in its text. */
+    start: number
+    /** Where the clause ends in its text. */
+    end: number
+    /** The clause as it appears in the text. */
+    text: string
+    /** What the clause tells the reader.
+     *
+     * * `problem` - Problem
+     * * `cause` - Cause
+     * * `fix` - Fix */
+    role: KeyClauseRoleEnumApi
+    /** Sentences from the report that explain the clause further. */
+    expansion: string[]
+}
+
+export interface TextKeyClausesApi {
+    /** The text the clauses belong to, as it was sent. */
+    text: string
+    /** The clauses worth marking in the text. */
+    key_clauses: KeyClauseApi[]
+}
+
+export interface KeyClausesApi {
+    /** The marks for each text, in the order they were sent. */
+    texts: TextKeyClausesApi[]
+}
+
 export type TodayBriefingRetrieveParams = {
     /**
      * IANA timezone of the person's browser, for example Europe/Prague. The briefing day starts at 8:00 in it. Defaults to the project timezone.

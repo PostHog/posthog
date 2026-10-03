@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic.dataclasses import dataclass
 
-from .enums import BriefingStatus, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState
+from .enums import BriefingStatus, BriefingWriter, ItemGroup, ItemReason, ItemSource, ItemState, KeyClauseRole
 
 
 @dataclass(frozen=True)
@@ -109,3 +109,24 @@ class CandidateList:
     local_day: date
     candidates: list[Candidate]
     more_reports_count: int
+
+
+@dataclass(frozen=True)
+class KeyClauseRequest:
+    text: str
+    roles: list[KeyClauseRole]
+
+
+@dataclass(frozen=True)
+class KeyClause:
+    start: int
+    end: int
+    text: str
+    role: KeyClauseRole
+    expansion: list[str]
+
+
+@dataclass(frozen=True)
+class TextKeyClauses:
+    text: str
+    key_clauses: list[KeyClause]

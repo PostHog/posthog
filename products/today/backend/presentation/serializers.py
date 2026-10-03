@@ -15,7 +15,10 @@ from ..facade.contracts import (
     Candidate,
     CandidateFact,
     CandidateList,
+    KeyClause,
+    TextKeyClauses,
 )
+from ..facade.enums import KeyClauseRole
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -176,3 +179,59 @@ class CandidateListSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = CandidateList
+
+
+class KeyClauseRequestSerializer(serializers.Serializer):
+    text = serializers.CharField(max_length=4000, help_text="A text the page shows, as the reader sees it.")
+    roles = serializers.ListField(
+        child=serializers.ChoiceField(choices=KeyClauseRole.choices),
+        max_length=3,
+        help_text="The roles to look for in this text: problem, cause or fix.",
+    )
+
+
+class KeyClausesQuerySerializer(serializers.Serializer):
+    requests = serializers.ListField(
+        child=KeyClauseRequestSerializer(), max_length=3, help_text="The texts to mark, at most 3."
+    )
+
+
+class KeyClauseSerializer(DataclassSerializer):
+    start = serializers.IntegerField(help_text="Where the clause starts in its text.")
+    end = serializers.IntegerField(help_text="Where the clause ends in its text.")
+    text = serializers.CharField(help_text="The clause as it appears in the text.")
+    role = serializers.ChoiceField(choices=KeyClauseRole.choices, help_text="What the clause tells the reader.")
+    expansion = serializers.ListField(
+        child=serializers.CharField(), help_text="Sentences from the report that explain the clause further."
+    )
+
+    class Meta:
+        dataclass = KeyClause
+
+
+class TextKeyClausesSerializer(DataclassSerializer):
+    text = serializers.CharField(help_text="The text the clauses belong to, as it was sent.")
+    key_clauses = KeyClauseSerializer(many=True, help_text="The clauses worth marking in the text.")
+
+    class Meta:
+        dataclass = TextKeyClauses
+
+
+class KeyClausesSerializer(serializers.Serializer):
+    texts = TextKeyClausesSerializer(many=True, help_text="The marks for each text, in the order they were sent.")
+
+
+class ExcerptChoiceQuerySerializer(serializers.Serializer):
+    finding = serializers.CharField(max_length=6000, help_text="The finding the code excerpts should show.")
+    excerpts = serializers.ListField(
+        child=serializers.CharField(max_length=2000),
+        min_length=2,
+        max_length=5,
+        help_text="Candidate code excerpts, best scored first.",
+    )
+
+
+class ExcerptChoiceSerializer(serializers.Serializer):
+    index = serializers.IntegerField(
+        allow_null=True, help_text="The excerpt that shows what the finding describes, or null when unsure."
+    )

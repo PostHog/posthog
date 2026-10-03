@@ -7,7 +7,6 @@ import { Text } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { Composer } from 'products/posthog_ai/frontend/api/primitives'
-import { captureInboxReportAction, discussQuestionProperties } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type {
     ImplementationSlotClaim,
@@ -17,7 +16,6 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { TodayActionButton } from './TodayActionButton'
 import { TodayImplementMenu } from './TodayImplementMenu'
-import { todayLogic } from './todayLogic'
 import { TodayPrimaryAction, startDisabledReason, todayNextStep } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
 
@@ -88,15 +86,15 @@ export function TodayReportNextStep({
     slotClaim: ImplementationSlotClaim | null
 }): JSX.Element | null {
     const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { reportState, reportUrl, isSample, sections } = useValues(todayReportLogic({ reportId: report.id }))
-    const { askingAi } = useValues(todayLogic)
-    const { askAi } = useActions(todayLogic)
+    const logic = todayReportLogic({ reportId: report.id })
+    const { reportState, reportUrl, isSample, sections, askingAi } = useValues(logic)
+    const { askAboutReport } = useActions(logic)
     const [composerOpen, setComposerOpen] = useState(false)
     const [draft, setDraft] = useState('')
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const task = reportTaskToOpen?.task
     const { primary, note, pickedUp } = todayNextStep(report, {
-        proposal: sections.proposal,
+        solution: sections.solution,
         slotClaimed: slotClaim !== null,
         runningTask: task?.latest_run ? { taskId: task.id, runId: task.latest_run.id } : null,
     })
@@ -117,19 +115,6 @@ export function TodayReportNextStep({
             textArea?.focus({ preventScroll: true })
             textArea?.setSelectionRange(text.length, text.length)
         })
-    }
-
-    const ask = (question: string): void => {
-        if (!question || askingAi) {
-            return
-        }
-        captureInboxReportAction({
-            report,
-            actionType: 'discuss',
-            surface: 'today',
-            extra: discussQuestionProperties({ source: 'typed', suggestionCount: 0 }),
-        })
-        askAi(question, 'report_page', report)
     }
 
     return (
@@ -166,7 +151,7 @@ export function TodayReportNextStep({
                     value={draft}
                     onChange={setDraft}
                     onSubmit={() => {
-                        ask(draft.trim())
+                        askAboutReport(draft.trim())
                         setDraft('')
                     }}
                     textAreaRef={textAreaRef}

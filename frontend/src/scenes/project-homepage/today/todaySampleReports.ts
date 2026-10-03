@@ -1,6 +1,6 @@
 import type { SignalNode } from 'scenes/debug/signals/types'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ReportMetricApi, SignalReportSectionsApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 import type { TodayReports } from './todayLogic'
@@ -30,6 +30,7 @@ interface SampleReportSpec {
     id: string
     title: string
     summary: string
+    sections: SignalReportSectionsApi
     hoursAgo: number
     priority: SignalReport['priority']
     actionability: SignalReport['actionability']
@@ -54,6 +55,12 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Review PR #9123',
         summary:
             'Safari users can’t finish checkout since Tuesday’s deploy, because the checkout sends an empty billing address to the payment service.\n\n## Problem\n\nThe deploy moved the address form into a step that Safari unmounts before payment. The payment request then goes out without the billing address.\n\n## Impact\n\nSafari checkout completion fell by 12 points while Chrome stayed flat.\n\n## Solution\n\nKeep the billing address in the checkout state, and send it with the payment request. PR #9123 does this and adds a Safari test.\n\n## Expected impact\n\nSafari checkout completion returns to **about 54%**, the same as Chrome.',
+        sections: {
+            lead: 'Safari users can’t finish checkout since Tuesday’s deploy, because the checkout sends an empty billing address to the payment service.',
+            impact: 'Safari checkout completion fell by 12 points while Chrome stayed flat.',
+            solution:
+                'Keep the billing address in the checkout state, and send it with the payment request. PR #9123 does this and adds a Safari test.',
+        },
         hoursAgo: 2,
         priority: 'P1',
         actionability: 'immediately_actionable',
@@ -104,6 +111,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Ship one-page checkout',
         summary:
             '**One-page checkout won. It is safe to ship.**\n\nThe shorter checkout completed more often than the current flow. It did not increase refunds, support requests, or payment errors.\n\nThe result passed the team’s decision threshold. You can send the winning flow to everyone today.',
+        sections: {
+            lead: '**One-page checkout won. It is safe to ship.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 3,
         priority: 'P1',
         actionability: 'immediately_actionable',
@@ -141,6 +153,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Watch 38 Safari recordings',
         summary:
             '**Safari users reach payment, then get stuck.**\n\nThe recordings show the same sequence. A person enters a card, submits payment, and sees no progress.\n\nThe problem affects Safari 17 after Tuesday’s deploy. Chrome sessions continue through the same step.',
+        sections: {
+            lead: '**Safari users reach payment, then get stuck.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 5,
         priority: 'P1',
         actionability: 'requires_human_input',
@@ -178,6 +195,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Triage the formatAddress TypeError',
         summary:
             '**One new error is blocking checkout completion.**\n\nThe error begins when checkout formats an empty billing address. It started with deploy #4821 and appears only after payment submission.\n\nFour hundred and twelve people saw it. The same error also explains the Safari conversion drop.',
+        sections: {
+            lead: '**One new error is blocking checkout completion.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 7,
         priority: 'P2',
         actionability: 'immediately_actionable',
@@ -216,6 +238,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Check which model summarize-doc uses',
         summary:
             '**Document summaries became more expensive overnight.**\n\nThe summarize-doc workflow now spends 31% more per active user. Usage stayed flat, so higher traffic does not explain the change.\n\nMost of the increase comes from a model change and longer prompts. The quality score did not improve.',
+        sections: {
+            lead: '**Document summaries became more expensive overnight.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 9,
         priority: 'P2',
         actionability: 'immediately_actionable',
@@ -254,6 +281,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Read 23 pricing complaints',
         summary:
             '**Pricing is the main reason detractors hesitate.**\n\nTwenty-three detractors mention pricing in their survey response. Most of them visited the new pricing page before they replied.\n\nThey understand the product, but they cannot predict the bill. The confusion is strongest among small teams with growing data volume.',
+        sections: {
+            lead: '**Pricing is the main reason detractors hesitate.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 20,
         priority: 'P3',
         actionability: 'requires_human_input',
@@ -291,6 +323,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Compare checkout by browser',
         summary:
             '**Safari accounts for the checkout gap.**\n\nChrome and Firefox remain near their usual completion rates. Safari 17 falls sharply after payment submission.\n\nThe browser comparison isolates the problem to one checkout path. Mobile Safari shows the largest drop.',
+        sections: {
+            lead: '**Safari accounts for the checkout gap.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 26,
         priority: 'P3',
         actionability: 'requires_human_input',
@@ -329,6 +366,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Review experiment guardrails',
         summary:
             '**The winning checkout passed every guardrail.**\n\nThe shorter checkout increased completion without increasing refunds, support requests, or payment failures.\n\nEach guardrail stayed within its agreed range. The result is ready for a full rollout.',
+        sections: {
+            lead: '**The winning checkout passed every guardrail.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 30,
         priority: 'P3',
         actionability: 'immediately_actionable',
@@ -366,6 +408,11 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         title: 'Check summary-model traces',
         summary:
             '**The new summary model repeats the source document.**\n\nRecent traces show the source text twice in the prompt. This duplication explains most of the token increase.\n\nThe model change did not improve the quality score. The previous model remains the lower-cost option.',
+        sections: {
+            lead: '**The new summary model repeats the source document.**',
+            impact: null,
+            solution: null,
+        },
         hoursAgo: 40,
         priority: 'P3',
         actionability: 'immediately_actionable',
@@ -433,6 +480,7 @@ function buildSampleReport(spec: SampleReportSpec, now: number): SignalReport {
         id: spec.id,
         title: spec.title,
         summary: spec.summary,
+        sections: spec.sections,
         status: spec.status,
         total_weight: spec.signals.length,
         signal_count: spec.signals.length,

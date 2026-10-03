@@ -1,7 +1,6 @@
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { inFlightPullRequest, reportWorkKind, todayNextStep } from './todayNextStep'
-import { todayReportSections } from './todayReportSections'
 import { report } from './todayTestFixtures'
 
 const RUN = { taskId: 't1', runId: 'r1' }
@@ -56,7 +55,7 @@ describe('todayNextStep', () => {
         ['an untouched report', report({}), null, { primary: { kind: 'start' }, note: null }],
     ])('names the next step for %s', (_, input, runningTask, expected) => {
         const { primary, note } = todayNextStep(input, {
-            proposal: todayReportSections(input.summary).proposal,
+            solution: null,
             slotClaimed: false,
             runningTask,
         })
@@ -64,21 +63,21 @@ describe('todayNextStep', () => {
     })
 
     test.each([
-        ['one pull request', 'Open PR https://github.com/example/web/pull/7 covers it.', '7'],
+        ['one pull request', 'Open PR https://github.com/example/web/pull/7 covers it.', null, '7'],
         [
             'several pull requests',
             'Merged in https://github.com/example/web/pull/7, review https://github.com/example/web/pull/8.',
             null,
+            null,
         ],
         [
-            'several pull requests, one named by the proposal',
-            'Lead.\n\n## Problem\n\nMerged in https://github.com/example/web/pull/7.\n\n## Solution\n\nReuse draft https://github.com/example/web/pull/9.',
+            'several pull requests, one named by the solution',
+            'Merged in https://github.com/example/web/pull/7. Reuse draft https://github.com/example/web/pull/9.',
+            'Reuse draft https://github.com/example/web/pull/9.',
             '9',
         ],
-    ])('names the in-flight pull request for %s', (_, summary, expected) => {
-        expect(inFlightPullRequest(report({ summary }), todayReportSections(summary).proposal)?.number ?? null).toEqual(
-            expected
-        )
+    ])('names the in-flight pull request for %s', (_, summary, solution, expected) => {
+        expect(inFlightPullRequest(report({ summary }), solution)?.number ?? null).toEqual(expected)
     })
 
     test.each([
