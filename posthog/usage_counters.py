@@ -137,9 +137,6 @@ RECORD_UNDERCOUNTS = {
     UsageCounter.RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
-    UsageCounter.CDP_INVOCATIONS: (
-        "CDP usage records use the event UUID as the record ID, so two events that share a UUID bill once."
-    ),
 }
 
 
