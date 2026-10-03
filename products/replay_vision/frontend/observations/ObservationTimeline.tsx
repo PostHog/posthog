@@ -37,7 +37,11 @@ export default function ObservationTimeline({
         const boxRect = box.getBoundingClientRect()
         const rowRect = row.getBoundingClientRect()
         if (rowRect.top < boxRect.top || rowRect.bottom > boxRect.bottom) {
-            box.scrollTo({ top: box.scrollTop + rowRect.top - boxRect.top - boxRect.height / 3, behavior: 'smooth' })
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            box.scrollTo({
+                top: box.scrollTop + rowRect.top - boxRect.top - boxRect.height / 3,
+                behavior: reduceMotion ? 'auto' : 'smooth',
+            })
         }
     }, [currentIndex])
 
