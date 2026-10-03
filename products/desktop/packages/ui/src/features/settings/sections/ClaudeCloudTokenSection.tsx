@@ -7,19 +7,19 @@ import {
   useDisconnectClaudeCloudAccount,
   useLocalClaudeToken,
 } from "@posthog/ui/features/settings/claudeCloudAccount";
+import { claudeTokenExpiryWarning } from "@posthog/ui/features/settings/claudeCloudToken";
 import { isValidClaudeSetupToken } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { type ReactElement, useId, useState } from "react";
+import { ClaudeAuthTerminalDialog } from "./ClaudeAuthTerminalDialog";
 
 interface ClaudeCloudTokenSectionProps {
   cloudSubscriptionOn: boolean;
-  onCreateToken: () => void;
 }
 
 export function ClaudeCloudTokenSection({
   cloudSubscriptionOn,
-  onCreateToken,
 }: ClaudeCloudTokenSectionProps): ReactElement | null {
   const account = useClaudeCloudAccount();
   const { tokenStore, query: localToken } = useLocalClaudeToken();
@@ -30,6 +30,7 @@ export function ClaudeCloudTokenSection({
   const validationErrorId = useId();
   const [confirmRemoval, setConfirmRemoval] = useState(false);
   const [replacingToken, setReplacingToken] = useState(false);
+  const [creatingToken, setCreatingToken] = useState(false);
 
   if (!tokenStore) return null;
 
@@ -41,21 +42,12 @@ export function ClaudeCloudTokenSection({
     : hasLocalToken
       ? "connected"
       : "not_connected";
+  const expiryWarning = claudeTokenExpiryWarning(account.data, new Date());
 
-  const saveToken = (): void => {
-    if (pending) return;
-    const token = tokenDraft.trim();
-    if (!isValidClaudeSetupToken(token)) {
-      setValidationError(
-        "Paste the full token from the terminal. It starts with sk-ant-oat01-.",
-      );
-      return;
-    }
-    setValidationError(null);
+  const connectToken = (token: string, onSaved: () => void): void => {
     connect.mutate(token, {
       onSuccess: ({ localSaveError }) => {
-        setTokenDraft("");
-        setReplacingToken(false);
+        onSaved();
         track(ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED);
         if (localSaveError) {
           toast.warning("Token saved", {
@@ -69,6 +61,44 @@ export function ClaudeCloudTokenSection({
         toast.error("Cannot save the token.", { description: error.message }),
     });
   };
+
+  const saveToken = (): void => {
+    if (pending) return;
+    const token = tokenDraft.trim();
+    if (!isValidClaudeSetupToken(token)) {
+      setValidationError(
+        "Paste the full token from the terminal. It starts with sk-ant-oat01-.",
+      );
+      return;
+    }
+    setValidationError(null);
+    connectToken(token, () => {
+      setTokenDraft("");
+      setReplacingToken(false);
+    });
+  };
+
+  const saveFoundToken = (token: string): void => {
+    if (pending) return;
+    connectToken(token, () => {
+      setCreatingToken(false);
+      setTokenDraft("");
+      setValidationError(null);
+      setReplacingToken(false);
+    });
+  };
+
+  const createTokenButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={() => setCreatingToken(true)}
+      disabled={pending}
+    >
+      Create token
+    </Button>
+  );
 
   const removeToken = (): void => {
     if (pending) return;
@@ -114,8 +144,8 @@ export function ClaudeCloudTokenSection({
 
   const formHint =
     status === "reauth_required"
-      ? "Your Claude token stopped working. Create a new token, then paste it below."
-      : hasLocalToken && serverStoresToken
+      ? "Claude does not accept this token. Create a new token, then paste it below."
+      : status === "not_connected" && hasLocalToken && serverStoresToken
         ? "Paste your token again so cloud tasks can run when Desktop is closed."
         : "Create a token, then paste it below.";
 
@@ -141,7 +171,8 @@ export function ClaudeCloudTokenSection({
           {!serverStoresToken
             ? "Keep Desktop open to start or resume. Compute is billed separately."
             : status === "connected"
-              ? "PostHog keeps your Claude token for your cloud tasks. Tasks run when Desktop is closed. Compute is billed separately."
+              ? (expiryWarning ??
+                "PostHog keeps your Claude token for your cloud tasks. Tasks run when Desktop is closed. Compute is billed separately.")
               : "Save a token so cloud tasks can run when Desktop is closed. Compute is billed separately."}
         </span>
       ) : null}
@@ -176,6 +207,7 @@ export function ClaudeCloudTokenSection({
               Token saved
             </span>
             <div className="flex items-center gap-2">
+              {expiryWarning ? createTokenButton : null}
               <Button
                 type="button"
                 variant="outline"
@@ -222,15 +254,7 @@ export function ClaudeCloudTokenSection({
                     Remove token
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={onCreateToken}
-                  disabled={pending}
-                >
-                  Create token
-                </Button>
+                {createTokenButton}
               </div>
             </div>
           )}
@@ -292,6 +316,14 @@ export function ClaudeCloudTokenSection({
           </span>
         </div>
       )}
+      {creatingToken ? (
+        <ClaudeAuthTerminalDialog
+          action="setup-token"
+          onClose={() => setCreatingToken(false)}
+          onSaveToken={saveFoundToken}
+          savingToken={connect.isPending}
+        />
+      ) : null}
     </div>
   );
 }

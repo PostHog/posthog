@@ -105536,6 +105536,11 @@ export namespace Schemas {
          * @nullable
          */
       connected_at?: string | null;
+      /**
+         * When the token is expected to expire: one year after it was connected, the lifetime of a `claude setup-token` token. Null when no working token is stored.
+         * @nullable
+         */
+      expires_at?: string | null;
     }
 
     export interface UserCodexAuthTokens {

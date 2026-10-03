@@ -2,7 +2,7 @@ import json
 import time
 import uuid
 import base64
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -1850,6 +1850,7 @@ class TestUserIntegrationClaudeEndpoints(APIBaseTest):
         assert self.client.get("/api/users/@me/integrations/claude/").json() == {
             "status": "not_connected",
             "connected_at": None,
+            "expires_at": None,
         }
 
         response = self.client.post(
@@ -1858,6 +1859,9 @@ class TestUserIntegrationClaudeEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["status"] == "connected"
+        assert datetime.fromisoformat(response.json()["expires_at"]) - datetime.fromisoformat(
+            response.json()["connected_at"]
+        ) == timedelta(days=365)
         assert "sk-ant" not in response.content.decode()
         assert UserIntegration.objects.get(user=self.user, kind="claude").sensitive_config == {"token": self.token}
         assert self.client.get("/api/users/@me/integrations/claude/").json()["status"] == "connected"

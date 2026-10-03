@@ -8,14 +8,16 @@ import { accessTokenFingerprint } from "./codex-subscription-token";
 
 export const CLAUDE_TOKEN_REQUEST_TIMEOUT_MS = 15_000;
 
+export const CLAUDE_REJECTED_TOKEN_MESSAGE =
+  "Claude does not accept your token. Create a new token in Settings > Harness. Then start the task again.";
+
 export const CLAUDE_SUBSCRIPTION_TOKEN_PHASE = "claude_subscription_token";
 
 export const CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES: Record<
   ClaudeSubscriptionTokenErrorCode,
   string
 > = {
-  reauth_required:
-    "Your Claude token stopped working. Paste a new Claude token in Settings > Harness. Then start the task again.",
+  reauth_required: CLAUDE_REJECTED_TOKEN_MESSAGE,
   forbidden: "This run could not get your Claude token. Start the task again.",
   request_failed:
     "This run could not get your Claude token. Start the task again.",

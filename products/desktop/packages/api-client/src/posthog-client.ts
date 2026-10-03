@@ -502,6 +502,7 @@ export type ClaudeIntegrationStatus =
 export interface UserClaudeIntegration {
   status: ClaudeIntegrationStatus;
   connected_at: string | null;
+  expires_at: string | null;
 }
 
 export class ClaudeIntegrationUnavailableError extends Error {
