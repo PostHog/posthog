@@ -12,7 +12,7 @@ export interface QuillSceneHeaderProps {
 
 /**
  * The title bar under the Today layout, for both a scene and the sidebar pane beside it. One component with a fixed
- * height keeps the two bottom borders in one line across the window. In a narrow scene the actions wrap under the title.
+ * height keeps the two bottom borders in one line across the window.
  */
 export function QuillSceneHeader({ back, icon, title, actions, className }: QuillSceneHeaderProps): JSX.Element {
     return (
