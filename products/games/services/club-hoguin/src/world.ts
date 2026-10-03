@@ -718,9 +718,7 @@ export class World {
                 return `${name} set night-mode to ${this.objects.lightsOn ? 'false' : 'true'} for 100% of hogs`
             case 'fire':
                 this.objects.fireOn = !this.objects.fireOn
-                return this.objects.fireOn
-                    ? `${name} pulled the alarm. Fire-mode is on: the trees burn and the snowman melts`
-                    : `${name} cleared the alarm. Fire-mode is off: the trees grow back and the snowman is whole`
+                return `${name} set fire-mode to ${this.objects.fireOn ? 'true' : 'false'} for 100% of hogs`
             case 'replay':
                 this.objects.nowPlaying = this.pick(REPLAY_REELS)
                 return `Now playing in the replay cinema: ${this.objects.nowPlaying}`

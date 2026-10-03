@@ -107,7 +107,7 @@ export const OBJECTS: readonly WorldObject[] = [
         id: 'fire',
         name: 'Alerts lighthouse',
         product: 'Alerts',
-        hint: 'Pull the alarm to flip fire-mode for everyone. The trees burn and the snowman melts',
+        hint: 'Pull the alarm to flip fire-mode for everyone',
         glyph: 'H',
         color: '#F54E00',
         footprint: { x: 9, y: 14.5, w: 3.5, h: 3 },

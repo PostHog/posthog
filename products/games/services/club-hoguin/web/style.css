@@ -208,7 +208,7 @@ body {
 
 .feed {
     width: 100%;
-    max-height: 40cqh;
+    max-height: 24cqh;
     padding: 0.45em 0.75em;
     margin: 0;
     overflow: hidden;
@@ -221,7 +221,7 @@ body {
     border-radius: 0.8em;
 
     /* The oldest lines fade out at the bottom instead of being cut off. */
-    mask-image: linear-gradient(#000 70%, transparent);
+    mask-image: linear-gradient(#000 60%, transparent);
 }
 
 .feed li {
@@ -232,7 +232,7 @@ body {
     font-weight: 700;
 }
 
-.feed li:nth-child(n + 7) {
+.feed li:nth-child(n + 5) {
     opacity: 0.7;
 }
 
