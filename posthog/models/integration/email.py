@@ -92,6 +92,7 @@ class EmailIntegration:
         return integration
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
+        self._reject_address_change(config.get("email"))
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
@@ -121,6 +122,10 @@ class EmailIntegration:
         self.integration.save()
 
         return self.integration
+
+    def _reject_address_change(self, email_address: str | None) -> None:
+        if email_address and email_address.lower() != self.integration.config.get("email"):
+            raise ValidationError(f"The sender address cannot change. Create a new sender for {email_address} instead.")
 
     def verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")

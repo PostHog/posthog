@@ -1852,6 +1852,15 @@ class TestIntegrationAPIKeyAccess:
                 200,
                 {"kind": "email", "config": {**EMAIL_CONFIG, "name": "Acme", "mail_from_subdomain": "bounce"}},
             ),
+            (
+                "patch",
+                "{email_id}/email/",
+                {"config": {"email": "team@mail.example.com", "name": "Acme", "provider": "ses"}},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                400,
+                {"detail": "The sender address cannot change. Create a new sender for team@mail.example.com instead."},
+            ),
         ],
     )
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
