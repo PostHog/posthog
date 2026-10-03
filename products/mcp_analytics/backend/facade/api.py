@@ -169,14 +169,16 @@ def get_activity_overview(
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
+    summary_only: bool = False,
 ) -> contracts.ActivityOverview:
     """Compute the activity view's aggregates and recent-call feed in one pass.
 
     Bounded to the last 30 days; always computed fresh (the view polls to watch
     data arrive). ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
+    ``summary_only`` returns empty ``clients`` and ``recent_calls`` and skips their queries.
     """
     return logic.get_activity_overview(
-        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user
+        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user, summary_only=summary_only
     )
 
 

@@ -513,6 +513,14 @@ class MCPActivityOverviewQuerySerializer(serializers.Serializer):
         default=False,
         help_text=FILTER_TEST_ACCOUNTS_HELP_TEXT,
     )
+    summary_only = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, return only stats and top_tools. clients and recent_calls are empty lists, "
+            "and the request runs fewer queries."
+        ),
+    )
 
 
 class MCPActivityOverviewSerializer(serializers.Serializer):

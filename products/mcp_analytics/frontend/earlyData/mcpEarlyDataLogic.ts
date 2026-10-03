@@ -226,10 +226,11 @@ export const mcpEarlyDataLogic = kea<mcpEarlyDataLogicType>([
                 if (!values.currentProjectId) {
                     return null
                 }
-                const response = await mcpAnalyticsSessionsActivityOverview(
-                    String(values.currentProjectId),
-                    sharedFilterParams(values.sharedQueryFilters)
-                )
+                // The tab renders only stats and top tools, so the clients and recent-calls scans are skipped.
+                const response = await mcpAnalyticsSessionsActivityOverview(String(values.currentProjectId), {
+                    ...sharedFilterParams(values.sharedQueryFilters),
+                    summary_only: true,
+                })
                 breakpoint()
                 return response
             },

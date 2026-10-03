@@ -666,6 +666,7 @@ def get_activity_overview(
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
+    summary_only: bool = False,
 ) -> contracts.ActivityOverview:
     """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
@@ -684,6 +685,10 @@ def get_activity_overview(
     ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
     control is evaluated for that member, not with the project defaults, because ``properties`` is
     caller-supplied and would otherwise read restricted properties.
+
+    ``summary_only`` skips the clients and recent-calls queries and leaves those lists empty. The
+    activity tab renders neither: it has its own feed and client breakdown. Each skipped query scans
+    the whole window, and all of them compete for the same ClickHouse capacity on every poll.
     """
     date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
     tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
@@ -702,56 +707,57 @@ def get_activity_overview(
         assert isinstance(spec[2], dict)
         return _run_activity_query(team, spec[0], spec[1], {**spec[2], "shared_filters": shared_filters}, user)
 
-    stats_rows, missing_capability_rows, top_tools_rows, clients_rows, recent_calls_rows = map_in_caller_context(
-        run_query,
-        [
-            (
-                _ACTIVITY_STATS_SQL,
-                "mcp_analytics_activity_stats",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                },
-            ),
-            (
-                _ACTIVITY_MISSING_CAPABILITY_SQL,
-                "mcp_analytics_activity_missing_capabilities",
-                {
-                    "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
-                    "missing_capability_filters": missing_capability_filters,
-                    "date_from": date_from,
-                },
-            ),
-            (
-                _ACTIVITY_TOP_TOOLS_SQL,
-                "mcp_analytics_activity_top_tools",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                    "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
-                },
-            ),
-            (
-                _ACTIVITY_CLIENTS_SQL,
-                "mcp_analytics_activity_clients",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                    "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
-                },
-            ),
-            (
-                _ACTIVITY_RECENT_CALLS_SQL,
-                "mcp_analytics_activity_recent_calls",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                    "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
-                },
-            ),
-        ],
-        thread_name_prefix="mcp_activity",
+    query_specs: list[tuple[str, str, object]] = [
+        (
+            _ACTIVITY_STATS_SQL,
+            "mcp_analytics_activity_stats",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+            },
+        ),
+        (
+            _ACTIVITY_MISSING_CAPABILITY_SQL,
+            "mcp_analytics_activity_missing_capabilities",
+            {
+                "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
+                "missing_capability_filters": missing_capability_filters,
+                "date_from": date_from,
+            },
+        ),
+        (
+            _ACTIVITY_TOP_TOOLS_SQL,
+            "mcp_analytics_activity_top_tools",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+            },
+        ),
+        (
+            _ACTIVITY_CLIENTS_SQL,
+            "mcp_analytics_activity_clients",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
+            },
+        ),
+        (
+            _ACTIVITY_RECENT_CALLS_SQL,
+            "mcp_analytics_activity_recent_calls",
+            {
+                "tool_call_event": tool_call_event,
+                "date_from": date_from,
+                "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
+            },
+        ),
+    ]
+    results = map_in_caller_context(
+        run_query, query_specs[:3] if summary_only else query_specs, thread_name_prefix="mcp_activity"
     )
+    stats_rows, missing_capability_rows, top_tools_rows = results[:3]
+    clients_rows, recent_calls_rows = results[3:] or ([], [])
 
     stats_row = stats_rows[0] if stats_rows else [0] * 6
     missing_capability_row = missing_capability_rows[0] if missing_capability_rows else [0]
