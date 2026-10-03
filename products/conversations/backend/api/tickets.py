@@ -1240,7 +1240,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         if changes:
             self._log_ticket_changes(request, instance, changes)
 
-    def _log_ticket_changes(self, request, instance: Ticket, changes: list[Change]) -> None:
+    def _log_ticket_changes(self, request, instance: Ticket, changes: Sequence[Change]) -> None:
         try:
             log_activity(
                 organization_id=self.organization.id,
@@ -1252,7 +1252,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 activity="updated",
                 detail=Detail(
                     name=f"Ticket #{instance.ticket_number}",
-                    changes=changes,
+                    changes=[*changes],
                 ),
             )
         except Exception as e:
@@ -1859,7 +1859,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         self._attach_persons_to_tickets([ticket])
         return Response(self.get_serializer(ticket).data)
 
-    def _log_cc_participant_removal(self, request, ticket: Ticket, before: list[str], after: list[str]) -> None:
+    def _log_cc_participant_removal(self, request, ticket: Ticket, before: Sequence[str], after: Sequence[str]) -> None:
         self._log_ticket_changes(
             request,
             ticket,
