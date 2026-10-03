@@ -6,6 +6,7 @@ from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db import models
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -36,7 +37,12 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    BillingServiceResponseError,
+    http_session,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -541,6 +547,74 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+class AICreditTopUpStatus(models.TextChoices):
+    AWAITING_TAX = "awaiting_tax"
+    PAID = "paid"
+    CREDITED = "credited"
+    FAILED = "failed"
+
+
+class AICreditTopUpOutcome(models.TextChoices):
+    REJECTED = "rejected"
+    AWAITING_TAX = "awaiting_tax"
+    PAID = "paid"
+    CREDITED = "credited"
+    FAILED = "failed"
+
+
+class AICreditTopUpRejection(models.TextChoices):
+    NOT_AVAILABLE = "not_available"
+    TOP_UP_IN_FLIGHT = "top_up_in_flight"
+    NO_PAYMENT_METHOD = "no_payment_method"
+    CUSTOMER_BALANCE_NOT_ZERO = "customer_balance_not_zero"
+
+
+class AICreditTopUpSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Billing's identifier for the top-up.")
+    amount_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, help_text="Amount bought, in USD, before tax."
+    )
+    status = serializers.ChoiceField(
+        choices=AICreditTopUpStatus.choices,
+        help_text="awaiting_tax while billing waits for tax on the invoice, paid once the card is charged, "
+        "credited once the AI gateway wallet holds the credit, failed when the purchase stopped.",
+    )
+    failure_reason = serializers.CharField(allow_null=True, help_text="Why the top-up failed, or null.")
+    created_at = serializers.DateTimeField(help_text="When the top-up started.")
+
+
+class AICreditsResponseSerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether the organization can buy AI credits.")
+    balance_usd = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        allow_null=True,
+        required=False,
+        help_text="AI credit balance in USD, or null when the AI gateway did not answer.",
+    )
+    amounts_usd = serializers.ListField(
+        child=serializers.IntegerField(), required=False, help_text="Amounts in USD that a top-up can buy."
+    )
+    top_ups = AICreditTopUpSerializer(many=True, required=False, help_text="The ten latest top-ups, newest first.")
+
+
+class AICreditTopUpRequestSerializer(serializers.Serializer):
+    amount_usd = serializers.IntegerField(
+        min_value=1, help_text="Amount to buy in USD. Use one of the amounts the AI credits endpoint returns."
+    )
+
+
+class AICreditTopUpResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=AICreditTopUpOutcome.choices,
+        help_text="rejected when billing refused the top-up, otherwise the new top-up's status.",
+    )
+    id = serializers.IntegerField(required=False, help_text="Billing's identifier for the new top-up.")
+    reason = serializers.ChoiceField(
+        choices=AICreditTopUpRejection.choices, required=False, help_text="Why billing refused the top-up."
+    )
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -830,6 +904,55 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         billing_manager = self.get_billing_manager()
         res = billing_manager.purchase_credits(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Get the organization's AI credit balance and recent top-ups",
+        responses={200: AICreditsResponseSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="ai-credits",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
+    def ai_credits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if not get_cached_instance_license():
+            return Response(AICreditsResponseSerializer({"available": False}).data)
+
+        organization = self._get_org_required()
+        try:
+            res = self.get_billing_manager().ai_credits(organization)
+        except BillingServiceResponseError as error:
+            raise BillingServiceError() from error
+        return Response(AICreditsResponseSerializer(res).data)
+
+    @extend_schema(
+        summary="Buy AI credits with the card on file",
+        request=AICreditTopUpRequestSerializer,
+        responses={200: AICreditTopUpResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="ai-credits/top-up",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
+    )
+    def top_up_ai_credits(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        serializer = AICreditTopUpRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        if not get_cached_instance_license():
+            return Response(AICreditTopUpResponseSerializer({"status": "rejected", "reason": "not_available"}).data)
+
+        organization = self._get_org_required()
+        try:
+            res = self.get_billing_manager().top_up_ai_credits(organization, serializer.validated_data)
+        except BillingServiceResponseError as error:
+            if error.status_code == status.HTTP_400_BAD_REQUEST:
+                raise ValidationError(
+                    {"amount_usd": ["Choose one of the amounts the AI credits endpoint returns."]}
+                ) from error
+            raise BillingServiceError() from error
+        return Response(AICreditTopUpResponseSerializer(res).data)
 
     @action(
         methods=["POST"],

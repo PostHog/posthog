@@ -9,6 +9,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AICreditTopUpRequestApi,
+    AICreditTopUpResponseApi,
+    AICreditsResponseApi,
     BillingAlertCheckNowResponseApi,
     BillingAlertConfigurationApi,
     BillingAlertDeleteDestinationApi,
@@ -118,6 +121,39 @@ export const billingActivateAuthorizeStatusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(billingApi),
+    })
+}
+
+export const getBillingAiCreditsRetrieveUrl = () => {
+    return `/api/billing/ai-credits/`
+}
+
+/**
+ * @summary Get the organization's AI credit balance and recent top-ups
+ */
+export const billingAiCreditsRetrieve = async (options?: RequestInit): Promise<AICreditsResponseApi> => {
+    return apiMutator<AICreditsResponseApi>(getBillingAiCreditsRetrieveUrl(), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBillingAiCreditsTopUpCreateUrl = () => {
+    return `/api/billing/ai-credits/top-up/`
+}
+
+/**
+ * @summary Buy AI credits with the card on file
+ */
+export const billingAiCreditsTopUpCreate = async (
+    aICreditTopUpRequestApi: AICreditTopUpRequestApi,
+    options?: RequestInit
+): Promise<AICreditTopUpResponseApi> => {
+    return apiMutator<AICreditTopUpResponseApi>(getBillingAiCreditsTopUpCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aICreditTopUpRequestApi),
     })
 }
 

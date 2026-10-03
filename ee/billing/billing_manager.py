@@ -988,6 +988,32 @@ class BillingManager:
 
         return res.json()
 
+    def ai_credits(self, organization: Organization) -> dict[str, Any]:
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/ai-credits",
+            headers=self.get_auth_headers(organization),
+        )
+        if res.status_code == 404:
+            # A billing deployment without the AI credits routes cannot sell them.
+            return {"available": False}
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
+
+    def top_up_ai_credits(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/ai-credits/top-up",
+            headers=self.get_auth_headers(organization),
+            json=data,
+        )
+        if res.status_code == 404:
+            return {"status": "rejected", "reason": "not_available"}
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
+
     def dispute_signals_pr(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         """Ask billing to credit back a refunded Signals PR (idempotent on data['refund_id']).
 

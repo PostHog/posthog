@@ -53,7 +53,7 @@ from ee.api.billing import (
     _stream_chunks,
 )
 from ee.api.test.base import APILicensedTest
-from ee.billing.billing_manager import BillingManager
+from ee.billing.billing_manager import BillingManager, BillingServiceResponseError
 from ee.billing.billing_types import USAGE_TYPE_OPTIONS, BillingPeriod, CustomerInfo, CustomerProduct, UsageType
 from ee.billing.grants import (
     BILLING_LIMIT_TODAYS_USAGE_FLAG,
@@ -1199,6 +1199,103 @@ class TestCouponClaimBillingAPI(APILicensedTest):
         self.assertEqual(response_json["detail"], "Customer has already claimed a coupon from this campaign.")
 
 
+class TestAICreditsBillingAPI(APILicensedTest):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("ee.billing.billing_manager.BillingManager.ai_credits")
+    def test_returns_the_balance_and_recent_top_ups(self, mock_ai_credits):
+        mock_ai_credits.return_value = {
+            "available": True,
+            "balance_usd": "12.50",
+            "amounts_usd": [10, 25, 50, 100],
+            "top_ups": [
+                {
+                    "id": 7,
+                    "amount_usd": "25.00",
+                    "status": "credited",
+                    "failure_reason": None,
+                    "created_at": "2026-10-02T10:00:00Z",
+                    "stripe_invoice_id": "in_internal",
+                }
+            ],
+        }
+
+        response = self.client.get("/api/billing/ai-credits")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "available": True,
+            "balance_usd": "12.50",
+            "amounts_usd": [10, 25, 50, 100],
+            "top_ups": [
+                {
+                    "id": 7,
+                    "amount_usd": "25.00",
+                    "status": "credited",
+                    "failure_reason": None,
+                    "created_at": "2026-10-02T10:00:00Z",
+                }
+            ],
+        }
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_a_billing_deployment_without_ai_credits_reads_as_unavailable(self, mock_get):
+        mock_get.return_value.status_code = status.HTTP_404_NOT_FOUND
+
+        response = self.client.get("/api/billing/ai-credits")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["available"] is False
+
+    @patch("ee.billing.billing_manager.BillingManager.top_up_ai_credits")
+    def test_top_up_forwards_the_amount(self, mock_top_up):
+        mock_top_up.return_value = {"status": "awaiting_tax", "id": 7}
+
+        response = self.client.post("/api/billing/ai-credits/top-up", {"amount_usd": 25})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"status": "awaiting_tax", "id": 7}
+        mock_top_up.assert_called_once_with(self.organization, {"amount_usd": 25})
+
+    @patch("ee.billing.billing_manager.BillingManager.top_up_ai_credits")
+    def test_top_up_returns_billing_refusal(self, mock_top_up):
+        mock_top_up.return_value = {"status": "rejected", "reason": "no_payment_method"}
+
+        response = self.client.post("/api/billing/ai-credits/top-up", {"amount_usd": 25})
+
+        assert response.json() == {"status": "rejected", "reason": "no_payment_method"}
+
+    @patch("ee.billing.billing_manager.BillingManager.top_up_ai_credits")
+    def test_top_up_rejects_an_amount_that_is_not_a_number(self, mock_top_up):
+        response = self.client.post("/api/billing/ai-credits/top-up", {"amount_usd": "lots"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "amount_usd"
+        mock_top_up.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.top_up_ai_credits")
+    def test_an_amount_billing_does_not_sell_is_a_validation_error_without_billing_detail(self, mock_top_up):
+        mock_top_up.side_effect = BillingServiceResponseError(400, {"detail": "amount_usd must be one of (10, 25)"})
+
+        response = self.client.post("/api/billing/ai-credits/top-up", {"amount_usd": 30})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "amount_usd"
+        assert "(10, 25)" not in response.content.decode()
+
+    @patch("ee.billing.billing_manager.BillingManager.top_up_ai_credits")
+    def test_a_billing_failure_is_a_bad_gateway(self, mock_top_up):
+        mock_top_up.side_effect = BillingServiceResponseError(500, {"detail": "internal"})
+
+        response = self.client.post("/api/billing/ai-credits/top-up", {"amount_usd": 25})
+
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        assert response.json()["code"] == "billing_service_error"
+
+
 class TestPartnerManagedBillingAPI(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1314,6 +1411,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 class TestPartnerBillingLockCoverage(SimpleTestCase):
     READ_ONLY_ACTIONS = {
         "list",
+        "ai_credits",
         "period",
         "get_invoices",
         "credits_overview",
@@ -2647,6 +2745,14 @@ class TestBillingPermissionDeniedForMembers(APILicensedTest):
                 BILLING_ACCESS_DENIED_MESSAGE,
             ),
             ("claim_coupon", "post", "/api/billing/coupons/claim", {"code": "TEST"}, BILLING_ACCESS_DENIED_MESSAGE),
+            ("ai_credits", "get", "/api/billing/ai-credits", None, BILLING_ACCESS_DENIED_MESSAGE),
+            (
+                "top_up_ai_credits",
+                "post",
+                "/api/billing/ai-credits/top-up",
+                {"amount_usd": 25},
+                BILLING_ACCESS_DENIED_MESSAGE,
+            ),
             ("startup_apply", "post", "/api/billing/startups/apply", "USE_ORG_ID", None),
         ]
     )
