@@ -344,13 +344,14 @@ describe('emailTemplaterLogic', () => {
 
         // A preloaded starter design must not save an empty body, and a plain-text email keeps its retained design.
         it.each([
-            { description: 'fills in html for a host that preloads designs', fill: true, text: '', filled: true },
-            { description: 'keeps a plain-text email as written', fill: undefined, text: 'Plain words', filled: false },
-        ])('$description when a loaded design has no html', async ({ fill, text, filled }) => {
+            { description: 'fills in html for a host that preloads designs', fill: true, tab: 'visual', filled: true },
+            { description: 'leaves the email alone for other hosts', fill: undefined, tab: 'visual', filled: false },
+            { description: 'leaves a plain-text email alone', fill: true, tab: 'plaintext', filled: false },
+        ] as const)('$description when a loaded design has no html', async ({ fill, tab, filled }) => {
             logic.unmount()
             logic = emailTemplaterLogic(
                 makeProps({
-                    value: { ...DEFAULT_EMAIL_TEMPLATE, design: DESIGN_STORED, html: '', text },
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, design: DESIGN_STORED, html: '', text: '' },
                     onChange,
                     type: 'native_email_template',
                     layout: 'inline',
@@ -358,6 +359,7 @@ describe('emailTemplaterLogic', () => {
                 })
             )
             logic.mount()
+            logic.actions.setActiveContentTab(tab)
             logic.actions.setEmailEditorRef(fakeEditorRef())
             logic.actions.onEmailEditorReady()
 

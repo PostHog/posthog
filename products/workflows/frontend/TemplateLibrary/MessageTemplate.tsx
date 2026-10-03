@@ -141,7 +141,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         ? 'No changes to save'
                                         : !template.name
                                           ? 'Name is required'
-                                          : undefined
+                                          : props.fromEmailBrand && !template.content.email?.html
+                                            ? 'The email design is still loading'
+                                            : undefined
                                 }
                                 size="small"
                             >

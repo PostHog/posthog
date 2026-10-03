@@ -544,11 +544,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             actions.setTemplateValues({
                 name: starterDesign.name,
                 description: starterDesign.description,
-                content: { email: { subject: starterDesign.subject, design: starterDesign.design, html: '' } },
+                content: {
+                    ...NEW_TEMPLATE.content,
+                    email: {
+                        ...NEW_TEMPLATE.content.email,
+                        subject: starterDesign.subject,
+                        design: starterDesign.design,
+                        html: '',
+                    },
+                },
             })
-        },
-        loadStarterDesignFailure: () => {
-            lemonToast.error("Couldn't load your Email brand. Start from a blank template or try again.")
         },
         loadMessageSuccess: async ({ message }) => {
             if (!message) {
@@ -602,7 +607,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     urlToAction(({ actions, props }) => ({
         // The escape hatch from the AI composer changes only the search params, so this logic sees no remount.
         [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
-            if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {
+            if (
+                props.id === 'new' &&
+                !props.messageId &&
+                !props.fromEmailBrand &&
+                searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE
+            ) {
                 actions.setTemplatePickerOpen(true)
             }
         },

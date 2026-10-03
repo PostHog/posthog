@@ -366,7 +366,10 @@ describe('messageTemplateLogic', () => {
                 id: 'new',
                 name: 'Acme starter template',
                 description: 'Created from your Email brand.',
-                content: { email: { subject: 'Hello from Acme', design: STARTER_DESIGN, html: '' } },
+                content: {
+                    templating: 'liquid',
+                    email: { subject: 'Hello from Acme', design: STARTER_DESIGN, html: '' },
+                },
             })
         })
     })
