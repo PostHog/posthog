@@ -247,7 +247,7 @@ describe('EmailService', () => {
                 ['a workflow test send', true, true, 0],
                 ['a hog function send', false, false, 0],
             ])(
-                'should fail on an unverified email domain and report it for %s',
+                'should fail on an unverified email domain and report it only for a real workflow send: %s',
                 async (_name, fromWorkflow, isTest, reports) => {
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 2 },

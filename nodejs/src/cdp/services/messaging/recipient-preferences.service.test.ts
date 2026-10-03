@@ -243,16 +243,22 @@ describe('RecipientPreferencesService', () => {
             })
 
             it.each([
-                ['a marketing send', 'marketing', false, 1],
-                ['a transactional send', 'transactional', false, 1],
-                ['a test send', 'marketing', true, 0],
+                ['a marketing send', 'marketing', false, 1, 'rejects'],
+                ['a transactional send', 'transactional', false, 1, 'sends'],
+                ['a test send', 'marketing', true, 0, 'rejects'],
             ] as const)(
-                'should report a recipient without an email address for %s',
-                async (_name, categoryType, isTest, reports) => {
+                'should report a recipient without an email address only for a real send: %s',
+                async (_name, categoryType, isTest, reports, outcome) => {
                     const action = createEmailAction('', '123e4567-e89b-12d3-a456-426614174000', categoryType)
                     const invocation = createFunctionStepInvocation(action)
 
-                    await service.shouldSkipAction(invocation, action, isTest).catch(() => null)
+                    const skipReason = service.shouldSkipAction(invocation, action, isTest)
+
+                    if (outcome === 'rejects') {
+                        await expect(skipReason).rejects.toThrow('No recipient identifier found')
+                    } else {
+                        await expect(skipReason).resolves.toBeNull()
+                    }
 
                     expect(workflowsActivationReporter.report.mock.calls).toEqual(
                         Array(reports).fill([

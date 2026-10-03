@@ -333,15 +333,18 @@ describe('EmailTrackingService', () => {
             // The route enforces a real SNS signature; verifying it needs AWS's private key, so we
             // stub the check and let a posted SNS envelope flow through the real handler + service.
             let verifySignatureSpy: jest.SpyInstance
+            let reportSpy: jest.SpyInstance
 
             beforeEach(() => {
                 verifySignatureSpy = jest
                     .spyOn(SesWebhookHandler.prototype as any, 'verifySnsSignature')
                     .mockResolvedValue(true)
+                reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
             })
 
             afterEach(() => {
                 verifySignatureSpy.mockRestore()
+                reportSpy.mockRestore()
             })
 
             const postBounce = async ({
@@ -481,7 +484,6 @@ describe('EmailTrackingService', () => {
                 ['reports a message delivered after its workflow was deleted', 'deleted workflow', 1, true],
                 ['does not report a delivered hog function message', 'hog function', undefined, false],
             ] as const)('%s as a workflows activation step', async (_name, sender, workflowVersion, reported) => {
-                const reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
                 const functionId = await senderFunctionId(sender)
                 const trackingCode = signer.generate({ functionId, id: invocationId, teamId: team.id, workflowVersion })
                 const sesRecord = {
@@ -518,7 +520,6 @@ describe('EmailTrackingService', () => {
                         ? [[team.id, 'workflows message delivered', { channel: 'email', workflow_id: functionId }]]
                         : []
                 )
-                reportSpy.mockRestore()
             })
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {
