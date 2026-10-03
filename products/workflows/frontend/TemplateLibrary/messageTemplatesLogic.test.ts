@@ -43,9 +43,11 @@ describe('messageTemplatesLogic', () => {
         const logic = messageTemplatesLogic()
         logic.mount()
 
-        await expectLogic(logic, () => logic.actions.duplicateTemplate(listTemplate)).toDispatchActions([
+        await expectLogic(logic).toDispatchActions(['loadTemplatesSuccess'])
+        await expectLogic(logic, () => logic.actions.duplicateTemplate(logic.values.templates[0])).toDispatchActions([
             'duplicateTemplateSuccess',
         ])
+        expect(api.messaging.getTemplate).toHaveBeenCalledWith(listTemplate.id)
         expect(createTemplate).toHaveBeenCalledWith(
             expect.objectContaining({ name: 'Welcome (copy)', content: fullTemplate.content })
         )

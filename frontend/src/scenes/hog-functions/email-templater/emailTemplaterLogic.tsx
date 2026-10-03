@@ -981,7 +981,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         actions.loadPersonPropertyDefinitions()
     }),
 
-    beforeUnmount(({ props, values }) => {
+    beforeUnmount(({ props, values, cache }) => {
+        cache.pickTemplateRequestId = (cache.pickTemplateRequestId ?? 0) + 1
         // An unmount while open (switching nodes, closing the step panel) skips the close action,
         // and the node URL sync preserves foreign search params - so strip ours here, or the next
         // email editor to mount would read the lingering param and auto-open.

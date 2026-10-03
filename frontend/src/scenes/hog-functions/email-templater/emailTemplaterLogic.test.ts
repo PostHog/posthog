@@ -721,6 +721,27 @@ describe('emailTemplaterLogic', () => {
             expect(logic.values.appliedTemplate).toBeNull()
         })
 
+        it('ignores a template response after the editor unmounts', async () => {
+            const template = { id: 'template-1', name: 'Welcome' } as MessageTemplateListApi
+            let resolveRequest!: (template: MessageTemplate) => void
+            jest.spyOn(api.messaging, 'getTemplate').mockReturnValue(
+                new Promise<MessageTemplate>((resolve) => {
+                    resolveRequest = resolve
+                })
+            )
+            const props = makeProps()
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            logic.actions.pickTemplate(template)
+            logic.unmount()
+            resolveRequest({ content: { email: DEFAULT_EMAIL_TEMPLATE } } as MessageTemplate)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(props.onChange).not.toHaveBeenCalled()
+        })
+
         it('ignores an older template request after a newer selection succeeds', async () => {
             const listTemplate = (id: string): MessageTemplateListApi =>
                 ({
