@@ -9,6 +9,7 @@ from products.workflows.backend.services.brand_detection.tailwind_palette import
 ResolveVariable = Callable[[str], str | None]
 
 MAX_VARIABLE_DEPTH = 6
+MAX_COLOR_EXPRESSION_LENGTH = 120
 
 NAMED_COLORS = {
     "white": "#ffffff",
@@ -34,8 +35,10 @@ ALPHA_SUFFIX = re.compile(r"\s*/\s*[\d.]+%?\s*$")
 
 def resolve_color(raw: str, resolve_variable: ResolveVariable, depth: int = 0) -> str | None:
     """Convert a CSS or SCSS color expression to #rrggbb, following variables through ``resolve_variable``."""
+    if depth > MAX_VARIABLE_DEPTH or len(raw) > MAX_COLOR_EXPRESSION_LENGTH:
+        return None
     value = _strip_value(raw)
-    if depth > MAX_VARIABLE_DEPTH or not value:
+    if not value:
         return None
     if (literal := literal_color(value)) is not None:
         return literal
@@ -62,6 +65,8 @@ def resolve_color(raw: str, resolve_variable: ResolveVariable, depth: int = 0) -
 
 
 def literal_color(value: str) -> str | None:
+    if len(value) > MAX_COLOR_EXPRESSION_LENGTH:
+        return None
     try:
         if match := HEX.fullmatch(value):
             return _hex(match.group(1))
@@ -73,7 +78,7 @@ def literal_color(value: str) -> str | None:
             return _Rgb(
                 red=int(match.group(1)) / 255, green=int(match.group(2)) / 255, blue=int(match.group(3)) / 255
             ).hex()
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, OverflowError):
         return None
     return NAMED_COLORS.get(value.lower())
 

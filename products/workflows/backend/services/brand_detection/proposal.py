@@ -61,7 +61,8 @@ GENERIC_NAMES = frozenset(
     {"web", "app", "www", "frontend", "client", "dashboard", "root", "monorepo", "main", "site", "platform", "ui"}
 )
 NOISY_TITLE = re.compile(
-    r"^(?:sign in|sign up|log in|login|loading|home|untitled|404|create next app|react app|vite)\b", re.IGNORECASE
+    r"^(?:sign in|sign up|log in|login|loading|home|untitled|404|create next app|create react app|react app|vite)\b",
+    re.IGNORECASE,
 )
 TITLE_SEPARATOR = re.compile(r"\s+[|\-–—:·]\s+")
 
@@ -140,7 +141,7 @@ def _clean_name(signal: Signal) -> str | None:
     if signal.kind in (SignalKind.METADATA_TITLE, SignalKind.HTML_TITLE):
         title = TITLE_SEPARATOR.split(signal.value)[0].strip()
         return None if NOISY_TITLE.match(title) or not title else title
-    return signal.value
+    return None if NOISY_TITLE.match(signal.value) else signal.value
 
 
 def _title_case_slug(slug: str) -> str:

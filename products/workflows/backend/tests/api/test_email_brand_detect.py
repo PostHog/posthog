@@ -226,6 +226,35 @@ class TestEmailBrandDetectAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert response.json()["code"] == expected_code
 
+    def test_reports_a_github_server_error_without_retrying_past_the_time_budget(self, _flag):
+        self.github.status_overrides = {"/git/blobs/": 502}
+
+        response = self._detect(repository="acme/acme-web")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
+        assert response.json()["code"] == "github_busy"
+        assert self.github.blob_reads() == 1
+
+    def test_does_not_reuse_a_detection_that_ran_out_of_time(self, _flag):
+        with patch("products.workflows.backend.services.email_brand_detection.DETECTION_BUDGET_SECONDS", -1):
+            partial = self._detect(repository="acme/acme-web").json()
+        assert partial["files_read"] == []
+        requests_after_partial = len(self.github.calls)
+
+        complete = self._detect(repository="acme/acme-web").json()
+
+        assert len(self.github.calls) > requests_after_partial
+        assert complete["proposal"]["primary_color"]["value"] == "#5c37f1"
+
+    def test_proposes_nothing_for_an_empty_repository(self, _flag):
+        self.github.status_overrides = {"/git/trees/": 409}
+
+        response = self._detect(repository="acme/acme-web")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["files_read"] == []
+        assert response.json()["proposal"]["primary_color"] is None
+
     def test_only_reads_through_a_github_integration_of_the_project(self, _flag):
         foreign_team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
         self.integration = self._github_integration(foreign_team)
@@ -244,7 +273,7 @@ class TestEmailBrandDetectAPI(APIBaseTest):
             ("app root outside the repository", "acme/platform", "app_root"),
         ]
     )
-    def test_rejects_targets_outside_the_repository_without_calling_github(self, _flag, _name, repository, attr):
+    def test_rejects_targets_outside_the_repository_without_reading_files(self, _flag, _name, repository, attr):
         response = self._detect(repository=repository, app_root="apps/missing")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

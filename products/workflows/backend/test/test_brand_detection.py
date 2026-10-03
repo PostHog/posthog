@@ -1,4 +1,5 @@
 import json
+import time
 import random
 
 import pytest
@@ -11,6 +12,7 @@ from products.workflows.backend.services.brand_detection.detector import (
     UnknownAppRoot,
     detect_brand,
 )
+from products.workflows.backend.services.brand_detection.files import MAX_FILE_BYTES
 
 
 def detect(files: dict[str, str], *, app_root: str | None = None, repository: str = "acme/acme-web") -> BrandDetection:
@@ -152,6 +154,20 @@ class TestBrandColors:
         assert detection.proposal.primary_color is not None
         assert detection.proposal.primary_color.value == expected
 
+    @parameterized.expand(
+        [
+            ("rgb channel beyond float range", "rgb(1e309 0 0)"),
+            ("oklch lightness beyond float range", "oklch(1e200 0 0)"),
+            ("hsl with a missing channel", "hsl(120, 50%)"),
+            ("hex of odd length", "#12345"),
+        ]
+    )
+    def test_skips_a_malformed_color_instead_of_failing(self, _name, expression):
+        detection = detect({"app/globals.css": css_root(f"--brand: {expression}", "--primary: #2563eb")})
+
+        assert detection.proposal.primary_color is not None
+        assert detection.proposal.primary_color.value == "#2563eb"
+
     def test_never_proposes_a_near_white_theme_color_as_primary(self):
         detection = detect(
             {
@@ -289,6 +305,25 @@ class TestBrandName:
                 "package.json",
             ),
             (
+                "scaffold manifest names are ignored",
+                {
+                    "public/manifest.json": json.dumps({"name": "Create React App Sample", "short_name": "React App"}),
+                    "package.json": json.dumps({"name": "globex-dashboard"}),
+                },
+                "Globex Dashboard",
+                "package.json",
+            ),
+            (
+                "names that are not valid unicode are ignored",
+                {
+                    "public/manifest.json": '{"name": "\\ud800"}',
+                    "package.json": '{"name": "\\udfff-web"}',
+                    "app/layout.tsx": "export const metadata = { title: 'Globex' }",
+                },
+                "Globex",
+                "app/layout.tsx",
+            ),
+            (
                 "generic package name is ignored",
                 {"package.json": json.dumps({"name": "@acme/web"})},
                 "Acme Web",
@@ -383,11 +418,46 @@ class TestAppRoot:
         with pytest.raises(UnknownAppRoot):
             detect(self.MONOREPO, app_root="apps/missing")
 
-    def test_reads_at_most_fifteen_files(self):
-        files = {f"src/styles/theme-{index:02}.css": css_root(f"--brand: #e5484{index % 10}") for index in range(30)}
-        files.update({f"public/manifest-{index}.json": "{}" for index in range(5)})
+    def test_reads_at_most_fifteen_files_when_every_kind_has_candidates(self):
+        files = {
+            **{f"src/{index}/package.json": "{}" for index in range(3)},
+            **{f"src/{index}/manifest.json": "{}" for index in range(3)},
+            **{f"src/{index}/tailwind.config.js": "" for index in range(3)},
+            **{f"src/{index}/index.html": "" for index in range(4)},
+            **{f"src/{index}/globals.css": "" for index in range(6)},
+            **{f"src/{index}/theme.ts": "" for index in range(3)},
+            **{f"public/{index}/logo.svg": "<svg/>" for index in range(2)},
+        }
 
-        assert len(detect(files).files_read) <= 15
+        assert len(detect(files).files_read) == 15
+
+
+class TestHostileContent:
+    LARGEST_READ_FILE = MAX_FILE_BYTES - 64
+    PARSE_SECONDS_LIMIT = 2.0
+
+    @parameterized.expand(
+        [
+            ("hyphen run in a comment", "app/globals.css", "/* ", "-", " */"),
+            ("custom properties without a semicolon", "app/globals.css", "", "--a:b ", ""),
+            ("unclosed dark blocks", "app/globals.css", "", ".dark {", ""),
+            ("body selectors without a block", "app/globals.css", "", "body,", ""),
+            ("one declaration per line", "app/globals.css", ":root {\n", "--a: #e5484d;\n", "}"),
+            ("deeply nested json", "package.json", "", "[", ""),
+            ("manifest color padded with spaces", "public/manifest.json", '{"theme_color": "rgb(0 0 0', " ", 'x)"}'),
+            ("unclosed font imports", "app/layout.tsx", "", "import {", ""),
+            ("theme-color metas without an end", "index.html", "", '<meta name="theme-color" ', ""),
+            ("unclosed rgb fills", "public/logo.svg", "<svg>", "fill=rgb(", "</svg>"),
+        ]
+    )
+    def test_parses_a_hostile_file_of_the_largest_read_size_quickly(self, _name, path, prefix, unit, suffix):
+        repeats = (self.LARGEST_READ_FILE - len(prefix) - len(suffix)) // len(unit)
+        text = prefix + unit * repeats + suffix
+
+        started = time.monotonic()
+        detect({path: text})
+
+        assert time.monotonic() - started < self.PARSE_SECONDS_LIMIT
 
 
 class TestDeterminism:

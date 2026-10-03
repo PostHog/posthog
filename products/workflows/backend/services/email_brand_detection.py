@@ -17,6 +17,7 @@ DETECTION_BUDGET_SECONDS = 15
 CACHE_TTL_SECONDS = 10 * 60
 CACHE_VERSION = 1
 UNREADABLE_STATUS_CODES = (403, 404)
+EMPTY_REPOSITORY_STATUS_CODE = 409
 
 
 class GitHubBusy(Exception):
@@ -38,13 +39,14 @@ def detect_repository_brand(
     key = _cache_key(team_id=team_id, integration_id=integration.id, repository=repository, app_root=app_root)
     if not refresh and (cached := cache.get(key)) is not None:
         return cached
-    detection = _detect(integration, repository, app_root)
-    cache.set(key, detection, CACHE_TTL_SECONDS)
+    reader = _RepositoryReader(integration, repository)
+    detection = _detect(reader, repository, app_root)
+    if not reader.ran_out_of_time:
+        cache.set(key, detection, CACHE_TTL_SECONDS)
     return detection
 
 
-def _detect(integration: Integration, repository: str, app_root: str | None) -> BrandDetection:
-    reader = _RepositoryReader(integration, repository)
+def _detect(reader: "_RepositoryReader", repository: str, app_root: str | None) -> BrandDetection:
     try:
         tree = reader.tree()
         return detect_brand(repository_name=repository, tree=tree, read_text=reader.read_text, app_root=app_root)
@@ -60,6 +62,7 @@ class _RepositoryReader:
         self._repository = repository
         self._deadline = time.monotonic() + DETECTION_BUDGET_SECONDS
         self._blob_shas: dict[str, str] = {}
+        self.ran_out_of_time = False
 
     def tree(self) -> list[TreeEntry]:
         default_branch = self._get_json(f"/repos/{self._repository}", endpoint="/repos/{owner}/{repo}")[
@@ -69,6 +72,7 @@ class _RepositoryReader:
             f"/repos/{self._repository}/git/trees/{quote(default_branch, safe='/')}",
             endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
             params={"recursive": 1},
+            empty_on_status=EMPTY_REPOSITORY_STATUS_CODE,
         )
         blobs = [entry for entry in tree.get("tree", []) if isinstance(entry, dict) and entry.get("type") == "blob"]
         self._blob_shas = {entry["path"]: entry["sha"] for entry in blobs}
@@ -76,6 +80,7 @@ class _RepositoryReader:
 
     def read_text(self, path: str) -> str | None:
         if time.monotonic() > self._deadline:
+            self.ran_out_of_time = True
             return None
         response = self._github.api_request(
             "GET",
@@ -83,12 +88,24 @@ class _RepositoryReader:
             endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}",
             headers={"Accept": "application/vnd.github.raw+json"},
             timeout=self._call_timeout(),
+            retry_transient=False,
         )
         self._raise_for_status(response.status_code)
         return response.content.decode("utf-8", errors="replace")
 
-    def _get_json(self, path: str, *, endpoint: str, params: dict[str, str | int] | None = None) -> dict:
-        response = self._github.api_request("GET", path, endpoint=endpoint, params=params, timeout=self._call_timeout())
+    def _get_json(
+        self,
+        path: str,
+        *,
+        endpoint: str,
+        params: dict[str, str | int] | None = None,
+        empty_on_status: int | None = None,
+    ) -> dict:
+        response = self._github.api_request(
+            "GET", path, endpoint=endpoint, params=params, timeout=self._call_timeout(), retry_transient=False
+        )
+        if response.status_code == empty_on_status:
+            return {}
         self._raise_for_status(response.status_code)
         return response.json()
 
@@ -104,7 +121,7 @@ class _RepositoryReader:
 
 
 def _cache_key(*, team_id: int, integration_id: int, repository: str, app_root: str | None) -> str:
-    root = "auto" if app_root is None else app_root.strip("/")
+    root = "auto" if app_root is None else f"path:{app_root.strip().strip('/')}"
     return (
         f"workflows_email_brand_detection:v{CACHE_VERSION}:team:{team_id}:integration:{integration_id}"
         f":repo:{repository.lower()}:root:{root}"
