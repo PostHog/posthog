@@ -2,10 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 
-import { urls } from 'scenes/urls'
-
 import { useMocks } from '~/mocks/jest'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { WorkflowSendingLimitsApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -51,7 +48,7 @@ describe('SendingLimitsBanner', () => {
             banner: 'workflows-email-quota-limited-banner',
             text: 'Workflows and broadcasts that send email do not run',
             link: 'Manage billing',
-            href: urls.organizationBilling([ProductKey.WORKFLOWS]),
+            href: '/organization/billing?products=workflows_emails',
         },
         {
             name: 'the destination quota',
@@ -59,7 +56,7 @@ describe('SendingLimitsBanner', () => {
             banner: 'workflows-destination-quota-limited-banner',
             text: 'Workflows with a destination or push step do not run',
             link: 'Manage billing',
-            href: urls.organizationBilling([ProductKey.WORKFLOWS]),
+            href: '/organization/billing?products=workflows_emails',
         },
         {
             name: 'the daily email cap',

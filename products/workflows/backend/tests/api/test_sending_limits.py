@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -43,13 +43,8 @@ class TestSendingLimitsAPI(APIBaseTest):
         until = int(timezone.now().timestamp()) + until_offset_seconds
         replace_limited_team_tokens(resource, {self.team.api_token: until}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
-    def _get(self, emails_sent_last_day: int = 0, **request_kwargs) -> dict:
-        response = self._get_response(emails_sent_last_day, **request_kwargs)
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        return response.json()
-
-    def _get_response(self, emails_sent_last_day: int = 0, **request_kwargs):
-        def sends_in_window(after, **_kwargs):
+    def _get(self, emails_sent_last_day: int = 0, headers: dict[str, str] | None = None) -> dict[str, object]:
+        def sends_in_window(after: datetime, **_kwargs: object) -> dict[int, dict[str, dict[str, int]]]:
             # The hourly window must not be mistaken for the daily one, so it reports a different count.
             daily_window = after <= timezone.now() - timedelta(days=1)
             count = emails_sent_last_day if daily_window else 1
@@ -59,7 +54,9 @@ class TestSendingLimitsAPI(APIBaseTest):
             "products.workflows.backend.services.email_sending_allowance.fetch_app_metric_totals_by_team_and_source",
             side_effect=lambda **kwargs: sends_in_window(**kwargs),
         ):
-            return self.client.get(f"/api/projects/{self.team.id}/hog_flows/sending_limits/", **request_kwargs)
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/sending_limits/", headers=headers)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
 
     def test_nothing_limited_by_default(self) -> None:
         assert self._get() == {
@@ -121,7 +118,7 @@ class TestSendingLimitsAPI(APIBaseTest):
         key = self.create_personal_api_key_with_scopes(["hog_flow:read"])
         self.client.logout()
 
-        data = self._get(HTTP_AUTHORIZATION=f"Bearer {key}")
+        data = self._get(headers={"Authorization": f"Bearer {key}"})
 
         assert data["email_quota_limited"] is False
 

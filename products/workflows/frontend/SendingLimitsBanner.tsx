@@ -9,6 +9,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { workflowsSendingLimitsLogic } from './workflowsSendingLimitsLogic'
 
+// The billing page scrolls to the product whose billing type matches, and Workflows bills as `workflows_emails`.
+const WORKFLOWS_BILLING_PRODUCT = 'workflows_emails' as ProductKey
+
 export function SendingLimitsBanner({
     sendingAllowanceUrl,
 }: {
@@ -21,7 +24,7 @@ export function SendingLimitsBanner({
         return null
     }
 
-    const manageBilling = { children: 'Manage billing', to: urls.organizationBilling([ProductKey.WORKFLOWS]) }
+    const manageBilling = { children: 'Manage billing', to: urls.organizationBilling([WORKFLOWS_BILLING_PRODUCT]) }
 
     // LemonBanner drops unknown props, so each data-attr sits on a wrapper.
     return (

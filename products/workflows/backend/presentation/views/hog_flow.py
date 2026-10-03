@@ -7138,6 +7138,7 @@ class HogFlowViewSet(
         everyone's sends, so hiding it would leave silent send failures unexplained. The daily cap
         shares `team_reputation`'s gate on the sending allowance, because it reveals project-wide usage.
         """
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
         can_read_all_workflows = self.user_access_control.check_access_level_for_resource("hog_flow", "viewer")
         limits = get_team_sending_limits(self.team, include_daily_email_cap=can_read_all_workflows)
         return Response(WorkflowSendingLimitsSerializer(limits).data)
