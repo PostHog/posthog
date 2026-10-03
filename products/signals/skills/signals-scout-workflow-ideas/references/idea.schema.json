@@ -45,6 +45,11 @@
             "maxLength": 200,
             "description": "The project's own event or action name, copied exactly, or the cadence for a schedule."
         },
+        "trigger_verified_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Times this event fired in the project over the window, read from the project before naming it. Required for an event trigger: an event you cannot count does not exist here, and the idea is not recordable."
+        },
         "message_outline": {
             "type": "string",
             "maxLength": 1200,
@@ -78,5 +83,16 @@
             "maxLength": 600,
             "description": "What in the data makes this worth doing now rather than any other week."
         }
+    },
+    "if": {
+        "properties": {
+            "trigger_kind": {
+                "const": "event"
+            }
+        },
+        "required": ["trigger_kind"]
+    },
+    "then": {
+        "required": ["trigger_verified_count"]
     }
 }

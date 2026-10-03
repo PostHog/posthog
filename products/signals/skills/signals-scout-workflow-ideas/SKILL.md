@@ -85,13 +85,18 @@ Work from the project's own data, never from what a project like this usually do
 Copy every event, action and cohort name exactly as the project spells it.
 An invented event name is the failure mode here: it makes an idea look checkable when it is not, and it is the one error a reader cannot catch without re-deriving your work.
 
+So count it before you name it.
+Query how many times the event fired over your window and send that as `trigger_verified_count`.
+The record refuses an event trigger without one, and refuses a zero, so a name you cannot count is a name you cannot use.
+This is deliberately not `reach_people`: the count proves the event is real and fires, while reach is the audience left after your filter, and the two differ by exactly the thing that makes the idea interesting.
+
 ### Decide
 
 Record an idea when all of these hold:
 
 - No live workflow already messages this audience at this moment, or one does and misses part of it.
   Say which, in `existing_coverage` and `covered_by`.
-- The trigger is a real name you read from this project, and you can state the audience as something the project can filter on.
+- The trigger is a real name you read from this project, counted rather than recognised, and you can state the audience as something the project can filter on.
 - Reach clears a floor you can defend.
   Under about 50 distinct people in the window, the idea costs more to review than it can return, whatever it is.
 - You can write what the message says and what it asks for.
@@ -140,7 +145,8 @@ Do not record an idea when:
 
 - A live workflow already covers it.
   Note it as `covered:` and move on.
-- You cannot name the trigger exactly as this project spells it.
+- You cannot name the trigger exactly as this project spells it, or it counts zero over your window.
+  A moment the project never records is not a moment it has.
 - The message would be transactional or legally required, such as a receipt, a password reset or a breach notice.
   Those are engineering work, not a workflow somebody chose to send.
 - You already recorded it.
