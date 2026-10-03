@@ -818,6 +818,47 @@ class TestEmailIntegration:
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
 
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_editing_the_label_shares_it_when_the_flag_is_on_for_the_requesting_user(
+        self, _mock_update_mail_from_subdomain, client: HttpClient
+    ):
+        admin = User.objects.create_and_join(
+            self.organization, "admin@example.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        edited, sibling = (
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": "example.com", "mail_from_subdomain": "feedback", "provider": "ses"},
+            )
+            for email in ["edited@example.com", "sibling@example.com"]
+        )
+        client.force_login(admin)
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, **_kwargs: (
+                key == "workflows-email-domain-agent-setup" and distinct_id == admin.distinct_id
+            ),
+        ):
+            response = client.patch(
+                f"/api/environments/{self.team.pk}/integrations/{edited.pk}/email",
+                {
+                    "config": {
+                        "email": "edited@example.com",
+                        "name": "Edited",
+                        "provider": "ses",
+                        "mail_from_subdomain": "bounce",
+                    }
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sibling.refresh_from_db()
+        assert sibling.config["mail_from_subdomain"] == "bounce"
+
 
 class TestDatabricksIntegration:
     @pytest.fixture(autouse=True)

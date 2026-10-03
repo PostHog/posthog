@@ -2705,7 +2705,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("This endpoint is only supported for email integrations")
-        return EmailIntegration(instance)
+        return EmailIntegration(instance, acting_user=cast(User, self.request.user))
 
     @validated_request(
         query_serializer=DomainConnectCheckQuerySerializer,
@@ -2748,7 +2748,7 @@ class IntegrationViewSet(
         if context == "email":
             integration_id = data["integration_id"]
             try:
-                resolved = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(integration_id, self.team_id, acting_user=cast(User, request.user))
             except Integration.DoesNotExist:
                 raise NotFound("No email sender with this integration_id exists in this project.")
             except ValueError as e:
