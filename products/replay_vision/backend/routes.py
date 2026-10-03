@@ -4,6 +4,7 @@ from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
     ReplayScannerBackfillViewSet,
     ReplayScannerPromptSuggestionViewSet,
+    ReplayScannerVariantsViewSet,
     ReplayScannerViewSet,
     ScannerScoutReportViewSet,
     ScannerScoutViewSet,
@@ -34,6 +35,9 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     project_vision_scanners_router.register(
         r"backfills", ReplayScannerBackfillViewSet, "project_vision_scanner_backfills", ["team_id", "scanner_id"]
+    )
+    project_vision_scanners_router.register(
+        r"variants", ReplayScannerVariantsViewSet, "project_vision_scanner_variants", ["team_id", "scanner_id"]
     )
     project_vision_scanners_router.register(
         r"prompt_suggestions",
