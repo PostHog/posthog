@@ -3786,6 +3786,7 @@ class WorkflowProposalSerializer(serializers.ModelSerializer):
             "resolved_at",
             "resolved_by",
             "applied_version",
+            "rejection_reason",
         ]
         read_only_fields = fields
 
@@ -3927,7 +3928,15 @@ class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
 
 
 class WorkflowProposalRejectRequestSerializer(serializers.Serializer):
-    """Rejecting takes no body today. The serializer stays so a reason can be added without a new endpoint."""
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text=(
+            "Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads "
+            "it before suggesting again, so a reason stops the same idea coming back in other words."
+        ),
+    )
 
 
 def _flatten_graph_errors(error: serializers.ValidationError) -> list[str]:
@@ -6045,9 +6054,14 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(
                     {"status": f"Must be one of: {', '.join(WorkflowProposal.Status.values)}."}
                 )
-            # Applied ones order by the version that shipped them; the rest read as a queue, newest first.
-            applied_only = requested_status == WorkflowProposal.Status.APPLIED
-            ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
+            # Applied ones order by the version that shipped them and rejected ones by when they were rejected,
+            # since either can happen long after filing; the rest read as a queue, newest first.
+            if requested_status == WorkflowProposal.Status.APPLIED:
+                ordering: tuple[str, ...] = ("-applied_version", "-created_at")
+            elif requested_status == WorkflowProposal.Status.REJECTED:
+                ordering = ("-resolved_at", "-created_at")
+            else:
+                ordering = ("-created_at",)
             queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
             if requested_status:
                 queryset = queryset.filter(status=requested_status)
@@ -6519,7 +6533,8 @@ class HogFlowViewSet(
             locked_proposal.status = WorkflowProposal.Status.REJECTED
             locked_proposal.resolved_at = timezone.now()
             locked_proposal.resolved_by = request.user if request.user.is_authenticated else None
-            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+            locked_proposal.rejection_reason = param_serializer.validated_data.get("reason", "").strip()
+            locked_proposal.save(update_fields=["status", "resolved_at", "resolved_by", "rejection_reason"])
 
         log_activity_from_viewset(self, instance, activity="proposal_rejected", name=instance.name)
         self._report_workflow_action("hog_flow_proposal_rejected", instance, {"proposal_id": str(locked_proposal.id)})
