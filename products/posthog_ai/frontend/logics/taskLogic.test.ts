@@ -94,6 +94,58 @@ describe('taskLogic', () => {
         })
     })
 
+    describe('loadTask retries', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it('retries a server error and shows the task once a retry succeeds', async () => {
+            jest.useFakeTimers()
+            const get = jest
+                .spyOn(api.tasks, 'get')
+                .mockRejectedValueOnce(new ApiError('API request failed with status: 503', 503))
+                .mockResolvedValueOnce(createMockTask('task-123'))
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadTask()
+            await jest.advanceTimersByTimeAsync(1000)
+
+            expect(get).toHaveBeenCalledTimes(2)
+            expect(logic.values.task?.id).toBe('task-123')
+            expect(logic.values.taskError).toBe(null)
+        })
+
+        it.each([
+            ['a deleted task', new ApiError('This task was removed.', 404, undefined, { code: 'task_deleted' }), true],
+            ['a task that is not shared', new ApiError('Not found', 404), false],
+        ])('does not retry %s', async (_name, error, deleted) => {
+            const get = jest.spyOn(api.tasks, 'get').mockRejectedValue(error)
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadTask()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(get).toHaveBeenCalledTimes(1)
+            expect(logic.values.taskNotFound).toBe(true)
+            expect(logic.values.taskDeleted).toBe(deleted)
+        })
+
+        it('replaces raw status text with plain copy once the retries run out', async () => {
+            jest.useFakeTimers()
+            jest.spyOn(api.tasks, 'get').mockRejectedValue(new ApiError('API request failed with status: 500', 500))
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.loadTask()
+            await jest.advanceTimersByTimeAsync(4000)
+
+            expect(logic.values.taskError).toBe('Something went wrong on our side. Wait a moment, then select Retry.')
+        })
+    })
+
     describe('runTaskFailure', () => {
         it('surfaces the error and clears the in-flight state so the button is clickable again', async () => {
             logic = taskLogic({ taskId: 'task-123' })

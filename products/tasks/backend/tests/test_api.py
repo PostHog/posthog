@@ -399,12 +399,16 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         titles = sorted(task["title"] for task in response.json()["results"])
         self.assertEqual(titles, ["Legacy", "Mine"])
 
-    def test_retrieve_other_user_task_returns_404(self):
+    @parameterized.expand([("live", False), ("deleted", True)])
+    def test_retrieve_other_user_task_returns_404(self, _name, deleted):
         other_user = self.create_organization_user("victim")
         task = self.create_task(created_by=other_user)
+        if deleted:
+            task.soft_delete()
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["code"], "not_found")
 
     def test_retrieve_legacy_unowned_task_is_visible(self):
         task = self._create_legacy_task()
@@ -5517,6 +5521,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["code"], "task_deleted")
 
     @parameterized.expand(
         [
