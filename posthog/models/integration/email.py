@@ -1,10 +1,11 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.dispatch import receiver
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
@@ -36,9 +37,16 @@ class EmailIntegration:
     def create_native_integration(
         cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
     ) -> model.Integration:
+        with cls._exclusive_domain_access(cls._email_domain(config["email"])):
+            return cls._create_native_integration(config, team_id, organization_id, created_by)
+
+    @classmethod
+    def _create_native_integration(
+        cls, config: dict, team_id: int, organization_id: str, created_by: User | None
+    ) -> model.Integration:
         email_address: str = config["email"].lower()
         name: str = config["name"]
-        domain: str = email_address.split("@")[1]
+        domain: str = cls._email_domain(email_address)
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
@@ -99,6 +107,18 @@ class EmailIntegration:
         return integration
 
     @staticmethod
+    def _email_domain(email_address: str) -> str:
+        return email_address.lower().split("@")[1]
+
+    @staticmethod
+    @contextmanager
+    def _exclusive_domain_access(domain: str) -> Iterator[None]:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"email-domain:{domain}"])
+            yield
+
+    @staticmethod
     def _domain_wide_mail_from_subdomain(
         domain: str, requested_subdomain: str | None, same_domain_integrations: Iterable[model.Integration]
     ) -> str:
@@ -111,23 +131,29 @@ class EmailIntegration:
         if len(domain_subdomains) > 1:
             raise ValidationError(
                 f"Senders on {domain} use different MAIL FROM subdomains. "
-                "Ask a project admin to set one on an existing sender, then add this sender."
+                f"Open an existing sender on {domain} in any project of this organization and save the subdomain you want. "
+                "Then add this sender."
             )
         domain_subdomain = domain_subdomains.pop()
         if requested_subdomain and requested_subdomain != domain_subdomain:
             raise ValidationError(
                 f"{domain} already uses the MAIL FROM subdomain '{domain_subdomain}'. "
-                f"Use '{domain_subdomain}' for this sender, or ask a project admin to change it on an existing sender."
+                f"Use '{domain_subdomain}' for this sender. To change it for every sender on {domain}, edit an existing sender."
             )
         return domain_subdomain
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
+        with self._exclusive_domain_access(self.integration.config["domain"]):
+            self.integration.refresh_from_db(fields=["config"])
+            return self._update_native_integration(config)
+
+    def _update_native_integration(self, config: dict) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated
         name: str = config.get("name", self.integration.config.get("name"))
-        mail_from_subdomain: str = config.get(
-            "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
+        mail_from_subdomain: str = config.get("mail_from_subdomain") or self.integration.config.get(
+            "mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN
         )
 
         # Update domain in the appropriate provider
@@ -164,6 +190,11 @@ class EmailIntegration:
             sender.save(update_fields=["config"])
 
     def verify(self) -> "EmailDomainVerification":
+        with self._exclusive_domain_access(self.integration.config["domain"]):
+            self.integration.refresh_from_db(fields=["config"])
+            return self._verify()
+
+    def _verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", DEFAULT_MAIL_FROM_SUBDOMAIN)
@@ -202,8 +233,9 @@ class EmailIntegration:
                 integration.config["verified"] = True
                 integration.save()
 
-            reload_integrations_on_workers(
-                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
+            verified_integration_ids = [integration.id for integration in all_integrations_for_domain]
+            transaction.on_commit(
+                lambda: reload_integrations_on_workers(self.integration.team_id, verified_integration_ids)
             )
 
         return verification_result

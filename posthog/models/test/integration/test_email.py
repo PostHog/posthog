@@ -133,14 +133,15 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 config={
                     "email": email,
                     "domain": email.split("@")[1],
-                    "mail_from_subdomain": "feedback",
+                    "mail_from_subdomain": label,
                     "provider": "ses",
                 },
             )
-            for team, email in [
-                (self.team, "edited@example.com"),
-                (other_team, "sibling@example.com"),
-                (self.team, "unrelated@other.com"),
+            for team, email, label in [
+                (self.team, "edited@example.com", "feedback"),
+                (self.team, "teammate@example.com", "feedback"),
+                (other_team, "sibling@example.com", "returns"),
+                (self.team, "unrelated@other.com", "feedback"),
             ]
         }
 
@@ -150,13 +151,36 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 
         verified_labels = {}
         for email, sender in senders.items():
-            EmailIntegration(Integration.objects.get(pk=sender.pk)).verify()
+            EmailIntegration(sender).verify()
             verified_labels[email] = mock_verify_email_domain.call_args.kwargs["mail_from_subdomain"]
         assert verified_labels == {
             "edited@example.com": "bounce",
+            "teammate@example.com": "bounce",
             "sibling@example.com": "bounce",
             "unrelated@other.com": "feedback",
         }
+
+    @parameterized.expand([("label_omitted", {"name": "Renamed"}), ("label_cleared", {"mail_from_subdomain": ""})])
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_editing_a_sender_without_a_label_keeps_the_current_domain_label(
+        self, _name, edit, mock_update_mail_from_subdomain
+    ):
+        senders = [
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": "example.com", "mail_from_subdomain": "feedback", "provider": "ses"},
+            )
+            for email in ["renamed@example.com", "relabeled@example.com"]
+        ]
+        renamed_as_loaded = EmailIntegration(Integration.objects.get(pk=senders[0].pk))
+
+        EmailIntegration(senders[1]).update_native_integration({"mail_from_subdomain": "bounce"}, team_id=self.team.id)
+        renamed_as_loaded.update_native_integration(edit, team_id=self.team.id)
+
+        assert mock_update_mail_from_subdomain.call_args.kwargs["mail_from_subdomain"] == "bounce"
+        assert Integration.objects.get(pk=senders[1].pk).config["mail_from_subdomain"] == "bounce"
 
     def test_unsupported_email_domain(self):
         # Test with a free email domain
