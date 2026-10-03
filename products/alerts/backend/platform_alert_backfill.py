@@ -35,6 +35,7 @@ class BackfillCounts:
     created: int
     updated: int
     skipped: int
+    failed: int
 
 
 def _upsert(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
@@ -79,17 +80,30 @@ def backfill_platform_insight_alert_configurations(*, team_id: int | None = None
     created = 0
     updated = 0
     skipped = 0
+    failed = 0
     for alert in source.iterator():
         upsert = _upsert(alert)
         if upsert is None:
             skipped += 1
             continue
-        if upsert_configuration(upsert):
+        # One alert the copy rejects, such as a start time it cannot parse, must not stop the rest.
+        try:
+            was_created = upsert_configuration(upsert)
+        except Exception:
+            logger.exception("platform_insight_alert_backfill.failed", alert_id=str(alert.id), team_id=alert.team_id)
+            failed += 1
+            continue
+        if was_created:
             created += 1
         else:
             updated += 1
 
     logger.info(
-        "platform_insight_alert_backfill.complete", created=created, updated=updated, skipped=skipped, team_id=team_id
+        "platform_insight_alert_backfill.complete",
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        failed=failed,
+        team_id=team_id,
     )
-    return BackfillCounts(created=created, updated=updated, skipped=skipped)
+    return BackfillCounts(created=created, updated=updated, skipped=skipped, failed=failed)

@@ -13,4 +13,6 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         counts = backfill_platform_insight_alert_configurations(team_id=options["team_id"])
-        self.stdout.write(f"Created {counts.created}, updated {counts.updated}, skipped {counts.skipped}")
+        self.stdout.write(
+            f"Created {counts.created}, updated {counts.updated}, skipped {counts.skipped}, failed {counts.failed}"
+        )

@@ -52,12 +52,14 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         daily = self._alert(schedule_start_time="09:30")
         self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
         self._alert(detector_config={"type": "zscore"})
+        unparseable = self._alert(schedule_start_time="25:99")
 
         counts = backfill_platform_insight_alert_configurations(team_id=self.team.id)
         again = backfill_platform_insight_alert_configurations(team_id=self.team.id)
 
-        assert (counts.created, counts.skipped, again.created, again.updated) == (2, 2, 0, 2)
+        assert (counts.created, counts.skipped, counts.failed, again.created, again.updated) == (2, 2, 1, 0, 2)
         copies = self._copies()
+        assert unparseable.id not in copies
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
             hourly.id: (60, None, None),
             daily.id: (60 * 24, "day", "09:30"),
