@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { urls } from 'scenes/urls'
 
@@ -100,7 +99,8 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                                 size="small"
                                 onClick={openLineageModal}
                                 tooltip="Fullscreen"
-                                icon={<IconFullScreen />}
+                                icon={<IconExpand45 />}
+                                data-attr="node-detail-lineage-fullscreen"
                             />
                         </div>
                     }
