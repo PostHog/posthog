@@ -95,7 +95,7 @@ export interface AICreditTopUpApi {
      * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
      */
     amount_usd: string
-    /** awaiting_tax while billing waits for tax on the invoice, paid once the card is charged, credited once the AI gateway wallet holds the credit, failed when the purchase stopped.
+    /** awaiting_tax while billing waits for tax on the invoice, paid once billing charges the card, credited once the AI gateway wallet holds the credit, failed when the purchase stopped.
      *
      * * `awaiting_tax` - Awaiting Tax
      * * `paid` - Paid

@@ -992,6 +992,7 @@ class BillingManager:
         res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/ai-credits",
             headers=self.get_auth_headers(organization),
+            timeout=30,
         )
         if res.status_code == 404:
             # A billing deployment without the AI credits routes cannot sell them.
@@ -1006,6 +1007,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/ai-credits/top-up",
             headers=self.get_auth_headers(organization),
             json=data,
+            timeout=30,
         )
         if res.status_code == 404:
             return {"status": "rejected", "reason": "not_available"}

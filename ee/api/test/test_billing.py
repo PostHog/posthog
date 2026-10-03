@@ -16,6 +16,7 @@ from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 import jwt
+import requests
 from asgiref.sync import async_to_sync
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
@@ -1286,11 +1287,17 @@ class TestAICreditsBillingAPI(APILicensedTest):
         assert response.json()["attr"] == "amount_usd"
         assert "(10, 25)" not in response.content.decode()
 
-    @patch("ee.billing.billing_manager.BillingManager.top_up_ai_credits")
-    def test_a_billing_failure_is_a_bad_gateway(self, mock_top_up):
-        mock_top_up.side_effect = BillingServiceResponseError(500, {"detail": "internal"})
-
-        response = self.client.post("/api/billing/ai-credits/top-up", {"amount_usd": 25})
+    @parameterized.expand(
+        [
+            ("top_up_error", "top_up_ai_credits", "post", BillingServiceResponseError(500, {"detail": "internal"})),
+            ("top_up_timeout", "top_up_ai_credits", "post", requests.Timeout()),
+            ("balance_timeout", "ai_credits", "get", requests.Timeout()),
+        ]
+    )
+    def test_a_billing_failure_is_a_bad_gateway(self, _name, manager_method, http_method, error):
+        url = "/api/billing/ai-credits/top-up" if http_method == "post" else "/api/billing/ai-credits"
+        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}", side_effect=error):
+            response = getattr(self.client, http_method)(url, {"amount_usd": 25} if http_method == "post" else None)
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
         assert response.json()["code"] == "billing_service_error"

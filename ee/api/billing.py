@@ -576,7 +576,7 @@ class AICreditTopUpSerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(
         choices=AICreditTopUpStatus.choices,
-        help_text="awaiting_tax while billing waits for tax on the invoice, paid once the card is charged, "
+        help_text="awaiting_tax while billing waits for tax on the invoice, paid once billing charges the card, "
         "credited once the AI gateway wallet holds the credit, failed when the purchase stopped.",
     )
     failure_reason = serializers.CharField(allow_null=True, help_text="Why the top-up failed, or null.")
@@ -922,7 +922,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         organization = self._get_org_required()
         try:
             res = self.get_billing_manager().ai_credits(organization)
-        except BillingServiceResponseError as error:
+        except (BillingServiceResponseError, requests.Timeout) as error:
             raise BillingServiceError() from error
         return Response(AICreditsResponseSerializer(res).data)
 
@@ -951,6 +951,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise ValidationError(
                     {"amount_usd": ["Choose one of the amounts the AI credits endpoint returns."]}
                 ) from error
+            raise BillingServiceError() from error
+        except requests.Timeout as error:
             raise BillingServiceError() from error
         return Response(AICreditTopUpResponseSerializer(res).data)
 

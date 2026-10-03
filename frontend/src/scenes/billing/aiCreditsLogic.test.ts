@@ -9,8 +9,9 @@ import { AI_CREDITS_POLL_INTERVAL_MS, aiCreditsLogic } from './aiCreditsLogic'
 
 describe('aiCreditsLogic', () => {
     let logic: ReturnType<typeof aiCreditsLogic.build>
-    // The status of the one top-up each read returns, in order; 'error' answers with a 500.
+    // The status of the one top-up each read returns, in order. 'none' lists no top-up, 'error' answers with a 500.
     let statuses: string[]
+    let topUpAnswer: Record<string, unknown>
     let reads: number
 
     beforeEach(() => {
@@ -22,6 +23,9 @@ describe('aiCreditsLogic', () => {
                     reads += 1
                     if (status === 'error') {
                         return [500, { detail: 'Unavailable' }]
+                    }
+                    if (status === 'none') {
+                        return [200, { available: true, balance_usd: '10.00', amounts_usd: [10, 25], top_ups: [] }]
                     }
                     return [
                         200,
@@ -43,7 +47,7 @@ describe('aiCreditsLogic', () => {
                 },
             },
             post: {
-                '/api/billing/ai-credits/top-up/': () => [200, { status: 'rejected', reason: 'no_payment_method' }],
+                '/api/billing/ai-credits/top-up/': () => [200, topUpAnswer],
             },
         })
         initKeaTests()
@@ -77,9 +81,34 @@ describe('aiCreditsLogic', () => {
         expect(reads).toBe(3)
     })
 
+    it('keeps polling after an accepted purchase until a read lists it', async () => {
+        jest.useFakeTimers()
+        statuses = ['none', 'error', 'awaiting_tax', 'credited']
+        topUpAnswer = { status: 'awaiting_tax', id: 1 }
+        logic = aiCreditsLogic()
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(reads).toBe(1)
+
+        logic.actions.topUp(25)
+        await jest.advanceTimersByTimeAsync(0)
+        expect(reads).toBe(2)
+        expect(logic.values.topUpProcessing).toBe(true)
+
+        await jest.advanceTimersByTimeAsync(AI_CREDITS_POLL_INTERVAL_MS)
+        expect(reads).toBe(3)
+        await jest.advanceTimersByTimeAsync(AI_CREDITS_POLL_INTERVAL_MS)
+        expect(reads).toBe(4)
+        expect(logic.values.topUpProcessing).toBe(false)
+
+        await jest.advanceTimersByTimeAsync(AI_CREDITS_POLL_INTERVAL_MS * 3)
+        expect(reads).toBe(4)
+    })
+
     it('tells the user why billing refused a top-up', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         statuses = ['credited']
+        topUpAnswer = { status: 'rejected', reason: 'no_payment_method' }
         logic = aiCreditsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadAiCreditsSuccess'])

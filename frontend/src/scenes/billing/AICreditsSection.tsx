@@ -24,7 +24,8 @@ const failureMessage = (reason: string | null): string =>
         : "The purchase didn't go through. Try again, or contact support if it keeps failing."
 
 export function AICreditsSection(): JSX.Element | null {
-    const { aiCredits, inFlightTopUp, pendingTopUpAmount, topUpResponseLoading } = useValues(aiCreditsLogic)
+    const { aiCredits, inFlightTopUp, pendingTopUpAmount, topUpProcessing, topUpResponseLoading } =
+        useValues(aiCreditsLogic)
     const { topUp } = useActions(aiCreditsLogic)
 
     // Billing decides who can buy AI credits, so the section stays hidden until it answers.
@@ -85,7 +86,7 @@ export function AICreditsSection(): JSX.Element | null {
                         type="secondary"
                         loading={topUpResponseLoading && pendingTopUpAmount === amountUsd}
                         disabledReason={
-                            inFlightTopUp
+                            topUpProcessing
                                 ? 'Wait for the current purchase to finish'
                                 : topUpResponseLoading
                                   ? 'Starting your purchase'

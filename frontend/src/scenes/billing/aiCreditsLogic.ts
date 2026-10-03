@@ -31,6 +31,7 @@ export interface aiCreditsLogicValues {
     aiCreditsLoading: boolean
     inFlightTopUp: AICreditTopUpApi | null
     pendingTopUpAmount: number | null
+    topUpProcessing: boolean
     topUpResponse: AICreditTopUpResponseApi | null
     topUpResponseLoading: boolean
 }
@@ -73,6 +74,11 @@ export interface aiCreditsLogicActions {
 export interface aiCreditsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         inFlightTopUp: (aiCredits: AICreditsResponseApi | null) => AICreditTopUpApi | null
+        topUpProcessing: (
+            inFlightTopUp: AICreditTopUpApi | null,
+            topUpResponse: AICreditTopUpResponseApi | null,
+            aiCredits: AICreditsResponseApi | null
+        ) => boolean
     }
 }
 
@@ -122,6 +128,20 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             (aiCredits: AICreditsResponseApi | null): AICreditTopUpApi | null =>
                 aiCredits?.top_ups?.find(isTopUpInFlight) ?? null,
         ],
+        topUpProcessing: [
+            (s) => [s.inFlightTopUp, s.topUpResponse, s.aiCredits],
+            (
+                inFlightTopUp: AICreditTopUpApi | null,
+                topUpResponse: AICreditTopUpResponseApi | null,
+                aiCredits: AICreditsResponseApi | null
+            ): boolean => {
+                // An accepted purchase counts until a read lists it, in case the read after the purchase failed.
+                const acceptedId = topUpResponse?.status === 'rejected' ? undefined : topUpResponse?.id
+                const unlisted =
+                    acceptedId !== undefined && !aiCredits?.top_ups?.some((topUp) => topUp.id === acceptedId)
+                return !!inFlightTopUp || unlisted
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         topUpSuccess: ({ topUpResponse }) => {
@@ -134,8 +154,12 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
             }
             actions.loadAiCredits()
         },
+        topUpFailure: () => {
+            // The purchase may have started before the request failed, so show what billing holds.
+            actions.loadAiCredits()
+        },
         loadAiCreditsSuccess: () => {
-            if (values.inFlightTopUp) {
+            if (values.topUpProcessing) {
                 cache.disposables.add(() => {
                     const timeout = window.setTimeout(() => actions.loadAiCredits(), AI_CREDITS_POLL_INTERVAL_MS)
                     return () => clearTimeout(timeout)
