@@ -6679,6 +6679,14 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                         "properties": {"$feature_flag": "a-b-test2", "$feature_flag_response": "test_1"},
                     },
                 ],
+                # outside the rollout
+                "person_served_false": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": False},
+                    },
+                ],
                 # out of time range
                 "person3": [
                     {
