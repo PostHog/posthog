@@ -4082,7 +4082,8 @@ Today (5): `deploys`, `faults`, `notices`, `projects`, `sites`
 
 Diffed against: <https://docs.honeybadger.io/api/>
 
-- [x] `projects/{id}/faults/{id}/occurrences (and projects/{id}/occurrences)` — error occurrence counts over time - Honeybadger's headline volume metric, and we already sync faults (high)
+- [x] `projects/{id}/occurrences` — error occurrence counts over time - Honeybadger's headline volume metric, and we already sync faults (high)
+- [ ] `projects/{id}/faults/{id}/occurrences` — per-fault occurrence counts over time; skipped, one request per fault for a rolling window, and per-fault history is derivable from `notices` (low)
 - [ ] `projects/{id}/sites/{id}/uptime_checks` — the actual uptime measurements behind the sites table we already sync (high)
 - [x] `projects/{id}/sites/{id}/outages` — downtime events per monitored site - the core availability fact table (high)
 - [x] `projects/{id}/faults/{id}/affected_users` — user impact per fault, needed to rank errors by blast radius (high)

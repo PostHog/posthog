@@ -32,7 +32,7 @@ class HoneybadgerRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HoneybadgerResumeConfig:
     # Next page URL to fetch. None means "start the bookmarked resource at its first page".
     next_url: str | None = None

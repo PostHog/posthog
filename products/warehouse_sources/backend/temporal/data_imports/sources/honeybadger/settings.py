@@ -4,7 +4,7 @@ from typing import Literal
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class HoneybadgerEndpointConfig:
     name: str
     # Path template under the v2 base URL; `{project_id}` / `{fault_id}` / `{site_id}` are filled in by the fan-out.
