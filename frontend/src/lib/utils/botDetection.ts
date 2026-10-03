@@ -875,7 +875,7 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             name: 'attosearch-research',
             category: 'http_client',
             trafficType: 'Bot',
-            operator: 'attosearch',
+            operator: 'attosearch.dev',
         },
     },
     {

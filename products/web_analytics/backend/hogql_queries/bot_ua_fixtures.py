@@ -373,8 +373,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 zgrab/0.x",
         # Self-declared crawlers observed in production `$http_log` traffic
         "Mozilla/5.0 (compatible; MrAnandPortfolio/1.0; +https://mranand.com)",
-        "attosearch-research/0.1",
-        "SemavoraAuditLab/0.1",
+        "attosearch-research/0.1 (+https://attosearch.dev; contact ops@attosearch.dev)",
+        "SemavoraAuditLab/0.1 (+https://semavora.com/bot)",
         "PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)",
     ],
     "headless_browser": [

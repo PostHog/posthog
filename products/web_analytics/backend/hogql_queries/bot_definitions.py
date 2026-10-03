@@ -1004,8 +1004,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
     ),
-    "attosearch-research": BotDefinition("attosearch-research", "http_client", "Bot", "attosearch"),
-    "SemavoraAuditLab": BotDefinition("SemavoraAuditLab", "http_client", "Bot", "Semavora"),
+    "attosearch-research": BotDefinition(
+        "attosearch-research", "http_client", "Bot", "attosearch.dev", documentation_url="https://attosearch.dev"
+    ),
+    "SemavoraAuditLab": BotDefinition(
+        "SemavoraAuditLab", "http_client", "Bot", "Semavora", documentation_url="https://semavora.com/bot"
+    ),
     "PostHogImageFetcherBot": BotDefinition(
         "PostHog Image Fetcher",
         "http_client",
