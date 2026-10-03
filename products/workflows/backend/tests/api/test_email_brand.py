@@ -212,7 +212,13 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
         ]
 
     def test_without_a_name_match_the_most_recently_pushed_repository_comes_first(self, _flag):
-        self.team.app_urls = ["https://www.app.example"]
+        self.team.app_urls = [
+            "https://www.app.example",
+            "https://acme.vercel.app",
+            "http://192.168.1.1:8000",
+            "http://[2001:db8:abcd::1]:8000",
+            "[::1",
+        ]
         self.team.save()
         self._connect_github(
             [
@@ -220,6 +226,9 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
                 _repository("dashboard", pushed_days_ago=2, language="TypeScript"),
                 _repository("ml-models", pushed_days_ago=10, language="Python"),
                 _repository("default-project-app", pushed_days_ago=60),
+                _repository("vercel-templates", pushed_days_ago=70),
+                _repository("project-192", pushed_days_ago=80),
+                _repository("abcd-infra", pushed_days_ago=90),
             ]
         )
 
@@ -230,6 +239,7 @@ class TestEmailBrandRepositorySuggestionAPI(APIBaseTest):
             ("acme-labs/ml-models", ["recent_push"]),
             ("acme-labs/billing-service", []),
             ("acme-labs/default-project-app", []),
+            ("acme-labs/vercel-templates", []),
         ]
 
     def test_ties_keep_one_order_by_full_name_on_every_call(self, _flag):

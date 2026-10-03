@@ -1,12 +1,14 @@
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from ipaddress import ip_address
 from urllib.parse import urlparse
 
 from django.db import models
 from django.utils import timezone
 
 import structlog
+import tldextract
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
@@ -40,6 +42,8 @@ GENERIC_TOKENS = frozenset(
     }
 )
 NEVER_PUSHED = datetime.min.replace(tzinfo=UTC)
+# Private suffixes too, so hosting domains such as vercel.app or github.io never count as brand words.
+DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 
 class RepositorySuggestionReason(models.TextChoices):
@@ -81,8 +85,28 @@ def _cached_repositories(integration: Integration) -> list[dict]:
         return []
 
 
+def _hostname(url: str) -> str:
+    try:
+        return urlparse(url if "://" in url else f"https://{url}").hostname or ""
+    except ValueError:
+        return ""
+
+
+def _is_ip_address(host: str) -> bool:
+    try:
+        ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
 def _host_without_suffix(url: str) -> str:
-    host = urlparse(url if "://" in url else f"https://{url}").hostname or ""
+    host = _hostname(url)
+    if _is_ip_address(host):
+        return ""
+    parts = DOMAIN_PARTS(host)
+    if parts.suffix:
+        return f"{parts.subdomain}.{parts.domain}"
     return host.rsplit(".", 1)[0]
 
 

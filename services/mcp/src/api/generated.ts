@@ -115310,7 +115310,7 @@ export namespace Schemas {
 
     export type EmailBrandSuggestRepositoryRetrieveParams = {
     /**
-     * Id of the GitHub integration whose repositories to rank. Defaults to the project's first connected GitHub integration.
+     * Id of the GitHub integration whose repositories to rank. Defaults to the oldest GitHub integration connected to this environment.
      */
     integration_id?: number;
     };
