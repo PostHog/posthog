@@ -865,10 +865,12 @@ const meta: Meta = {
                 },
                 '/api/projects/:team_id/vision/quota/': quota,
                 '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
-                '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
+                '/api/projects/:team_id/vision/scanners/:id/': ({ params }) =>
+                    params.id === monitorOverviewScanner.id ? monitorOverviewScanner : summarizerScanner,
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
-                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': summarizerStats,
+                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
+                    params.id === monitorOverviewScanner.id ? monitorOverviewStats : summarizerStats,
                 '/api/projects/:team_id/vision/scanners/:scannerId/prompt_suggestions/': {
                     count: 1,
                     next: null,
