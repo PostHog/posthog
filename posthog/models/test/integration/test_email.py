@@ -68,6 +68,95 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert integration1.team_id == other_team.id
         assert integration2.team_id == self.team.id
 
+    @parameterized.expand([("omitted_label", None), ("matching_label", "bounce")])
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_new_sender_keeps_the_domain_mail_from_label(self, _name, requested_label, mock_create_email_domain):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        Integration.objects.create(
+            team=other_team,
+            kind="email",
+            integration_id="sender@example.com",
+            config={"email": "sender@example.com", "domain": "example.com", "mail_from_subdomain": "bounce"},
+        )
+        config = {"email": "new@example.com", "name": "New", "provider": "ses"}
+        if requested_label is not None:
+            config["mail_from_subdomain"] = requested_label
+
+        integration = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
+
+        assert integration.config["mail_from_subdomain"] == "bounce"
+        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == "bounce"
+
+    @parameterized.expand(
+        [
+            ("different_label", ["bounce"], "feedback", "MAIL FROM subdomain 'bounce'"),
+            ("label_matching_one_of_conflicting_senders", ["bounce", "feedback"], "feedback", "different MAIL FROM"),
+            ("omitted_label_with_conflicting_senders", ["bounce", "feedback"], None, "different MAIL FROM"),
+        ]
+    )
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_new_sender_cannot_move_the_domain_mail_from_label(
+        self, _name, existing_labels, requested_label, expected_error, mock_create_email_domain
+    ):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        for index, label in enumerate(existing_labels):
+            Integration.objects.create(
+                team=other_team,
+                kind="email",
+                integration_id=f"sender{index}@example.com",
+                config={"email": f"sender{index}@example.com", "domain": "example.com", "mail_from_subdomain": label},
+            )
+        config = {"email": "new@example.com", "name": "New", "provider": "ses"}
+        if requested_label is not None:
+            config["mail_from_subdomain"] = requested_label
+
+        with pytest.raises(ValidationError) as exc:
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
+
+        assert expected_error in str(exc.value)
+        mock_create_email_domain.assert_not_called()
+        assert not Integration.objects.filter(integration_id="new@example.com").exists()
+
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_changing_the_mail_from_label_updates_every_sender_on_the_domain(self, mock_update_mail_from_subdomain):
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        senders = {
+            email: Integration.objects.create(
+                team=team,
+                kind="email",
+                integration_id=email,
+                config={
+                    "email": email,
+                    "domain": email.split("@")[1],
+                    "mail_from_subdomain": "feedback",
+                    "provider": "ses",
+                },
+            )
+            for team, email in [
+                (self.team, "edited@example.com"),
+                (other_team, "sibling@example.com"),
+                (self.team, "unrelated@other.com"),
+            ]
+        }
+
+        EmailIntegration(senders["edited@example.com"]).update_native_integration(
+            {"mail_from_subdomain": "bounce"}, team_id=self.team.id
+        )
+
+        labels = {
+            email: Integration.objects.get(pk=sender.pk).config["mail_from_subdomain"]
+            for email, sender in senders.items()
+        }
+        assert labels == {
+            "edited@example.com": "bounce",
+            "sibling@example.com": "bounce",
+            "unrelated@other.com": "feedback",
+        }
+
     def test_unsupported_email_domain(self):
         # Test with a free email domain
         config = {"email": "user@gmail.com", "name": "Test User"}
