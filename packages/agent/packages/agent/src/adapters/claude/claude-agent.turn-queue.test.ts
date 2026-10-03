@@ -129,14 +129,14 @@ function budgetGuard(): RunBudgetGuard {
   );
 }
 
-function sendCostlyAssistantMessage(query: MockQuery): void {
+function sendCostlyAssistantMessage(query: MockQuery, id = "m1"): void {
   query._mockHelpers.sendMessage({
     type: "assistant",
-    uuid: "a1",
+    uuid: `a-${id}`,
     session_id: "s",
     parent_tool_use_id: null,
     message: {
-      id: "m1",
+      id,
       role: "assistant",
       model: "claude-opus-5",
       content: [],
@@ -287,6 +287,55 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
       stopReason: "cancelled",
       _meta: { interruptReason: "budget_exhausted" },
     });
+  });
+
+  it("resends a declined budget steer while the turn keeps working", async () => {
+    const sessionId = "s-budget-retry";
+    const guard = new RunBudgetGuard(
+      3.5,
+      DEFAULT_MODEL_PRICES,
+      new Logger({ debug: false }),
+    );
+    const harness = installHarness(sessionId, guard);
+    const first = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: "compacting",
+    } as unknown as SDKMessage);
+    await tick();
+
+    sendCostlyAssistantMessage(harness.query, "m1");
+    await tick();
+    sendCostlyAssistantMessage(harness.query, "m2");
+    await vi.waitFor(() =>
+      expect(guard.snapshot().steers).toMatchObject([
+        { stage: "warn", delivered: false },
+      ]),
+    );
+    expect(harness.pushed).toHaveLength(1);
+
+    harness.query._mockHelpers.sendMessage({
+      type: "system",
+      subtype: "status",
+      status: null,
+      compact_result: "success",
+    } as unknown as SDKMessage);
+    await tick();
+    sendCostlyAssistantMessage(harness.query, "m2");
+    await vi.waitFor(() => expect(harness.pushed).toHaveLength(2));
+    expect(JSON.stringify(harness.pushed[1].message.content)).toContain(
+      "Budget notice",
+    );
+
+    harness.query._mockHelpers.complete();
+    await first;
   });
 
   it("never sends a prompt queued before the turn that spent the budget", async () => {
