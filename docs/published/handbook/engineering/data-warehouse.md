@@ -18,6 +18,7 @@ Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens i
 The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
 
 Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 
 ## Calculated measures in BI mode
