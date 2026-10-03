@@ -60,7 +60,7 @@ const TOPICS_TAB_BY_FLAG = [
         audience: true,
         TopicsTab: TopicsTabOnAudience,
         modalTitle: 'New topic',
-        shown: ['Topics', 'Unsubscribed from all marketing', 'Unsubscribed on'],
+        shown: ['Unsubscribed from all marketing', 'Unsubscribed on'],
         hidden: ['Message categories', 'Marketing opt-out list', 'Opt-out date', 'New message category'],
     },
 ]
