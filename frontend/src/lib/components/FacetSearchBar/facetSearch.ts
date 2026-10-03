@@ -186,7 +186,6 @@ function scanTokens(input: string): InputToken[] {
 }
 
 export interface TypedWord {
-    /** The input before the word. */
     rest: string
     word: string
     /** The input ends in a quoted phrase, so there is no word to complete. */
