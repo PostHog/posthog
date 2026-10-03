@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -22,6 +22,25 @@ from products.messaging.backend.services.recipients import (
     parse_recipient_filter,
 )
 
+_FILTER_MAX_LENGTH = 200
+_FILTER_HELP_TEXT = (
+    "Repeatable `facet:value` filter; prefix with `-` to negate. Values on one facet are OR, "
+    "facets are AND. Facets: `subscribed`, `unsubscribed` and `no-preference` take a topic key or "
+    "`all-marketing`; `suppressed` takes `BOUNCE`, `COMPLAINT` or `MANUAL`; `person` takes `linked` or "
+    "`none`; `preference` takes `recorded` or `none`."
+)
+
+# The generated client repeats a query parameter only when the schema marks it explode;
+# without it, two filters reach the API as one comma-joined value.
+_REPEATED_FILTER_PARAMETER = OpenApiParameter(
+    name="filter",
+    type={"type": "array", "items": {"type": "string", "maxLength": _FILTER_MAX_LENGTH}},
+    location=OpenApiParameter.QUERY,
+    required=False,
+    explode=True,
+    description=_FILTER_HELP_TEXT,
+)
+
 
 class RecipientListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
@@ -31,13 +50,12 @@ class RecipientListQuerySerializer(serializers.Serializer):
         help_text="Case-insensitive substring match on the email address.",
     )
     filter = serializers.ListField(
-        child=serializers.CharField(max_length=200, help_text="One `facet:value` filter, or `-facet:value`."),
+        child=serializers.CharField(
+            max_length=_FILTER_MAX_LENGTH, help_text="One `facet:value` filter, or `-facet:value`."
+        ),
         required=False,
         default=list,
-        help_text="Repeatable `facet:value` filter; prefix with `-` to negate. Values on one facet are OR, "
-        "facets are AND. Facets: `subscribed`, `unsubscribed` and `no-preference` take a topic key or "
-        "`all-marketing`; `suppressed` takes `BOUNCE`, `COMPLAINT` or `MANUAL`; `person` takes `linked` or "
-        "`none`; `preference` takes `recorded` or `none`.",
+        help_text=_FILTER_HELP_TEXT,
     )
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=200, help_text="Page size, 1-200. Defaults to 50."
@@ -128,6 +146,7 @@ class MessageRecipientsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
             raise PermissionDenied("You need hog_flow viewer access to view recipients.")
 
+    @extend_schema(parameters=[_REPEATED_FILTER_PARAMETER])
     @validated_request(
         query_serializer=RecipientListQuerySerializer,
         responses={200: OpenApiResponse(response=RecipientPageSerializer)},
