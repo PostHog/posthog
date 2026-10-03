@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Composer } from 'products/posthog_ai/frontend/api/primitives'
 import {
@@ -25,8 +25,9 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
     const disabledReason = isSampleReportId(report.id)
         ? 'Sample reports can’t start a chat. Turn off sample reports to ask about a real one.'
         : undefined
+    const promptDisabledReason = disabledReason ?? (askingAi ? 'Opening PostHog AI…' : undefined)
 
-    const ask = (question: string, source: InboxQuestionSource): void => {
+    const ask =(question: string, source: InboxQuestionSource): void => {
         if (!question || disabledReason || askingAi) {
             return
         }
@@ -42,19 +43,26 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
     return (
         <section className="TodayPrompts" aria-label="Ask about this report">
             <div className="Today__label">Ask about this report</div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" data-quill>
                 {prompts.map((prompt) => (
-                    <LemonButton
-                        key={prompt}
-                        type="secondary"
-                        size="small"
-                        icon={<IconSparkles />}
-                        onClick={() => ask(prompt, 'suggested')}
-                        disabledReason={disabledReason ?? (askingAi ? 'Opening PostHog AI…' : undefined)}
-                        data-attr="today-report-prompt"
-                    >
-                        {prompt}
-                    </LemonButton>
+                    <Tooltip key={prompt}>
+                        <TooltipTrigger
+                            render={
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-auto min-h-7 whitespace-normal text-left"
+                                    onClick={() => ask(prompt, 'suggested')}
+                                    disabled={!!promptDisabledReason}
+                                    data-attr="today-report-prompt"
+                                />
+                            }
+                        >
+                            <IconSparkles />
+                            {prompt}
+                        </TooltipTrigger>
+                        {promptDisabledReason && <TooltipContent>{promptDisabledReason}</TooltipContent>}
+                    </Tooltip>
                 ))}
             </div>
             <Composer.Root

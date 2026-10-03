@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { Button, Spinner, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
 
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
@@ -139,34 +138,47 @@ export function TodayBriefing(): JSX.Element {
                 <div className="TodayHome__greeting">
                     <span>{greeting}</span>
                     {briefingWaiting ? (
-                        <span className="TodayHome__badge" data-attr="today-briefing-writing">
-                            <Spinner textColored />
+                        <span className="TodayHome__badge" data-attr="today-briefing-writing" data-quill>
+                            <Spinner />
                             <span>Writing your briefing…</span>
                         </span>
                     ) : showPersonalBriefing || personalBriefing?.status === 'failed' ? (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconRefresh />}
-                            tooltip="Refresh briefing"
-                            onClick={() => refreshBriefing()}
-                            data-attr="today-briefing-refresh"
-                        />
+                        <span data-quill>
+                            <Tooltip>
+                                <TooltipTrigger
+                                    delay={0}
+                                    render={
+                                        <Button
+                                            size="icon-sm"
+                                            aria-label="Refresh briefing"
+                                            onClick={() => refreshBriefing()}
+                                            data-attr="today-briefing-refresh"
+                                        />
+                                    }
+                                >
+                                    <IconRefresh />
+                                </TooltipTrigger>
+                                <TooltipContent>Refresh briefing</TooltipContent>
+                            </Tooltip>
+                        </span>
                     ) : null}
                 </div>
                 {showPersonalBriefing ? (
                     <TodayPersonalBriefing />
                 ) : topReports === null && reportsFailed ? (
-                    <LemonBanner
-                        type="error"
-                        action={{
-                            children: 'Try again',
-                            onClick: () => loadTopReports(),
-                            loading: topReportsLoading,
-                            'data-attr': 'today-reports-retry',
-                        }}
-                    >
-                        Couldn’t load your reports. Try again, or open the Inbox to see them there.
-                    </LemonBanner>
+                    <div role="alert" className="flex flex-col items-start gap-3" data-quill>
+                        <Text variant="destructive">
+                            Couldn’t load your reports. Try again, or open the Inbox to see them there.
+                        </Text>
+                        <Button
+                            variant="outline"
+                            onClick={() => loadTopReports()}
+                            loading={topReportsLoading}
+                            data-attr="today-reports-retry"
+                        >
+                            Try again
+                        </Button>
+                    </div>
                 ) : topReports === null ? (
                     <p>Reading what changed in your project…</p>
                 ) : reports.length === 0 ? (

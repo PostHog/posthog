@@ -244,6 +244,19 @@
     }
 }
 
+@container main-content (max-width: 520px) {
+    .TodayHome,
+    .TodayReport {
+        width: calc(100% - 40px);
+        padding: 24px 0 64px;
+    }
+
+    .TodayHome .TodayHome__intro,
+    .TodayHome .TodayAsk {
+        margin-top: 40px;
+    }
+}
+
 .TodayHome__meta {
     font-family: var(--font-mono);
     font-size: 11px;

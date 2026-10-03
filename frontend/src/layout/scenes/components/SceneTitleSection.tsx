@@ -177,6 +177,9 @@ function LemonSceneTitleSection({
         [releaseStageSceneId, name]
     )
     const { showDescription } = useValues(sceneLayoutLogic)
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    // On the Today phone layout the actions share the title row and wrap under it when they do not fit.
+    const todayPhone = todayRailEnabled && phoneLayout
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
@@ -253,7 +256,8 @@ function LemonSceneTitleSection({
                 <div
                     className={cn(
                         'scene-title-section flex-1 flex flex-col @2xl/main-content:flex-row gap-1 lg:gap-3 group/colorful-product-icons colorful-product-icons-true lg:items-start group',
-                        noPadding ? 'py-0.5' : 'py-2'
+                        noPadding ? 'py-0.5' : 'py-2',
+                        todayPhone && 'flex-row flex-wrap items-center'
                     )}
                     data-editable={canEdit}
                 >
@@ -326,7 +330,8 @@ function LemonSceneTitleSection({
                                 // editors (z-20) so focusing an edit field can never overlap and swallow their clicks,
                                 // notably on mobile where this container reflows into the corner via order-first.
                                 'relative z-30 flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
-                                'gap-1 self-start @max-2xl:self-end flex-wrap'
+                                'gap-1 self-start @max-2xl:self-end flex-wrap',
+                                todayPhone && '@max-2xl:order-none @max-2xl:self-center'
                             )}
                         >
                             {effectiveActions}

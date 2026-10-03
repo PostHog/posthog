@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconExternal, IconHide } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Badge, Button, Skeleton } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ReportChart } from 'products/signals/frontend/inbox/components/detail/ReportChart'
@@ -12,6 +13,7 @@ import { canResolveReport, hasOpenImplementationPr } from 'products/signals/fron
 
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
+import { TodayReportActionButton } from './TodayReportActionButton'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { TodayReportEvidence } from './TodayReportEvidence'
 import { todayReportLogic } from './todayReportLogic'
@@ -36,25 +38,30 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                 <div className="TodayReport__body">
                     <p>It may have been deleted, or the request failed. Try again, or go back to today’s briefing.</p>
                 </div>
-                <div className="flex flex-wrap gap-2 mt-6">
-                    <LemonButton
-                        type="primary"
+                <div className="flex flex-wrap gap-2 mt-6" data-quill>
+                    <Button
+                        variant="primary"
                         onClick={() => loadFullReport()}
                         loading={fullReportLoading}
                         data-attr="today-report-retry"
                     >
                         Try again
-                    </LemonButton>
-                    <LemonButton type="secondary" to={urls.projectHomepage()} data-attr="today-report-missing-home">
+                    </Button>
+                    <Button
+                        variant="outline"
+                        nativeButton={false}
+                        render={<LinkPrimitive to={urls.projectHomepage()} />}
+                        data-attr="today-report-missing-home"
+                    >
                         Back to Home
-                    </LemonButton>
+                    </Button>
                 </div>
             </div>
         ) : (
-            <div className="TodayReport Today__page flex flex-col gap-4">
-                <LemonSkeleton className="h-4 w-48" />
-                <LemonSkeleton className="h-10 w-3/4" />
-                <LemonSkeleton className="h-24" />
+            <div className="TodayReport Today__page flex flex-col gap-4" data-quill>
+                <Skeleton className="h-4 w-48" />
+                <Skeleton className="h-10 w-3/4" />
+                <Skeleton className="h-24" />
             </div>
         )
     }
@@ -84,41 +91,39 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                         <TodayIcon icon={reportIcon(currentReport)} />
                     </span>
                     <span>{reportMeta(currentReport)}</span>
-                    {currentReport.priority && <LemonTag type="muted">{currentReport.priority}</LemonTag>}
-                    {stateLabel && (
-                        <LemonTag type={reportState === 'done' ? 'success' : 'muted'}>{stateLabel}</LemonTag>
+                    {(currentReport.priority || stateLabel) && (
+                        <span className="flex gap-1" data-quill>
+                            {currentReport.priority && <Badge>{currentReport.priority}</Badge>}
+                            {stateLabel && (
+                                <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
+                            )}
+                        </span>
                     )}
                 </div>
                 <h1 className="TodayReport__heading">{reportTitle(currentReport)}</h1>
-                <div className="flex flex-wrap gap-2 mt-4">
+                <div className="flex flex-wrap gap-2 mt-4" data-quill>
                     {currentReport.implementation_pr_url && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
+                        <TodayReportActionButton
+                            variant="primary"
                             to={currentReport.implementation_pr_url}
                             targetBlank
-                            sideIcon={<IconExternal />}
                             disabledReason={sampleDisabledReason}
-                            data-attr="today-report-pull-request"
+                            dataAttr="today-report-pull-request"
                         >
                             Review the pull request
-                        </LemonButton>
+                            <IconExternal />
+                        </TodayReportActionButton>
                     )}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
+                    <TodayReportActionButton
                         to={urls.inboxReport('reports', currentReport.id)}
                         disabledReason={sampleDisabledReason}
-                        data-attr="today-report-open-inbox"
+                        dataAttr="today-report-open-inbox"
                     >
                         Open in Inbox
-                    </LemonButton>
+                    </TodayReportActionButton>
                     {!stateLabel && (
                         <>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconCheckCircle />}
+                            <TodayReportActionButton
                                 onClick={() => giveVerdict('resolve')}
                                 disabledReason={
                                     sampleDisabledReason ??
@@ -126,20 +131,19 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                                         ? undefined
                                         : 'You can resolve a report only after the agent finishes its research.')
                                 }
-                                data-attr="today-report-resolve"
+                                dataAttr="today-report-resolve"
                             >
+                                <IconCheckCircle />
                                 Resolve
-                            </LemonButton>
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconHide />}
+                            </TodayReportActionButton>
+                            <TodayReportActionButton
                                 onClick={() => giveVerdict('dismiss')}
                                 disabledReason={sampleDisabledReason}
-                                data-attr="today-report-dismiss"
+                                dataAttr="today-report-dismiss"
                             >
+                                <IconHide />
                                 Dismiss
-                            </LemonButton>
+                            </TodayReportActionButton>
                         </>
                     )}
                 </div>
