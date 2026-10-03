@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { MAX_AI_SURVEY_SUGGESTIONS, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,7 +23,7 @@ export function NewSurveyActions(): JSX.Element {
     const { isMaxAvailable } = useValues(maxGlobalLogic)
     const { openMax } = useMaxTool({
         identifier: 'create_survey',
-        initialMaxPrompt: 'Create a survey to collect ',
+        suggestions: MAX_AI_SURVEY_SUGGESTIONS,
         callback: (toolOutput) => {
             surveysLogic
                 .findMounted()

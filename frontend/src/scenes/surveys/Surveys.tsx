@@ -21,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/
 
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 
-import { SURVEY_CREATED_SOURCE } from './constants'
+import { MAX_AI_SURVEY_SUGGESTIONS, SURVEY_CREATED_SOURCE } from './constants'
 import { DuplicateToProjectModal } from './DuplicateToProjectModal'
 import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
 import { SurveysTabs, surveysLogic } from './surveysLogic'
@@ -87,13 +87,7 @@ function Surveys(): JSX.Element {
                 }
                 maxToolProps={{
                     identifier: 'create_survey',
-                    initialMaxPrompt: 'Create a survey to collect ',
-                    suggestions: [
-                        'Create an NPS survey for customers who completed checkout',
-                        'Create a feedback survey asking about our new dashboard',
-                        'Create a product-market fit survey for trial users',
-                        'Create a quick satisfaction survey for support interactions',
-                    ],
+                    suggestions: MAX_AI_SURVEY_SUGGESTIONS,
                     context: {},
                     callback: (toolOutput) => handleMaxSurveyCreated(toolOutput, SURVEY_CREATED_SOURCE.MAX_AI),
                 }}

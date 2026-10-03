@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -30,7 +30,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { SURVEY_CREATED_SOURCE } from '../constants'
 import { QuickSurveyType } from '../quick-create/types'
 import { QuickSurveyModal } from '../QuickSurveyModal'
-import { captureMaxAISurveyCreationException } from '../utils'
+import { MaxAISurveyCreationToolOutput, captureMaxAISurveyCreationException } from '../utils'
 import { SurveyableFunnelInsight, extractFunnelContext } from '../utils/opportunityDetection'
 
 export interface SurveyOpportunityButtonProps {
@@ -83,7 +83,7 @@ export function SurveyOpportunityButton({
             insight_id: insight.id,
             ...funnelContext,
         },
-        callback: (toolOutput: { survey_id?: string; survey_name?: string; survey_type?: string; error?: string }) => {
+        callback: (toolOutput: MaxAISurveyCreationToolOutput) => {
             addProductIntent({
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEY_CREATED,
@@ -95,7 +95,9 @@ export function SurveyOpportunityButton({
             })
 
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                return captureMaxAISurveyCreationException(toolOutput.error, source)
+                captureMaxAISurveyCreationException(toolOutput, source)
+                lemonToast.error("We couldn't create the survey. Try again, or create it with the survey wizard.")
+                return
             }
 
             if (toolOutput.survey_type === 'popover') {
