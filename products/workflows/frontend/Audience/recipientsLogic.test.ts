@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -223,6 +224,87 @@ describe('recipientsLogic', () => {
             recipients: PAGES_BY_CURSOR[''].results,
             shownRequest: { search: 'jamie', pageCursors: [] },
         })
+    })
+
+    it('shows the loading view instead of the previous search while a failed search is retried', async () => {
+        await mountLogic()
+        let answerRetry = (): void => {}
+        const retryAnswered = new Promise<void>((resolve) => {
+            answerRetry = resolve
+        })
+        let slowSearchAttempts = 0
+        useRecipientsResponse(async (params) => {
+            if (params.get('search') !== 'slow') {
+                return [200, PAGES_BY_CURSOR['']]
+            }
+            slowSearchAttempts += 1
+            if (slowSearchAttempts > 1) {
+                await retryAnswered
+            }
+            return [500, { detail: 'Query timed out' }]
+        })
+        await expectLogic(logic, () => logic.actions.setSearch('slow')).toDispatchActions([
+            'loadAudienceRecipientsFailure',
+        ])
+
+        logic.actions.retryLoadRecipients()
+
+        expect(logic.values).toMatchObject({ recipientsView: 'loading', recipients: [] })
+        answerRetry()
+        await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsFailure'])
+        expect(logic.values.recipientsView).toBe('error')
+    })
+
+    it.each([
+        {
+            name: 'a search is sent',
+            failing: false,
+            setUp: async (): Promise<void> => {},
+            act: (): void => logic.actions.setSearch('jamie'),
+            expected: [['audience recipients filtered', {}]],
+        },
+        {
+            name: 'the next page opens',
+            failing: false,
+            setUp: async (): Promise<void> => {},
+            act: (): void => logic.actions.loadNextPage(),
+            expected: [['audience recipients paged', { direction: 'next' }]],
+        },
+        {
+            name: 'the previous page opens',
+            failing: false,
+            setUp: async (): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.loadNextPage()).toDispatchActions([
+                    'loadAudienceRecipientsSuccess',
+                ])
+            },
+            act: (): void => logic.actions.loadPreviousPage(),
+            expected: [['audience recipients paged', { direction: 'previous' }]],
+        },
+        {
+            name: 'a failed load is retried',
+            failing: true,
+            setUp: async (): Promise<void> => {
+                await expectLogic(logic, () => logic.actions.setSearch('slow')).toDispatchActions([
+                    'loadAudienceRecipientsFailure',
+                ])
+            },
+            act: (): void => logic.actions.retryLoadRecipients(),
+            expected: [['audience recipients retried', {}]],
+        },
+    ])('tracks it when $name', async ({ failing, setUp, act, expected }) => {
+        await mountLogic()
+        if (failing) {
+            useRecipientsResponse(() => [500, { detail: 'Query timed out' }])
+        }
+        await setUp()
+        const capture = jest.spyOn(posthog, 'capture')
+        capture.mockClear()
+
+        act()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture.mock.calls.filter(([event]) => event.startsWith('audience '))).toEqual(expected)
     })
 
     it('keeps the current page on screen without a toast when the next page fails', async () => {
