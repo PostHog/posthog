@@ -133,6 +133,7 @@ describe('recipient detail', () => {
     afterEach(() => {
         cleanup()
         jest.restoreAllMocks()
+        Reflect.deleteProperty(navigator, 'clipboard')
     })
 
     it('looks the address up, shows why it is suppressed and tracks the visit once without the address', async () => {
@@ -180,6 +181,22 @@ describe('recipient detail', () => {
         expect(await screen.findByTestId('audience-recipient-detail')).toHaveClass('ph-no-capture')
     })
 
+    it('tracks a copied address without the address', async () => {
+        const writeText = jest.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
+        await openRecipient()
+
+        fireEvent.click(await screen.findByTestId('audience-recipient-copy-email'))
+
+        await waitFor(() =>
+            expect(capturedEvents('audience recipient address copied')).toEqual([
+                ['audience recipient address copied', {}],
+            ])
+        )
+        expect(writeText).toHaveBeenCalledWith('jamie@example.com')
+    })
+
     it('shows its own error with a retry instead of a toast, and tracks the visit once it loads', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         let failNextLookup = true
@@ -206,6 +223,7 @@ describe('recipient detail', () => {
         expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
         expect(toastError).not.toHaveBeenCalled()
         expect(capturedEvents('audience recipient opened')).toHaveLength(1)
+        expect(capturedEvents('audience recipient retried')).toEqual([['audience recipient retried', {}]])
     })
 
     it('shows a way back to the list when the address is unknown', async () => {
