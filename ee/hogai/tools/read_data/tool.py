@@ -964,11 +964,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         raw_properties = rows[0][0] if rows else None
         properties = json.loads(raw_properties) if isinstance(raw_properties, str) else raw_properties or {}
 
-        distinct_ids = person.distinct_ids
         lines = [
             f"# Person {person.uuid}",
             f"Created at: {person.created_at.isoformat() if person.created_at else 'unknown'}",
-            f"Distinct IDs (up to {self.PERSON_DISTINCT_ID_LIMIT}): {', '.join(distinct_ids) or 'none'}",
+            f"Distinct IDs (up to {self.PERSON_DISTINCT_ID_LIMIT}): {', '.join(person.distinct_ids) or 'none'}",
             "",
             "## Properties",
         ]
