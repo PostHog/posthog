@@ -52,7 +52,10 @@ describe('recipientsLogic', () => {
     async function mountLogic(): Promise<void> {
         logic = recipientsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess', 'loadAudienceCoverageSuccess'])
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadAudienceRecipientsSuccess',
+            'loadAudienceCoverageSuccess',
+        ])
     }
 
     beforeEach(() => {
@@ -159,6 +162,19 @@ describe('recipientsLogic', () => {
 
         expect(requests.map((params) => params.get('cursor'))).toEqual([null, 'after-jamie'])
         expect(logic.values.recipients).toEqual([recipient('sam@example.com')])
+    })
+
+    it('reloads the first page at once when the search is cleared', async () => {
+        await mountLogic()
+        await expectLogic(logic, () => logic.actions.setSearch('nobody')).toDispatchActions([
+            'loadAudienceRecipientsSuccess',
+        ])
+
+        logic.actions.clearSearch()
+
+        expect(logic.values).toMatchObject({ search: '', lastRequest: { search: '', pageCursors: [] } })
+        await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
+        expect(requests.map((params) => params.get('search'))).toEqual([null, 'nobody', null])
     })
 
     it('ignores paging while a new search waits for its debounce', async () => {

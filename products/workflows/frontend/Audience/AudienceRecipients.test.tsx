@@ -68,11 +68,22 @@ describe('AudienceRecipients', () => {
     })
 
     it('names the missing permission instead of the search advice when access is denied', async () => {
-        useRecipientsResponse(() => [403, { detail: 'You need hog_flow viewer access to view recipients.' }])
+        useRecipientsResponse(() => [
+            403,
+            { code: 'permission_denied', detail: 'You need hog_flow viewer access to view recipients.' },
+        ])
         render(<AudienceRecipients />)
 
         expect(await screen.findByText('Access denied')).toBeInTheDocument()
         expect(screen.getByText(/viewer access to Workflows/)).toBeInTheDocument()
         expect(screen.queryByText(/Search for part of an address/)).not.toBeInTheDocument()
+    })
+
+    it('keeps the retry banner for a 403 that is not about access', async () => {
+        useRecipientsResponse(() => [403, { code: 'feature_flag_required', detail: 'This feature is not enabled.' }])
+        render(<AudienceRecipients />)
+
+        expect(await screen.findByText(/Couldn't load recipients/)).toBeInTheDocument()
+        expect(screen.queryByText('Access denied')).not.toBeInTheDocument()
     })
 })
