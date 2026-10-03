@@ -1,16 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ComponentProps } from 'react'
 
-import {
-    IconBook,
-    IconChat,
-    IconGridMasonry,
-    IconHome,
-    IconSearch,
-    IconSidebarClose,
-    IconSidebarOpen,
-    IconWrench,
-} from '@posthog/icons'
+import { IconSearch, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
@@ -21,16 +12,9 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { TODAY_RAIL_ITEMS } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, TodayRailPane, todayShellLogic } from './todayShellLogic'
-
-const RAIL_ITEMS: { pane: TodayRailPane; label: string; icon: JSX.Element }[] = [
-    { pane: 'home', label: 'Home', icon: <IconHome /> },
-    { pane: 'spaces', label: 'Spaces', icon: <IconChat /> },
-    { pane: 'views', label: 'Views', icon: <IconGridMasonry /> },
-    { pane: 'library', label: 'Library', icon: <IconBook /> },
-    { pane: 'tools', label: 'Tools', icon: <IconWrench /> },
-]
+import { TODAY_RAIL_WIDTH, todayShellLogic } from './todayShellLogic'
 
 function RailUtility({
     label,
@@ -75,7 +59,7 @@ export function TodayRail(): JSX.Element {
             <div className="mb-1 flex size-9 items-center justify-center" aria-hidden>
                 <Logomark className="h-auto w-6" />
             </div>
-            {RAIL_ITEMS.map(({ pane, label, icon }) => (
+            {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
                     key={pane}
                     label={label}
