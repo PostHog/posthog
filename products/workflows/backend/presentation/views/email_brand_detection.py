@@ -12,6 +12,12 @@ class GitHubBusyError(APIException):
     default_detail = "GitHub is busy. Try again in a minute."
 
 
+class GitHubDisconnectedError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "github_disconnected"
+    default_detail = "PostHog lost access to GitHub. Reconnect GitHub to read your repository."
+
+
 class RepositoryUnreadableError(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_code = "repository_unreadable"

@@ -26,12 +26,14 @@ from products.workflows.backend.presentation.views.email_brand_detection import 
     EmailBrandDetectionSerializer,
     EmailBrandDetectRequestSerializer,
     GitHubBusyError,
+    GitHubDisconnectedError,
     RepositoryUnreadableError,
 )
 from products.workflows.backend.presentation.views.feature_gates import require_team_feature_flag
 from products.workflows.backend.services.brand_detection.detector import UnknownAppRoot
 from products.workflows.backend.services.email_brand_detection import (
     GitHubBusy,
+    GitHubDisconnected,
     RepositoryUnreadable,
     detect_repository_brand,
 )
@@ -279,7 +281,9 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=EmailBrandDetectRequestSerializer,
         responses={
             200: OpenApiResponse(response=EmailBrandDetectionSerializer),
-            400: OpenApiResponse(description="Invalid input, or the GitHub App cannot read the repository."),
+            400: OpenApiResponse(
+                description="Invalid input, the GitHub App cannot read the repository, or PostHog lost access to GitHub."
+            ),
             429: OpenApiResponse(description="GitHub is busy. Try again in a minute."),
         },
         summary="Detect an Email brand from a GitHub repository",
@@ -299,6 +303,8 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except GitHubBusy:
             raise GitHubBusyError()
+        except GitHubDisconnected:
+            raise GitHubDisconnectedError()
         except RepositoryUnreadable:
             raise RepositoryUnreadableError()
         except UnknownAppRoot as error:

@@ -5,8 +5,11 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from rest_framework import status
 
@@ -16,6 +19,15 @@ from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
 BRAND_DETECTION_FLAG = "workflows-brand-detection"
+INVENTED_APP_PRIVATE_KEY = (
+    rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    .private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    .decode()
+)
 
 NEXT_SHADCN_APP = {
     "package.json": json.dumps({"name": "acme-web", "private": True}),
@@ -75,6 +87,8 @@ class FakeGitHub:
 
     repositories: dict[str, dict[str, str]]
     status_overrides: dict[str, int] = field(default_factory=dict)
+    override_headers: dict[str, str] = field(default_factory=dict)
+    token_refresh_status: int = status.HTTP_201_CREATED
     shed: bool = False
     calls: list[dict] = field(default_factory=list)
 
@@ -83,9 +97,11 @@ class FakeGitHub:
         if self.shed:
             raise GitHubEgressBudgetExhausted("shed")
         path = url.removeprefix("https://api.github.com")
+        if path.startswith("/app/installations/"):
+            return self._token_refresh()
         for fragment, status_code in self.status_overrides.items():
             if fragment in path:
-                return _response(status_code, {"message": "denied"})
+                return _response(status_code, {"message": "denied"}, self.override_headers)
         owner, name, *rest = path.removeprefix("/repos/").split("/", 2)
         files = self.repositories.get(f"{owner}/{name}")
         if files is None:
@@ -103,6 +119,13 @@ class FakeGitHub:
             return _response(200, list(files.values())[index].encode())
         return _response(404, {"message": "Not Found"})
 
+    def _token_refresh(self) -> requests.Response:
+        if self.token_refresh_status != status.HTTP_201_CREATED:
+            return _response(self.token_refresh_status, {"message": "refused"})
+        return _response(
+            self.token_refresh_status, {"token": "invented-fresh-token", "expires_at": "2099-01-01T00:00:00+00:00"}
+        )
+
     def blob_reads(self) -> int:
         return sum("/git/blobs/" in call["url"] for call in self.calls)
 
@@ -111,6 +134,7 @@ def _only_brand_detection_enabled(flag: str, *args, **kwargs) -> bool:
     return flag == BRAND_DETECTION_FLAG
 
 
+@override_settings(GITHUB_APP_CLIENT_ID="invented-client-id", GITHUB_APP_PRIVATE_KEY=INVENTED_APP_PRIVATE_KEY)
 @patch("posthoganalytics.feature_enabled", side_effect=_only_brand_detection_enabled)
 class TestEmailBrandDetectAPI(APIBaseTest):
     def setUp(self) -> None:
@@ -202,6 +226,30 @@ class TestEmailBrandDetectAPI(APIBaseTest):
                 {"status_overrides": {"/git/trees/": 429}},
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "github_busy",
+            ),
+            (
+                "rate limited by GitHub with a 403",
+                {"status_overrides": {"/git/trees/": 403}, "override_headers": {"X-RateLimit-Remaining": "0"}},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "github_busy",
+            ),
+            (
+                "token refresh fails for a moment",
+                {"status_overrides": {"/repos/": 401}, "token_refresh_status": 502},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "github_busy",
+            ),
+            (
+                "app uninstalled, so the token refresh is refused",
+                {"status_overrides": {"/repos/": 401}, "token_refresh_status": 404},
+                status.HTTP_400_BAD_REQUEST,
+                "github_disconnected",
+            ),
+            (
+                "token rejected again after a refresh",
+                {"status_overrides": {"/repos/": 401}},
+                status.HTTP_400_BAD_REQUEST,
+                "github_disconnected",
             ),
             (
                 "file read forbidden",

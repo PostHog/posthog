@@ -17,10 +17,15 @@ DETECTION_BUDGET_SECONDS = 15
 CACHE_TTL_SECONDS = 10 * 60
 CACHE_VERSION = 1
 UNREADABLE_STATUS_CODES = (403, 404)
+TOKEN_REJECTED_STATUS_CODE = 401
 EMPTY_REPOSITORY_STATUS_CODE = 409
 
 
 class GitHubBusy(Exception):
+    pass
+
+
+class GitHubDisconnected(Exception):
     pass
 
 
@@ -33,8 +38,9 @@ def detect_repository_brand(
 ) -> BrandDetection:
     """Propose an Email brand from a GitHub repository, reusing a detection made in the last ten minutes.
 
-    Raises ``GitHubBusy`` when the egress limiter or GitHub refuses a call, ``RepositoryUnreadable`` when
-    the integration cannot read the repository, and ``UnknownAppRoot`` for an app root outside it.
+    Raises ``GitHubBusy`` when the egress limiter or GitHub refuses a call for now, ``GitHubDisconnected``
+    when the installation is gone or its token is rejected, ``RepositoryUnreadable`` when the integration
+    cannot read the repository, and ``UnknownAppRoot`` for an app root outside it.
     """
     key = _cache_key(team_id=team_id, integration_id=integration.id, repository=repository, app_root=app_root)
     if not refresh and (cached := cache.get(key)) is not None:
@@ -50,7 +56,11 @@ def _detect(reader: "_RepositoryReader", repository: str, app_root: str | None) 
     try:
         tree = reader.tree()
         return detect_brand(repository_name=repository, tree=tree, read_text=reader.read_text, app_root=app_root)
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
+    except GitHubIntegrationError as error:
+        if reader.installation_unavailable():
+            raise GitHubDisconnected() from error
+        raise GitHubBusy() from error
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError) as error:
         raise GitHubBusy() from error
 
 
@@ -77,6 +87,9 @@ class _RepositoryReader:
         blobs = [entry for entry in tree.get("tree", []) if isinstance(entry, dict) and entry.get("type") == "blob"]
         self._blob_shas = {entry["path"]: entry["sha"] for entry in blobs}
         return [TreeEntry(path=entry["path"], size=int(entry.get("size") or 0)) for entry in blobs]
+
+    def installation_unavailable(self) -> bool:
+        return self._github.installation_unavailable()
 
     def read_text(self, path: str) -> str | None:
         if time.monotonic() > self._deadline:
@@ -114,6 +127,8 @@ class _RepositoryReader:
         return max(1, min(REQUEST_TIMEOUT_SECONDS, remaining))
 
     def _raise_for_status(self, status_code: int) -> None:
+        if status_code == TOKEN_REJECTED_STATUS_CODE:
+            raise GitHubDisconnected()
         if status_code in UNREADABLE_STATUS_CODES:
             raise RepositoryUnreadable()
         if status_code != 200:
