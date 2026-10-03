@@ -23,6 +23,7 @@ from posthog.schema import (
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PropertyDefinition
 from posthog.models.scoping import team_scope
+from posthog.personhog_client.fake_client import fake_personhog_client
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -276,6 +277,7 @@ class TestReadDataTool(BaseTest):
             await tool._arun_impl({"kind": "insight", "insight_id": "nonexistent", "execute": False})
 
         assert "nonexistent" in str(exc_info.value)
+        assert "`person` kind" in str(exc_info.value)
 
     async def test_read_insight_default_execute_is_false(self):
         """Test that execute defaults to False when not specified."""
@@ -2054,6 +2056,50 @@ class TestReadDataTool(BaseTest):
         mock_summarize.assert_called_once()
         if restricted:
             assert cache_entries[unrestricted_key]["summary"] == unrestricted_summary.model_dump()
+
+    @parameterized.expand(
+        [
+            ("person_uuid", "0190a3f4-7b1c-7000-8000-000000000001", True),
+            ("distinct_id", "user-42@example.com", True),
+            ("uuid_shaped_distinct_id", "0190a3f4-7b1c-7000-8000-0000000000aa", True),
+            ("unknown_id", "does-not-exist", False),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
+    async def test_read_person(self, _name, lookup_id, found, mock_execute):
+        person_uuid = "0190a3f4-7b1c-7000-8000-000000000001"
+        mock_execute.return_value = {"results": [['{"email": "user-42@example.com", "plan": "free"}']]}
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        with fake_personhog_client() as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=42,
+                uuid=person_uuid,
+                distinct_ids=["user-42@example.com", "0190a3f4-7b1c-7000-8000-0000000000aa"],
+            )
+            fake.add_person(team_id=self.team.pk + 1, person_id=43, uuid=str(uuid4()), distinct_ids=["does-not-exist"])
+
+            if not found:
+                with pytest.raises(MaxToolRetryableError) as exc_info:
+                    await tool._arun_impl({"kind": "person", "person_id": lookup_id})
+                assert lookup_id in str(exc_info.value)
+                mock_execute.assert_not_called()
+                return
+
+            result, _ = await tool._arun_impl({"kind": "person", "person_id": lookup_id})
+
+        assert f"# Person {person_uuid}" in result
+        assert "user-42@example.com" in result
+        assert '"plan": "free"' in result
+        assert mock_execute.call_args.args[0].values == {"person_uuid": person_uuid}
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     async def test_read_llm_trace_not_found(self, mock_execute):
