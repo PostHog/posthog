@@ -46,6 +46,12 @@ Extend to remove duplication, not to save setup time.
 A parameterized case is still its own test invocation, so `setUp` and `beforeEach` run for it just as they would for a standalone function.
 That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
 
+**Check the dependencies of each case before placing it.**
+If the nearest test class uses Postgres or ClickHouse, ask whether the new case itself reads or writes that store, including through setup and helpers.
+Put a pure case in a `SimpleTestCase` class even when nearby cases need storage; parameterize it with the other pure cases there.
+Do not add a pure case to a storage-backed class just to keep related behavior in one class or file.
+Run the `SimpleTestCase` class: its database blocker verifies the choice.
+
 Search before you write.
 If you haven't looked for the nearest existing test, you can't answer this question.
 
@@ -112,7 +118,7 @@ Escalating to the next rung is the last resort, not the default.
   - testing `transaction.on_commit` side effects → use `TestCase` + `self.captureOnCommitCallbacks(execute=True)`.
   - needing a connection visible across a real separate thread (`thread_sensitive`) → `async_to_sync(...)`, not `asyncio.run(...)`.
     Use `TransactionTestCase` only when the regression genuinely requires committed transaction boundaries that `TestCase` hides.
-- **A test class only takes a database it uses.** `BaseTest` and `APIBaseTest` inherit Django `TestCase`, so a class on either one needs a database to run: `setUpTestData` writes an organization, a project, a team and a user for it, and every test method runs inside a transaction. A class of pure assertions pays all of that and reads no row. Put those cases on `django.test.SimpleTestCase`, which refuses database access and therefore proves they never needed one. The `posthog/test/repo_invariants/test_database_free_test_classes.py` ratchet enforces it: it holds the frozen list of the classes already here, and fails the pull request that adds another. When it trips, [references/database-free-test-classes.md](references/database-free-test-classes.md) covers what the failure means, the three ways to answer it, and how to regenerate the baseline.
+- **A test class only takes a database it uses.** `BaseTest` and `APIBaseTest` inherit Django `TestCase`, so a class on either one needs a database to run: `setUpTestData` writes an organization, a project, a team and a user for it, and every test method runs inside a transaction. A class of pure assertions pays all of that and reads no row. Put those cases on `django.test.SimpleTestCase`, which refuses database access and therefore proves they never needed one. The `posthog/test/repo_invariants/test_database_free_test_classes.py` ratchet enforces this for wholly pure classes: it holds the frozen list of the classes already here, and fails the pull request that adds another. It cannot catch pure methods added to a mixed class that also uses the database, so apply the per-case dependency check above. When the ratchet trips, [references/database-free-test-classes.md](references/database-free-test-classes.md) covers what the failure means, the three ways to answer it, and how to regenerate the baseline.
 - **Dedicated data migration tests are temporary.** Remove a dedicated test after every supported environment has applied the migration, the rollback window has closed, and no supported upgrade relies on the old data state. Delete the expired test instead of marking it skipped. Keep the migration file and tests for migration tooling, safety checks, reusable backfill systems, and backfills people can still run. Use `/django-migrations` for the migration safety workflow.
 - **DRF input-validation belongs in a `SimpleTestCase`, not an `APIBaseTest` round-trip.**
   A test that posts a malformed body to an endpoint and asserts a 400 pays for `APIBaseTest` to build an Organization + Team + User in Postgres and wrap the test in a transaction — just to exercise validation that runs entirely in memory.
