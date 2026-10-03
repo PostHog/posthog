@@ -1317,6 +1317,32 @@ class TestWorkflowProposals(APIBaseTest):
         assert "proposal_approved" in activities
         assert "proposal_rejected" in activities
 
+    @parameterized.expand(
+        [
+            (
+                "with a reason",
+                {"reason": "  This is the sign-off email, it is not meant to convert.  "},
+                "This is the sign-off email, it is not meant to convert.",
+            ),
+            ("without a body", {}, ""),
+        ]
+    )
+    def test_the_producer_reads_why_a_suggestion_was_rejected(self, _mock_flag, _name: str, body: dict, expected: str):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", body, format="json"
+        )
+        assert rejected.status_code == 200, rejected.json()
+
+        listed = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=rejected",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
+        assert listed.status_code == 200, listed.json()
+        assert [row["rejection_reason"] for row in listed.json()["results"]] == [expected]
+
     def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
         flow_id = self._create_active_flow()
         flow = HogFlow.objects.get(id=flow_id)

@@ -101,6 +101,12 @@ class WorkflowProposal(TeamScopedRootMixin, UUIDModel):
     applied_version = models.IntegerField(
         null=True, blank=True, help_text="Workflow version the approved change went live as."
     )
+    rejection_reason = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Why the person who rejected this said no. The producer reads it before suggesting again.",
+    )
 
     def save(self, *args: Any, **kwargs: Any) -> None:
         # Mirrors the workflow's team, as HogFlowRevision does: fail-closed reads filter on this row's team_id.

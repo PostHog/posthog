@@ -22,6 +22,7 @@ const DRAFT_STAMP = '2026-05-02T00:00:00.000Z'
 describe('workflowProposalsLogic', () => {
     let logic: ReturnType<typeof workflowProposalsLogic.build>
     let approveBodies: Record<string, any>[]
+    let rejectBodies: Record<string, any>[]
     let approveStatus: number
     let proposalsListStatus: number
     let workflowVersion: number
@@ -47,6 +48,7 @@ describe('workflowProposalsLogic', () => {
 
     beforeEach(() => {
         approveBodies = []
+        rejectBodies = []
         approveStatus = 200
         proposalsListStatus = 200
         workflowVersion = 3
@@ -81,9 +83,9 @@ describe('workflowProposalsLogic', () => {
                     approveBodies.push((await request.json()) as Record<string, any>)
                     return [approveStatus, approveStatus === 200 ? proposal : { code: 'stale_update' }]
                 },
-                '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': {
-                    ...proposal,
-                    status: 'rejected',
+                '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': async ({ request }) => {
+                    rejectBodies.push((await request.json()) as Record<string, any>)
+                    return [200, { ...proposal, status: 'rejected' }]
                 },
             },
         })
@@ -238,9 +240,20 @@ describe('workflowProposalsLogic', () => {
         logic.actions.setResolvingId(PROPOSAL_ID)
 
         logic.actions.confirmApproveProposal(PROPOSAL_ID, DRAFT_STAMP)
-        logic.actions.confirmRejectProposal(PROPOSAL_ID)
+        logic.actions.confirmRejectProposal(PROPOSAL_ID, '')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(approveBodies).toEqual([])
+        expect(rejectBodies).toEqual([])
+    })
+
+    it('rejecting sends the reason the person gave', async () => {
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.confirmRejectProposal(PROPOSAL_ID, '  It is the sign-off email.  ')
+        }).toDispatchActions(['removeResolvedProposal'])
+
+        expect(rejectBodies).toEqual([{ reason: 'It is the sign-off email.' }])
     })
 })
