@@ -103,6 +103,20 @@ _MAX_EMIT_ERROR_DESCRIPTION_CHARS = 200
 _PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
 
 
+def _clip_middle(text: str, limit: int) -> str:
+    """
+    Keep both ends of ``text``. A requests transport error starts with the target host and
+    ends with the cause, such as ``[Errno 111] Connection refused``, so a head-only clip
+    makes a refused connection and a failed DNS lookup look the same.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "..."
+    head = (limit - len(marker)) // 2
+    tail = limit - len(marker) - head
+    return f"{text[:head]}{marker}{text[-tail:]}"
+
+
 def _is_uuid(value: str) -> bool:
     try:
         uuid.UUID(str(value))
@@ -532,7 +546,7 @@ def _emit_predictions(
         if result.error:
             error_detail = f", {result.error.get('error')}"
             if description := result.error.get("error_description"):
-                error_detail += f": {str(description)[:_MAX_EMIT_ERROR_DESCRIPTION_CHARS]}"
+                error_detail += f": {_clip_middle(str(description), _MAX_EMIT_ERROR_DESCRIPTION_CHARS)}"
         raise InferenceRunError(
             f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
             f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted, "
