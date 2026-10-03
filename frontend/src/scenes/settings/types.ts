@@ -240,7 +240,6 @@ export type SettingId =
     | 'organization-id'
     | 'organization-integrations-list'
     | 'organization-ip-anonymization-default'
-    | 'organization-member-notice'
     | 'organization-oauth-apps-list'
     | 'organization-proxy'
     | 'organization-roles'

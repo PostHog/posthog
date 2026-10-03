@@ -2176,27 +2176,27 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
             },
             {
+                // pinned: the setting id is a URL anchor, so it keeps its original name
                 id: 'organization-display-name',
-                title: 'Name & logo',
+                title: 'General',
                 description:
                     "Your organization's name and logo are shown across the PostHog interface. Click the avatar to upload a custom logo.",
-                component: <OrganizationDisplayName />,
-                keywords: ['name', 'rename', 'label', 'organization', 'logo', 'image', 'brand', 'icon', 'avatar'],
-            },
-            {
-                id: 'organization-id',
-                title: 'Organization ID',
-                description: "Your organization's unique identifier, used in the PostHog API.",
-                component: <OrganizationVariables />,
-                keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
-            },
-            {
-                id: 'organization-member-notice',
-                title: 'Member notice',
-                description:
-                    'Show a message to every member of your organization at the top of each page, with an optional link button. Use it for things like a data policy or a compliance disclaimer.',
-                component: <OrganizationMemberNotice />,
+                component: (
+                    <div className="flex flex-col gap-8">
+                        <OrganizationDisplayName />
+                        <OrganizationMemberNotice />
+                    </div>
+                ),
                 keywords: [
+                    'name',
+                    'rename',
+                    'label',
+                    'organization',
+                    'logo',
+                    'image',
+                    'brand',
+                    'icon',
+                    'avatar',
                     'notice',
                     'banner',
                     'announcement',
@@ -2206,6 +2206,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'compliance',
                     'legal',
                 ],
+            },
+            {
+                id: 'organization-id',
+                title: 'Organization ID',
+                description: "Your organization's unique identifier, used in the PostHog API.",
+                component: <OrganizationVariables />,
+                keywords: ['organization', 'id', 'uuid', 'identifier', 'copy'],
             },
             {
                 id: 'organization-ai-consent',
