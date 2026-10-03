@@ -71,7 +71,8 @@ describe('newCategoryLogic', () => {
             key: 'monthly-product-announcements-for-engineering-and-design-teams-w',
         },
         { name: `${'a'.repeat(63)} digest`, key: 'a'.repeat(63) },
-    ])('cuts the key slugified from a long name to the 64 characters a key can hold: $key', ({ name, key }) => {
+        { name: '🎉 Product launches', key: 'product-launches' },
+    ])('fills a key of at most 64 characters with no hyphen at either end: $key', ({ name, key }) => {
         const logic = newCategoryLogic({})
         logic.mount()
 
