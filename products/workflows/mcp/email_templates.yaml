@@ -59,6 +59,10 @@ tools:
     workflows-list-email-templates:
         operation: messaging_templates_list
         enabled: true
+        exclude_params:
+            - include_design
+        inject_query:
+            include_design: false
         scopes:
             - hog_flow:read
         annotations:

@@ -74,7 +74,7 @@ const workflowsGetEmailTemplate = (): ToolBase<
 
 const WorkflowsListEmailTemplatesSchema = () => {
     const MessagingTemplatesListQueryParams = orvalSchemas.MessagingTemplatesListQueryParams()
-    return MessagingTemplatesListQueryParams
+    return MessagingTemplatesListQueryParams.omit({ include_design: true })
 }
 
 const workflowsListEmailTemplates = (): ToolBase<
@@ -89,9 +89,9 @@ const workflowsListEmailTemplates = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/`,
             query: {
-                include_design: params.include_design,
                 limit: params.limit,
                 offset: params.offset,
+                include_design: false,
             },
         })
         const filtered = {
