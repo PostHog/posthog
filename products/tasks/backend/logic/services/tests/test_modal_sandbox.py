@@ -47,6 +47,8 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+    AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+    AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
     AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
     HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
@@ -929,6 +931,48 @@ class TestModalSandboxAgentServer:
         assert (" --claudeSubscription" in command) is subscription_flag
         assert (" --claudeSubscriptionServer" in command) is server_flag
         assert ("exec 3<" in command) is server_flag
+
+    @pytest.mark.parametrize(
+        "preflight_exit_code, run_token",
+        [
+            (AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE, "claude-run-token"),
+            (AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE, "claude-run-token"),
+            (AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE, None),
+            (AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE, None),
+        ],
+    )
+    def test_start_agent_server_replaces_a_server_that_failed_on_its_credential(
+        self, mock_sandbox: Any, preflight_exit_code, run_token
+    ):
+        from products.tasks.backend.exceptions import ProcessTaskFatalError
+
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
+                return ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=preflight_exit_code, error=None)
+            return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
+
+        mock_sandbox.execute = MagicMock(side_effect=execute)
+
+        def start() -> None:
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+                mode="background",
+                claude_model_access="own-subscription",
+                subscription_run_token=run_token,
+            )
+
+        with patch.object(mock_sandbox, "_free_agent_server_port") as free_port:
+            if run_token is None:
+                with pytest.raises(ProcessTaskFatalError):
+                    start()
+                free_port.assert_not_called()
+                return
+            start()
+
+        free_port.assert_called_once()
+        assert " --claudeSubscriptionServer" in _agent_server_launch_command(mock_sandbox.execute)
 
     @pytest.mark.parametrize(
         "keep_stream_open, debug, expected_env_value",

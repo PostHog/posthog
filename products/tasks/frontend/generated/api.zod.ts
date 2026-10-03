@@ -3315,6 +3315,22 @@ export const TasksRunsCancelCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Give the run's agent-server the Claude token of the run owner. Only the run's sandbox may call this, and it must present the run token it received at launch. Send the digest of a token Anthropic rejected so the server marks the account for reconnection.
+ * @summary Issue the Claude token for a Claude run
+ */
+export const tasksRunsClaudeSubscriptionTokenCreateBodyRejectedTokenSha256RegExp = new RegExp('^[0-9a-f]{64}$')
+
+export const TasksRunsClaudeSubscriptionTokenCreateBody = /* @__PURE__ */ zod.object({
+    rejected_token_sha256: zod
+        .string()
+        .regex(tasksRunsClaudeSubscriptionTokenCreateBodyRejectedTokenSha256RegExp)
+        .nullish()
+        .describe(
+            'SHA-256 hex digest of the Claude token Anthropic rejected. When it names the stored token, the server marks the account for reconnection and returns reauth_required.'
+        ),
+})
+
+/**
  * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, side_question, native Pi RPC commands, and Pi queue operations. Retry loop: a 503 is transient (sandbox_not_ready means the command arrived before the live run's command channel came up; agent_session_not_ready means an approval was rejected before execution while the agent starts) — retry it until the request you are answering expires. A 502 (agent server unreachable) or 504 (agent server timed out) means delivery is unknown; retry only when the command method is safe to retry. A 409 run_ended is final: the run is over and its sandbox is gone. HTTP 200 preserves JSON-RPC errors; permission acceptance requires result.resolved=true.
  * @summary Send command to task run
  */

@@ -572,7 +572,9 @@ class AgentServerLaunchMixin(SandboxBase):
     def _on_agent_server_reused(self) -> None:
         return None
 
-    def _agent_server_preflight(self, allowed_domains: list[str] | None) -> AgentServerPreflight:
+    def _agent_server_preflight(
+        self, allowed_domains: list[str] | None, *, has_replacement_credential: bool = False
+    ) -> AgentServerPreflight:
         executable_paths = self._install_agent_server_launch_files()
         result = self.execute(
             build_agent_server_preflight_script(
@@ -590,6 +592,19 @@ class AgentServerLaunchMixin(SandboxBase):
                 {"sandbox_id": self.id, "paths": ",".join(executable_paths), "mode": "+x", "stderr": result.stderr},
                 cause=RuntimeError("agent-server preflight could not make the required files executable"),
             )
+        lines = result.stdout.splitlines()
+        capabilities = frozenset(
+            line.removeprefix(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+            for line in lines
+            if line.startswith(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+        )
+        if has_replacement_credential and result.exit_code in (
+            AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE,
+            AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+        ):
+            logger.info(f"Agent-server in sandbox {self.id} failed on its credential; relaunching with a new run token")
+            self._free_agent_server_port()
+            return AgentServerPreflight(reused=False, capabilities=capabilities)
         if result.exit_code == AGENT_SERVER_PREFLIGHT_REJECTED_CREDENTIAL_EXIT_CODE:
             raise ProcessTaskFatalError(
                 CLAUDE_REJECTED_TOKEN_MESSAGE,
@@ -611,12 +626,6 @@ class AgentServerLaunchMixin(SandboxBase):
                 cause=RuntimeError(result.stderr or "agent-server preflight returned a non-zero exit"),
             )
 
-        lines = result.stdout.splitlines()
-        capabilities = frozenset(
-            line.removeprefix(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
-            for line in lines
-            if line.startswith(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
-        )
         if AGENT_SERVER_PREFLIGHT_REUSE_MARKER in lines:
             if allowed_domains is None or self._agentsh_daemon_is_healthy():
                 logger.info(f"Agent-server already healthy in sandbox {self.id}; skipping relaunch")
@@ -737,7 +746,9 @@ class AgentServerLaunchMixin(SandboxBase):
 
         # Before the already-healthy shortcut: images that boot the agent server never relaunch it,
         # and the agent reads its skill directories when a session starts, not when the server does.
-        preflight = self._agent_server_preflight(allowed_domains)
+        preflight = self._agent_server_preflight(
+            allowed_domains, has_replacement_credential=subscription_run_token is not None
+        )
         if preflight.reused:
             return 0 if wait_for_health else None
 

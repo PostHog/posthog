@@ -319,7 +319,7 @@ describe("cloud task update notifications", () => {
         initializationPhase: "claude_subscription_token",
         reason: "reauth_required",
       },
-      "Paste a new token in Settings > Harness",
+      "Create a new token in Settings > Harness",
       false,
     ],
     [

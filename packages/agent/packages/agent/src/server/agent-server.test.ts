@@ -2246,35 +2246,40 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("asks for a new token when Claude rejects a relayed token", async () => {
-      const testServer = createFailureTestServer() as ReturnType<
-        typeof createFailureTestServer
-      > & {
-        posthogAPI: {
-          requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+    it.each([
+      ["initial", RequestError.authRequired()],
+      ["followup", new Error("API Error: 503 private provider body")],
+    ] as const)(
+      "asks for a new token when Claude rejects a relayed token (%s turn)",
+      async (phase, error) => {
+        const testServer = createFailureTestServer() as ReturnType<
+          typeof createFailureTestServer
+        > & {
+          posthogAPI: {
+            requestClaudeSubscriptionToken: ReturnType<typeof vi.fn>;
+          };
+          handleClaudeTokenRejected(token: string): void;
         };
-        handleClaudeTokenRejected(token: string): void;
-      };
-      testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn();
+        testServer.posthogAPI.requestClaudeSubscriptionToken = vi.fn();
 
-      testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
-      await testServer.handleTurnFailure(
-        interactivePayload,
-        "initial",
-        RequestError.authRequired(),
-      );
+        testServer.handleClaudeTokenRejected("sk-ant-oat01-fake");
+        await testServer.handleTurnFailure(interactivePayload, phase, error);
 
-      expect(
-        testServer.posthogAPI.requestClaudeSubscriptionToken,
-      ).not.toHaveBeenCalled();
-      expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        expect.objectContaining({
-          error_message: `agent_error: ${CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required}`,
-        }),
-      );
-    });
+        expect(
+          testServer.posthogAPI.requestClaudeSubscriptionToken,
+        ).not.toHaveBeenCalled();
+        expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+          "task-1",
+          "run-1",
+          expect.objectContaining({
+            status: "failed",
+            error_message: expect.stringContaining(
+              CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES.reauth_required,
+            ),
+          }),
+        );
+      },
+    );
 
     it("does not blame the Claude token for a failure in a later turn", async () => {
       const testServer = createFailureTestServer({

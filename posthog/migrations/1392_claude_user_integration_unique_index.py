@@ -6,9 +6,7 @@ from posthog.migration_helpers import CreateIndexConcurrently
 class Migration(migrations.Migration):
     atomic = False
 
-    dependencies = [
-        ("posthog", "1387_user_gmail_canonical_index"),
-    ]
+    dependencies = [("posthog", "1391_organization_provisioning")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

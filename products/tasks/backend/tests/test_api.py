@@ -13603,6 +13603,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 "reauth_required",
             ),
             ("codex_run_token", "codex", None, status.HTTP_403_FORBIDDEN, "connected"),
+            ("ended_sandbox_session", "claude", None, status.HTTP_403_FORBIDDEN, "connected"),
         ]
     )
     def test_claude_subscription_token_goes_only_to_the_runs_sandbox(
@@ -13610,6 +13611,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     ):
         owner = self.create_organization_user("claude-owner")
         task, run = self._create_claude_subscription_run(owner)
+        if _name == "ended_sandbox_session":
+            SandboxSession.objects.unscoped().filter(task_run=run).update(ended_at=django_timezone.now())
         create_run_token = (
             create_claude_subscription_run_token if run_token_kind == "claude" else create_codex_subscription_run_token
         )

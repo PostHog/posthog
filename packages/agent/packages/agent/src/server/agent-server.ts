@@ -2997,7 +2997,8 @@ export class AgentServer {
     const retryableFollowup = isTurnWithoutResponse && isInteractiveFollowup;
     const retryableDelivery =
       classification === "content_block_rejection" && phase === "followup";
-    const recoverable = isUpstreamFailure && isInteractiveFollowup;
+    const recoverable =
+      !claudeTokenRejected && isUpstreamFailure && isInteractiveFollowup;
     const expectedIdleTransportClosure =
       recoverable && /^ACP connection closed$/i.test(message.trim());
     const suppressClientError =

@@ -3869,6 +3869,12 @@ def _subscription_run_owner_id(
         or isinstance(owner_id, bool)
     ):
         return None
+    if (
+        SandboxSession.objects.unscoped()
+        .filter(task_run_id=run.id, sandbox_id=claims.sandbox_id, ended_at__isnull=False)
+        .exists()
+    ):
+        return None
     return owner_id
 
 
