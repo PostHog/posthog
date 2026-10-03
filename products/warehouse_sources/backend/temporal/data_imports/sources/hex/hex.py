@@ -38,7 +38,7 @@ class HexHostNotAllowedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HexResumeConfig:
     # Opaque paginator resume state: `{"cursor": ...}` for cursor-paginated endpoints, or the
     # framework's fan-out checkpoint (`{"completed": [...], "current": ..., "child_state": ...}`)
