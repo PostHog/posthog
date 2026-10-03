@@ -31,6 +31,7 @@ from opentelemetry.trace import Status, StatusCode
 # django.setup(). A module-level import would put aiohttp on the startup path of every process.
 if TYPE_CHECKING:
     import aiohttp
+    from yarl import URL
 
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import EgressObservability
@@ -70,7 +71,7 @@ class _EgressHooks:
     """The hooks every transport shares, sync or async. Subclasses set ``observability``."""
 
     observability: EgressObservability
-    egress_domain = "unknown"
+    egress_domain: str
     span_name = "egress.http.request"
 
     def _standard_headers(self) -> dict[str, str]:
@@ -107,10 +108,10 @@ class _EgressHooks:
         span.set_status(Status(StatusCode.ERROR))
 
     @staticmethod
-    def _set_span_response_metadata(span: trace.Span, response_url: str | None, status_code: int | None) -> None:
+    def _set_span_response_metadata(span: trace.Span, response_url: str | URL | None, status_code: int | None) -> None:
         """Record response URL (after redirects) and status code to the span."""
-        if isinstance(response_url, str):
-            response_hostname = urlparse(response_url).hostname
+        if response_url is not None:
+            response_hostname = urlparse(str(response_url)).hostname
             if response_hostname:
                 span.set_attribute("server.address", response_hostname)
         if isinstance(status_code, int):
@@ -290,7 +291,7 @@ class AsyncEgressClient(_EgressHooks, ABC):
                 self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
                 raise
 
-            self._set_span_response_metadata(span, getattr(response, "url", None), getattr(response, "status", None))
+            self._set_span_response_metadata(span, response.url, response.status)
             self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
             return response
 

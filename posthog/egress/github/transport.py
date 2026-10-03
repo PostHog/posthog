@@ -16,7 +16,7 @@ from typing import Any
 import requests
 
 from posthog.egress.github.limiter import classify_github_resource, consume_github_installation_sync
-from posthog.egress.github.observability import github_egress, normalize_github_endpoint
+from posthog.egress.github.observability import github_egress
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 
@@ -109,19 +109,10 @@ class GitHubClient(EgressClient):
         priority: Priority,
         endpoint: str | None,
     ) -> dict[str, str | bool]:
-        attributes = super()._span_attributes(
-            method, url, source=source, scope=scope, priority=priority, endpoint=endpoint
-        )
-        attributes.update(
-            {
-                "github.endpoint": endpoint or normalize_github_endpoint(url),
-                "github.resource": classify_github_resource(url).value,
-                "github.source": source,
-                "github.priority": priority.value,
-                "github.installation_scoped": bool(scope),
-            }
-        )
-        return attributes
+        return {
+            **super()._span_attributes(method, url, source=source, scope=scope, priority=priority, endpoint=endpoint),
+            "github.resource": classify_github_resource(url).value,
+        }
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}

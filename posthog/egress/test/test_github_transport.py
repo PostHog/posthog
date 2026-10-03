@@ -56,11 +56,7 @@ class TestGitHubTransport(SimpleTestCase):
             "egress.endpoint": "/repos/{owner}/{repo}/branches",
             "egress.scoped": True,
             "egress.admission.granted": True,
-            "github.endpoint": "/repos/{owner}/{repo}/branches",
             "github.resource": "core",
-            "github.source": "integration",
-            "github.priority": "critical",
-            "github.installation_scoped": True,
             "http.response.status_code": status_code,
         }
         assert span.status.status_code.name == span_status
@@ -125,8 +121,9 @@ class TestGitHubTransport(SimpleTestCase):
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
-        response = MagicMock(spec=["status_code"])
+        response = MagicMock(spec=["status_code", "headers"])
         response.status_code = 200
+        response.headers = CaseInsensitiveDict()
 
         with (
             patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
@@ -156,5 +153,5 @@ class TestGitHubTransport(SimpleTestCase):
 
         attributes = exporter.get_finished_spans()[0].attributes
         assert attributes is not None
-        assert attributes["github.endpoint"] == "/repos/{owner}/{repo}/branches"
-        assert attributes["github.installation_scoped"] is False
+        assert attributes["egress.endpoint"] == "/repos/{owner}/{repo}/branches"
+        assert attributes["egress.scoped"] is False
