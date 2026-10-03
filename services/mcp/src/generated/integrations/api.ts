@@ -317,20 +317,10 @@ export const IntegrationsDomainConnectApplyUrlCreateParams = () => zod.object({
 })
 
 export const IntegrationsDomainConnectApplyUrlCreateBody = () => zod.object({
-    context: zod
-        .enum(['email', 'proxy'])
-        .describe('\* `email` - Email sending domain\n\* `proxy` - Reverse proxy domain')
-        .describe(
-            '`email` to configure an email sending domain, `proxy` for a reverse proxy domain.\n\n\* `email` - Email sending domain\n\* `proxy` - Reverse proxy domain'
-        ),
     integration_id: zod
         .number()
         .nullish()
         .describe('ID of the email integration (sender). Required when `context` is `email`.'),
-    proxy_record_id: zod
-        .string()
-        .nullish()
-        .describe('ID of the reverse proxy record. Required when `context` is `proxy`.'),
     redirect_uri: zod
         .string()
         .nullish()

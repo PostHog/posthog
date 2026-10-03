@@ -69,7 +69,7 @@ Pick the first path that works:
 
 1. **Domain Connect (the person approves at their DNS host).**
    Call `integrations-domain-connect-check-retrieve` with the sending domain.
-   If `supported` is true, call `integrations-domain-connect-apply-url-create` with `context: email` and the `integration_id`, and omit `redirect_uri`.
+   If `supported` is true, call `integrations-domain-connect-apply-url-create` with the `integration_id`, and omit `redirect_uri`.
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
    If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
 2. **Your own DNS tools.**

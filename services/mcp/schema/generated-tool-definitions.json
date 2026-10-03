@@ -7095,7 +7095,7 @@
         }
     },
     "integrations-domain-connect-apply-url-create": {
-        "description": "Build a signed URL that adds an email sender's DNS records at the domain's DNS host in one step. Call it with context `email` and the sender's integration_id after integrations-domain-connect-check-retrieve says the domain is supported. If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy. You cannot open this URL yourself: give it to the person you work with. They sign in at their DNS host and approve the records there; nothing changes until they approve. Omit redirect_uri. Then call integrations-email-verify-create until it reports success. If this tool returns an error, fall back to adding the records from integrations-email-verify-create by hand.",
+        "description": "Build a signed URL that adds an email sender's DNS records at the domain's DNS host in one step. Call it with the sender's integration_id after integrations-domain-connect-check-retrieve says the domain is supported. If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy. You cannot open this URL yourself: give it to the person you work with. They sign in at their DNS host and approve the records there; nothing changes until they approve. Omit redirect_uri. Then call integrations-email-verify-create until it reports success. If this tool returns an error, fall back to adding the records from integrations-email-verify-create by hand.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "Get a Domain Connect URL for DNS records",
