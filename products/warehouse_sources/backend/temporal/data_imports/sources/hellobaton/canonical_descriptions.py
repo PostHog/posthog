@@ -103,7 +103,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "departments": {
-        "description": "Departments that users and projects can be assigned to.",
+        "description": "Departments that users can be assigned to.",
         "docs_url": _DOCS_URL,
         "columns": {
             "id": "Unique identifier for the department.",
