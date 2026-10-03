@@ -222,14 +222,23 @@ def lookup_table_by_nested_name(
     segments, or one backquoted segment holding dots. Returns the table and the number of chain
     segments the qualifier used. The longest match wins, and at least one segment must remain.
     """
-    for consumed in range(len(node.chain) - 1, 0, -1):
-        parts = [part for segment in node.chain[:consumed] for part in str(segment).split(".")]
+    if not scope.tables:
+        return None
+    # No qualifier can be deeper than the deepest nested name in scope, so a long chain stops early
+    # instead of rebuilding every prefix.
+    deepest_name = max(table_alias.count("__") + 1 for table_alias in scope.tables)
+    match: Optional[tuple[ast.TableOrSelectType, int]] = None
+    parts: list[str] = []
+    for consumed, segment in enumerate(node.chain[:-1], start=1):
+        parts.extend(str(segment).split("."))
+        if len(parts) > deepest_name:
+            break
         if len(parts) < 2:
             continue
         table = scope.tables.get("__".join(parts))
         if table is not None:
-            return table, consumed
-    return None
+            match = table, consumed
+    return match
 
 
 def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
