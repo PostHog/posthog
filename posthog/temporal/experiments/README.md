@@ -35,6 +35,12 @@ When a schedule triggers, it starts a workflow that:
 2. Calculates each experiment's metrics in parallel, under one hour-wide concurrency limit
 3. Stores results in the database
 
+These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
+The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind
+`experiment-drop-timeseries-publish-2026-10`.
+An execution that started before that patch keeps the old publish path, so its replay still finds
+the activities its history recorded.
+
 ```text
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                    ExperimentRegularMetricsWorkflow                        │
@@ -94,8 +100,8 @@ can outlive its hour. This one starts other workflows and returns, so a single s
 `SKIP` overlap policy covers it.
 
 It skips an experiment whose recalculation is already running, or whose last one finished within
-the hour. That freshness check ignores `timeseries_sync` rows, which nothing writes any more but
-which survive from before the timeseries workflow stopped publishing them.
+the hour. That freshness check ignores `timeseries_sync` rows: new timeseries executions no longer
+write them, and the rows from before that change are still on file.
 
 The coordinator never waits for the runs it starts. Each run's outcome lands on its own
 `ExperimentMetricsRecalculation` row, and the `experiment scheduled recalculation started` and
