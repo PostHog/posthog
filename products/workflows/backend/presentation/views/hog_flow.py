@@ -898,14 +898,6 @@ class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
-    limit_can_rise = serializers.BooleanField(
-        default=False,
-        help_text=(
-            "Whether 'limit' grows on its own as the project keeps sending with low bounce and complaint "
-            "rates. False when the limit is fixed: sending tiers are off, the tier is pinned or at the top, "
-            "or the workflow sends no email."
-        ),
-    )
     dedupe_key = serializers.ChoiceField(
         choices=list(SUPPORTED_DEDUPE_KEYS),
         allow_null=True,
@@ -6671,7 +6663,6 @@ class HogFlowViewSet(
                         "affected": size.affected,
                         "total": size.total,
                         "limit": size.limit,
-                        "limit_can_rise": size.limit_can_rise,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -6693,7 +6684,6 @@ class HogFlowViewSet(
                     "affected": size.affected,
                     "total": size.total,
                     "limit": size.limit,
-                    "limit_can_rise": size.limit_can_rise,
                     "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key

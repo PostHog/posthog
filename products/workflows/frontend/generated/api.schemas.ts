@@ -2015,8 +2015,6 @@ export interface BlastRadiusApi {
     total: number
     /** Maximum allowed audience size for batch triggers for this team. */
     limit: number
-    /** Whether 'limit' grows on its own as the project keeps sending with low bounce and complaint rates. False when the limit is fixed: sending tiers are off, the tier is pinned or at the top, or the workflow sends no email. */
-    limit_can_rise?: boolean
     /** The dedupe key that was actually applied to 'affected'. 'email' means it counts unique email addresses; null means it counts persons.
      *
      * * `email` - email */

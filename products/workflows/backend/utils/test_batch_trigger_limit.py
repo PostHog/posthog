@@ -8,11 +8,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.utils.batch_trigger_limit import (
-    get_hogflow_batch_trigger_limit,
-    hog_flow_sends_email,
-    hogflow_batch_trigger_limit_can_rise,
-)
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit, hog_flow_sends_email
 
 TIER_BATCH_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
@@ -68,31 +64,6 @@ class TestTieredHogflowBatchTriggerLimit(BaseTest):
     def test_enforced_limit_follows_the_teams_tier(self, tier: int, expected_cap: int) -> None:
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": tier})
         assert get_hogflow_batch_trigger_limit(self.team.id) == expected_cap
-
-    @parameterized.expand(
-        [
-            ("a low tier", {"email_sending_tier": 0}, "enforce", set(), True, True),
-            ("the top tier", {"email_sending_tier": 7}, "enforce", set(), True, False),
-            (
-                "a pinned tier",
-                {"email_sending_tier": 0, "email_sending_tier_pinned": True},
-                "enforce",
-                set(),
-                True,
-                False,
-            ),
-            ("tiers in shadow mode", {"email_sending_tier": 0}, "shadow", set(), True, False),
-            ("an allowlisted team", {"email_sending_tier": 0}, "enforce", "self", True, False),
-            ("a send without email", {"email_sending_tier": 0}, "enforce", set(), False, False),
-        ]
-    )
-    def test_limit_can_rise_only_while_an_unpinned_tier_below_the_top_sets_it(
-        self, _case: str, config: dict, mode: str, elevated: object, sends_email: bool, expected: bool
-    ) -> None:
-        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults=config)
-        elevated_ids = {self.team.id} if elevated == "self" else elevated
-        with override_settings(WORKFLOWS_EMAIL_TIER_MODE=mode, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=elevated_ids):
-            assert hogflow_batch_trigger_limit_can_rise(self.team.id, sends_email=sends_email) is expected
 
     @parameterized.expand([("off",), ("shadow",)])
     def test_limit_stays_flat_until_the_mode_is_enforce(self, mode: str) -> None:
