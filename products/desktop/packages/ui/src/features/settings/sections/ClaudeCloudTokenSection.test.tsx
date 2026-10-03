@@ -1,3 +1,4 @@
+import { ClaudeIntegrationUnavailableError } from "@posthog/api-client/posthog-client";
 import type { ServiceContainer } from "@posthog/di/container";
 import { ServiceProvider } from "@posthog/di/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
@@ -162,6 +163,30 @@ describe("ClaudeCloudTokenSection", () => {
       );
     },
   );
+
+  it("keeps the token on this device when PostHog cannot store it yet", async () => {
+    const user = userEvent.setup();
+    client.getClaudeUserIntegration.mockResolvedValue(null);
+    client.connectClaudeUserIntegration.mockRejectedValue(
+      new ClaudeIntegrationUnavailableError(),
+    );
+    tokenStore.save.mockResolvedValue(undefined);
+    renderSection();
+
+    expect(
+      await screen.findByText(
+        "Keep Desktop open to start or resume. Compute is billed separately.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(await screen.findByLabelText("Claude setup token"));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole("button", { name: "Save token" }));
+
+    expect(await screen.findByText("Token saved")).toBeInTheDocument();
+    expect(tokenStore.save).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
+    expect(tokenStore.clear).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+  });
 
   it("keeps the local token when PostHog rejects the new one", async () => {
     const user = userEvent.setup();
