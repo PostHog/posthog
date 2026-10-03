@@ -5,6 +5,10 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
+from posthog.models.integration import Integration
+
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.api import ensure_sandbox_email_sender
 
@@ -77,3 +81,73 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "sandbox sender" in response.json()["detail"].lower()
         assert "broadcast" in response.json()["detail"].lower()
+
+    def test_destination_cannot_select_the_sandbox_sender(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            {
+                "name": "Sandbox destination",
+                "type": "destination",
+                "hog": "return 1;",
+                "inputs_schema": self.email_schema,
+                "inputs": {"email": {"value": self._email()}},
+            },
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "sandbox sender" in response.json()["detail"].lower()
+        assert "workflow email steps and test sends" in response.json()["detail"].lower()
+
+    def test_workflow_can_select_the_sandbox_sender_alone(self) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._workflow())
+
+        assert response.status_code == 201, response.json()
+        assert response.json()["actions"][1]["config"]["inputs"]["email"]["value"]["from"] == {
+            "integrationId": self.sender.id
+        }
+
+    def test_sandbox_sender_cannot_rotate_with_own_senders(self) -> None:
+        own_sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
+        )
+        workflow = self._workflow()
+        workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"] = {
+            "integrationIds": [self.sender.id, own_sender.id]
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+
+        assert response.status_code == 400, response.json()
+        assert "sandbox sender must be the only sender" in response.json()["detail"].lower()
+
+    @parameterized.expand(
+        [
+            ("custom From address", "email", "custom@sandbox.example.com"),
+            ("templated From address", "email", "{{ person.properties.email }}"),
+            ("custom From name", "name", "Custom sender"),
+            ("Reply-To", "replyTo", "reply@example.com"),
+        ]
+    )
+    def test_sandbox_sender_cannot_use_sender_overrides(self, _name: str, field: str, value: str) -> None:
+        workflow = self._workflow()
+        email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
+        if field == "replyTo":
+            email[field] = value
+        else:
+            email["from"][field] = value
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+
+        assert response.status_code == 400, response.json()
+        assert "fixed From address and name" in response.json()["detail"]
+        assert "Reply-To" in response.json()["detail"]
+
+    def test_workflow_cannot_select_the_sandbox_sender_after_the_flag_turns_off(self) -> None:
+        self.flag_enabled.return_value = False
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._workflow())
+
+        assert response.status_code == 400, response.json()
+        assert "sandbox sender is not available for this project" in response.json()["detail"].lower()

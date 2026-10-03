@@ -104,6 +104,20 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
                 "Select a sender on your own verified domain for destinations."
             }
         )
+    if len(integration_ids) != 1:
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender must be the only sender. Remove the other senders "
+                "or select a sender on your own verified domain."
+            }
+        )
+    if email_value["from"].get("email") or email_value["from"].get("name") or email_value.get("replyTo"):
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender uses a fixed From address and name and does not support Reply-To. "
+                "Remove these overrides or select a sender on your own verified domain."
+            }
+        )
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
