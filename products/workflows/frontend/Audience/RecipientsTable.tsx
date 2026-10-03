@@ -1,61 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
-
-import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
+import { RecipientCell } from './RecipientCell'
+import { RecipientLastSent } from './RecipientLastSent'
+import { RecipientPersonsSummary } from './RecipientPersonsSummary'
 import { RECIPIENTS_PAGE_SIZE, recipientsLogic } from './recipientsLogic'
+import { WIDE_RECIPIENTS_TABLE_ONLY } from './recipientsTableLayout'
 import { TopicStatusTag } from './TopicStatusTag'
-
-// Below this width the persons and last sent columns fold into the recipient cell.
-const WIDE_ONLY = 'hidden @min-[44rem]/recipients:table-cell'
-const NARROW_ONLY = '@min-[44rem]/recipients:hidden'
-
-function PersonsSummary({ recipient }: { recipient: RecipientApi }): JSX.Element {
-    const { person_count: personCount, persons } = recipient
-    if (personCount === 0) {
-        return <span className="text-xs text-secondary">No person</span>
-    }
-    if (personCount === 1 && persons.length === 1) {
-        return <span className="wrap-anywhere">{persons[0].name ?? persons[0].distinct_id}</span>
-    }
-    return <span>{personCount === 1 ? '1 person' : `${personCount.toLocaleString()} persons`}</span>
-}
-
-function LastSent({ recipient }: { recipient: RecipientApi }): JSX.Element {
-    return recipient.last_sent_at ? (
-        <TZLabel time={recipient.last_sent_at} />
-    ) : (
-        <span className="text-xs text-secondary">None</span>
-    )
-}
-
-function RecipientCell({ recipient }: { recipient: RecipientApi }): JSX.Element {
-    return (
-        <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span translate="no" className="font-medium wrap-anywhere">
-                    {recipient.email}
-                </span>
-                {recipient.suppression && (
-                    <LemonTag type="danger" size="small">
-                        Suppressed
-                    </LemonTag>
-                )}
-            </div>
-            <div className={`${NARROW_ONLY} flex flex-wrap gap-x-2 text-xs text-secondary`}>
-                <PersonsSummary recipient={recipient} />
-                <span>
-                    <span>Last sent: </span>
-                    <LastSent recipient={recipient} />
-                </span>
-            </div>
-        </div>
-    )
-}
 
 function TopicsCell({
     recipient,
@@ -103,15 +58,15 @@ export function RecipientsTable(): JSX.Element {
         {
             title: 'Persons',
             key: 'persons',
-            className: WIDE_ONLY,
-            render: (_, recipient) => <PersonsSummary recipient={recipient} />,
+            className: WIDE_RECIPIENTS_TABLE_ONLY,
+            render: (_, recipient) => <RecipientPersonsSummary recipient={recipient} />,
         },
         {
             title: 'Last sent (30 days)',
             key: 'last_sent_at',
-            className: WIDE_ONLY,
+            className: WIDE_RECIPIENTS_TABLE_ONLY,
             tooltip: 'When an email was last sent to this address. Sends older than 30 days are not shown.',
-            render: (_, recipient) => <LastSent recipient={recipient} />,
+            render: (_, recipient) => <RecipientLastSent recipient={recipient} />,
         },
     ]
 
