@@ -46,6 +46,7 @@ class RecipientListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=512,
         help_text="Case-insensitive substring match on the email address.",
     )
