@@ -65,6 +65,9 @@ export interface TopicVocabulary {
         webhookDescription: string
         outboundSyncDescription: string
     }
+    preferencesPage: {
+        openFailed: string
+    }
 }
 
 function forTopic(topicName: string | undefined, prefix: string): string {
@@ -144,6 +147,9 @@ export const MESSAGE_CATEGORY_WORDS: TopicVocabulary = {
         outboundSyncDescription:
             'When users change their preferences on the PostHog-managed page, automatically sync those changes back to Customer.io. Only categories imported from Customer.io are synced.',
     },
+    preferencesPage: {
+        openFailed: 'Failed to generate workflows preferences link',
+    },
 }
 
 export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
@@ -220,5 +226,8 @@ export const AUDIENCE_TOPIC_WORDS: TopicVocabulary = {
             'Set up Customer.io to send a webhook when a recipient unsubscribes, so PostHog records it automatically.',
         outboundSyncDescription:
             'When recipients change their preferences on the PostHog-managed page, sync those changes back to Customer.io. Only topics imported from Customer.io are synced.',
+    },
+    preferencesPage: {
+        openFailed: "Couldn't open the preferences page. Try again.",
     },
 }
