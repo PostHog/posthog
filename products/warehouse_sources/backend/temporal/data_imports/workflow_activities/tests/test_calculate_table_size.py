@@ -159,9 +159,7 @@ class TestCalculateTableSizeActivity:
         # A full refresh (or another maintenance pass) can purge a table's `_delta_log` out from
         # under this activity's own DeltaTable() open in _live_delta_size_mib. delta-rs surfaces that
         # race as a bare DeltaError ("Kernel error: File not found: .../_delta_log/<version>.json"),
-        # not the TableNotFoundError _live_delta_size_mib already handles - this used to escape
-        # uncaught and mint a fresh error-tracking issue instead of being retried like every other
-        # self-healing race this pipeline already recognizes.
+        # not the TableNotFoundError _live_delta_size_mib already handles.
         team = _team()
         schema, _table, job = _schema_table_job(
             team, table_format="DeltaS3Wrapper", queryable_folder="stripe_charge__query_a"
