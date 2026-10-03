@@ -159,6 +159,20 @@ describe('World', () => {
         expect(world.touch(idle.token, later)).toBeNull()
     })
 
+    it('removes a hedgehog soon after its stream closes unless the client comes back', () => {
+        const world = makeWorld()
+        const gone = join(world)
+        const back = join(world)
+        world.disconnect(gone.token, 0)
+        world.disconnect(back.token, 0)
+        expect(world.touch(back.token, 1)).not.toBeNull()
+
+        const { departed } = world.tick(LIMITS.streamGraceMs + 1)
+
+        expect(departed.map((player) => player.id)).toEqual([gone.id])
+        expect(world.tick(LIMITS.idleTimeoutMs).departed).toEqual([])
+    })
+
     it.each([
         ['free text instead of a preset phrase', 'buy my crypto', 0, 'unknown_phrase'],
         ['a second phrase inside the cooldown', 'hi', LIMITS.sayCooldownMs - 1, 'cooldown'],

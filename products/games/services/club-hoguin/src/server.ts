@@ -21,7 +21,6 @@ import {
     WORLD_DEPTH,
     WORLD_WIDTH,
 } from './content.ts'
-import type { FramePainter } from './frame.ts'
 import type { RateLimiter } from './rate-limiter.ts'
 import {
     type ClientKind,
@@ -72,7 +71,6 @@ export interface ServerDependencies {
     now: () => number
     trustedProxyHops: number
     rateLimiter: RateLimiter
-    painter: FramePainter
     // Different on every start of the process. A client that sees it change knows the town began again.
     serverId: string
 }
@@ -178,7 +176,6 @@ export function createClubHoguinServer({
     now,
     trustedProxyHops,
     rateLimiter,
-    painter,
     serverId,
 }: ServerDependencies): Server {
     const worldDescription = JSON.stringify({
@@ -256,23 +253,6 @@ export function createClubHoguinServer({
         }
         if (pathname === '/api/stream' && method === 'GET') {
             streamEvents(request, response, url)
-            return
-        }
-        // The town as a picture, for a pane. The base64 form is for a client that can only read text.
-        if ((pathname === '/api/frame.png' || pathname === '/api/frame.b64') && method === 'GET') {
-            const token = readToken(request)
-            const viewer = token ? world.touch(token, now()) : null
-            if (token && !viewer) {
-                fail('unknown_player')
-            }
-            const png = painter.paint(world.snapshot(null, now()), viewer?.id ?? null, now())
-            const isText = pathname.endsWith('.b64')
-            response.writeHead(200, {
-                ...SECURITY_HEADERS,
-                'content-type': isText ? 'text/plain; charset=utf-8' : 'image/png',
-                'cache-control': 'no-store',
-            })
-            response.end(isText ? png.toString('base64') : png)
             return
         }
         if (method !== 'POST') {
@@ -427,6 +407,9 @@ export function createClubHoguinServer({
         request.on('close', () => {
             unsubscribe()
             clearInterval(heartbeat)
+            if (token) {
+                world.disconnect(token, now())
+            }
         })
     }
 

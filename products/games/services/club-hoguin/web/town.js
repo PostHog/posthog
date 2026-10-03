@@ -1173,7 +1173,8 @@ export function createTown(world, canvas) {
         camera.aspect = width / height
         camera.updateProjectionMatrix()
         // The toolbar covers the bottom of the stage, so the town stays above it.
-        const bottom = -1 + Math.min(0.3, 130 / height)
+        // In a pane there is no toolbar to leave room for.
+        const bottom = document.body.classList.contains('pane') ? -0.97 : -1 + Math.min(0.3, 130 / height)
         let near = 20
         let far = 260
         for (let pass = 0; pass < 22; pass++) {

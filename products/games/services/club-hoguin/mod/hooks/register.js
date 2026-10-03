@@ -6,9 +6,8 @@ const PANE = 'club-hoguin'
 const DEFAULT_URL = 'http://localhost:8642'
 const POLL_MS = 500
 // The picture of the town is drawn again this often while the pane shows it.
-const FRAME_MS = 100
-const PICTURE_COLUMNS = 40
-const PICTURE_ROWS = 11
+const PICTURE_COLUMNS = 72
+const PICTURE_ROWS = 22
 const AUTO_OPEN_AFTER_MS = 10_000
 const STEP = 3
 const FEED_LINES = 4
@@ -28,8 +27,8 @@ let baseUrlSource = 'default'
 let autoJoin = true
 // The pane shows a picture of the town where the terminal can draw one. `/hoguin map` switches to text.
 let showPicture = true
-let picture = null
-let frameTimer = null
+// The viewer: the real web page, run by Chrome without a window and shown as pictures (see view.mjs).
+let viewer = null
 let world = null
 let session = null
 let snapshot = null
@@ -46,6 +45,9 @@ let isOpeningByTurn = false
 let openNumber = 0
 let openedByTurn = false
 let hintShown = false
+// A refused action shows a toast at most this often, so holding a key does not flood the screen.
+let lastToastAt = -Infinity
+const TOAST_EVERY_MS = 4000
 
 async function request($, method, path, body) {
     const headers = { 'content-type': 'application/json' }
@@ -111,14 +113,28 @@ async function openInBrowser($, url) {
     return false
 }
 
+// The town's description: the map, the phrases, the speed. Every mode needs it, the viewer included.
+async function describeWorld($) {
+    if (world) {
+        return true
+    }
+    try {
+        const described = await request($, 'GET', '/api/world')
+        if (!described.ok) {
+            throw new Error('world ' + described.status)
+        }
+        world = described.data
+        return true
+    } catch {
+        problem = UNREACHABLE + baseUrl + '. Set CLUB_HOGUIN_URL to the address of a running server.'
+        return false
+    }
+}
+
 async function join($) {
     try {
-        if (!world) {
-            const described = await request($, 'GET', '/api/world')
-            if (!described.ok) {
-                throw new Error('world ' + described.status)
-            }
-            world = described.data
+        if (!(await describeWorld($))) {
+            return false
         }
         const joined = await request($, 'POST', '/api/join', { client: 'mod' })
         if (joined.status === 503) {
@@ -240,7 +256,7 @@ async function poll($) {
     }
     isPolling = true
     try {
-        if (session || (await join($))) {
+        if ((await describeWorld($)) && (session || usesViewer() || (await join($)))) {
             const response = model
                 ? await request($, 'GET', '/api/events?since=' + model.seq)
                 : await request($, 'GET', '/api/state')
@@ -270,21 +286,103 @@ async function poll($) {
     $.ui.invalidate('ui.render')
 }
 
-// Fetches the newest picture and repaints the pane when it changed.
-async function paint($) {
-    if (!session || !showPicture) {
+// Starts the viewer. Its lines say where its socket is and where each new picture is.
+function startViewer($) {
+    if (viewer) {
+        return
+    }
+    const workDir = '/tmp/club-hoguin-view-' + Math.random().toString(36).slice(2, 10)
+    const current = { frame: null, generation: 0, socketPath: null, workDir, failed: null }
+    viewer = current
+    let stream
+    try {
+        stream = $.process.spawn({
+            argv: ['node', $.plugin.root + '/hooks/view.mjs', baseUrl + '/?pane=1', workDir],
+        })
+    } catch (error) {
+        current.failed = String(error)
+        return
+    }
+    void (async () => {
+        try {
+            let rest = ''
+            for await (const chunk of stream) {
+                if (chunk.stream !== 'stdout') {
+                    continue
+                }
+                rest += chunk.text
+                const lines = rest.split('\n')
+                rest = lines.pop()
+                lines.forEach((line) => readViewerLine($, current, line))
+            }
+        } catch (error) {
+            current.failed = String(error)
+        }
+        if (current === viewer && !current.failed) {
+            current.failed = 'The viewer stopped.'
+        }
+        $.ui.invalidate('ui.render')
+    })()
+}
+
+function readViewerLine($, current, line) {
+    const [word, ...rest] = line.trim().split(' ')
+    if (word === 'socket') {
+        current.socketPath = rest[0]
+    } else if (word === 'frame') {
+        const first = current.frame === null
+        current.generation = Number(rest[0])
+        current.frame = rest[1]
+        if (current !== viewer || !isOpen) {
+            return
+        }
+        if (first) {
+            $.ui.invalidate('ui.render')
+        } else {
+            $.ui
+                .blit({
+                    requestId: PANE,
+                    key: 'picture',
+                    source: { file: current.frame, format: 'png', generation: current.generation },
+                })
+                .catch(() => $.ui.invalidate('ui.render'))
+        }
+    } else if (word === 'error') {
+        current.failed = rest.join(' ')
+        $.ui.invalidate('ui.render')
+    }
+}
+
+async function stopViewer($) {
+    const current = viewer
+    viewer = null
+    if (current && current.socketPath) {
+        try {
+            await $.http.fetch('http://view/quit', { method: 'POST', socketPath: current.socketPath })
+        } catch {
+            // The viewer exits by itself when Chrome goes.
+        }
+    }
+}
+
+// A key for the page in the viewer. It goes down, and comes up when the presses stop.
+async function sendKey($, key) {
+    if (!viewer || !viewer.socketPath) {
         return
     }
     try {
-        const response = await request($, 'GET', '/api/frame.b64')
-        if (response.ok && response.text && response.text !== picture) {
-            picture = response.text
-            $.ui.invalidate('ui.render')
-        }
+        await $.http.fetch('http://view/key', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ key }),
+            socketPath: viewer.socketPath,
+        })
     } catch {
-        // The next poll reports the problem.
+        // A lost key press is not worth a message.
     }
 }
+
+const usesViewer = () => showPicture && viewer !== null && viewer.failed === null
 
 async function act($, path, body) {
     if (!session) {
@@ -293,11 +391,18 @@ async function act($, path, body) {
     try {
         const result = await request($, 'POST', path, body)
         const error = result.data && result.data.error
+        const now = $.clock.now()
         if (result.status === 401) {
             session = null
-        } else if (error === 'too_far') {
+        } else if (error === 'too_far' && now - lastToastAt > TOAST_EVERY_MS) {
+            lastToastAt = now
             $.ui.toast('Walk closer to something to poke it.')
-        } else if (error === 'cooldown') {
+        } else if (
+            (error === 'cooldown' || error === 'too_many_actions') &&
+            path !== '/api/move' &&
+            now - lastToastAt > TOAST_EVERY_MS
+        ) {
+            lastToastAt = now
             $.ui.toast('Slow down a little, hedgehog.')
         }
     } catch {
@@ -349,18 +454,15 @@ async function showClub($, byTurn, number) {
     }
     isOpen = true
     openedByTurn = byTurn
+    if (showPicture) {
+        startViewer($)
+    }
     if (!pollTimer) {
         pollTimer = $.clock.every(POLL_MS, () => {
             void poll($)
         })
     }
-    if (!frameTimer) {
-        frameTimer = $.clock.every(FRAME_MS, () => {
-            void paint($)
-        })
-    }
     await poll($)
-    await paint($)
 }
 
 async function leaveClub($, closePane) {
@@ -368,11 +470,7 @@ async function leaveClub($, closePane) {
         pollTimer.cancel()
         pollTimer = null
     }
-    if (frameTimer) {
-        frameTimer.cancel()
-        frameTimer = null
-    }
-    picture = null
+    await stopViewer($)
     const wasOpen = isOpen
     isOpen = false
     openedByTurn = false
@@ -481,6 +579,13 @@ export function register(on) {
         if (args === 'map' || args === 'picture') {
             showPicture = args === 'picture'
             await $.store.set('showPicture', showPicture)
+            if (isOpen) {
+                if (showPicture) {
+                    startViewer($)
+                } else {
+                    await stopViewer($)
+                }
+            }
             $.ui.invalidate('ui.render')
             return {
                 text: showPicture
@@ -571,25 +676,37 @@ export function register(on) {
         }
 
         const map =
-            e.surface === 'terminal' && showPicture && picture
+            e.surface === 'terminal' && showPicture && viewer && viewer.frame && !viewer.failed
                 ? Image({
                       key: 'picture',
-                      source: { png: picture },
+                      source: { file: viewer.frame, format: 'png', generation: viewer.generation },
                       columns: PICTURE_COLUMNS,
                       rows: PICTURE_ROWS,
-                      alt: 'A picture of the town. If you see this line instead, run /hoguin map for the text map.',
+                      alt: mapLines(world, snapshot).join('\n'),
                   })
-                : e.surface === 'terminal'
-                  ? Raster({
-                        key: 'map',
-                        columns: world.textMap.rows[0].length,
-                        rows: world.textMap.rows.length,
-                        cells: mapCells(world, snapshot),
-                    })
-                  : Box({
-                        flexDirection: 'column',
-                        children: mapLines(world, snapshot).map((line) => Text({ wrap: 'truncate', children: [line] })),
-                    })
+                : e.surface === 'terminal' && showPicture && viewer && !viewer.failed
+                  ? Text({ dimColor: true, children: ['Starting the town… (Chrome opens it without a window)'] })
+                  : e.surface === 'terminal' && showPicture && viewer && viewer.failed
+                    ? Text({
+                          color: 'red',
+                          wrap: 'wrap',
+                          children: [
+                              'The viewer could not start: ' + viewer.failed + ' Run /hoguin map for the text map.',
+                          ],
+                      })
+                    : e.surface === 'terminal'
+                      ? Raster({
+                            key: 'map',
+                            columns: world.textMap.rows[0].length,
+                            rows: world.textMap.rows.length,
+                            cells: mapCells(world, snapshot),
+                        })
+                      : Box({
+                            flexDirection: 'column',
+                            children: mapLines(world, snapshot).map((line) =>
+                                Text({ wrap: 'truncate', children: [line] })
+                            ),
+                        })
         const legend = world.objects
             .filter((object, index, all) => all.findIndex((other) => other.glyph === object.glyph) === index)
             .map((object) => object.glyph + ' ' + object.name)
@@ -601,7 +718,8 @@ export function register(on) {
                 label: direction.key,
                 hotkey: direction.hotkey,
                 plain: true,
-                onPress: () => void walk($, direction.dx, direction.dy),
+                onPress: () =>
+                    usesViewer() ? void sendKey($, direction.hotkey) : void walk($, direction.dx, direction.dy),
             })
         )
         const poke = Button({
@@ -609,7 +727,7 @@ export function register(on) {
             label: 'poke',
             hotkey: 'e',
             plain: true,
-            onPress: () => void act($, '/api/poke', {}),
+            onPress: () => (usesViewer() ? void sendKey($, 'e') : void act($, '/api/poke', {})),
         })
         const phrases = world.phrases.slice(0, 9).map((phrase, index) =>
             Button({
@@ -617,7 +735,10 @@ export function register(on) {
                 label: phrase.text,
                 hotkey: String(index + 1),
                 plain: true,
-                onPress: () => void act($, '/api/say', { phraseId: phrase.id }),
+                onPress: () =>
+                    usesViewer()
+                        ? void sendKey($, String(index + 1))
+                        : void act($, '/api/say', { phraseId: phrase.id }),
             })
         )
 

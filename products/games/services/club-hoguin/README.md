@@ -33,14 +33,14 @@ Add `?embed=1` to the URL for the embed layout, which fills the frame and drops 
 <iframe src="http://localhost:8642/?embed=1" width="720" height="520"></iframe>
 ```
 
-| Variable                      | Default                    | What it does                                                          |
-| ----------------------------- | -------------------------- | --------------------------------------------------------------------- |
-| `PORT`                        | `8642`                     | The port the server listens on                                        |
-| `HOST`                        | `0.0.0.0`                  | The address the server binds to                                       |
-| `TRUSTED_PROXY_HOPS`          | `0`                        | The number of proxies in front of the server                          |
-| `CLUB_HOGUIN_BOTS`            | `0`                        | Hedgehogs that walk around and chat on their own, for trying the town |
-| `CLUB_HOGUIN_POSTHOG_API_KEY` | not set                    | Sends usage events to PostHog when it is set                          |
-| `CLUB_HOGUIN_POSTHOG_HOST`    | `https://us.i.posthog.com` | The PostHog ingestion host                                            |
+| Variable                      | Default                    | What it does                                                                                   |
+| ----------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `PORT`                        | `8642`                     | The port the server listens on                                                                 |
+| `HOST`                        | `0.0.0.0`                  | The address the server binds to                                                                |
+| `TRUSTED_PROXY_HOPS`          | `0`                        | The number of proxies in front of the server                                                   |
+| `CLUB_HOGUIN_BOTS`            | `3`                        | Hedgehogs the server runs itself (Turbo Deploy, Curious Cohort, Mellow Replay). Set 0 for none |
+| `CLUB_HOGUIN_POSTHOG_API_KEY` | not set                    | Sends usage events to PostHog when it is set                                                   |
+| `CLUB_HOGUIN_POSTHOG_HOST`    | `https://us.i.posthog.com` | The PostHog ingestion host                                                                     |
 
 The server reads the files in `web/` when it starts, so restart it after you change one.
 
@@ -72,13 +72,13 @@ Load it for one session with:
 CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/services/club-hoguin/mod
 ```
 
-- `/hoguin` opens or closes the club in a pane. In a terminal that can draw pictures (Ghostty, kitty, iTerm2, WezTerm) the pane shows a picture of the town. `/hoguin map` switches to a map of text characters, and `/hoguin picture` back.
+- `/hoguin` opens or closes the club in a pane. In a terminal that can draw pictures (Ghostty, kitty, iTerm2, WezTerm) the pane shows the web page itself: the mod opens it in the Chrome on your machine without a window and draws what Chrome sees, about 10 times a second. Set `CLUB_HOGUIN_CHROME` to the browser binary when it is not in a usual place. `/hoguin map` switches to a map of text characters, and `/hoguin picture` back.
 - `/hoguin web` opens the club in your browser.
 - When Claude works for more than 10 seconds, the pane opens by itself, and it closes when Claude is done.
   `/hoguin auto off` turns this off.
-- In the pane, `w` `a` `s` `d` walk, `e` uses the closest object, and `1` to `9` send a phrase.
+- In the pane, `w` `a` `s` `d` walk, `e` uses the closest object, and `1` to `9` send a phrase. In the picture the keys go to the page, so everything the page can do with a key works.
 
-The mod sends only "joined", moves, phrases, uses, and "left" to the server.
+The mod and the page in Chrome send only "joined", moves, phrases, emotes, uses, and "left" to the server.
 It never sends the prompt, the transcript, or anything about the task.
 
 The mod finds the club through the PostHog MCP server when one is connected: it calls the `club-hoguin-open` tool, which returns the address the server is configured with (`CLUB_HOGUIN_URL` in `services/mcp`).
@@ -99,26 +99,24 @@ A client takes one snapshot and then only the events after the last number it sa
 The web client reads the events from `GET /api/stream`, a server-sent event stream.
 The Claude Code mod polls `GET /api/events?since=N`, because a mod cannot hold a connection open.
 A walk event carries the path and the start time, and every client works out where the hedgehog is from those, with the same calculation as the server (`src/walk.ts`, `web/walk.js`, `mod/hooks/walk.js`).
-The pane picture comes from `GET /api/frame.png`, which the server paints from the sprite sheet without an image library (`src/frame.ts`, `src/png.ts`).
 
 One network address can have 10 hedgehogs in the town at a time, so one client cannot take every place.
 One address can send 300 requests a second. After that the server answers `429` until the address slows down.
 Behind a proxy, every request comes from the address of the proxy.
 Set `TRUSTED_PROXY_HOPS` to the number of proxies, and the server reads the client address from `x-forwarded-for`.
 
-| Endpoint             | Body                         | What it does                                                               |
-| -------------------- | ---------------------------- | -------------------------------------------------------------------------- |
-| `GET /api/world`     |                              | The size of the town, the objects, the phrases, the map                    |
-| `POST /api/join`     | `{ client, skin? }`          | Joins the town and returns a token                                         |
-| `GET /api/state`     |                              | A snapshot: the hedgehogs, the town log, the objects, and the event number |
-| `GET /api/events`    | `?since=N`                   | The events after N, or a snapshot when they are gone                       |
-| `GET /api/stream`    | `?token=…&since=N`           | The same, as a server-sent event stream                                    |
-| `GET /api/frame.png` |                              | The town as a picture (`.b64` for the base64 text)                         |
-| `POST /api/move`     | `{ x, y }` or `{ objectId }` | Walks to a point, or walks to an object and uses it                        |
-| `POST /api/say`      | `{ phraseId }`               | Says a preset phrase                                                       |
-| `POST /api/emote`    | `{ emoteId }`                | Shows a preset emote                                                       |
-| `POST /api/poke`     | `{ objectId? }`              | Uses an object in reach, or the closest one                                |
-| `POST /api/leave`    |                              | Leaves the town                                                            |
+| Endpoint          | Body                         | What it does                                                               |
+| ----------------- | ---------------------------- | -------------------------------------------------------------------------- |
+| `GET /api/world`  |                              | The size of the town, the objects, the phrases, the map                    |
+| `POST /api/join`  | `{ client, skin? }`          | Joins the town and returns a token                                         |
+| `GET /api/state`  |                              | A snapshot: the hedgehogs, the town log, the objects, and the event number |
+| `GET /api/events` | `?since=N`                   | The events after N, or a snapshot when they are gone                       |
+| `GET /api/stream` | `?token=…&since=N`           | The same, as a server-sent event stream                                    |
+| `POST /api/move`  | `{ x, y }` or `{ objectId }` | Walks to a point, or walks to an object and uses it                        |
+| `POST /api/say`   | `{ phraseId }`               | Says a preset phrase                                                       |
+| `POST /api/emote` | `{ emoteId }`                | Shows a preset emote                                                       |
+| `POST /api/poke`  | `{ objectId? }`              | Uses an object in reach, or the closest one                                |
+| `POST /api/leave` |                              | Leaves the town                                                            |
 
 Send the token from `/api/join` in the `x-hoguin-token` header.
 

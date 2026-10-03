@@ -29,7 +29,9 @@ const KEY_DIRECTIONS = {
 }
 
 const params = new URLSearchParams(window.location.search)
-const clientKind = params.get('embed') === '1' ? 'embed' : 'web'
+// ?pane=1 is the page inside a Claude Code pane: it fills the window, joins at once, and shows no chrome.
+const isPane = params.get('pane') === '1'
+const clientKind = isPane ? 'mod' : params.get('embed') === '1' ? 'embed' : 'web'
 
 const $ = (/** @type {string} */ id) => /** @type {HTMLElement} */ (document.getElementById(id))
 const stage = $('stage')
@@ -104,7 +106,11 @@ function showNotice(text) {
 const serverNow = () => Date.now() + clockOffset
 
 async function join() {
-    const joined = await api('POST', '/api/join', { client: clientKind, skin: look?.skin, hat: look?.hat ?? null })
+    const joined = await api(
+        'POST',
+        '/api/join',
+        look?.random ? { client: clientKind } : { client: clientKind, skin: look?.skin, hat: look?.hat ?? null }
+    )
     if (!joined.ok) {
         throw new Error(joined.data?.error ?? 'join_failed')
     }
@@ -350,8 +356,9 @@ function updateLabels() {
             hogLabels.set(id, entry)
         }
         const depth = String(Math.round(hog.y * 10))
-        entry.tag.textContent = `${hog.view.client === 'mod' ? '⏳ ' : ''}${hog.view.name}${id === youId ? ' (you)' : ''}`
+        entry.tag.textContent = `${hog.view.bot ? '🤖 ' : hog.view.client === 'mod' ? '⏳ ' : ''}${hog.view.name}${id === youId ? ' (you)' : ''}`
         entry.tag.classList.toggle('tag-you', id === youId)
+        entry.tag.classList.toggle('tag-bot', Boolean(hog.view.bot))
         entry.tag.style.zIndex = depth
         pin(entry.tag, town.at(hog.x, hog.y, 0), 'translate(-50%, 0.15em)')
         entry.bubble.hidden = !hog.bubble
@@ -636,8 +643,8 @@ window.addEventListener('pagehide', () => {
 })
 
 async function start() {
-    if (clientKind === 'embed') {
-        document.body.classList.add('embed')
+    if (clientKind === 'embed' || isPane) {
+        document.body.classList.add(isPane ? 'pane' : 'embed')
     }
     const result = await api('GET', '/api/world').catch(() => null)
     if (!result?.ok) {
@@ -675,6 +682,10 @@ async function start() {
     buildToolbar()
     town.applyNight()
     window.requestAnimationFrame(frame)
+    if (isPane && !look) {
+        // The pane has no mouse for the card. The server picks a look, and Change hog is a browser thing.
+        look = { skin: world.looks[0].skin, hat: null, random: true }
+    }
     $('card').hidden = look !== null
     if (look) {
         void start_()

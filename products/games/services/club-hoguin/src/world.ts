@@ -32,6 +32,8 @@ export const LIMITS = {
     maxPlayers: 150,
     maxPlayersPerAddress: 10,
     idleTimeoutMs: 20_000,
+    // A browser reconnects a dropped event stream within this time. A closed tab or a killed Chrome does not.
+    streamGraceMs: 3_000,
     sayCooldownMs: 1_500,
     emoteCooldownMs: 800,
     pokeCooldownMs: 1_000,
@@ -58,6 +60,8 @@ interface Player {
     skin: Skin
     hat: Hat | null
     client: ClientKind
+    // True for a hedgehog the server runs itself. Clients show it, so nobody mistakes one for a person.
+    bot: boolean
     address: string
     x: number
     y: number
@@ -66,7 +70,8 @@ interface Player {
     intent: ObjectId | null
     facing: Facing
     joinedAt: number
-    lastSeenAt: number
+    // The moment the hedgehog wanders off unless the client shows up before it.
+    leaveAt: number
     lastStepAt: number
     bubble: { text: string; until: number } | null
     emote: { emoji: string; until: number; seq: number } | null
@@ -81,6 +86,7 @@ export interface PlayerView {
     name: string
     skin: Skin
     hat: Hat | null
+    bot: boolean
     client: ClientKind
     x: number
     y: number
@@ -372,7 +378,16 @@ export class World {
     }
 
     // The address is the network address of the client. The cap per address stops one client from taking every place.
-    join(client: ClientKind, address: string, now: number, skin?: Skin, hat: Hat | null = null): JoinResult {
+    // A name is only given for a bot, whose name fits its personality. A person gets one from the pool.
+    join(
+        client: ClientKind,
+        address: string,
+        now: number,
+        skin?: Skin,
+        hat: Hat | null = null,
+        name?: string,
+        bot = false
+    ): JoinResult {
         if (this.players.size >= LIMITS.maxPlayers) {
             return { ok: false, error: 'club_full' }
         }
@@ -384,11 +399,12 @@ export class World {
         const player: Player = {
             id: this.makeId(),
             token: this.makeId(),
-            name: this.uniqueName(),
+            name: name && !this.isNameTaken(name) ? name : this.uniqueName(),
             skin: skin ?? this.pick(SKINS),
             // Only the default hedgehog wears a hat; a hat is drawn for its shape. A player who picks none gets a random one.
             hat: (skin ?? 'default') === 'default' ? (hat ?? (this.random() < 0.3 ? null : this.pick(HATS))) : null,
             client,
+            bot,
             address,
             x: spawn.x,
             y: spawn.y,
@@ -396,7 +412,7 @@ export class World {
             intent: null,
             facing: this.random() < 0.5 ? 'left' : 'right',
             joinedAt: now,
-            lastSeenAt: now,
+            leaveAt: now + LIMITS.idleTimeoutMs,
             lastStepAt: now,
             bubble: null,
             emote: null,
@@ -420,8 +436,16 @@ export class World {
         if (!player) {
             return null
         }
-        player.lastSeenAt = now
+        player.leaveAt = now + LIMITS.idleTimeoutMs
         return { id: player.id, client: player.client }
+    }
+
+    // The event stream of the player closed. The next request, usually a reconnect, extends the deadline again.
+    disconnect(token: string, now: number): void {
+        const player = this.players.get(token)
+        if (player) {
+            player.leaveAt = Math.min(player.leaveAt, now + LIMITS.streamGraceMs)
+        }
     }
 
     // Takes one action from the budget of the player. False when the budget is empty.
@@ -580,7 +604,7 @@ export class World {
         const departed: DepartedPlayer[] = []
         const poked: PokeEvent[] = []
         for (const player of this.players.values()) {
-            if (now - player.lastSeenAt > LIMITS.idleTimeoutMs) {
+            if (now > player.leaveAt) {
                 this.players.delete(player.token)
                 const text = this.post(now, 'leave', player, `${player.name} wandered off`)
                 this.emit(now, { kind: 'leave', id: player.id, reason: 'idle', text })
@@ -727,6 +751,7 @@ export class World {
             name: player.name,
             skin: player.skin,
             hat: player.hat,
+            bot: player.bot,
             client: player.client,
             x: round(player.x),
             y: round(player.y),
@@ -755,6 +780,10 @@ export class World {
             }
         }
         return { ...SPAWN }
+    }
+
+    private isNameTaken(name: string): boolean {
+        return [...this.players.values()].some((player) => player.name === name)
     }
 
     private uniqueName(): string {

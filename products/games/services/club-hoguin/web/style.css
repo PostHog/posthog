@@ -90,6 +90,11 @@ body {
     border-radius: 999px;
 }
 
+.tag-bot {
+    color: #55596a;
+    background: rgb(226 230 240 / 88%);
+}
+
 .tag-you {
     color: #fff;
     background: var(--hog-orange);
@@ -493,6 +498,31 @@ body {
 
 body.embed {
     padding: 0;
+}
+
+/* Inside a Claude Code pane the page is a picture: the town fills the window and the toolbar is gone,
+   because the pane sends keys, not clicks. */
+body.pane {
+    padding: 0;
+    background: var(--hog-night);
+}
+
+body.pane .masthead,
+body.pane .footnote,
+body.pane .toolbar,
+body.pane .hint,
+body.pane .log,
+body.pane .brand {
+    display: none;
+}
+
+body.pane .stage {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
 }
 
 body.embed .masthead,
