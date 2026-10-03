@@ -17,6 +17,7 @@ import pandas as pd
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.ph_client import ScopedCapture
 
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.ranking.features import (
@@ -27,7 +28,8 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
     ReportEmbeddingsFeatureSet,
 )
-from products.signals.backend.ranking.model_store import LoadedModel, load_serving_set
+from products.signals.backend.ranking.model_contract import head_lifts
+from products.signals.backend.ranking.model_store import LoadedModel, ServingSet, load_serving_set
 from products.signals.backend.ranking.serving_manifest import ServingManifestEntry
 from products.signals.backend.ranking.sinks import persist_scores
 from products.signals.backend.report_embedding_reader import ReportVector, latest_report_vectors
@@ -83,6 +85,20 @@ def _served_extra(feature_set: FeatureSet) -> str | None:
     return extra if extra in RENDERING_BY_EXTRA else None
 
 
+def _served_model_extra(served: LoadedModel) -> str:
+    extra = _served_extra(served.feature_set)
+    if extra is None:
+        raise ScoringError(
+            f"served model {served.entry.key} is on feature set {served.feature_set.name}, not served yet"
+        )
+    return extra
+
+
+def served_rendering(serving: ServingSet) -> str:
+    """The rendering the served model reads, so the vector a served score depends on."""
+    return RENDERING_BY_EXTRA[_served_model_extra(serving.served)]
+
+
 def _extras_frame(report_ids: Sequence[str], vectors: Mapping[str, ReportVector]) -> pd.DataFrame:
     present = [report_id for report_id in report_ids if report_id in vectors]
     return pd.DataFrame(
@@ -135,6 +151,7 @@ def _result(model_scores: _ModelScores, report_id: str) -> RankingModelResult:
         status="skipped" if skip_reason else "scored",
         skip_reason=skip_reason,
         scores=dict(scores or {}),
+        lifts=head_lifts(scores or {}, model.metadata),
         metadata=_copied_metadata(model.metadata),
     )
 
@@ -152,15 +169,25 @@ def _unloaded_result(entry: ServingManifestEntry, reason: str) -> RankingModelRe
 
 
 def score_reports(
-    team_id: int, report_ids: Sequence[str], *, persist: bool, now: datetime
+    team_id: int,
+    report_ids: Sequence[str],
+    *,
+    persist: bool,
+    now: datetime,
+    serving: ServingSet | None = None,
+    capture: ScopedCapture | None = None,
 ) -> list[ReportScoringOutcome]:
     """One outcome per distinct report id, in the order given.
 
     A report with no current vector for the served model gets no score and `reason="no_vector"`,
     so the caller can try it again later. A challenger with no vector is a skipped result inside
     the score. `persist=False` returns the scores and writes nothing.
+
+    A caller that scores many teams passes the `serving` set it loaded and one `capture`, so each
+    team does not read the manifest from object storage again or flush its own events.
     """
-    serving = load_serving_set()
+    if serving is None:
+        serving = load_serving_set()
     if serving is None:
         logger.info("inbox_ranking_scoring_skipped", team_id=team_id, reason="no serving manifest is published")
         return []
@@ -168,11 +195,7 @@ def score_reports(
     if not ids:
         return []
     served = serving.served
-    served_extra = _served_extra(served.feature_set)
-    if served_extra is None:
-        raise ScoringError(
-            f"served model {served.entry.key} is on feature set {served.feature_set.name}, not served yet"
-        )
+    served_extra = _served_model_extra(served)
 
     models = [served, *serving.others]
     needed_extras = {extra for model in models if (extra := _served_extra(model.feature_set)) is not None}
@@ -204,5 +227,7 @@ def score_reports(
         outcomes.append(ReportScoringOutcome(report_id=report_id, score=score, reason=None))
 
     if persist:
-        persist_scores(team_id, [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score])
+        persist_scores(
+            team_id, [(outcome.report_id, outcome.score) for outcome in outcomes if outcome.score], capture=capture
+        )
     return outcomes

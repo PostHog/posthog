@@ -31,7 +31,7 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
-from posthog.oauth_provenance import is_sandbox_origin_request
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_request
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
@@ -46,6 +46,7 @@ from products.autoresearch.backend.facade.contracts import (
     SuggestionNotFound,
     TrainingRunNotFound,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
@@ -166,6 +167,19 @@ def _require_parent_pipeline_id(view: Any) -> str:
     return pipeline_id
 
 
+def _is_training_agent_sandbox(request: Request, team_id: int) -> bool:
+    """Whether to treat a sandbox request as the autoresearch training agent.
+
+    A request without a task-bound sandbox token counts as the training agent, so the check
+    fails closed when the header alone marks the request.
+    """
+    task_id = getattr(get_oauth_access_token(request), "sandbox_task_id", None)
+    if task_id is None:
+        return True
+    tasks = tasks_facade.get_tasks_by_ids([task_id], [team_id])
+    return not tasks or tasks[0].origin_product == tasks_facade.TaskOriginProduct.AUTORESEARCH
+
+
 def _pipeline_write_fields(validated: Any) -> dict[str, Any]:
     """The fields to persist.
 
@@ -217,10 +231,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
+        if self.action not in self.scope_object_write_actions or not is_sandbox_origin_request(request):
+            return
+        # A training run is a paid Tasks sandbox, so a person starts it. Tasks applies the same
+        # rule to its own launches.
+        if self.action == "start_training":
+            raise PermissionDenied(
+                "Training cannot be started from inside a sandbox. Start training from the pipeline's page in PostHog."
+            )
         # A sandbox token carries team-wide autoresearch:write, and the training agent writes only
-        # through its run, so a confused or injected agent must not reach pipeline writes. Tasks
-        # applies the same rule to its own launches.
-        if self.action in self.scope_object_write_actions and is_sandbox_origin_request(request):
+        # through its run, so a confused or injected agent must not reach pipeline writes. A
+        # user-driven sandbox, such as a PostHog AI task, can do what its user can do.
+        if _is_training_agent_sandbox(request, self.team_id):
             raise PermissionDenied("Pipelines cannot be changed from inside a sandbox.")
 
     def get_throttles(self) -> list[BaseThrottle]:
@@ -381,7 +403,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         description=(
             "Validate a proposed pipeline's target event and population before creating it. "
             "Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: "
-            "'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other "
+            "'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other "
             "'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create."
         ),
     )
@@ -473,7 +495,10 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         responses={
             200: OpenApiResponse(
                 response=AutoresearchRunSerializer,
-                description="The created inference run. Check rows_scored and status.",
+                description=(
+                    "The inference run, with status running. If a run for the pipeline is already running, "
+                    "this is that run. Poll the run until its status is completed or failed."
+                ),
             ),
             400: OpenApiResponse(
                 description=(
@@ -484,9 +509,11 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
         },
         summary="Run inference (score users)",
         description=(
-            "Score the inference population using the champion model and emit autoresearch_prediction "
-            "events for each scored user, and sets the pipeline's output_person_property on each scored person. "
-            "In production this is triggered by the daily Temporal inference workflow."
+            "Start scoring the inference population using the champion model. Scoring runs in the background: "
+            "it emits autoresearch_prediction events for each scored user and sets the pipeline's "
+            "output_person_property on each scored person. The response returns at once with the running run. "
+            "A second request while a run is running returns that run and starts nothing. "
+            "The daily Temporal inference workflow also scores each pipeline on its cadence."
         ),
     )
     # Scoring sets the pipeline's output property on every scored person, so it needs person:write too.
@@ -915,6 +942,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
                 model_explanation=data.get("model_explanation") or {},
                 recommended_next=data.get("recommended_next") or "",
                 distillation=data.get("distillation") or "",
+                report_notebook_short_id=data.get("report_notebook_short_id") or "",
             )
         except TrainingRunNotFound:
             raise NotFound("Training run not found.")

@@ -3,7 +3,7 @@ import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import materialized
@@ -15,6 +15,7 @@ from clickhouse_driver.errors import ServerException
 from posthog.clickhouse.client import connection
 from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, NodeRole, Workload
 from posthog.clickhouse.cluster import (
+    AUTHENTICATION_FAILED,
     TOO_MANY_MUTATIONS,
     AlterTableMutationRunner,
     ClickhouseCluster,
@@ -40,23 +41,23 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 
 @pytest.mark.parametrize(
-    "static_password, password_file_set, overrides_arg, expected_bootstrap, expect_provider",
+    "static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider",
     [
-        pytest.param("static-fallback", True, None, "static", True, id="dual_armed_default_bootstraps_on_static"),
-        pytest.param("", True, None, "token", True, id="token_first_default_bootstraps_on_token"),
-        pytest.param("static-only", False, None, "unset", False, id="static_default_uses_password"),
+        pytest.param("static-fallback", True, None, True, True, id="dual_armed_default_bootstraps_on_token"),
+        pytest.param("", True, None, True, True, id="token_first_default_bootstraps_on_token"),
+        pytest.param("static-only", False, None, False, False, id="static_default_uses_password"),
         pytest.param(
             "static-fallback",
             True,
             {"user": "backups", "password": "bkp-static"},
-            "static",
+            True,
             False,
             id="override_user_keeps_its_own_credential",
         ),
     ],
 )
-def test_get_cluster_keeps_the_bootstrap_off_an_expirable_token(
-    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expected_bootstrap, expect_provider
+def test_get_cluster_bootstraps_a_file_backed_user_on_its_live_token(
+    monkeypatch, tmp_path, static_password, password_file_set, overrides_arg, expect_token_bootstrap, expect_provider
 ) -> None:
     token = "live-token"
     token_file = tmp_path / "token"
@@ -75,17 +76,19 @@ def test_get_cluster_keeps_the_bootstrap_off_an_expirable_token(
         get_cluster(connection_overrides=overrides_arg)
 
     bootstrap_password = mock_default_client.call_args.kwargs.get("password")
+    bootstrap_provider = mock_cluster.call_args.kwargs["bootstrap_credential_provider"]
     overrides = mock_cluster.call_args.kwargs["connection_overrides"]
+    token_file.write_text("rotated-token")
 
-    if expected_bootstrap == "static":
-        assert bootstrap_password == static_password
-    elif expected_bootstrap == "token":
+    if expect_token_bootstrap:
         assert bootstrap_password == token
+        assert bootstrap_provider() == "rotated-token"
     else:
         assert bootstrap_password is None
+        assert bootstrap_provider is None
 
     if expect_provider:
-        assert overrides["credential_provider"]() == token
+        assert overrides["credential_provider"]() == "rotated-token"
     else:
         assert "credential_provider" not in overrides
 
@@ -423,6 +426,34 @@ def test_find_existing_mutations_handles_delimiter_shaped_parameter_value(cluste
     )
 
 
+def test_find_existing_mutations_renders_tz_aware_datetimes_before_connecting() -> None:
+    """Regression test: commands were rendered with `client.connection.context` before the client had
+    connected, so `server_info` was None and a tz-aware datetime parameter (e.g. an event removal time
+    range) raised `'NoneType' object has no attribute 'get_timezone'`. The lookup must also render in the
+    server timezone, as submission does, or a non-UTC server would never match its stored mutation.
+    """
+    runner = LightweightDeleteMutationRunner(
+        table=EVENTS_DATA_TABLE(),
+        predicate="team_id = %(team_id)s AND timestamp >= %(start_time)s",
+        parameters={"team_id": 1, "start_time": datetime(2026, 1, 1, tzinfo=UTC)},
+    )
+    client = Client("unconnected-host")
+    assert client.connection.context.server_info is None
+
+    def fake_execute(query: str, params: dict | None = None, **kwargs) -> list[tuple]:
+        if query == "SELECT 1":  # connecting populates server_info, here a non-UTC server
+            client.connection.context.server_info = Mock(get_timezone=Mock(return_value="America/New_York"))
+            return [(1,)]
+        return [(None,)]
+
+    with patch.object(client, "execute", side_effect=fake_execute) as execute:
+        assert runner.find_existing_mutations(client) == {}
+
+    connect_call, lookup_call = execute.call_args_list
+    assert connect_call.args == ("SELECT 1",)
+    assert "'2025-12-31 19:00:00'" in lookup_call.args[1]["__command_0"]
+
+
 def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
@@ -624,6 +655,58 @@ def test_sibling_addresses_another_cluster_and_is_memoized() -> None:
     assert cluster.shards == [1]
     # Memoized: rebuilding would rediscover the hosts and open a second pool per host.
     assert cluster.sibling("events") is sibling
+
+
+@pytest.mark.parametrize(
+    "credential_provider_set, caller_retry_policy_set, expected_presented",
+    [
+        pytest.param(
+            True, True, ["token-1", "token-2", "token-3"], id="token_bootstrap_presents_a_fresh_token_each_attempt"
+        ),
+        pytest.param(
+            True, False, ["token-1", "token-2", "token-3"], id="token_bootstrap_retries_without_a_caller_policy"
+        ),
+        pytest.param(False, True, ["static"], id="static_bootstrap_fails_on_a_rejected_login"),
+    ],
+)
+def test_discovery_retries_a_rejected_login_only_with_a_fresh_token(
+    credential_provider_set: bool, caller_retry_policy_set: bool, expected_presented: list[str]
+) -> None:
+    hosts_by_cluster = {
+        "posthog": [("host1", 9000, 1, 1, "online", "data")],
+        "events": [("events-host1", 9000, 1, 1, "online", "data")],
+    }
+    presented: list[str] = []
+    bootstrap_client_mock = Mock()
+    bootstrap_client_mock.connection.password = "static"
+
+    def mock_execute(query, params):
+        presented.append(bootstrap_client_mock.connection.password)
+        if len(presented) == 1:
+            raise ServerException("Authentication failed", code=AUTHENTICATION_FAILED)
+        return hosts_by_cluster[params["name"]]
+
+    bootstrap_client_mock.execute = Mock(side_effect=mock_execute)
+    tokens = iter(["token-1", "token-2", "token-3"])
+
+    def discover() -> None:
+        ClickhouseCluster(
+            bootstrap_client_mock,
+            cluster="posthog",
+            retry_policy=RetryPolicy(max_attempts=2, delay=0, exceptions=(TimeoutError,))
+            if caller_retry_policy_set
+            else None,
+            bootstrap_credential_provider=(lambda: next(tokens)) if credential_provider_set else None,
+        ).sibling("events")
+
+    with patch("posthog.clickhouse.cluster.time.sleep"):
+        if credential_provider_set:
+            discover()
+        else:
+            with pytest.raises(ServerException):
+                discover()
+
+    assert presented == expected_presented
 
 
 def test_satellite_cluster_hosts_have_no_shard_info() -> None:

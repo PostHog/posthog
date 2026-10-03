@@ -287,6 +287,26 @@ def _root_team_q() -> Q:
     return Q(parent_team_id__isnull=True) | Q(parent_team_id=F("id"))
 
 
+def set_up_team_q() -> Q:
+    """Projects that set Signals up: an enabled signal source, or an enabled scout a person turned on.
+
+    Source configs are environment-scoped, so a project whose Signals setup lives in a child
+    environment counts through that child's parent; scout configs already canonicalize.
+    A background-managed scout is not set up: nobody on the project turned it on.
+    """
+    source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
+    user_scout_teams = (
+        SignalScoutConfig.all_teams.filter(enabled=True)
+        .exclude(managed_by=SignalScoutConfig.ManagedBy.BACKGROUND)
+        .values("team_id")
+    )
+    return (
+        Q(id__in=source_teams)
+        | Q(id__in=Team.objects.filter(id__in=source_teams, parent_team_id__isnull=False).values("parent_team_id"))
+        | Q(id__in=user_scout_teams)
+    )
+
+
 def _engagement_by_team(cutoff: datetime, team_ids: Collection[int]) -> dict[int, datetime]:
     """Most recent inbox engagement per team inside the window: report views/ratings, a scout
     someone turned on or off, or a scout someone created. Aggregated in Postgres so the transfer
@@ -305,6 +325,7 @@ def _engagement_by_team(cutoff: datetime, team_ids: Collection[int]) -> dict[int
     latest: dict[int, datetime] = {}
     for queryset in (
         SignalReportAction.all_teams.filter(team_id__in=team_ids, last_at__gte=cutoff)
+        .exclude(type=SignalReportAction.ActionType.READ)
         .values("team_id")
         .annotate(latest=Max("last_at")),
         SignalScoutConfig.all_teams.filter(team_id__in=team_ids)
@@ -341,14 +362,7 @@ def _candidate_teams_by_tier(settings: SuggestionSettings, now: datetime) -> tup
         Q(ingested_event=True) | Q(id__in=ingested_child_teams.values("parent_team_id")),
         organization__is_ai_data_processing_approved=True,
     )
-    # Source configs are environment-scoped, so a project whose Signals setup lives in a child
-    # environment counts through that child's parent; scout configs already canonicalize.
-    source_teams = SignalSourceConfig.objects.filter(enabled=True).values("team_id")
-    set_up = (
-        Q(id__in=source_teams)
-        | Q(id__in=Team.objects.filter(id__in=source_teams, parent_team_id__isnull=False).values("parent_team_id"))
-        | Q(id__in=SignalScoutConfig.all_teams.filter(enabled=True).values("team_id"))
-    )
+    set_up = set_up_team_q()
 
     tiers: dict[int, int] = {}
     set_up_team_ids = list(approved_root_teams.filter(set_up).values_list("id", flat=True))
@@ -815,6 +829,7 @@ def _item_record(item: ScoutSuggestionItem, *, prior: dict[str, Any] | None) -> 
     record["dismissed_at"] = prior.get("dismissed_at")
     record["dismissed_by_id"] = prior.get("dismissed_by_id")
     record["created_config_id"] = prior.get("created_config_id")
+    record["created_skill_name"] = prior.get("created_skill_name")
     return record
 
 
@@ -833,6 +848,7 @@ def _tombstone(record: dict[str, Any]) -> dict[str, Any]:
         "dismissed_at": record.get("dismissed_at"),
         "dismissed_by_id": record.get("dismissed_by_id"),
         "created_config_id": record.get("created_config_id"),
+        "created_skill_name": record.get("created_skill_name"),
     }
 
 
@@ -1017,8 +1033,22 @@ def dismiss_suggestion(team_id: int, suggestion_id: str, *, user_id: int | None)
     )
 
 
-def mark_suggestion_created(team_id: int, suggestion_id: str, *, config_id: str) -> dict[str, Any] | None:
-    return _update_item(team_id, suggestion_id, {"created_config_id": config_id})
+def mark_suggestion_created(
+    team_id: int, suggestion_id: str, *, kind: str, config_id: str, skill_name: str
+) -> dict[str, Any] | None:
+    """Record the scout a suggestion became, or return None when the id names no such pick.
+
+    Only an item of `kind` with no scout yet is marked, so a client cannot move the mark to another
+    pick. A custom draft can be renamed in the form, so it matches by id alone. A canonical scout
+    keeps its name, so its item must also name `skill_name`. The final name is stored next to the
+    config id, which keeps a rename visible.
+    """
+    record = find_suggestion(team_id, suggestion_id)
+    if record is None or record.get("kind") != kind or record.get("created_config_id"):
+        return None
+    if kind == "canonical" and record.get("skill_name") != skill_name:
+        return None
+    return _update_item(team_id, suggestion_id, {"created_config_id": config_id, "created_skill_name": skill_name})
 
 
 def mark_stale_if_fleet_changed(team_id: int) -> None:

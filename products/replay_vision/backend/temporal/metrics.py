@@ -123,7 +123,10 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "replay_vision_sweep_outcomes_total",
     "Sweep tick outcomes: throttled at an in-flight cap, capped by the scanner's own credit limit "
     "(settled spend, which skips the window for good, or in-flight reservations, which preserve the "
-    "watermark), no candidates, or candidates found",
+    "watermark), skipped because its experiment is paused, ended, or archived (experiment_over), disabled "
+    "because its experiment was deleted (experiment_deleted), skipped because an experiment scanner has "
+    "no creator to authorize as (no_principal), no candidates, or "
+    "candidates found",
     ["outcome"],
 )
 
@@ -204,6 +207,19 @@ REPLAY_VISION_ESTIMATE_OUTCOMES = Counter(
 REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
     "replay_vision_gemini_cleanup_backlog",
     "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
+)
+
+
+REPLAY_VISION_SEARCH_RERANK = Counter(
+    "replay_vision_search_rerank_total",
+    "Observation searches by rerank outcome",
+    ["outcome"],
+)
+
+REPLAY_VISION_SEARCH_RERANK_LATENCY = Histogram(
+    "replay_vision_search_rerank_latency_seconds",
+    "Wall-clock time a search waited on the rerank model",
+    buckets=(0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5),
 )
 
 
@@ -357,3 +373,10 @@ def record_enqueue_claim_failure(operation: str) -> None:
 def record_gemini_cleanup_backlog(count: int) -> None:
     REPLAY_VISION_GEMINI_CLEANUP_BACKLOG.set(count)
     _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
+
+
+def record_search_rerank(outcome: str, seconds: float) -> None:
+    REPLAY_VISION_SEARCH_RERANK.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SEARCH_RERANK, 1, {"outcome": outcome})
+    REPLAY_VISION_SEARCH_RERANK_LATENCY.observe(seconds)
+    _otel.record_histogram_twin(REPLAY_VISION_SEARCH_RERANK_LATENCY, seconds, {})

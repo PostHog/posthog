@@ -520,7 +520,7 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
     """
     # Imported here so the source registry — which the API imports on every request path — does not
     # pull in the batch-export Temporal module.
-    from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
+    from products.batch_exports.backend.facade.destinations.bigquery import (  # noqa: PLC0415 — keeps the batch-export Temporal module off the source registry's import path
         MissingRequiredPermissionsError,
         ServiceAccountNotFoundError,
         ServiceAccountOwnershipError,
@@ -839,6 +839,17 @@ def classify_bigquery_validation_error(e: Exception) -> str:
         return BIGQUERY_INVALID_KEY_FILE_ERROR
     if "invalid_grant" in message:
         return BIGQUERY_CREDENTIALS_REJECTED_ERROR
+    if "iam.serviceAccounts.getAccessToken" in message and "denied" in message:
+        # Raised as a `RefreshError` when Google rejects the impersonated-credentials token
+        # refresh: the ownership check only needs `iam.serviceAccounts.get`, so this can fail
+        # even though that check passed. Same remediation (grant Token Creator) as
+        # `BIGQUERY_IMPERSONATION_PERMISSION_ERROR`, so reuse its wording. Doesn't match the
+        # generic "Access Denied"/"PermissionDenied"/"permission denied" wording below (this
+        # message reads "Permission '...' denied on resource"), so it would otherwise fall
+        # through to the generic message and get captured as unexpected noise. Requiring
+        # "denied" alongside the permission name keeps this from matching an opaque
+        # `RefreshError` that merely mentions the permission without actually denying it.
+        return BIGQUERY_IMPERSONATION_PERMISSION_ERROR
     if (
         "Invalid project ID" in message
         or "Invalid dataset ID" in message

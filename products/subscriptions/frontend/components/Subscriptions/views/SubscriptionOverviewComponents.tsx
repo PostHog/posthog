@@ -85,7 +85,7 @@ export function SubscriptionEmptyState({
 
     return (
         <LemonCard hoverEffect={false} className="p-6">
-            <div className="flex gap-3 items-start">
+            <div className="flex flex-col items-start gap-3 @min-[30rem]/subscription-modal:flex-row">
                 {illustration ? (
                     illustration
                 ) : (

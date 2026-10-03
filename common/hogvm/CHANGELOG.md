@@ -1,5 +1,11 @@
 # HogQL bytecode changelog
 
+## 2026-09-28 - 1.0.71
+
+`range` checks the requested length against the memory limit before it builds the array, as the
+Python VM does. A range past the limit fails with the `Memory limit ... exceeded` error. No bytecode
+operations changed.
+
 ## 2026-09-07 - 1.0.70
 
 Eleven standard library functions accept the trailing arguments that HogQL accepts. No bytecode
