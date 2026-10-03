@@ -1514,11 +1514,17 @@ describe('EmailService', () => {
                     hog_flow_name: 'Spring sale',
                     hog_flow_action_name: 'Welcome',
                 }
+                const buildRowForEmail = jest.fn().mockReturnValue(null)
+                service['messageAssetsService'] = { buildRowForEmail } as any
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
-                    `<body>Hi! <a href="https://example.com?${query}">Click me</a></body>`
+                const taggedHtml = `<body>Hi! <a href="https://example.com?${query}">Click me</a></body>`
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(taggedHtml)
+                // The stored copy behind "View email" shows the links the recipient got.
+                expect(buildRowForEmail).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ html: taggedHtml })
                 )
             })
 
