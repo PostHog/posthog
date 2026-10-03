@@ -15,12 +15,11 @@ import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
 // Feedback
 import submitFeedback from './feedback/submit'
-// Links (utility — builds canonical app URLs from the frontend's route table)
-import clubHoguinOpen from './games/clubHoguinOpen'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+// Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 import loopsReview from './loops/loopsReview'
 import { mergeToolFactories } from './mergeToolFactories'
@@ -106,9 +105,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,
-
-    // Games
-    'club-hoguin-open': clubHoguinOpen,
 
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,

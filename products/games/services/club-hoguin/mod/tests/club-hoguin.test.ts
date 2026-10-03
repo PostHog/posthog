@@ -217,29 +217,3 @@ test('/hoguin web opens the club in the browser', async ($, on) => {
     expect(opened).toEqual([['open', 'http://club.test/']])
     expect(result.text).toContain('http://club.test/')
 })
-
-test('without a configured address, the mod asks the PostHog MCP server where the club is', async ($, on) => {
-    const mcpCalls: Array<{ server: string; tool: string; args: any }> = []
-    on('mcp.call', ($: unknown, e: any) => {
-        mcpCalls.push(e)
-        return {
-            value: {
-                content: [{ type: 'text', text: JSON.stringify({ url: 'https://club.posthog.example/' }) }],
-                isError: false,
-            },
-        }
-    })
-    const { calls } = setUp(on, {
-        env: {},
-        tools: [{ name: 'mcp__posthog-local__exec', description: 'PostHog', mcp: true }],
-    })
-    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
-
-    await $.command.run({ command: 'hoguin', args: '' })
-
-    expect(mcpCalls).toMatchObject([
-        { server: 'posthog-local', tool: 'exec', args: { command: 'call --json club-hoguin-open {}' } },
-    ])
-    expect(calls.map((call) => call.path)).toContain('/api/join')
-    expect(posts(calls, '/api/join')).toEqual([{ client: 'mod' }])
-})

@@ -81,9 +81,7 @@ CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/service
 The mod and the page in Chrome send only "joined", moves, phrases, emotes, uses, and "left" to the server.
 It never sends the prompt, the transcript, or anything about the task.
 
-The mod finds the club through the PostHog MCP server when one is connected: it calls the `club-hoguin-open` tool, which returns the address the server is configured with (`CLUB_HOGUIN_URL` in `services/mcp`).
-Claude Code asks once for permission to let the mod call that tool.
-`CLUB_HOGUIN_URL` in the environment of `claude` wins, and without either the mod uses `http://localhost:8642`.
+The mod talks to the club at `CLUB_HOGUIN_URL` from the environment of `claude`, and without it at `http://localhost:8642`.
 
 Run the mod checks with `pnpm test:mod`.
 The checks need the `claude` CLI, so CI does not run them.
