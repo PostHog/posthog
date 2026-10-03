@@ -20,7 +20,7 @@ import type {
 import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
-import { mapErrorToAuthResponse } from '@/lib/auth-errors'
+import { isAuthError } from '@/lib/auth-errors'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
@@ -257,7 +257,7 @@ class McpDispatcher {
             // status to keep the alert on `status="error"` meaningful. The rethrow
             // surfaces as a 401/403/500 upstream via handleCatchError.
             if (hasInit) {
-                initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
+                initTotal.inc({ status: isAuthError(error) ? 'auth_error' : 'error' })
             }
             throw error
         }
@@ -422,7 +422,7 @@ class McpDispatcher {
 
             return instructions
         } catch (error) {
-            initTotal.inc({ status: mapErrorToAuthResponse(error) ? 'auth_error' : 'error' })
+            initTotal.inc({ status: isAuthError(error) ? 'auth_error' : 'error' })
             throw error
         }
     }

@@ -1,6 +1,6 @@
+import { buildMissingTokenResponse, validateBearerToken } from '@/lib/auth-errors'
 import { resolveEffectiveClientName } from '@/lib/client-detection'
 import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
-import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { corsHeadersForOAuthMetadata, oauthMetadataPreflightResponse } from '@/lib/oauth-metadata-cors'
@@ -137,34 +137,14 @@ const handleRequest = async (
     const sessionId = url.searchParams.get('sessionId')
 
     if (!token) {
-        // Return 401 with WWW-Authenticate header per RFC 9728.
-        // The resource_metadata URL tells OAuth-capable clients where to discover auth server.
-        // Per RFC 9728, the well-known URL is constructed by inserting the well-known path
-        // between the host and the resource path:
-        // - Resource /mcp → metadata at /.well-known/oauth-protected-resource/mcp
-        const metadataUrl = getPublicUrl(request)
-        metadataUrl.pathname = `/.well-known/oauth-protected-resource${url.pathname}`
-        metadataUrl.search = ''
-        if (effectiveRegion) {
-            metadataUrl.searchParams.set('region', effectiveRegion)
-        }
-
         log.extend({ authError: 'no_token' })
-        return new Response(
-            `No token provided, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            {
-                status: 401,
-                headers: { 'WWW-Authenticate': `Bearer resource_metadata="${metadataUrl.toString()}"` },
-            }
-        )
+        return buildMissingTokenResponse(request)
     }
 
-    if (!token.startsWith('phx_') && !token.startsWith('pha_') && !isIdJagAccessToken(token)) {
+    const authError = validateBearerToken(token, request)
+    if (authError) {
         log.extend({ authError: 'invalid_token_format' })
-        return new Response(
-            `Invalid token, please provide a valid API token. View the documentation for more information: ${MCP_DOCS_URL}`,
-            { status: 401 }
-        )
+        return authError
     }
 
     // Organization and project IDs can be provided via headers or query params.
@@ -271,7 +251,7 @@ const handleRequest = async (
     }
 
     if (url.pathname.startsWith('/mcp')) {
-        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
+        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV, regionParam)
         log.extend({ proxy: 'hono', region })
         return proxyToHono(request, region)
     }

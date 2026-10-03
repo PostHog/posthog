@@ -32,6 +32,10 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
     }
 }
 
+function makeRequest(url = 'https://mcp.posthog.com/mcp'): Request {
+    return new Request(url, { method: 'POST' })
+}
+
 function permissionError(missingScope?: string): PostHogPermissionError {
     return new PostHogPermissionError({
         detail: 'permission denied',
@@ -79,8 +83,35 @@ describe('MCP auth instrumentation', () => {
         expect(failure.missingScope).toBe('query:read')
     })
 
+    // A 401 without this challenge reads to an MCP client as a plain failure, so it keeps
+    // replaying a token the resource server will never accept again instead of
+    // re-authorizing. Only the no-token path carried the header before.
+    it.each([
+        [ErrorCode.INACTIVE_OAUTH_TOKEN, 'inactive OAuth token'],
+        [ErrorCode.INVALID_API_KEY, 'rejected API key'],
+    ])('answers a %s with an invalid_token challenge (%s)', (code) => {
+        const response = handleCatchError(new Error(`boom ${code}`), makeProps(), makeRequest())
+
+        expect(response.status).toBe(401)
+        const challenge = response.headers.get('www-authenticate') ?? ''
+        expect(challenge).toContain('error="invalid_token"')
+        expect(challenge).toContain(
+            'resource_metadata="https://mcp.posthog.com/.well-known/oauth-protected-resource/mcp'
+        )
+    })
+
+    it('pins the region on the challenge so rediscovery keeps the right auth server', () => {
+        const response = handleCatchError(
+            new Error(`boom ${ErrorCode.INVALID_API_KEY}`),
+            makeProps(),
+            makeRequest('https://mcp.posthog.com/mcp?region=eu')
+        )
+
+        expect(response.headers.get('www-authenticate')).toContain('region=eu')
+    })
+
     it('captures $mcp_auth_failed for a rejected credential, keyed on the token hash', () => {
-        const response = handleCatchError(new Error(`boom ${ErrorCode.INVALID_API_KEY}`), makeProps())
+        const response = handleCatchError(new Error(`boom ${ErrorCode.INVALID_API_KEY}`), makeProps(), makeRequest())
 
         expect(response.status).toBe(401)
         expect(mockCapture).toHaveBeenCalledTimes(1)
@@ -98,7 +129,7 @@ describe('MCP auth instrumentation', () => {
     })
 
     it('records the missing scope on a permission denial', () => {
-        handleCatchError(permissionError('insight:read'), makeProps())
+        handleCatchError(permissionError('insight:read'), makeProps(), makeRequest())
 
         expect(mockCapture.mock.calls[0]![0].properties).toMatchObject({
             $mcp_auth_failure_reason: 'insufficient_scope',
@@ -110,7 +141,7 @@ describe('MCP auth instrumentation', () => {
     it('leaves the tool-call failure vocabulary alone', () => {
         // `$mcp_is_error` and `$mcp_error_status` mean "a tool call failed against the
         // PostHog API"; setting them here would fold auth refusals into tool error rates.
-        handleCatchError(permissionError('insight:read'), makeProps())
+        handleCatchError(permissionError('insight:read'), makeProps(), makeRequest())
 
         const properties = mockCapture.mock.calls[0]![0].properties
         expect(properties.$mcp_is_error).toBeUndefined()
@@ -118,13 +149,13 @@ describe('MCP auth instrumentation', () => {
     })
 
     it('never sends the bearer token itself', () => {
-        handleCatchError(permissionError(), makeProps({ apiToken: 'pha_super-secret' }))
+        handleCatchError(permissionError(), makeProps({ apiToken: 'pha_super-secret' }), makeRequest())
 
         expect(JSON.stringify(mockCapture.mock.calls[0]![0])).not.toContain('pha_super-secret')
     })
 
     it('leaves non-auth failures on the exception path', () => {
-        const response = handleCatchError(new Error('unrelated explosion'), makeProps())
+        const response = handleCatchError(new Error('unrelated explosion'), makeProps(), makeRequest())
 
         expect(response.status).toBe(500)
         expect(mockCapture).not.toHaveBeenCalled()

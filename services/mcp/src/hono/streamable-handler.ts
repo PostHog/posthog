@@ -47,7 +47,7 @@ export class StreamableMcpHandler {
         try {
             return await this.dispatcher.handleRequest(c.req.raw, auth.props)
         } catch (error) {
-            return handleCatchError(error, auth.props)
+            return handleCatchError(error, auth.props, c.req.raw)
         }
     }
 }
