@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -9,6 +10,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.cdp.backend.api.hog_function import HogFunctionInvocationSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.api import ensure_sandbox_email_sender
 
@@ -72,6 +74,15 @@ class TestSandboxSenderValidation(APIBaseTest):
             "html": "<p>Hello</p>",
         }
 
+    def _function(self) -> dict[str, Any]:
+        return {
+            "name": "Sandbox destination",
+            "type": "destination",
+            "hog": "return 1;",
+            "inputs_schema": self.email_schema,
+            "inputs": {"email": {"value": self._email()}},
+        }
+
     def test_broadcast_cannot_select_the_sandbox_sender(self) -> None:
         workflow = self._workflow()
         workflow["origin_product"] = "broadcasts"
@@ -85,13 +96,7 @@ class TestSandboxSenderValidation(APIBaseTest):
     def test_destination_cannot_select_the_sandbox_sender(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
-            {
-                "name": "Sandbox destination",
-                "type": "destination",
-                "hog": "return 1;",
-                "inputs_schema": self.email_schema,
-                "inputs": {"email": {"value": self._email()}},
-            },
+            self._function(),
         )
 
         assert response.status_code == 400, response.json()
@@ -151,3 +156,48 @@ class TestSandboxSenderValidation(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "sandbox sender is not available for this project" in response.json()["detail"].lower()
+
+    def test_unchanged_sandbox_sender_keeps_saving_after_the_flag_turns_off(self) -> None:
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._workflow())
+        assert created.status_code == 201, created.json()
+        actions = created.json()["actions"]
+        actions[1]["config"]["inputs"]["email"]["value"]["subject"] = "Updated subject"
+        self.flag_enabled.return_value = False
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}",
+            {"name": "Renamed workflow", "actions": actions},
+        )
+
+        assert response.status_code == 200, response.json()
+        email = response.json()["actions"][1]["config"]["inputs"]["email"]["value"]
+        assert email["from"] == {"integrationId": self.sender.id}
+        assert email["subject"] == "Updated subject"
+
+    def test_test_send_configuration_can_select_the_sandbox_sender(self) -> None:
+        serializer = HogFunctionInvocationSerializer(
+            data={"configuration": self._function()},
+            context={"get_team": lambda: self.team, "view": SimpleNamespace(action="invocations")},
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["configuration"]["inputs"]["email"]["value"]["from"] == {
+            "integrationId": self.sender.id
+        }
+
+    def test_malformed_sender_rotation_returns_a_validation_error(self) -> None:
+        workflow = self._workflow()
+        workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"]["integrationIds"] = self.sender.id
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        assert "list of Integration IDs" in response.json()["detail"]
+
+    def test_null_email_inputs_return_a_validation_error(self) -> None:
+        workflow = self._workflow()
+        workflow["actions"][1]["config"]["inputs"] = None
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()

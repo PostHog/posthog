@@ -83,22 +83,33 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
     if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
         return
+    rotation = email_value["from"].get("integrationIds")
+    if rotation is not None and not isinstance(rotation, list):
+        return
     integration_ids = _sender_integration_ids(email_value["from"])
     get_team = context.get("get_team")
     if not integration_ids or get_team is None:
         return
-    if not Integration.objects.filter(
-        team_id=get_team().id,
-        id__in=integration_ids,
-        kind="email",
-        config__provider=SANDBOX_EMAIL_PROVIDER,
-    ).exists():
+    sender_cache: dict[int, bool] = context.setdefault("sandbox_email_integration_cache", {})
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in sender_cache]
+    if missing_ids:
+        sandbox_ids = set(
+            Integration.objects.filter(
+                team_id=get_team().id,
+                id__in=missing_ids,
+                kind="email",
+                config__provider=SANDBOX_EMAIL_PROVIDER,
+            ).values_list("id", flat=True)
+        )
+        sender_cache.update({integration_id: integration_id in sandbox_ids for integration_id in missing_ids})
+    if not any(sender_cache[integration_id] for integration_id in integration_ids):
         return
     if context.get("workflow_origin_product") == "broadcasts":
         raise serializers.ValidationError(
             {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
         )
-    if context.get("workflow_action_type") != "function_email":
+    is_test_send = getattr(context.get("view"), "action", None) == "invocations"
+    if context.get("workflow_action_type") != "function_email" and not is_test_send:
         raise serializers.ValidationError(
             {
                 "input": "The sandbox sender can only be used in workflow email steps and test sends. "
@@ -127,13 +138,15 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
             }
         )
     team = get_team()
-    try:
-        enabled = posthog_feature_flag_enabled(
-            "workflows-sandbox-sender", str(team.uuid), organization_id=team.organization_id, team_id=team.id
-        )
-    except Exception:
-        enabled = False
-    if not enabled:
+    flag_cache: dict[int, bool] = context.setdefault("sandbox_sender_enabled_cache", {})
+    if team.id not in flag_cache:
+        try:
+            flag_cache[team.id] = posthog_feature_flag_enabled(
+                "workflows-sandbox-sender", str(team.uuid), organization_id=team.organization_id, team_id=team.id
+            )
+        except Exception:
+            flag_cache[team.id] = False
+    if not flag_cache[team.id]:
         raise serializers.ValidationError(
             {
                 "input": "The sandbox sender is not available for this project. "

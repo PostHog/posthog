@@ -1608,18 +1608,18 @@ class HogFlowActionSerializer(serializers.Serializer):
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
                 existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
+                input_context = {
+                    **self.context,
+                    "workflow_action_type": data.get("type"),
+                    "existing_email_values": existing_emails,
+                    "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
+                    "sandbox_sender_enabled_cache": self.context.setdefault("_sandbox_sender_enabled_cache", {}),
+                }
                 for schema in input_schema or []:
                     if schema.get("type") == "native_email":
                         email_input = inputs.get(schema["key"])
                         if isinstance(email_input, dict):
-                            validate_sandbox_email_sender(
-                                email_input.get("value"),
-                                {
-                                    **self.context,
-                                    "workflow_action_type": data.get("type"),
-                                    "existing_email_values": existing_emails,
-                                },
-                            )
+                            validate_sandbox_email_sender(email_input.get("value"), input_context)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -1627,10 +1627,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs": inputs,
                     },
                     context={
+                        **input_context,
                         "function_type": template.type,
-                        "workflow_action_type": data.get("type"),
-                        "workflow_origin_product": self.context.get("workflow_origin_product"),
-                        "existing_email_values": existing_emails,
                         "is_dwh_source": self.context.get("is_dwh_source", False),
                         # The existing (decrypted) secret inputs for this action, so a resent
                         # {"secret": true} marker recovers the stored value instead of wiping it.
