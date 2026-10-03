@@ -18,16 +18,14 @@ from parameterized import parameterized
 from rest_framework import status, test
 
 from posthog.api.project import ProjectBackwardCompatSerializer, log_activity
-from posthog.api.team import (
+from posthog.api.team.conversations_settings import handle_conversations_token_on_update, merge_conversations_settings
+from posthog.api.team.live_events import _default_data_color_theme_id, _reset_default_data_color_theme_id_cache
+from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
-    TeamSerializer,
     TeamWorkflowsConfigSerializer,
-    _default_data_color_theme_id,
-    _reset_default_data_color_theme_id_cache,
-    handle_conversations_token_on_update,
-    merge_conversations_settings,
 )
+from posthog.api.team.team_serializer import TeamSerializer
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -1427,7 +1425,7 @@ def team_api_test_factory():
                 team=self.team,
             )
 
-        @patch("posthog.api.team.enqueue_product_activation_calc_debounced", MagicMock())
+        @patch("posthog.api.team.team_serializer.enqueue_product_activation_calc_debounced", MagicMock())
         @patch("posthog.models.product_intent.ProductIntent.check_and_update_activation", return_value=False)
         @patch("posthog.event_usage.report_user_action")
         @time_machine.travel("2024-01-01T00:00:00Z", tick=False)
@@ -1497,7 +1495,7 @@ def team_api_test_factory():
             assert self.team.session_recording_opt_in is True
 
         @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.api.team.viewsets.report_user_action")
         def test_can_complete_product_onboarding(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
@@ -1532,7 +1530,7 @@ def team_api_test_factory():
             )
 
         @patch("posthog.api.project.report_user_action")
-        @patch("posthog.api.team.report_user_action")
+        @patch("posthog.api.team.viewsets.report_user_action")
         def test_can_complete_product_onboarding_as_member(
             self, mock_report_user_action: MagicMock, mock_report_user_action_legacy_endpoint: MagicMock
         ) -> None:
@@ -1926,7 +1924,7 @@ def team_api_test_factory():
             assert response.json()["conversations_settings"]["widget_color"] == "#ff0000"
 
         def test_conversations_settings_change_reports_event_per_setting(self):
-            with patch("posthog.api.team.report_user_action") as mock_report:
+            with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"conversations_settings": {"slack_nudge_enabled": False, "widget_greeting_text": "Hi!"}},
@@ -1943,7 +1941,7 @@ def team_api_test_factory():
                 assert "value" not in props_by_setting["widget_greeting_text"]
 
             # A no-op save (same values) must not re-fire the event.
-            with patch("posthog.api.team.report_user_action") as mock_report:
+            with patch("posthog.api.team.conversations_settings.report_user_action") as mock_report:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"conversations_settings": {"slack_nudge_enabled": False}},
@@ -3676,7 +3674,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
     def test_default_data_color_theme_id_is_cached_for_process_lifetime(self):
         # System-wide default DataColorTheme is a deploy-time fixture; cache for
         # process lifetime to skip a per-render PG round-trip on the home view.
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 42
 
@@ -3690,7 +3688,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
         # If the very first call lands before the data migration is applied, a
         # None must NOT be cached - subsequent calls should retry so we recover
         # automatically once the row appears.
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = None
 
@@ -3699,7 +3697,7 @@ class TestTeamSerializerHomeViewWins(APIBaseTest):
 
         assert mock_objects.filter.call_count == 2
 
-        with patch("posthog.api.team.DataColorTheme.objects") as mock_objects:
+        with patch("posthog.api.team.live_events.DataColorTheme.objects") as mock_objects:
             chained = mock_objects.filter.return_value.order_by.return_value.values_list.return_value
             chained.first.return_value = 7
 
@@ -3721,7 +3719,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_returns_a_signed_jwt_with_expected_claims(self, _name: str, anonymous: bool) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
         from posthog.jwt import PosthogJwtAudience, decode_jwt
 
         user_id = None if anonymous else self.user.id
@@ -3739,11 +3737,11 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_second_call_returns_cached_token_without_re_signing(self, _name: str, anonymous: bool) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         user_id = None if anonymous else self.user.id
         first = get_or_mint_live_events_token(self.team, user_id)
-        with patch("posthog.api.team.encode_jwt") as mock_encode:
+        with patch("posthog.api.team.live_events.encode_jwt") as mock_encode:
             second = get_or_mint_live_events_token(self.team, user_id)
         mock_encode.assert_not_called()
         assert first == second
@@ -3761,7 +3759,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         ]
     )
     def test_cache_key_component_changes_force_a_fresh_mint(self, _name: str, mutation_factory) -> None:
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         mutation = mutation_factory(self)
         first_user_id = mutation.get("first_user_id", self.user.id)
@@ -3779,7 +3777,7 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         # the livestream service would reject the cached old-key signatures for up
         # to the cache TTL. We embed a fingerprint of JWT_SIGNING_KEY in the cache key so
         # the namespace partitions cleanly on rotation.
-        from posthog.api.team import get_or_mint_live_events_token
+        from posthog.api.team.live_events import get_or_mint_live_events_token
 
         token_old_key = get_or_mint_live_events_token(self.team, self.user.id)
         with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
@@ -4151,7 +4149,7 @@ class TestTeamSerializerValidationNoDB(SimpleTestCase):
         team = Team(id=1)
         serializer = serializer_class(context={"request": request})
 
-        with patch("posthog.api.team.get_or_mint_live_events_token", return_value="test-live-token"):
+        with patch("posthog.api.team.live_events.get_or_mint_live_events_token", return_value="test-live-token"):
             if isinstance(serializer, TeamSerializer):
                 token = serializer.get_live_events_token(team)
             else:
