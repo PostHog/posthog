@@ -303,6 +303,11 @@ const monitorOverviewScanner: ReplayScannerApi = {
     experiment_targeting: { experiment_id: 11, variant: 'test' },
 }
 
+const rootCauseFormScanner: ReplayScannerApi = {
+    ...monitorOverviewScanner,
+    id: '00000000-0000-0000-0000-0000000000aa',
+}
+
 const monitorOverviewStats: ObservationStatsApi = {
     ...summarizerStats,
     monitor: { yes_total: 38, no_total: 97, inconclusive_total: 7 },
@@ -866,11 +871,17 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/quota/': quota,
                 '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
                 '/api/projects/:team_id/vision/scanners/:id/': ({ params }) =>
-                    params.id === monitorOverviewScanner.id ? monitorOverviewScanner : summarizerScanner,
+                    params.id === rootCauseFormScanner.id
+                        ? rootCauseFormScanner
+                        : params.id === monitorOverviewScanner.id
+                          ? monitorOverviewScanner
+                          : summarizerScanner,
                 '/api/projects/:team_id/vision/scanners/:id/self_driving_stats/': noSelfDrivingStats,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,
                 '/api/projects/:team_id/vision/scanners/:id/observations/stats/': ({ params }) =>
-                    params.id === monitorOverviewScanner.id ? monitorOverviewStats : summarizerStats,
+                    params.id === rootCauseFormScanner.id || params.id === monitorOverviewScanner.id
+                        ? monitorOverviewStats
+                        : summarizerStats,
                 '/api/projects/:team_id/vision/scanners/:scannerId/prompt_suggestions/': {
                     count: 1,
                     next: null,
@@ -1077,8 +1088,8 @@ export const SummarizerScouts: StoryObj = {
 
 // The root cause prompt under the findings opens the create form in place.
 export const MonitorRootCauseScoutForm: StoryObj = {
-    parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
-    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats)],
+    parameters: { pageUrl: urls.replayVision(rootCauseFormScanner.id) },
+    decorators: [overviewDecorator(rootCauseFormScanner, monitorOverviewStats)],
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Add scout'))
         await within(document.body).findByText('New scout: root cause')
