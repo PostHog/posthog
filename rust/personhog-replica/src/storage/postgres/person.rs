@@ -1608,7 +1608,7 @@ impl PersonLookup for PostgresStorage {
             .collect();
         owner_uuids.sort_unstable();
         owner_uuids.dedup();
-        let owner_ids = prepare_owner_persons(&mut tx, team_id, &owner_uuids).await?;
+        let owners = prepare_owner_persons(&mut tx, team_id, &owner_uuids).await?;
 
         let mut before = lock_distinct_ids(&mut tx, team_id, &distinct_ids).await?;
 
@@ -1624,7 +1624,7 @@ impl PersonLookup for PostgresStorage {
             for floor in &absent {
                 // The row was present at the unlocked read and is gone now, so its
                 // owner was never prepared.
-                let person_id = owner_ids.get(&floor.person_uuid).ok_or_else(|| {
+                let person_id = owners.ids.get(&floor.person_uuid).ok_or_else(|| {
                     StorageError::FailedPrecondition(format!(
                         "distinct id rows changed during ensure_distinct_id_version_floors (team_id={team_id}); retry"
                     ))
@@ -1664,6 +1664,20 @@ impl PersonLookup for PostgresStorage {
                 }
                 before.extend(late);
             }
+        }
+
+        // A distinct id another writer inserted after the unlocked read leaves its
+        // prepared owner tombstone unused. Roll it back rather than commit a person
+        // row that nothing points at.
+        let used_owners: HashSet<Uuid> = floors
+            .iter()
+            .filter(|f| inserted.contains(&f.distinct_id))
+            .map(|f| f.person_uuid)
+            .collect();
+        if !owners.inserted.is_subset(&used_owners) {
+            return Err(StorageError::FailedPrecondition(format!(
+                "distinct id rows changed during ensure_distinct_id_version_floors (team_id={team_id}); retry"
+            )));
         }
 
         let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
@@ -1993,18 +2007,28 @@ async fn insert_person_tombstones(
 /// id FK needs an existing person. Ingestion revives it at version 1, above the
 /// version 0 it gives a person created from nothing, so the tombstone never makes
 /// the owner's versions worse than no row.
+struct PreparedOwners {
+    ids: HashMap<Uuid, i64>,
+    /// Owners this call inserted as version 0 tombstones.
+    inserted: HashSet<Uuid>,
+}
+
 async fn prepare_owner_persons(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     owner_uuids: &[Uuid],
-) -> StorageResult<HashMap<Uuid, i64>> {
+) -> StorageResult<PreparedOwners> {
+    let mut owners = PreparedOwners {
+        ids: HashMap::new(),
+        inserted: HashSet::new(),
+    };
     if owner_uuids.is_empty() {
-        return Ok(HashMap::new());
+        return Ok(owners);
     }
-    let mut owners = lock_owner_persons(tx, team_id, owner_uuids).await?;
+    owners.ids = lock_owner_persons(tx, team_id, owner_uuids).await?;
     let missing: Vec<Uuid> = owner_uuids
         .iter()
-        .filter(|uuid| !owners.contains_key(uuid))
+        .filter(|uuid| !owners.ids.contains_key(uuid))
         .copied()
         .collect();
     if missing.is_empty() {
@@ -2017,7 +2041,8 @@ async fn prepare_owner_persons(
         .filter(|uuid| !inserted.contains_key(uuid))
         .copied()
         .collect();
-    owners.extend(inserted);
+    owners.inserted = inserted.keys().copied().collect();
+    owners.ids.extend(inserted);
     if !raced.is_empty() {
         let late = lock_owner_persons(tx, team_id, &raced).await?;
         if late.len() != raced.len() {
@@ -2025,7 +2050,7 @@ async fn prepare_owner_persons(
                 "person rows changed during ensure_distinct_id_version_floors (team_id={team_id}); retry"
             )));
         }
-        owners.extend(late);
+        owners.ids.extend(late);
     }
     Ok(owners)
 }

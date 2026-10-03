@@ -1171,6 +1171,7 @@ async fn call_sweep_rpc(
     Some("Maximum 250")
 )]
 #[case::person_floors_duplicate(SweepRpc::EnsurePersonFloors, vec![OWNER_UUID.to_string(), OWNER_UUID.to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
+#[case::person_floors_duplicate_spelling(SweepRpc::EnsurePersonFloors, vec!["0000000a-0000-0000-0000-00000000000b".to_string(), "0000000A-0000-0000-0000-00000000000B".to_string()], 0, OWNER_UUID, Some("Duplicate key"))]
 #[case::person_floors_negative(SweepRpc::EnsurePersonFloors, uuid_keys(1), -1, OWNER_UUID, Some("must not be negative"))]
 #[case::person_floors_bad_uuid(SweepRpc::EnsurePersonFloors, vec!["nope".to_string()], 0, OWNER_UUID, Some("Invalid UUID"))]
 #[case::distinct_id_floors_at_cap(

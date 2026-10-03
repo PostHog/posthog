@@ -4996,6 +4996,59 @@ async fn test_ensure_distinct_id_version_floors_fails_precondition_when_the_row_
 }
 
 #[tokio::test]
+async fn test_ensure_distinct_id_version_floors_rolls_back_an_owner_it_did_not_use() {
+    let ctx = TestContext::new().await;
+    let owner = ctx.insert_person("concurrent_owner", None).await.unwrap();
+    let mut holder = ctx.pool.begin().await.unwrap();
+    let holder_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *holder)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ($1, $2, $3, 0)",
+    )
+    .bind("appearing")
+    .bind(owner.id)
+    .bind(ctx.team_id)
+    .execute(&mut *holder)
+    .await
+    .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let requested_owner = Uuid::now_v7();
+    let request = tokio::spawn(async move {
+        storage
+            .ensure_distinct_id_version_floors(
+                team_id,
+                &[DistinctIdVersionFloor {
+                    distinct_id: "appearing".to_string(),
+                    min_version: 3,
+                    person_uuid: requested_owner,
+                }],
+            )
+            .await
+    });
+    // Neither read sees the uncommitted row, so the call prepares an owner tombstone,
+    // then its insert waits on the holder and loses.
+    wait_until_blocked_by(&ctx, holder_pid).await;
+    holder.commit().await.unwrap();
+
+    let result = request.await.unwrap();
+    assert!(
+        matches!(result, Err(StorageError::FailedPrecondition(_))),
+        "expected a retryable lost race, got {result:?}"
+    );
+    assert_eq!(person_state(&ctx, requested_owner).await, None);
+    assert_eq!(
+        distinct_id_state(&ctx, "appearing").await,
+        Some((owner.id, Some(0), false))
+    );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
 async fn test_get_distinct_ids_for_person_paginated() {
     let ctx = TestContext::new().await;
     // Mix anonymous-format UUIDs with identified strings so the anonymous-

@@ -1611,6 +1611,13 @@ impl PersonHogReplica for PersonHogReplicaService {
             .iter()
             .map(|f| parse_uuid(&f.person_uuid).map(|uuid| (uuid, f.min_version)))
             .collect::<Result<_, _>>()?;
+        // Two spellings of one UUID pass the string check but lock the same row.
+        let mut seen = HashSet::with_capacity(floors.len());
+        if let Some((uuid, _)) = floors.iter().find(|(uuid, _)| !seen.insert(*uuid)) {
+            return Err(Status::invalid_argument(format!(
+                "Duplicate key in request: {uuid}"
+            )));
+        }
 
         let results = self
             .storage
