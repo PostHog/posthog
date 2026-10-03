@@ -114,7 +114,7 @@ Expect test/abandoned scanners in the tail — judge by `obs_7d`, and write a `n
 Do this before any monitor, scorer, classifier, or summarizer aggregate (footgun #6).
 Do it once per run, and again for a scanner that you add to the run later.
 
-1. Run `read-data-schema` with `{"kind": "event_properties", "event_name": "$recording_observed"}`. Note which `scanner_output_*` properties the project has.
+1. Run `read-data-schema` with `{"query": {"kind": "event_properties", "event_name": "$recording_observed"}}`. Note which `scanner_output_*` properties the project has.
 2. Measure field coverage per scanner and per week. Use only the properties from step 1:
 
 ```sql
