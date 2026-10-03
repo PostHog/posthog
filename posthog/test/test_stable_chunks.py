@@ -15,7 +15,6 @@ from prometheus_client import REGISTRY
 
 from posthog.models import User
 from posthog.stable_chunks import (
-    LOGGED_OUT_STABLE_CHUNKS_FLAG,
     STABLE_CHUNKS_COOKIE,
     STABLE_CHUNKS_FLAG,
     StableChunks,
@@ -32,8 +31,6 @@ VALID_MANIFEST = {
 }
 FLAG_ON = {STABLE_CHUNKS_FLAG: True}
 FLAG_OFF = {STABLE_CHUNKS_FLAG: False}
-LOGGED_OUT_FLAG_ON = {LOGGED_OUT_STABLE_CHUNKS_FLAG: True}
-LOGGED_OUT_FLAG_OFF = {LOGGED_OUT_STABLE_CHUNKS_FLAG: False}
 
 
 class TestStableChunks(SimpleTestCase):
@@ -85,11 +82,9 @@ class TestStableChunks(SimpleTestCase):
             ("flag off", "", None, FLAG_OFF, True, False),
             ("flag without a local definition", "", None, {}, True, False),
             ("flags not evaluated", "", None, None, True, False),
-            ("anonymous with the logged-out flag on", "", None, LOGGED_OUT_FLAG_ON, False, True),
-            ("anonymous with the logged-out flag off", "", None, LOGGED_OUT_FLAG_OFF, False, False),
-            ("anonymous ignores the logged-in flag", "", None, FLAG_ON, False, False),
+            ("anonymous with the flag on", "", None, FLAG_ON, False, True),
+            ("anonymous with the flag off", "", None, FLAG_OFF, False, False),
             ("anonymous without a local definition", "", None, {}, False, False),
-            ("logged in ignores the logged-out flag", "", None, LOGGED_OUT_FLAG_ON, True, False),
         ]
     )
     def test_choice_precedence(
