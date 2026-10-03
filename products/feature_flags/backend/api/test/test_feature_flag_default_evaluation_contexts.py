@@ -3,7 +3,11 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
+from posthog.api.team import handle_evaluation_context_suggestions
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 
@@ -279,9 +283,20 @@ class TestEvaluationContextSuggestions(APIBaseTest):
         response = self.client.post(self.url, {"context_name": "ghost"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @parameterized.expand([("   ",), ("a" * 256,)])
-    def test_hide_requires_valid_context_name(self, context_name: str) -> None:
+    @parameterized.expand([("blank", "   "), ("too_long", "a" * 256)])
+    def test_hide_requires_valid_context_name(self, _name: str, context_name: str) -> None:
         response = self.client.post(self.url, {"context_name": context_name}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand([("blank", "   "), ("too_long", "a" * 256)])
+    def test_team_handler_requires_valid_context_name(self, _name: str, context_name: str) -> None:
+        # No HTTP route reaches TeamViewSet.evaluation_context_suggestions yet (the /api/environments/
+        # path is rewritten to /api/projects/ by EnvironmentsRewriteMiddleware), so this guard is
+        # otherwise untested. Call the shared handler directly to cover it.
+        request = Request(
+            APIRequestFactory().post("/", {"context_name": context_name}, format="json"), parsers=[JSONParser()]
+        )
+        response = handle_evaluation_context_suggestions(request, self.team)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cannot_hide_context_from_another_team(self):

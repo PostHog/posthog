@@ -492,7 +492,7 @@ def handle_evaluation_context_suggestions(request: request.Request, team: Team) 
         return response.Response({"error": "context_name is required"}, status=400)
 
     if len(context_name) > 255:
-        return response.Response({"error": "context_name must be 255 characters or fewer"}, status=400)
+        return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
 
     hidden = request.method == "POST"
 
