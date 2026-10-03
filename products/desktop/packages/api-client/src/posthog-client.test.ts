@@ -207,6 +207,34 @@ describe("PostHogAPIClient", () => {
     });
   });
 
+  describe("connectClaudeUserIntegration", () => {
+    it.each([
+      { token: ["Paste the full Claude token."] },
+      { token: "Paste the full Claude token." },
+    ])("surfaces the server token error %j", async (body) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify(body), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.connectClaudeUserIntegration("sk-ant-oat01-bad"),
+      ).rejects.toThrow(/^Paste the full Claude token\.$/);
+      const [url, request] = fetch.mock.calls[0];
+      expect((url as URL).pathname).toBe("/api/users/@me/integrations/claude/");
+      expect(JSON.parse(request.body)).toEqual({ token: "sk-ant-oat01-bad" });
+    });
+  });
+
   describe("setUserSpendLimit", () => {
     // The shared fetcher throws on non-2xx, so the endpoint's `detail` must be
     // unwrapped for the settings toast rather than the raw fetcher string.

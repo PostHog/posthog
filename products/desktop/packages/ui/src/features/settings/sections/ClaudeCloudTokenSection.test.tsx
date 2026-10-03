@@ -7,22 +7,35 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { tokenStore, track, setClaudeCloudSubscriptionOn, toast } = vi.hoisted(
-  () => ({
+const { tokenStore, client, track, setClaudeCloudSubscriptionOn, toast } =
+  vi.hoisted(() => ({
     tokenStore: {
       save: vi.fn(),
       clear: vi.fn(),
       has: vi.fn(),
     },
+    client: {
+      getClaudeUserIntegration: vi.fn(),
+      connectClaudeUserIntegration: vi.fn(),
+      disconnectClaudeUserIntegration: vi.fn(),
+    },
     track: vi.fn(),
     setClaudeCloudSubscriptionOn: vi.fn(),
-    toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
-  }),
-);
+    toast: {
+      success: vi.fn(),
+      error: vi.fn(),
+      info: vi.fn(),
+      warning: vi.fn(),
+    },
+  }));
 
 vi.mock("@posthog/ui/features/settings/settingsStore", () => ({
   useSettingsStore: (selector: (s: unknown) => unknown) =>
     selector({ setClaudeCloudSubscriptionOn }),
+}));
+
+vi.mock("@posthog/ui/features/auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => client,
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast }));
@@ -34,6 +47,15 @@ import { ClaudeCloudTokenSection } from "./ClaudeCloudTokenSection";
 const onCreateToken = vi.fn();
 
 const VALID_TOKEN = "sk-ant-oat01-fake-test-token-00000000000000";
+
+function integration(
+  status: "connected" | "reauth_required" | "not_connected",
+) {
+  return {
+    status,
+    connected_at: status === "connected" ? "2026-01-01T00:00:00Z" : null,
+  };
+}
 
 function renderSection(cloudSubscriptionOn = false): ReturnType<typeof render> {
   const queryClient = new QueryClient({
@@ -63,9 +85,17 @@ describe("ClaudeCloudTokenSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     tokenStore.has.mockResolvedValue(false);
+    tokenStore.clear.mockResolvedValue(undefined);
+    client.getClaudeUserIntegration.mockResolvedValue(
+      integration("not_connected"),
+    );
+    client.connectClaudeUserIntegration.mockResolvedValue(
+      integration("connected"),
+    );
+    client.disconnectClaudeUserIntegration.mockResolvedValue(undefined);
   });
 
-  it("shows the validation message and does not save a malformed token", async () => {
+  it("shows the validation message and does not send a malformed token", async () => {
     const user = userEvent.setup();
     renderSection();
 
@@ -80,7 +110,7 @@ describe("ClaudeCloudTokenSection", () => {
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAttribute("aria-describedby", error.id);
     expect(toast.error).not.toHaveBeenCalled();
-    expect(tokenStore.save).not.toHaveBeenCalled();
+    expect(client.connectClaudeUserIntegration).not.toHaveBeenCalled();
     await user.clear(input);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(input).not.toHaveAttribute("aria-invalid");
@@ -98,11 +128,12 @@ describe("ClaudeCloudTokenSection", () => {
       pasted: "\tsk-ant-oat01-fake-\r\n  test-token-\r\n  00000000000000 ",
     },
   ])(
-    "saves a pasted token without clearing the previous one (case %#)",
+    "sends a pasted token to PostHog and then deletes the local copy (case %#)",
     async ({ replacing, pasted }) => {
       const user = userEvent.setup();
-      tokenStore.save.mockResolvedValue(undefined);
-      tokenStore.has.mockResolvedValue(replacing);
+      client.getClaudeUserIntegration.mockResolvedValue(
+        integration(replacing ? "connected" : "not_connected"),
+      );
       renderSection();
       if (replacing) {
         await user.click(
@@ -117,20 +148,45 @@ describe("ClaudeCloudTokenSection", () => {
       await user.paste(pasted);
       await user.click(screen.getByRole("button", { name: "Save token" }));
 
-      expect(tokenStore.save).toHaveBeenCalledTimes(1);
-      expect(tokenStore.save).toHaveBeenCalledWith(VALID_TOKEN);
-      expect(tokenStore.clear).not.toHaveBeenCalled();
+      expect(await screen.findByText("Token saved")).toBeInTheDocument();
+      expect(
+        client.connectClaudeUserIntegration,
+      ).toHaveBeenCalledExactlyOnceWith(VALID_TOKEN);
+      expect(tokenStore.save).not.toHaveBeenCalled();
+      expect(tokenStore.clear).toHaveBeenCalledOnce();
+      expect(
+        client.connectClaudeUserIntegration.mock.invocationCallOrder[0],
+      ).toBeLessThan(tokenStore.clear.mock.invocationCallOrder[0]);
       expect(track).toHaveBeenCalledWith(
         ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED,
       );
-      expect(await screen.findByText("Token saved")).toBeInTheDocument();
     },
   );
 
-  it("shows the saved state and removes the token on demand", async () => {
+  it("keeps the local token when PostHog rejects the new one", async () => {
     const user = userEvent.setup();
     tokenStore.has.mockResolvedValue(true);
-    tokenStore.clear.mockResolvedValue(undefined);
+    client.connectClaudeUserIntegration.mockRejectedValue(
+      new Error("Paste the full Claude token."),
+    );
+    renderSection();
+
+    await user.click(await screen.findByLabelText("Claude setup token"));
+    await user.paste(VALID_TOKEN);
+    await user.click(screen.getByRole("button", { name: "Save token" }));
+
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith("Cannot save the token.", {
+        description: "Paste the full Claude token.",
+      }),
+    );
+    expect(tokenStore.clear).not.toHaveBeenCalled();
+    expect(track).not.toHaveBeenCalled();
+  });
+
+  it("removes the token from PostHog and from this device", async () => {
+    const user = userEvent.setup();
+    client.getClaudeUserIntegration.mockResolvedValue(integration("connected"));
     renderSection();
 
     expect(await screen.findByText("Token saved")).toBeInTheDocument();
@@ -138,46 +194,53 @@ describe("ClaudeCloudTokenSection", () => {
     await user.type(screen.getByLabelText("Claude setup token"), "draft-token");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("Token saved")).toBeInTheDocument();
-    expect(tokenStore.save).not.toHaveBeenCalled();
-    expect(tokenStore.clear).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Remove token" }));
-    expect(tokenStore.clear).not.toHaveBeenCalled();
+    expect(client.disconnectClaudeUserIntegration).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm removal" }));
-    expect(tokenStore.clear).toHaveBeenCalledTimes(1);
-    expect(track).toHaveBeenCalledWith(
-      ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED,
+
+    await vi.waitFor(() =>
+      expect(track).toHaveBeenCalledWith(
+        ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_REMOVED,
+      ),
     );
+    expect(client.disconnectClaudeUserIntegration).toHaveBeenCalledOnce();
+    expect(tokenStore.clear).toHaveBeenCalledOnce();
+    expect(client.connectClaudeUserIntegration).not.toHaveBeenCalled();
   });
-  it.each(["Replace token", "Remove token"])(
-    "permits %s after decryption fails",
-    async (action) => {
-      const user = userEvent.setup();
-      tokenStore.has.mockRejectedValue(
-        new Error("Unlock your system key store and try again."),
-      );
+
+  it.each([
+    [
+      "reauth_required",
+      false,
+      "Your Claude token stopped working. Create a new token, then paste it below.",
+    ],
+    [
+      "not_connected",
+      true,
+      "Paste your token again so cloud tasks can run when Desktop is closed.",
+    ],
+  ] as const)(
+    "asks for a new token when the server token is %s (local token: %s)",
+    async (status, hasLocalToken, hint) => {
+      client.getClaudeUserIntegration.mockResolvedValue(integration(status));
+      tokenStore.has.mockResolvedValue(hasLocalToken);
       renderSection(true);
-      await screen.findByRole("alert");
-      await user.click(screen.getByRole("button", { name: action }));
-      if (action === "Remove token") {
-        await user.click(
-          screen.getByRole("button", { name: "Confirm removal" }),
-        );
-        expect(tokenStore.clear).toHaveBeenCalledOnce();
-      } else {
-        expect(screen.getByLabelText("Claude setup token")).toBeInTheDocument();
-      }
+
+      expect(await screen.findByText(hint)).toBeInTheDocument();
+      expect(screen.getByLabelText("Claude setup token")).toBeInTheDocument();
+      expect(client.connectClaudeUserIntegration).not.toHaveBeenCalled();
     },
   );
 
-  it("shows a retryable error instead of treating an unreadable token as missing", async () => {
+  it("shows a retryable error when PostHog cannot report the token status", async () => {
     const user = userEvent.setup();
-    tokenStore.has.mockRejectedValueOnce(
-      new Error("Unlock your system key store and try again."),
+    client.getClaudeUserIntegration.mockRejectedValueOnce(
+      new Error("Network request failed."),
     );
     renderSection(true);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Unlock your system key store and try again.",
+      "Cannot check your Claude token. Network request failed.",
     );
     expect(
       screen.queryByLabelText("Claude setup token"),

@@ -1,5 +1,7 @@
+import type { ClaudeIntegrationStatus } from "@posthog/api-client/posthog-client";
 import type { ServiceContainer } from "@posthog/di/container";
 import { ServiceProvider } from "@posthog/di/react";
+import { claudeCloudAccountQueryKey } from "@posthog/ui/features/settings/claudeCloudAccount";
 import {
   CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
   type ClaudeSubscriptionTokenSettings,
@@ -15,14 +17,13 @@ const meta: Meta<typeof ClaudeCloudTokenSection> = {
   args: { cloudSubscriptionOn: false, onCreateToken: () => {} },
   decorators: [
     (Story, context) => {
+      const serverStatus: ClaudeIntegrationStatus =
+        context.parameters.serverStatus ?? "not_connected";
+      const localToken = context.parameters.localToken === true;
       const { container, queryClient } = useMemo(() => {
-        let saved = context.parameters.tokenSaved === true;
+        let saved = localToken;
         const tokenSettings: ClaudeSubscriptionTokenSettings = {
-          has: async () => {
-            if (context.parameters.tokenError)
-              throw new Error("Unlock your system key store and try again.");
-            return saved;
-          },
+          has: async () => saved,
           save: async () => {
             saved = true;
           },
@@ -38,8 +39,13 @@ const meta: Meta<typeof ClaudeCloudTokenSection> = {
             throw new Error("Story services are fixed");
           },
         };
-        return { container, queryClient: new QueryClient() };
-      }, [context.parameters.tokenSaved, context.parameters.tokenError]);
+        const queryClient = new QueryClient();
+        queryClient.setQueryData(claudeCloudAccountQueryKey, {
+          status: serverStatus,
+          connected_at: serverStatus === "connected" ? "2026-01-01" : null,
+        });
+        return { container, queryClient };
+      }, [serverStatus, localToken]);
       return (
         <ServiceProvider container={container}>
           <QueryClientProvider client={queryClient}>
@@ -57,8 +63,15 @@ export default meta;
 type Story = StoryObj<typeof ClaudeCloudTokenSection>;
 
 export const NoToken: Story = {};
-export const StorageError: Story = { parameters: { tokenError: true } };
 export const TokenSaved: Story = {
   args: { cloudSubscriptionOn: true },
-  parameters: { tokenSaved: true },
+  parameters: { serverStatus: "connected" },
+};
+export const ReauthRequired: Story = {
+  args: { cloudSubscriptionOn: true },
+  parameters: { serverStatus: "reauth_required" },
+};
+export const LocalTokenOnly: Story = {
+  args: { cloudSubscriptionOn: true },
+  parameters: { localToken: true },
 };
