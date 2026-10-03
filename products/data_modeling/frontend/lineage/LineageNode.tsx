@@ -17,6 +17,16 @@ import { LemonButton, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import {
+    ContextMenu,
+    ContextMenuContent,
+    ContextMenuGroup,
+    ContextMenuItem,
+    ContextMenuSeparator,
+    ContextMenuTrigger,
+} from 'lib/ui/ContextMenu/ContextMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { DataModelingNode } from '~/types'
 
@@ -25,6 +35,7 @@ import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
+import { LineageSelectionMode } from './lineageSelection'
 import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
 import { NodeTypeTag } from './NodeTypeTag'
 
@@ -52,6 +63,8 @@ export interface LineageNodeState {
     /** Ringed when a search or type filter highlights this node */
     isHighlighted?: boolean
     isSelected?: boolean
+    /** Faded while another node's lineage is selected */
+    isDimmed?: boolean
     loading?: 'placeholder' | 'focus'
 }
 
@@ -61,6 +74,10 @@ export interface LineageNodeCallbacks {
     onMaterialize?: () => void
     onRunUpstream?: () => void
     onRunDownstream?: () => void
+    onSelectLineage?: (mode: LineageSelectionMode) => void
+    onClearSelection?: () => void
+    onShowOnly?: (mode: LineageSelectionMode) => void
+    onShowAll?: () => void
     onMouseEnter?: () => void
     onMouseLeave?: () => void
 }
@@ -195,6 +212,65 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
     )
 }
 
+function LineageNodeMenu({ data }: { data: LineageNodeData }): JSX.Element {
+    const { node, callbacks, openUrl } = data
+    const highlightItems: { mode: LineageSelectionMode; label: string }[] = [
+        { mode: 'both', label: 'Highlight lineage' },
+        { mode: 'upstream', label: 'Highlight upstream only' },
+        { mode: 'downstream', label: 'Highlight downstream only' },
+    ]
+    const showOnlyItems: { mode: LineageSelectionMode; label: string }[] = [
+        { mode: 'both', label: 'Show only lineage' },
+        { mode: 'upstream', label: 'Show only upstream' },
+        { mode: 'downstream', label: 'Show only downstream' },
+    ]
+    return (
+        <ContextMenuContent>
+            <ContextMenuGroup>
+                {callbacks.onSelectLineage &&
+                    highlightItems.map(({ mode, label }) => (
+                        <ContextMenuItem key={mode} asChild onClick={() => callbacks.onSelectLineage?.(mode)}>
+                            <ButtonPrimitive menuItem>{label}</ButtonPrimitive>
+                        </ContextMenuItem>
+                    ))}
+                {callbacks.onClearSelection && (
+                    <ContextMenuItem asChild onClick={callbacks.onClearSelection}>
+                        <ButtonPrimitive menuItem>Clear highlight</ButtonPrimitive>
+                    </ContextMenuItem>
+                )}
+            </ContextMenuGroup>
+            {callbacks.onShowOnly && (
+                <>
+                    <ContextMenuSeparator />
+                    <ContextMenuGroup>
+                        {showOnlyItems.map(({ mode, label }) => (
+                            <ContextMenuItem key={mode} asChild onClick={() => callbacks.onShowOnly?.(mode)}>
+                                <ButtonPrimitive menuItem>{label}</ButtonPrimitive>
+                            </ContextMenuItem>
+                        ))}
+                        {callbacks.onShowAll && (
+                            <ContextMenuItem asChild onClick={callbacks.onShowAll}>
+                                <ButtonPrimitive menuItem>Show all models</ButtonPrimitive>
+                            </ContextMenuItem>
+                        )}
+                    </ContextMenuGroup>
+                </>
+            )}
+            {callbacks.onSelectLineage && <ContextMenuSeparator />}
+            <ContextMenuGroup>
+                {openUrl && (
+                    <ContextMenuItem asChild onClick={() => window.open(openUrl, '_blank', 'noopener')}>
+                        <ButtonPrimitive menuItem>Open in new tab</ButtonPrimitive>
+                    </ContextMenuItem>
+                )}
+                <ContextMenuItem asChild onClick={() => void copyToClipboard(node.name, 'model name')}>
+                    <ButtonPrimitive menuItem>Copy name</ButtonPrimitive>
+                </ContextMenuItem>
+            </ContextMenuGroup>
+        </ContextMenuContent>
+    )
+}
+
 export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
@@ -271,6 +347,11 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        // The card holds its own controls, such as the open link. Keys pressed on one of those
+        // belong to it, so only act on keys the card itself received.
+        if (e.target !== e.currentTarget) {
+            return
+        }
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             callbacks.onClick?.(e)
@@ -278,134 +359,154 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const cardAction = callbacks.onSelectLineage ? 'highlights its lineage' : `opens ${destination}`
     const ariaLabel = [
-        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, opens ${destination}`,
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
         node.lineage_issue && lineageIssueMessage(node.lineage_issue),
     ]
         .filter(Boolean)
         .join('. ')
 
     return (
-        <Tooltip title={node.name} delayMs={500}>
-            <div
-                className={clsx(
-                    'relative rounded-lg border bg-bg-light min-w-[180px]',
-                    callbacks.onClick && 'cursor-pointer',
-                    !callbacks.onClick && data.draggable && 'cursor-grab active:cursor-grabbing',
-                    state.isRunning && 'animate-pulse',
-                    state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
-                    state.isSelected && 'border-link ring-4 ring-link/40',
-                    !state.isRunning && !state.isSelected && state.isHighlighted && 'border-link ring-2 ring-link/30',
-                    !state.isRunning &&
-                        !state.isSelected &&
-                        !state.isHighlighted &&
-                        !state.isCurrent &&
-                        'border-border',
-                    node.lineage_issue &&
-                        !state.isRunning &&
-                        !state.isSelected &&
-                        !state.isHighlighted &&
-                        'border-warning',
-                    state.isCurrent && 'border-2'
-                )}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    borderColor: state.isCurrent ? color : undefined,
-                }}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                onClick={callbacks.onClick}
-                onKeyDown={callbacks.onClick ? handleKeyDown : undefined}
-                role={callbacks.onClick ? 'button' : undefined}
-                tabIndex={callbacks.onClick ? 0 : undefined}
-                aria-label={callbacks.onClick ? ariaLabel : undefined}
-                data-attr="lineage-node"
-            >
-                {data.handles.map((handle) => (
-                    <Handle
-                        key={handle.id}
-                        id={handle.id}
-                        type={handle.type}
-                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                        className="opacity-0"
-                        isConnectable={false}
-                    />
-                ))}
-
-                {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
-                    <RunArrow
-                        direction="upstream"
-                        layoutDirection={direction}
-                        onClick={stop(callbacks.onRunUpstream)}
-                    />
-                )}
-                {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
-                    <RunArrow
-                        direction="downstream"
-                        layoutDirection={direction}
-                        onClick={stop(callbacks.onRunDownstream)}
-                    />
-                )}
-
-                <div className="px-3 pt-3">
-                    <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-1 min-w-0">
-                            {state.isCurrent && (
-                                <Tooltip title="This is the currently viewed node">
-                                    <IconTarget className="text-warning text-sm shrink-0" />
-                                </Tooltip>
+        <ContextMenu>
+            <ContextMenuTrigger asChild>
+                <div className="contents">
+                    <Tooltip title={node.name} delayMs={500}>
+                        <div
+                            className={clsx(
+                                'relative pointer-events-auto rounded-lg border bg-bg-light min-w-[180px]',
+                                callbacks.onClick && 'cursor-pointer',
+                                !callbacks.onClick && data.draggable && 'cursor-grab active:cursor-grabbing',
+                                state.isRunning && 'animate-pulse',
+                                state.isRunning && !state.isSelected && 'border-warning ring-2 ring-warning/30',
+                                state.isSelected && 'border-link ring-4 ring-link/40',
+                                !state.isRunning &&
+                                    !state.isSelected &&
+                                    state.isHighlighted &&
+                                    'border-link ring-2 ring-link/30',
+                                !state.isRunning &&
+                                    !state.isSelected &&
+                                    !state.isHighlighted &&
+                                    !state.isCurrent &&
+                                    'border-border',
+                                node.lineage_issue &&
+                                    !state.isRunning &&
+                                    !state.isSelected &&
+                                    !state.isHighlighted &&
+                                    'border-warning',
+                                state.isCurrent && 'border-2',
+                                state.isDimmed && 'opacity-30'
                             )}
-                            <NodeTypeTag type={node.type} />
-                            {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
-                        </div>
-                        <div className="flex items-center gap-1">
-                            {node.user_tag && (
-                                <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
-                                    #{node.user_tag}
-                                </span>
-                            )}
-                            {data.openUrl && (
-                                <LemonButton
-                                    className="nodrag nopan"
-                                    size="xxsmall"
-                                    type="secondary"
-                                    to={data.openUrl}
-                                    targetBlank
-                                    stopPropagation
-                                    tooltip="Open in new tab"
-                                    aria-label={`Open ${node.name} in new tab`}
-                                    icon={<IconExternal />}
-                                    data-attr="lineage-node-open"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{
+                                borderColor: state.isCurrent ? color : undefined,
+                            }}
+                            onMouseEnter={handleMouseEnter}
+                            onMouseLeave={handleMouseLeave}
+                            onClick={callbacks.onClick}
+                            onKeyDown={callbacks.onClick ? handleKeyDown : undefined}
+                            role={callbacks.onClick ? 'button' : undefined}
+                            tabIndex={callbacks.onClick ? 0 : undefined}
+                            aria-label={callbacks.onClick ? ariaLabel : undefined}
+                            data-attr="lineage-node"
+                        >
+                            {data.handles.map((handle) => (
+                                <Handle
+                                    key={handle.id}
+                                    id={handle.id}
+                                    type={handle.type}
+                                    position={
+                                        handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)
+                                    }
+                                    className="opacity-0"
+                                    isConnectable={false}
+                                />
+                            ))}
+
+                            {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
+                                <RunArrow
+                                    direction="upstream"
+                                    layoutDirection={direction}
+                                    onClick={stop(callbacks.onRunUpstream)}
                                 />
                             )}
-                        </div>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 py-2">
-                        <span className="font-medium text-sm truncate">{node.name}</span>
-                        {callbacks.onEdit && (
-                            <LemonButton
-                                size="xxsmall"
-                                type="secondary"
-                                icon={<IconPencil />}
-                                onClick={stop(callbacks.onEdit)}
-                            />
-                        )}
-                        {callbacks.onMaterialize && MATERIALIZING_TYPES.has(node.type) && (
-                            <Tooltip title={state.isRunning ? null : 'Run this node'}>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    onClick={stop(callbacks.onMaterialize)}
-                                    disabledReason={state.isRunning && 'This node is already running...'}
-                                    icon={state.isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
+                            {showRunArrows && node.downstream_count > 0 && callbacks.onRunDownstream && (
+                                <RunArrow
+                                    direction="downstream"
+                                    layoutDirection={direction}
+                                    onClick={stop(callbacks.onRunDownstream)}
                                 />
-                            </Tooltip>
-                        )}
-                    </div>
+                            )}
+
+                            <div className="px-3 pt-3">
+                                <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1 min-w-0">
+                                        {state.isCurrent && (
+                                            <Tooltip title="This is the currently viewed node">
+                                                <IconTarget className="text-warning text-sm shrink-0" />
+                                            </Tooltip>
+                                        )}
+                                        <NodeTypeTag type={node.type} />
+                                        {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                        {node.user_tag && (
+                                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
+                                                #{node.user_tag}
+                                            </span>
+                                        )}
+                                        {data.openUrl && (
+                                            <LemonButton
+                                                className="nodrag nopan"
+                                                size="xxsmall"
+                                                type="secondary"
+                                                to={data.openUrl}
+                                                targetBlank
+                                                stopPropagation
+                                                tooltip="Open in new tab"
+                                                aria-label={`Open ${node.name} in new tab`}
+                                                icon={<IconExternal />}
+                                                data-attr="lineage-node-open"
+                                            />
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 py-2">
+                                    <span className="font-medium text-sm truncate">{node.name}</span>
+                                    {callbacks.onEdit && (
+                                        <LemonButton
+                                            size="xxsmall"
+                                            type="secondary"
+                                            icon={<IconPencil />}
+                                            onClick={stop(callbacks.onEdit)}
+                                        />
+                                    )}
+                                    {callbacks.onMaterialize && MATERIALIZING_TYPES.has(node.type) && (
+                                        <Tooltip title={state.isRunning ? null : 'Run this node'}>
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                onClick={stop(callbacks.onMaterialize)}
+                                                disabledReason={state.isRunning && 'This node is already running...'}
+                                                icon={
+                                                    state.isRunning ? (
+                                                        <Spinner textColored />
+                                                    ) : (
+                                                        <IconPlay className="w-3 h-3" />
+                                                    )
+                                                }
+                                            />
+                                        </Tooltip>
+                                    )}
+                                </div>
+                            </div>
+                            {showMetadata && <MetadataBar node={node} />}
+                        </div>
+                    </Tooltip>
                 </div>
-                {showMetadata && <MetadataBar node={node} />}
-            </div>
-        </Tooltip>
+            </ContextMenuTrigger>
+            <LineageNodeMenu data={data} />
+        </ContextMenu>
     )
 }
 

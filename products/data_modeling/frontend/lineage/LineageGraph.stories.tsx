@@ -209,6 +209,12 @@ export const Canvas: Story = {
     ),
 }
 
+export const Selectable: Story = {
+    render: () => (
+        <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls interactive selectable />
+    ),
+}
+
 // The minimap is gated on the canvas container instead of the viewport, so a canvas that is narrow
 // inside a wide window must still hide it and leave the zoom controls room. The graph is cut to two
 // nodes because fit-view scales the whole graph into 480px, and nodes that small render text the
@@ -257,8 +263,11 @@ export const DraggableNodes: Story = {
         ) {
             throw new Error('The explicit node link must open in a new tab')
         }
-        if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
+        if (!nodeCard || nodeCard.closest('a')) {
             throw new Error('A draggable node must not navigate as a card')
+        }
+        if (!nodeCard.getAttribute('aria-label')?.includes('highlights its lineage')) {
+            throw new Error('A node card must announce that it highlights lineage, not that it opens the model')
         }
     },
 }

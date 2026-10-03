@@ -14,7 +14,7 @@ import {
     type XYPosition,
 } from '@xyflow/react'
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type KeyboardEvent, type MouseEvent, ReactNode, useEffect, useMemo, useRef } from 'react'
 
 import { IconArchive, IconRefresh } from '@posthog/icons'
@@ -26,6 +26,8 @@ import { ElkDirection } from './autolayout'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
+import { lineageScopeLogic } from './lineageScopeLogic'
+import { LineageSelectionMode } from './lineageSelection'
 import { useNodesMeasured } from './useNodesMeasured'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
@@ -63,6 +65,8 @@ export interface LineageGraphProps {
     onNodeClick?: (node: DataModelingNode) => void
     /** Dedicated new-tab link shown on each node */
     nodeOpenUrl?: (node: DataModelingNode) => string
+    /** Clicking a node highlights its upstream and downstream lineage instead of calling the click handler */
+    selectable?: boolean
     /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
 }
@@ -73,14 +77,19 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, nodeOpenUrl, focusNodeIds, searchFocusRequest } =
         props
-    const { layout } = useValues(
-        lineageGraphLogic({
-            nodes: props.loading ? EMPTY_NODES : props.nodes,
-            edges: props.loading ? EMPTY_EDGES : props.edges,
-            variant: props.variant ?? 'full',
-            direction: props.direction ?? 'RIGHT',
-        })
-    )
+    const variant = props.variant ?? 'full'
+    const direction = props.direction ?? 'RIGHT'
+    const scopeLogic = lineageScopeLogic({ nodes: props.nodes, edges: props.edges, variant, direction })
+    const { scoped } = useValues(scopeLogic)
+    const { showOnly, showAll } = useActions(scopeLogic)
+    const logic = lineageGraphLogic({
+        nodes: props.loading ? EMPTY_NODES : (scoped?.nodes ?? props.nodes),
+        edges: props.loading ? EMPTY_EDGES : (scoped?.edges ?? props.edges),
+        variant,
+        direction,
+    })
+    const { layout, selection, selectionCone } = useValues(logic)
+    const { selectNode, clearSelection } = useActions(logic)
     const fittedLayout = useRef<typeof layout>(null)
     const fittedFocus = useRef<{ focusNodeIds: Set<string>; layout: typeof layout } | null>(null)
     const fittedSearchRequest = useRef<{ requestId: number; layout: typeof layout } | null>(null)
@@ -93,10 +102,21 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         () =>
             layout?.nodes.map((rfNode) => {
                 const node = rfNode.data.node as DataModelingNode
-                const callbacks = nodeCallbacks?.(node) ?? {
+                const baseCallbacks = nodeCallbacks?.(node) ?? {
                     onClick: onNodeClick ? () => onNodeClick(node) : undefined,
                 }
+                const callbacks = props.selectable
+                    ? {
+                          ...baseCallbacks,
+                          onClick: () => selectNode(node.id, 'both'),
+                          onSelectLineage: (mode: LineageSelectionMode) => selectNode(node.id, mode),
+                          onClearSelection: selection ? clearSelection : undefined,
+                          onShowOnly: (mode: LineageSelectionMode) => showOnly(node.id, mode),
+                          onShowAll: scoped ? showAll : undefined,
+                      }
+                    : baseCallbacks
                 const onClick = callbacks.onClick
+                const callerState = nodeState?.(node)
                 return {
                     ...rfNode,
                     position: props.nodePositions?.[node.id] ?? rfNode.position,
@@ -104,7 +124,12 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                         ...rfNode.data,
                         draggable: props.nodesDraggable,
                         openUrl: nodeOpenUrl?.(node),
-                        state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
+                        state: {
+                            isCurrent: node.id === currentNodeId,
+                            ...callerState,
+                            isSelected: callerState?.isSelected || selection?.nodeId === node.id,
+                            isDimmed: !!selectionCone && !selectionCone.nodeIds.has(node.id),
+                        },
                         callbacks: {
                             ...callbacks,
                             onClick: onClick
@@ -132,7 +157,27 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             onNodeClick,
             props.nodePositions,
             props.nodesDraggable,
+            props.selectable,
+            selection,
+            selectionCone,
+            selectNode,
+            clearSelection,
+            scoped,
+            showOnly,
+            showAll,
         ]
+    )
+
+    const decoratedEdges = useMemo(
+        () =>
+            selectionCone && layout
+                ? layout.edges.map((edge) =>
+                      selectionCone.edgeIds.has(edge.id)
+                          ? { ...edge, zIndex: 1, style: { ...edge.style, stroke: 'var(--link)', strokeWidth: 2 } }
+                          : { ...edge, style: { ...edge.style, opacity: 0.15 } }
+                  )
+                : layout?.edges,
+        [layout, selectionCone]
     )
 
     useEffect(() => {
@@ -254,7 +299,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             className={clsx('@container/lineage', props.className)}
             colorMode={isDarkModeOn ? 'dark' : 'light'}
             defaultNodes={decoratedNodes}
-            edges={layout.edges}
+            edges={decoratedEdges}
+            onPaneClick={props.selectable ? clearSelection : undefined}
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={props.nodesDraggable ?? false}
             onNodeDragStop={(_, node) => {
