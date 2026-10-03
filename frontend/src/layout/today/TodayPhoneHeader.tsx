@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconChevronLeft } from '@posthog/icons'
+import { IconChevronLeft, IconSidePanel } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { SidePanelTab } from '~/types'
 
 import { todayShellLogic } from './todayShellLogic'
 
@@ -12,7 +15,9 @@ const TITLE_SCROLL_THRESHOLD = 56
 
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
+    const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { goBackOnPhone } = useActions(todayShellLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
     const [scrolled, setScrolled] = useState(false)
     const title = [...sceneBreadcrumbs].reverse().find((breadcrumb) => !!breadcrumb.name)?.name
 
@@ -46,6 +51,15 @@ export function TodayPhoneHeader(): JSX.Element {
             >
                 {title}
             </Text>
+            <Button
+                size="icon-lg"
+                className="rounded-full"
+                aria-label="Open context panel"
+                data-attr="today-phone-context-panel"
+                onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}
+            >
+                <IconSidePanel />
+            </Button>
         </header>
     )
 }
