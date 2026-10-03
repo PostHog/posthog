@@ -340,6 +340,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Views',
     },
+    [Scene.ViewsNew]: {
+        projectBased: true,
+        name: 'New view',
+    },
+    [Scene.Tools]: {
+        projectBased: true,
+        name: 'Tools',
+    },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
         name: 'Data management',
@@ -844,6 +852,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.library()]: [Scene.Library, 'library'],
     [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
     [urls.views()]: [Scene.Views, 'views'],
+    [urls.viewsNew()]: [Scene.ViewsNew, 'viewsNew'],
+    [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],

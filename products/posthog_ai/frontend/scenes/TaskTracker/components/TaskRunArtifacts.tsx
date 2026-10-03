@@ -757,7 +757,7 @@ function ArtifactToolbar({
         objectRef && currentProjectId !== null
             ? objectKindLink(objectRef.objectKind, objectRef.objectId, `/project/${currentProjectId}`)
             : null
-    const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact)
+    const downloadUrl = artifactDownloadUrl(currentProjectId, taskId, artifact, { forDownload: true })
     const single = files.length < 2
     const versioned = !!selectedFile && selectedFile.versions.length > 1
     // Plain text already shows its source, so only these kinds get a view switch.

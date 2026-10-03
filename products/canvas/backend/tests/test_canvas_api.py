@@ -157,6 +157,19 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    @parameterized.expand(
+        [("default", "", ["newer", "older"]), ("updated", "?ordering=-updated_at", ["older", "newer"])]
+    )
+    def test_list_orders_canvases(self, _name: str, query: str, expected: list[str]) -> None:
+        older_id = self._create_canvas(name="older")
+        self._create_canvas(name="newer")
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=older_id).update(updated_at=timezone.now() + timedelta(hours=1))
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{query}")
+
+        assert [row["name"] for row in response.json()["results"]] == expected
+
     def test_notebook_widget_canvas_is_hidden_from_the_canvas_api(self):
         with team_scope(self.team.id):
             notebook_canvas = Canvas.objects.create(
