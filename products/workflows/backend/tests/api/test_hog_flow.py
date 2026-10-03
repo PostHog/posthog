@@ -764,7 +764,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "step 'Welcome email'" in detail
         assert 'The email sender "hello@example.dev" is not verified yet' in detail
 
-    def test_live_workflow_keeps_saving_after_its_sender_loses_verification(self):
+    def _create_live_email_workflow(self) -> tuple[str, Integration]:
         sync_template_to_db(_email_function_template())
         integration = Integration.objects.create(
             team=self.team,
@@ -779,13 +779,53 @@ class TestHogFlowAPI(APIBaseTest):
         assert created.status_code == 201, created.json()
         flow_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}"
         assert self.client.patch(flow_url, {"status": "active"}).status_code == 200
+        return flow_url, integration
+
+    def _actions_sending_from(self, actions: list[dict], integration_id: int) -> list[dict]:
+        updated = deepcopy(actions)
+        for action in updated:
+            if action["type"] == "function_email":
+                action["config"]["inputs"]["email"]["value"]["from"] = {"integrationId": integration_id}
+        return updated
+
+    def _create_unverified_sender(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "hello@example.dev", "name": "Pending", "domain": "example.dev", "verified": False},
+        )
+
+    @parameterized.expand([("keeps_its_live_sender", False, 200), ("switches_to_a_new_sender", True, 400)])
+    def test_live_save_after_the_sender_loses_verification(self, _name, switches_sender, expected_status):
+        flow_url, integration = self._create_live_email_workflow()
         integration.config = {**integration.config, "verified": False}
         integration.save()
+        actions = self.client.get(flow_url).json()["actions"]
+        if switches_sender:
+            actions = self._actions_sending_from(actions, self._create_unverified_sender().id)
 
-        live_actions = self.client.get(flow_url).json()["actions"]
-        renamed = self.client.patch(flow_url, {"name": "Renamed", "actions": live_actions})
+        response = self.client.patch(flow_url, {"name": "Renamed", "actions": actions})
 
-        assert renamed.status_code == 200, renamed.json()
+        assert response.status_code == expected_status, response.json()
+
+    def test_test_run_of_a_live_workflow_accepts_a_pending_sender(self):
+        flow_url, _integration = self._create_live_email_workflow()
+        configuration = self.client.get(flow_url).json()
+        configuration["actions"] = self._actions_sending_from(
+            configuration["actions"], self._create_unverified_sender().id
+        )
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"{flow_url}/invocations/",
+                data={"configuration": configuration, "globals": {}, "mock_async_functions": True},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -332,7 +333,7 @@ describe('workflowLogic email step "from" validation', () => {
         }
     )
 
-    it('clears the sender message on the next enable attempt after the domain is verified elsewhere', async () => {
+    it('clears the sender message once a blocked enable reloads a sender verified elsewhere', async () => {
         let senderVerified = false
         useMocks({
             get: {
@@ -352,6 +353,32 @@ describe('workflowLogic email step "from" validation', () => {
         await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
 
         expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toBeUndefined()
+    })
+
+    it('shows why publishing staged changes failed', async () => {
+        const senderError =
+            'step \'Send email\': The email sender "hello@example.dev" is not verified yet. Verify its domain under Channels, or choose a verified sender.'
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }, 'active'),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+            post: {
+                '/api/environments/:team_id/hog_flows/:id/publish/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid_input', detail: senderError, attr: null },
+                ],
+            },
+        })
+        const toastError = jest.spyOn(lemonToast, 'error')
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        await expectLogic(logic, () => logic.actions.confirmPublishDraft('token')).toDispatchActions(['loadWorkflow'])
+
+        expect(toastError).toHaveBeenCalledWith(senderError)
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {

@@ -1638,7 +1638,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
                         "email_sender_cache": self.context.setdefault("_email_sender_cache", {}),
-                        "require_verified_email_sender": not is_draft,
+                        "require_verified_email_sender": not is_draft and not self.context.get("validates_test_run"),
                         "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
                     },
                 )
@@ -6612,7 +6612,8 @@ class HogFlowViewSet(
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
-            data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
+            data=request.data,
+            context={**self.get_serializer_context(), "instance": hog_flow, "validates_test_run": True},
         )
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)

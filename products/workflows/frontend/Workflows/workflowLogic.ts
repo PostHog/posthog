@@ -207,6 +207,13 @@ function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     return result as Partial<HogFlow>
 }
 
+function getPublishErrorMessage(error: unknown): string {
+    if (error instanceof ApiError && error.status === 400 && error.detail) {
+        return error.detail
+    }
+    return 'Publishing failed. Review the staged changes and try again.'
+}
+
 function getUnverifiedSenderError(
     from: { integrationId?: number; integrationIds?: number[] },
     integrations: IntegrationType[] | null
@@ -3988,9 +3995,8 @@ export const workflowLogic = kea<workflowLogicType>([
                 await api.hogFlows.publishHogFlow(props.id, { confirm: true, confirm_token: confirmToken })
                 lemonToast.success('Changes published')
                 actions.loadWorkflow()
-            } catch {
-                // Covers a stale/expired token (the draft moved since the preview) and plain failures.
-                lemonToast.error('Publishing failed. Review the staged changes and try again.')
+            } catch (error) {
+                lemonToast.error(getPublishErrorMessage(error))
                 actions.loadWorkflow()
             } finally {
                 actions.setDraftActionPending(null)
