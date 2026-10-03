@@ -280,7 +280,9 @@ export function createTown(world, canvas) {
         [-9, 3, 7],
         [49, 3, 7],
     ]
-    treeSpots.forEach(([x, y, height], index) => place(pine(height, index % 3 === 0), x, y))
+    /** @type {THREE.Group[]} */
+    const pines = []
+    treeSpots.forEach(([x, y, height], index) => pines.push(place(pine(height, index % 3 === 0), x, y)))
     // Snow hills and pale peaks close the horizon behind the trees.
     for (const [x, y, radius, height] of [
         [-22, -16, 26, 9],
@@ -346,6 +348,8 @@ export function createTown(world, canvas) {
     }
 
     // ---- Things in the square that hedgehogs walk around -----------------------------------------------------------
+    /** @type {THREE.Group[]} */
+    const snowmen = []
     for (const decoration of world.decorations) {
         const group = new THREE.Group()
         if (decoration.kind === 'bench') {
@@ -359,6 +363,7 @@ export function createTown(world, canvas) {
                 )
             }
         } else if (decoration.kind === 'snowman') {
+            snowmen.push(group)
             group.add(mesh(sphere(0.62, 2), snow, [0, 0.52, 0]))
             group.add(mesh(sphere(0.44, 2), snow, [0, 1.36, 0]))
             group.add(mesh(sphere(0.32, 2), snow, [0, 2, 0]))
@@ -391,7 +396,9 @@ export function createTown(world, canvas) {
                 )
             }
         } else if (decoration.kind === 'tree') {
-            group.add(pine(3.4))
+            const tree = pine(3.4)
+            pines.push(tree)
+            group.add(tree)
         } else {
             group.add(mesh(cylinder(0.08, 0.1, 2.8, 6), mat(COLORS.woodDark), [0, 1.4, 0]))
             const arrows = /** @type {Array<[string, number, string]>} */ ([
@@ -518,6 +525,83 @@ export function createTown(world, canvas) {
             arm.rotation.z += (leverTarget - arm.rotation.z) * Math.min(1, dt * 10)
         })
         addHit('flag', 5.2, 3.6, 6.4, 8.5, 3.6, 9.4)
+    }
+
+    // Alerts lighthouse. Its alarm flips fire-mode, which is separate from night.
+    const fireMode = { value: 0, target: 0 }
+    {
+        const tower = new THREE.Group()
+        tower.add(mesh(cylinder(1.3, 1.45, 0.5, 14), mat(COLORS.stone), [0, 0.25, 0]))
+        for (let band = 0; band < 5; band++) {
+            const bottom = 1.15 - band * 0.1
+            tower.add(
+                mesh(cylinder(bottom - 0.1, bottom, 0.85, 14), mat(band % 2 ? COLORS.ink : COLORS.red), [
+                    0,
+                    0.92 + band * 0.85,
+                    0,
+                ])
+            )
+        }
+        tower.add(mesh(cylinder(1, 1, 0.14, 14), mat(0x2b3040), [0, 4.77, 0]))
+        const lampRoomMaterial = mat(0xff7a1f, { emissive: 0xff4d00, emissiveIntensity: 0.25 })
+        tower.add(mesh(cylinder(0.54, 0.54, 0.75, 10), lampRoomMaterial, [0, 5.2, 0], { cast: false }))
+        tower.add(mesh(cone(0.8, 0.7, 10), mat(COLORS.ink), [0, 5.95, 0]))
+        tower.add(mesh(box(0.6, 1.05, 0.2), mat(0x3a1414), [0, 0.9, 1.1]))
+        tower.add(mesh(box(0.4, 0.45, 0.1), window_, [0, 2.7, 0.95]))
+        // The flame on top shows while fire-mode is on.
+        const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xffb13b, transparent: true, opacity: 0.95 })
+        const flame = new THREE.Group()
+        flame.add(mesh(cone(0.55, 1.6, 7), flameMaterial, [0, 0.8, 0], { cast: false, receive: false }))
+        flame.add(
+            mesh(cone(0.3, 1, 7), new THREE.MeshBasicMaterial({ color: 0xff4d00 }), [0, 0.5, 0], {
+                cast: false,
+                receive: false,
+            })
+        )
+        flame.position.set(0, 6.3, 0)
+        tower.add(flame)
+        const alarmLight = new THREE.PointLight(0xff6a1f, 0, 16, 1.6)
+        alarmLight.position.set(0, 5.4, 1.2)
+        tower.add(alarmLight)
+        place(tower, 10.75, 15.9)
+
+        // The alarm lever and the fire-mode board, like the feature flag's.
+        const lever = new THREE.Group()
+        lever.add(mesh(box(1.1, 0.55, 0.8), mat(0x3a1414), [0, 0.28, 0]))
+        lever.add(mesh(box(1.1, 0.12, 0.8), mat(COLORS.red), [0, 0.6, 0]))
+        const arm = new THREE.Group()
+        arm.add(mesh(cylinder(0.07, 0.07, 1.25, 6), mat(0xd9dee8), [0, 0.62, 0]))
+        arm.add(mesh(sphere(0.2, 1), mat(COLORS.yellow), [0, 1.3, 0]))
+        arm.position.set(0, 0.55, 0)
+        lever.add(arm)
+        place(lever, 12.9, 17.2)
+        const board = sign(3, 1.3, 110, () => undefined)
+        board.board.position.copy(at(10.75, 17.5, 2.45))
+        scene.add(board.board)
+        let leverTarget = 0.6
+        objectViews.fire = (/** @type {any} */ state) => {
+            leverTarget = state.fireOn ? -0.6 : 0.6
+            board.redraw((g, w, h) => {
+                roundedPanel(g, 6, 6, w - 12, h - 12, 26, '#fffdf6', '#151515', 8)
+                const on = state.fireOn
+                fitText(g, 'fire-mode', w / 2, h * 0.3, w * 0.84, 70, '#151515')
+                roundedPanel(g, w * 0.2, h * 0.56, w * 0.3, h * 0.3, h * 0.15, on ? '#f54e00' : '#b8bcc4', null)
+                g.beginPath()
+                g.arc(on ? w * 0.43 : w * 0.27, h * 0.71, h * 0.115, 0, Math.PI * 2)
+                g.fillStyle = '#ffffff'
+                g.fill()
+                fitText(g, on ? 'ON' : 'OFF', w * 0.68, h * 0.72, w * 0.3, 60, on ? '#f54e00' : '#6b6f76')
+            })
+        }
+        animations.push((dt, time) => {
+            arm.rotation.z += (leverTarget - arm.rotation.z) * Math.min(1, dt * 10)
+            const flicker = 0.8 + 0.2 * Math.sin(time * 23) * Math.sin(time * 7.3)
+            flame.visible = fireMode.value > 0.02
+            flame.scale.set(fireMode.value, fireMode.value * flicker, fireMode.value)
+            alarmLight.intensity = 14 * fireMode.value * flicker
+            lampRoomMaterial.emissiveIntensity = 0.25 + 2.4 * fireMode.value * flicker
+        })
+        addHit('fire', 11.4, 16.3, 5.2, 7, 3.4, 7.6)
     }
 
     // Replay cinema.
@@ -1161,6 +1245,68 @@ export function createTown(world, canvas) {
         paths.board.material.color.setScalar(1 - n * 0.55)
     }
 
+    // Fire-mode: the trees char and glow, their snow melts away, and the snowman sinks into a puddle. Back to 0 undoes it.
+    const CHARRED = new THREE.Color(0x3b2416)
+    const puddles = snowmen.map((snowman) => {
+        const puddle = mesh(cylinder(1.1, 1.1, 0.04, 16), mat(COLORS.ice, { flatShading: false }), [0, 0.02, 0], {
+            cast: false,
+        })
+        puddle.scale.setScalar(0.001)
+        snowman.parent.add(puddle)
+        puddle.position.copy(snowman.position)
+        return puddle
+    })
+    // Every tree gets a flame on top, which only shows in fire-mode.
+    const treeFlameMaterial = new THREE.MeshBasicMaterial({ color: 0xffa02e, transparent: true, opacity: 0.9 })
+    const treeFlames = pines.map((tree) => {
+        const height = tree.userData.height
+        const flame = mesh(cone(height * 0.16, height * 0.5, 6), treeFlameMaterial, [0, height * 0.98, 0], {
+            cast: false,
+            receive: false,
+        })
+        flame.scale.setScalar(0.001)
+        flame.userData.phase = Math.random() * 7
+        tree.add(flame)
+        return flame
+    })
+    function applyFire() {
+        const f = fireMode.value
+        pines.forEach((tree) => {
+            const { foliage, foliageColor, caps } = tree.userData
+            foliage.color.lerpColors(foliageColor, CHARRED, f)
+            foliage.emissive.setHex(0xff3d00)
+            foliage.emissiveIntensity = f * 0.3
+            caps.forEach((cap) => cap.scale.setScalar(Math.max(0.001, 1 - f)))
+        })
+        snowmen.forEach((snowman, index) => {
+            snowman.scale.set(1 + f * 0.15, 1 - f * 0.5, 1 + f * 0.15)
+            puddles[index].scale.setScalar(Math.max(0.001, f))
+        })
+    }
+    // Embers rise from the burning trees around the square, and the flames flicker.
+    let emberDebt = 0
+    animations.push((dt, time) => {
+        if (fireMode.value < 0.02) {
+            return
+        }
+        treeFlames.forEach((flame) => {
+            const flicker =
+                0.75 + 0.25 * Math.sin(time * 19 + flame.userData.phase) * Math.sin(time * 6 + flame.userData.phase)
+            flame.scale.set(fireMode.value, fireMode.value * flicker, fireMode.value)
+        })
+        if (fireMode.value < 0.3) {
+            return
+        }
+        emberDebt += dt * 5 * fireMode.value
+        while (emberDebt >= 1) {
+            emberDebt -= 1
+            const tree = pines[Math.floor(Math.random() * pines.length)]
+            const top = tree.getWorldPosition(new THREE.Vector3())
+            top.y += tree.userData.height * 0.7
+            puff(top, Math.random() < 0.5 ? 0xff7a1f : 0xffc14d, 1)
+        }
+    })
+
     // ---- Camera ---------------------------------------------------------------------------------------------------
     const focus = new THREE.Vector3(0, 1.6, -1.2)
     const fromFocus = new THREE.Vector3(0, Math.sin(0.5), Math.cos(0.5))
@@ -1229,8 +1375,11 @@ export function createTown(world, canvas) {
         /** Shows the state of every object: the scoreboard, the counters, the cinema screen, day or night. */
         setObjects(/** @type {any} */ state, instant = false) {
             night.target = state.lightsOn ? 0 : 1
+            fireMode.target = state.fireOn ? 1 : 0
             if (instant) {
                 night.value = night.target
+                fireMode.value = fireMode.target
+                applyFire()
             }
             // The boards are canvases. They are drawn again only when what they show is different.
             const key = JSON.stringify(state)
@@ -1256,6 +1405,8 @@ export function createTown(world, canvas) {
                 confetti(at(5.3, 15.6, 2.9), [0xe5383b, 0x2ba84a, 0xf9bd2b], 14)
             } else if (objectId === 'flag') {
                 puff(at(6.4, 4.45, 1.6), 0xfff3b0, 8)
+            } else if (objectId === 'fire') {
+                puff(at(12.9, 17.2, 1.6), 0xff7a1f, 8)
             } else if (objectId === 'replay') {
                 confetti(at(13.5, 4.9, 4.2), [0xffd23f, 0xff6b6b, 0xffffff], 20)
             } else {
@@ -1274,6 +1425,12 @@ export function createTown(world, canvas) {
                 night.value +=
                     Math.sign(night.target - night.value) * Math.min(Math.abs(night.target - night.value), dt * 1.2)
                 applyNight()
+            }
+            if (fireMode.value !== fireMode.target) {
+                fireMode.value +=
+                    Math.sign(fireMode.target - fireMode.value) *
+                    Math.min(Math.abs(fireMode.target - fireMode.value), dt * 0.45)
+                applyFire()
             }
             animations.forEach((animate) => animate(dt, time))
             renderer.render(scene, camera)

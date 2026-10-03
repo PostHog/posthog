@@ -177,11 +177,19 @@ export function pine(height, dark = false) {
     const green = mat(dark ? COLORS.pineDark : COLORS.pine)
     const snow = mat(COLORS.snow, { roughness: 1 })
     group.add(mesh(cylinder(0.16, 0.22, height * 0.25, 6), mat(COLORS.woodDark), [0, height * 0.12, 0]))
+    const caps = []
     for (let tier = 0; tier < 3; tier++) {
         const radius = height * (0.34 - tier * 0.08)
         const y = height * (0.38 + tier * 0.22)
         group.add(mesh(cone(radius, height * 0.4, 8), green, [0, y, 0]))
-        group.add(mesh(cone(radius * 0.62, height * 0.2, 8), snow, [0, y + height * 0.11, 0], { cast: false }))
+        const cap = mesh(cone(radius * 0.62, height * 0.2, 8), snow, [0, y + height * 0.11, 0], { cast: false })
+        caps.push(cap)
+        group.add(cap)
     }
+    // Fire-mode chars the foliage and melts the caps, so the town keeps a handle on them.
+    group.userData.foliage = green
+    group.userData.foliageColor = green.color.clone()
+    group.userData.caps = caps
+    group.userData.height = height
     return group
 }

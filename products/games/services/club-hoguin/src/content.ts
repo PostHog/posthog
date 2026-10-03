@@ -26,7 +26,7 @@ export interface Ellipse {
 
 export type Collider = ({ shape: 'rect' } & Rect) | ({ shape: 'ellipse' } & Ellipse)
 
-export type ObjectId = 'flag' | 'replay' | 'max' | 'bugs' | 'door-a' | 'door-b' | 'ship'
+export type ObjectId = 'flag' | 'replay' | 'max' | 'bugs' | 'door-a' | 'door-b' | 'ship' | 'fire'
 
 export interface WorldObject {
     id: ObjectId
@@ -102,6 +102,16 @@ export const OBJECTS: readonly WorldObject[] = [
         color: '#F54E00',
         footprint: { x: 4, y: 14.5, w: 2.6, h: 2.2 },
         stand: { x: 5.3, y: 18 },
+    },
+    {
+        id: 'fire',
+        name: 'Alerts lighthouse',
+        product: 'Alerts',
+        hint: 'Pull the alarm to flip fire-mode for everyone. The trees burn and the snowman melts',
+        glyph: 'H',
+        color: '#F54E00',
+        footprint: { x: 9, y: 14.5, w: 3.5, h: 3 },
+        stand: { x: 11.1, y: 18.6 },
     },
     {
         id: 'ship',

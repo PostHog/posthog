@@ -111,6 +111,7 @@ export interface FeedEntry {
 
 export interface ObjectState {
     lightsOn: boolean
+    fireOn: boolean
     doorA: number
     doorB: number
     bugsCaught: number
@@ -363,6 +364,7 @@ export class World {
     private readonly listeners = new Set<(event: WorldEvent) => void>()
     private objects: ObjectState = {
         lightsOn: true,
+        fireOn: false,
         doorA: 0,
         doorB: 0,
         bugsCaught: 0,
@@ -714,6 +716,11 @@ export class World {
             case 'flag':
                 this.objects.lightsOn = !this.objects.lightsOn
                 return `${name} set night-mode to ${this.objects.lightsOn ? 'false' : 'true'} for 100% of hogs`
+            case 'fire':
+                this.objects.fireOn = !this.objects.fireOn
+                return this.objects.fireOn
+                    ? `${name} pulled the alarm. Fire-mode is on: the trees burn and the snowman melts`
+                    : `${name} cleared the alarm. Fire-mode is off: the trees grow back and the snowman is whole`
             case 'replay':
                 this.objects.nowPlaying = this.pick(REPLAY_REELS)
                 return `Now playing in the replay cinema: ${this.objects.nowPlaying}`
