@@ -16,7 +16,12 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_KEY,
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricsRecalculation,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.scheduled_recalculation_logic import (
     EXPERIMENT_RECALCULATION_MAX_AGE_DAYS,
@@ -123,6 +128,32 @@ class TestScheduledRecalculationLogic(BaseTest):
         experiment = self._experiment(**overrides)
         assert experiment.status == expected_status
         assert experiment.id not in self._candidate_ids(2)
+
+    @parameterized.expand(
+        [
+            ("paused", False, False),
+            ("active", True, True),
+        ]
+    )
+    def test_a_paused_experiment_is_excluded(self, _name: str, flag_active: bool, expected: bool):
+        # Pausing leaves status RUNNING and only deactivates the flag, so this is the one
+        # exclusion the stored status cannot express.
+        experiment = self._experiment()
+        experiment.feature_flag.active = flag_active
+        experiment.feature_flag.save()
+        assert experiment.status == Experiment.Status.RUNNING
+        assert (experiment.id in self._candidate_ids(2)) is expected
+
+    def test_an_exposure_frozen_experiment_is_still_a_candidate(self):
+        # Frozen exposure closes enrollment but metric events keep arriving, so the results
+        # still move and the experiment stays worth recalculating.
+        experiment = self._experiment()
+        flag = experiment.feature_flag
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 100, EXPOSURE_FROZEN_GROUP_KEY: True}]}
+        flag.save()
+        experiment.refresh_from_db()
+        assert experiment.is_exposure_frozen
+        assert experiment.id in self._candidate_ids(2)
 
     @parameterized.expand(
         [
