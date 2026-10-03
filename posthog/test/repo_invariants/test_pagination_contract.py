@@ -99,6 +99,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.ai_observability.backend.api.taggers.TaggerViewSet",
     "products.ai_observability.backend.api.trace_reviews.TraceReviewViewSet",
     "products.alerts.backend.presentation.views.alert.AlertViewSet",
+    "products.alerts_platform.backend.presentation.views.platform_alert.PlatformAlertConfigurationViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchModelViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchPipelineViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchRunViewSet",

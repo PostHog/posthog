@@ -16,7 +16,6 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import get_active_recalculation
 
 logger = structlog.get_logger(__name__)
 
@@ -134,6 +133,10 @@ def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecis
     reaps an abandoned row in the background, so an unbounded check would lock the experiment out
     of every later scheduled run.
     """
+    # Deferred: recalculation.py imports temporal.recalculation_logic at module level, so a
+    # module-level import here closes a cycle back into a partially initialized module.
+    from products.experiments.backend.recalculation import get_active_recalculation  # noqa: PLC0415 — breaks that cycle
+
     scoped = ExperimentMetricsRecalculation.objects.for_team(team_id)
 
     active = get_active_recalculation(experiment)

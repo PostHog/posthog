@@ -441,6 +441,9 @@ class CanvasAccessMixin(TeamAndOrgViewSetMixin):
             raise PermissionDenied(f"This sandbox can file canvases only in its task's space.{hint}")
 
 
+CANVAS_LIST_ORDERINGS = ["-created_at", "-updated_at"]
+
+
 class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
     """Canvases: agent-built sandboxed browser apps, filed into channels.
 
@@ -554,6 +557,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 required=False,
                 description="Only return canvases whose name or description contains this text (case-insensitive).",
             ),
+            OpenApiParameter(
+                "ordering",
+                OpenApiTypes.STR,
+                required=False,
+                enum=CANVAS_LIST_ORDERINGS,
+                description="Sort order. -created_at (default) puts the newest canvases first. "
+                "-updated_at puts the most recently changed canvases first.",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -589,6 +600,9 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             search = self.request.query_params.get("search")
             if search:
                 queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+            ordering = self.request.query_params.get("ordering")
+            if ordering in CANVAS_LIST_ORDERINGS:
+                return queryset.order_by(ordering)
         return queryset.order_by("-created_at")
 
     @extend_schema(

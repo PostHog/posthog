@@ -1,3 +1,5 @@
+import datetime as dt
+
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -493,6 +495,33 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
 
         # Same access, non-targeted scanner: the experiment gate must not have widened to a blanket block.
         plain_resp = self.client.get(f"{self.scanners_url}{plain.id}/prompt_suggestions/current/")
+        self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
+
+    def test_backfills_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+        # The backfill window clamp reads the experiment's end date, so a denied caller who got past the
+        # scanner lookup could binary-search that date from the error a window start before or after it
+        # returns. Both sides of the end must answer the same not-found.
+        experiment = create_experiment(self.team, "hidden-flag", launched=True)
+        ended_at = timezone.now() - dt.timedelta(days=3)
+        experiment.end_date = ended_at
+        experiment.save()
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+        targeted = self._create_experiment_scoped_scanner("targeted", experiment.id, "config")
+        plain = self._create_scanner(name="plain")
+
+        self.client.force_login(self.other_user)
+        targeted_url = f"{self.scanners_url}{targeted.id}/backfills/"
+        self.assertEqual(self.client.get(targeted_url).status_code, 404)
+        for window_start in (ended_at - dt.timedelta(days=1), ended_at + dt.timedelta(days=1)):
+            body = {"window_start": window_start.isoformat(), "window_end": timezone.now().isoformat()}
+            resp = self.client.post(f"{targeted_url}estimate/", body, format="json")
+            self.assertEqual(resp.status_code, 404, resp.json())
+
+        # Same access, non-targeted scanner: the experiment gate must not have widened to a blanket block.
+        plain_resp = self.client.get(f"{self.scanners_url}{plain.id}/backfills/")
         self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
 
     def test_retargeting_a_scanner_does_not_expose_historical_observations(self) -> None:

@@ -55,7 +55,7 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.type_system import ComparisonCompatibility
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE
+from posthog.clickhouse.events_json import EVENTS_JSON_DATA_TABLE, TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.errors import ExposedCHQueryError
 from posthog.models import PropertyDefinition, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
@@ -349,6 +349,15 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 ("JSONMergePatch(", "mapFilter((key, value) -> not(has("),
                 ("'\"$active_feature_flags\":'",),
             ),
+            (
+                "whole_document_adds_temporary_keys",
+                "SELECT properties, toString(properties) FROM events",
+                True,
+                None,
+                None,
+                ("toJSONString(events.temporary_properties)",),
+                (),
+            ),
         ]
     )
     def test_feature_flag_property_compatibility_uses_the_schema_backed_map(
@@ -538,7 +547,8 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
             """WITH events_json AS (
                 SELECT 1 AS team_id, 'synthetic' AS event,
                     CAST(%(document)s, %(event_type)s) AS properties,
-                    CAST(%(document)s, %(person_type)s) AS person_properties
+                    CAST(%(document)s, %(person_type)s) AS person_properties,
+                    CAST('{}', %(temporary_type)s) AS temporary_properties
             ) """
             + printed,
             {
@@ -546,6 +556,7 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 "document": '{"$groups":{"organization":"hidden","project":"visible"}}',
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
         assert row == ('{"project":"visible"}', None, "visible", 0, 0, 1)
@@ -1859,6 +1870,52 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     [("email", '"user@example.com"'), ("plan", '{"tier":"pro"}')],
                 )
             ], use_new_events_schema
+
+        document_query = (
+            "SELECT properties, toString(properties), arraySort(JSONExtractKeys(properties)), "
+            "(SELECT properties.$set.email FROM (SELECT * FROM events WHERE uuid = {uuid})) "
+            f"FROM events WHERE uuid = '{event_uuid}'"
+        ).replace("{uuid}", f"'{event_uuid}'")
+        restricted_plan = {RestrictedProperty(name="$set.plan", property_type=PropertyDefinition.Type.EVENT)}
+        documents: dict[tuple[bool, bool], tuple[Any, ...]] = {}
+        for use_new_events_schema in (False, True):
+            for with_restriction in (False, True):
+                context = HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    use_new_events_schema=use_new_events_schema,
+                    restricted_properties=restricted_plan if with_restriction else set(),
+                )
+                response = execute_hogql_query(document_query, team=self.team, context=context)
+                assert response.results is not None
+                document, stringified, keys, from_subquery = response.results[0]
+                documents[(use_new_events_schema, with_restriction)] = (
+                    json.loads(document),
+                    json.loads(stringified),
+                    keys,
+                    from_subquery,
+                )
+        assert documents[(True, False)] == documents[(False, False)]
+        assert documents[(True, True)] == documents[(False, True)]
+        assert documents[(True, False)] == (
+            {
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+            {
+                "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
+                "$set_once": {"initial_referrer": "https://example.com", "is_beta": True},
+                "$unset": ["old_key"],
+                "$sdk_debug_replay_flushed_size": 42,
+                "$browser": "Firefox",
+            },
+            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset"],
+            "user@example.com",
+        )
+        assert documents[(True, True)][0]["$set"] == {"email": "user@example.com"}
 
         # One call per registered JSON function, so a newly registered function fails here until native reads the
         # moved key. isValidJSON and JSONArrayLength take no key path.

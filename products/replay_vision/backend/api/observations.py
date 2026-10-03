@@ -176,6 +176,19 @@ class ScannerResultSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
     )
+    experiment_variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Experiment scanners only: the variant the exposure data attributes this session's person to. "
+            "Null on the other types and on rows scanned before variant attribution shipped."
+        ),
+    )
+    session_duration_s = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Experiment scanners only: the scanned session's duration in seconds.",
+    )
 
 
 class ReplayObservationLabelSerializer(serializers.Serializer):
