@@ -16,6 +16,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import (
     CHQueryErrorNotAnAggregate,
+    CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
     QueryErrorCategory,
     look_up_clickhouse_error_code_meta,
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
 
 ERROR_TYPE_TO_CODE: dict[type, str] = {
     ClickHouseQueryMemoryLimitExceeded: "memory_limit_exceeded",
+    CHQueryErrorTooManyBytes: "too_many_bytes",
 }
 
 _MAX_ERROR_EVENT_MESSAGE_LENGTH = 500
@@ -51,6 +53,9 @@ F = TypeVar("F", bound=Callable[..., Any])
 ERROR_TYPE_MESSAGES: dict[type, str] = {
     StatisticError: "Unable to calculate experiment statistics. Please ensure your experiment has sufficient data and try again.",
     InternalHogQLError: "Unable to process your experiment query. Please check your metric configuration and try again.",
+    # Keep this above ExposedCHQueryError, its parent class. The bytes cap usually comes from the
+    # temporary ClickHouse kill switch, so a later retry or a shorter time period can succeed.
+    CHQueryErrorTooManyBytes: "This experiment reads more data than the current limit allows. Try again in a few minutes, or view a shorter time period.",
     ExposedCHQueryError: "Unable to retrieve experiment data. Please try refreshing the page.",
     ClickHouseQueryMemoryLimitExceeded: "This experiment query is using too much memory. Try viewing a shorter time period or contact support for help.",
     ZeroDivisionError: "Unable to calculate results due to insufficient data. Please wait for more experiment data.",
