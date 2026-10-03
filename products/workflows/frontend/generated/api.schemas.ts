@@ -1314,6 +1314,8 @@ export interface WorkflowProposalApi {
      * @nullable
      */
     readonly applied_version: number | null
+    /** Why the person who rejected this said no. The producer reads it before suggesting again. */
+    readonly rejection_reason: string
 }
 
 export interface PaginatedWorkflowProposalListApi {
@@ -1458,6 +1460,14 @@ export interface WorkflowProposalOutcomeApi {
     change_ended_at_version: number | null
     /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
     unavailable_guardrails: string[]
+}
+
+export interface WorkflowProposalRejectRequestApi {
+    /**
+     * Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.
+     * @maxLength 2000
+     */
+    reason?: string
 }
 
 export interface HogFlowPublishRequestApi {

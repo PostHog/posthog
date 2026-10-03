@@ -55,6 +55,7 @@ def _to_record(proposal: WorkflowProposal) -> WorkflowProposalRecord:
         resolved_at=proposal.resolved_at,
         resolved_by=proposal.resolved_by,
         applied_version=proposal.applied_version,
+        rejection_reason=proposal.rejection_reason,
     )
 
 
@@ -129,13 +130,19 @@ def lock_proposal(*, team_id: int, proposal_id: UUID) -> WorkflowProposalRecord:
 
 
 def resolve_proposal(
-    *, team_id: int, proposal_id: UUID, status: WorkflowProposalStatus, resolved_by_id: int | None
+    *,
+    team_id: int,
+    proposal_id: UUID,
+    status: WorkflowProposalStatus,
+    resolved_by_id: int | None,
+    rejection_reason: str = "",
 ) -> WorkflowProposalRecord:
     proposal = WorkflowProposal.objects.get(team_id=team_id, id=proposal_id)
     proposal.status = status
     proposal.resolved_at = timezone.now()
     proposal.resolved_by_id = resolved_by_id
-    proposal.save(update_fields=["status", "resolved_at", "resolved_by"])
+    proposal.rejection_reason = rejection_reason
+    proposal.save(update_fields=["status", "resolved_at", "resolved_by", "rejection_reason"])
     return _to_record(proposal)
 
 

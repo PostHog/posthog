@@ -3,6 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -81,8 +83,12 @@ export interface workflowProposalsLogicActions {
         expectedDraftUpdatedAt: string | null
         proposalId: string
     }
-    confirmRejectProposal: (proposalId: string) => {
+    confirmRejectProposal: (
+        proposalId: string,
+        reason: string
+    ) => {
         proposalId: string
+        reason: string
     }
     loadApplied: () => any
     loadAppliedFailure: (
@@ -257,7 +263,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             expectedDraftUpdatedAt,
         }),
         rejectProposal: (proposalId: string) => ({ proposalId }),
-        confirmRejectProposal: (proposalId: string) => ({ proposalId }),
+        confirmRejectProposal: (proposalId: string, reason: string) => ({ proposalId, reason }),
         removeResolvedProposal: (proposalId: string) => ({ proposalId }),
         setResolvingId: (proposalId: string | null, action: 'approve' | 'reject' | null = null) => ({
             proposalId,
@@ -553,26 +559,32 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
             if (values.resolvingId !== null) {
                 return
             }
-            LemonDialog.open({
+            LemonDialog.openForm({
                 title: 'Reject this suggestion?',
                 description: 'It stays in the workflow history as rejected. Nothing changes on the workflow.',
-                primaryButton: {
-                    children: 'Reject',
-                    status: 'danger',
-                    onClick: () => actions.confirmRejectProposal(proposalId),
-                },
-                secondaryButton: {
-                    children: 'Cancel',
-                },
+                initialValues: { reason: '' },
+                content: (
+                    <LemonField name="reason" label="Why not? (optional)">
+                        <LemonTextArea
+                            placeholder="For example: this is the last email in the series, so clicks are not its goal"
+                            maxLength={2000}
+                            data-attr="workflow-suggestion-reject-reason"
+                        />
+                    </LemonField>
+                ),
+                primaryButtonProps: { children: 'Reject', status: 'danger' },
+                onSubmit: ({ reason }) => actions.confirmRejectProposal(proposalId, reason ?? ''),
             })
         },
-        confirmRejectProposal: async ({ proposalId }) => {
+        confirmRejectProposal: async ({ proposalId, reason }) => {
             if (values.resolvingId !== null) {
                 return
             }
             actions.setResolvingId(proposalId, 'reject')
             try {
-                await hogFlowsProposalsRejectCreate(String(values.currentTeamIdStrict), props.id, proposalId, {})
+                await hogFlowsProposalsRejectCreate(String(values.currentTeamIdStrict), props.id, proposalId, {
+                    reason: reason.trim(),
+                })
                 lemonToast.success('Suggestion rejected')
                 actions.removeResolvedProposal(proposalId)
                 actions.loadProposals()
