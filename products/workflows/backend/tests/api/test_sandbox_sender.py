@@ -1,8 +1,9 @@
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, _Call, patch
 
+from django.db.models import QuerySet
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -12,6 +13,9 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import hash_key_value
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 SANDBOX_SETTINGS = {
     "WORKFLOWS_SANDBOX_SENDER_DOMAIN": "sandbox.example.com",
@@ -33,13 +37,13 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.addCleanup(patcher.stop)
         return mock
 
-    def _ensure(self):
+    def _ensure(self) -> "_MonkeyPatchedResponse":
         return self.client.post(f"/api/environments/{self.team.id}/integrations/email_sandbox_sender/")
 
-    def _sandbox_rows(self):
+    def _sandbox_rows(self) -> QuerySet[Integration]:
         return Integration.objects.filter(team=self.team, kind="email", integration_id="posthog-sandbox")
 
-    def _provisioned_events(self) -> list:
+    def _provisioned_events(self) -> list[_Call]:
         return [
             c for c in self.capture.call_args_list if c.kwargs.get("event") == "workflows sandbox sender provisioned"
         ]
@@ -49,6 +53,7 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.organization.save()
 
         first = self._ensure()
+        assert len(self._provisioned_events()) == 1
         self.organization.name = "Acme Rockets"
         self.organization.save()
         second = self._ensure()
@@ -142,7 +147,7 @@ class TestSandboxSenderAPI(APIBaseTest):
         ]
     )
     def test_users_cannot_change_the_sandbox_sender(
-        self, _name: str, method: str, path: str, body: dict | None
+        self, _name: str, method: str, path: str, body: dict[str, Any] | None
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()

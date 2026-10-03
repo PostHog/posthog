@@ -376,7 +376,7 @@ class TestEmailReputationAPI(APIBaseTest):
 
         assert body["isp_shared_domains"] == expected
 
-    def test_reputation_endpoint_leaves_the_sandbox_sender_out_of_the_breakdown(self):
+    def test_reputation_endpoint_leaves_the_sandbox_sender_out_of_the_breakdown(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
         for team in (self.team, other_team):
             Integration.objects.create(
