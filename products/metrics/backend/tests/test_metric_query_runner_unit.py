@@ -13,11 +13,8 @@ from products.metrics.backend.metric_query_runner import _active_since_expr, _hi
 class TestPickInterval:
     @parameterized.expand(
         [
-            # 60 one-minute buckets.
             ("1h_range_picks_minute", dt.timedelta(hours=1), "minute"),
-            # 24 buckets are below the target.
             ("1d_range_picks_hour", dt.timedelta(days=1), "hour"),
-            # Finer intervals exceed the target.
             ("30d_range_picks_day", dt.timedelta(days=30), "day"),
         ]
     )
@@ -40,11 +37,8 @@ class TestActiveSinceExpr:
 class TestHistogramQuantileInterpolation:
     @parameterized.expand(
         [
-            # p50 is 0.3 in the second bucket.
             ("p50_mid_bucket", 0.5, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.3),
-            # p25 is 0.075 in the first bucket.
             ("p25_first_bucket", 0.25, [0.1, 0.5, 1.0], [10.0, 10.0, 10.0, 0.0], 0.075),
-            # Clamp overflow ranks to the highest bound.
             ("overflow_clamps", 0.99, [0.1, 0.5, 1.0], [1.0, 1.0, 1.0, 10.0], 1.0),
             ("empty_counts", 0.5, [0.1, 0.5], [0.0, 0.0, 0.0], 0.0),
             ("no_bounds", 0.5, [], [10.0], 0.0),
