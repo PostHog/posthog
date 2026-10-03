@@ -136,6 +136,12 @@ class EmailSendingTierLimits:
 
 @frozen
 class SandboxEmailSender:
+    """The project's PostHog-managed sandbox email sender.
+
+    ``integration`` carries the core ``Integration`` row rather than a projection of it, so the
+    integrations API keeps serializing it through core's ``IntegrationSerializer``.
+    """
+
     integration: "Integration"
     created: bool
 

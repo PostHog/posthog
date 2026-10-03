@@ -115,7 +115,6 @@ class EmailIntegration:
         return integration
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
-        self.ensure_user_managed()
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name and mail_from_subdomain can be updated

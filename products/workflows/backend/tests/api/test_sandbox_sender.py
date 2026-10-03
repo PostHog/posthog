@@ -10,6 +10,8 @@ from rest_framework import status
 
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import hash_key_value
 
 SANDBOX_SETTINGS = {
     "WORKFLOWS_SANDBOX_SENDER_DOMAIN": "sandbox.example.com",
@@ -107,12 +109,34 @@ class TestSandboxSenderAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("read scope", "integration:read", status.HTTP_403_FORBIDDEN),
+            ("write scope", "integration:write", status.HTTP_200_OK),
+        ]
+    )
+    def test_ensure_with_an_api_key_needs_the_integration_write_scope(
+        self, _name: str, scope: str, expected_status: int
+    ) -> None:
+        PersonalAPIKey.objects.create(
+            label="Sandbox", user=self.user, secure_value=hash_key_value("phx_sandbox_key"), scopes=[scope]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/integrations/email_sandbox_sender/",
+            HTTP_AUTHORIZATION="Bearer phx_sandbox_key",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert self._sandbox_rows().exists() == (expected_status == status.HTTP_200_OK)
+
+    @parameterized.expand(
+        [
             ("verify", "post", "email/verify/", {}),
             (
                 "edit",
                 "patch",
                 "email/",
-                {"config": {"email": "x@sandbox.example.com", "name": "Other", "provider": "ses"}},
+                {"config": {"email": "x@sandbox.example.com", "name": "Other", "provider": "sandbox"}},
             ),
             ("delete", "delete", "", None),
         ]
