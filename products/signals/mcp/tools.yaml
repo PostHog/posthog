@@ -619,9 +619,9 @@ tools:
             findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
             Rows are compact by default: `id`, both names, `enabled`, `status`, `pause_reason`, `emit`, the schedule,
             `last_run_at`, and `tags`. Set `compact` to false only when you need each scout's `description`, owners,
-            output destinations, or other config details, and narrow with `search` or `tags` first on a large fleet.
-            To read the roster in pages, pass `limit` and raise `offset` by `limit` on each call; a page with fewer
-            than `limit` rows is the last page. Pair with `scout-config-update` to tune them.
+            output destinations, or other config details, and narrow with `search` or `tags` first on a large fleet. To
+            read the roster in pages, pass `limit` and raise `offset` by `limit` on each call; a page with fewer than
+            `limit` rows is the last page. Pair with `scout-config-update` to tune them.
         param_overrides:
             compact:
                 default: true
