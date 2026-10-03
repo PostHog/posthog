@@ -92,6 +92,11 @@ const playerMocks = (observations: ReplayObservationApi[]): ReturnType<typeof ms
             '/api/projects/:team_id/vision/scanners/': { count: 0, next: null, previous: null, results: [] },
             '/api/projects/:team_id/vision/quota/': quota,
         },
+        // The player marks the recording viewed once it loads.
+        patch: {
+            '/api/projects/:team_id/session_recordings/:id/': recordingMetaJson,
+            '/api/environments/:team_id/session_recordings/:id/': recordingMetaJson,
+        },
         post: {
             '/api/environments/:team_id/query/:kind': async ({ request }) => {
                 const body = (await request.json()) as Record<string, any>
