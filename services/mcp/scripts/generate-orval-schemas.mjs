@@ -16,7 +16,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parse as parseYaml } from 'yaml'
 
 import {
     applyNestedExclusions,
@@ -25,7 +24,7 @@ import {
     runOrvalParallel,
 } from '@posthog/openapi-codegen'
 
-import { discoverDefinitions, resolveSchemaPath, sharedSchemaExclusions } from './lib/definitions.mjs'
+import { discoverDefinitions, parseToolDefinition, resolveSchemaPath } from './lib/definitions.mjs'
 import { lazifyZodSchemas } from './lib/lazy-zod-schemas.mjs'
 import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
 
@@ -41,13 +40,6 @@ const schemaPath = resolveSchemaPath(repoRoot)
 if (!fs.existsSync(schemaPath)) {
     console.error(`OpenAPI schema not found at ${schemaPath}. Run \`hogli build:openapi-schema\` first.`)
     process.exit(1)
-}
-
-function parseToolDefinition(filePath) {
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const tools = Object.values(parseYaml(content)?.tools ?? {})
-    const operationIds = new Set(tools.filter((tool) => tool?.enabled && tool?.operation).map((tool) => tool.operation))
-    return { operationIds, schemaExclusions: sharedSchemaExclusions(tools) }
 }
 
 // ------------------------------------------------------------------

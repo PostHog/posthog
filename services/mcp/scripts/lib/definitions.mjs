@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { parse as parseYaml } from 'yaml'
 
 /**
  * Resolve the OpenAPI schema path, respecting OPENAPI_SCHEMA_PATH env override.
@@ -108,4 +109,10 @@ export function sharedSchemaExclusions(tools) {
         }
     }
     return shared
+}
+
+export function parseToolDefinition(filePath) {
+    const tools = Object.values(parseYaml(fs.readFileSync(filePath, 'utf-8'))?.tools ?? {})
+    const operationIds = new Set(tools.filter((tool) => tool?.enabled && tool?.operation).map((tool) => tool.operation))
+    return { operationIds, schemaExclusions: sharedSchemaExclusions(tools) }
 }

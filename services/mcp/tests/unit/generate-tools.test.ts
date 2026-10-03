@@ -1,3 +1,4 @@
+import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -10,7 +11,7 @@ import {
     generateToolCode,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
-import { sharedSchemaExclusions } from '../../scripts/lib/definitions.mjs'
+import { parseToolDefinition } from '../../scripts/lib/definitions.mjs'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
 import type { EnabledQueryWrapperToolConfig, EnabledToolConfig, ToolConfig } from '../../scripts/yaml-config-schema'
 
@@ -782,11 +783,6 @@ describe('exclude_params on an operation shared by several tools', () => {
         exclude_params: ['kind'],
         inject_body: { kind: 'email' },
     }
-    const otherEmailTool: ToolConfig = {
-        operation: 'things_create',
-        enabled: true,
-        exclude_params: ['kind', 'name'],
-    }
     const sharedCategory = {
         ...defaultCategory,
         tools: { 'things-create': genericTool, 'things-email-create': emailTool },
@@ -823,8 +819,12 @@ describe('exclude_params on an operation shared by several tools', () => {
         ).code
 
     it('strips a field from the shared schema only when every enabled tool on the operation excludes it', () => {
-        expect(sharedSchemaExclusions([genericTool, emailTool, { ...genericTool, enabled: false }])).toEqual(new Map())
-        expect(sharedSchemaExclusions([emailTool, otherEmailTool])).toEqual(new Map([['things_create', ['kind']]]))
+        const fixture = path.resolve(__dirname, '../fixtures/shared-operation-tools.yaml')
+
+        expect(parseToolDefinition(fixture)).toEqual({
+            operationIds: new Set(['things_create', 'widgets_create']),
+            schemaExclusions: new Map([['things_create', ['kind']]]),
+        })
     })
 
     it('lets each tool keep or omit a field the other tool excludes', () => {
@@ -837,12 +837,45 @@ describe('exclude_params on an operation shared by several tools', () => {
         expect(emailCode).not.toContain('body["kind"] = params')
     })
 
-    it('rejects a nested exclusion that only some tools on the operation share', () => {
-        const nestedTool: ToolConfig = { ...emailTool, exclude_params: ['kind', 'config.secret'] }
-        const category = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-email-create': nestedTool } }
-        expect(() => generate('things-email-create', nestedTool, category)).toThrow(
-            `"things-email-create" excludes nested field "config.secret"`
-        )
+    const unionBodyResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                anyOf: [
+                                    { type: 'object', properties: { kind: { type: 'string', enum: ['email'] } } },
+                                    { type: 'object', properties: { kind: { type: 'string', enum: ['sms'] } } },
+                                ],
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+    it.each([
+        { name: 'a nested field', excluded: 'config.secret', resolved: thingsCreateResolved },
+        { name: 'a field of a union body', excluded: 'kind', resolved: unionBodyResolved },
+    ])('rejects $name that only some tools on the operation exclude', ({ excluded, resolved }) => {
+        const tool: ToolConfig = { operation: 'things_create', enabled: true, exclude_params: [excluded] }
+        const category = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-email-create': tool } }
+
+        expect(() =>
+            generateToolCode(
+                'things-email-create',
+                tool,
+                resolved(),
+                category,
+                makeSpec(),
+                new Set<string>(),
+                stubGetQuerySchema
+            )
+        ).toThrow(`Tool "things-email-create" cannot omit "${excluded}" on its own`)
     })
 })
 

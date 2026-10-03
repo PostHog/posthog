@@ -1,0 +1,22 @@
+category: Things
+feature: things
+url_prefix: /things
+tools:
+    things-email-create:
+        operation: things_create
+        enabled: true
+        exclude_params: [kind]
+    things-sms-create:
+        operation: things_create
+        enabled: true
+        exclude_params: [kind, name]
+    things-create:
+        operation: things_create
+        enabled: false
+    widgets-email-create:
+        operation: widgets_create
+        enabled: true
+        exclude_params: [kind]
+    widgets-create:
+        operation: widgets_create
+        enabled: true

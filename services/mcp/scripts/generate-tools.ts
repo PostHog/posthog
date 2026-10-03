@@ -1075,17 +1075,42 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
 // Code generation for a single tool
 // ------------------------------------------------------------------
 
-function schemaExcludedFieldsFor(toolName: string, config: ToolConfig, category: CategoryConfig): Set<string> {
+function schemaExcludedFieldsFor(
+    toolName: string,
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    category: CategoryConfig,
+    spec: OpenApiSpec
+): Set<string> {
     const toolsOnCategory = Object.values({ ...category.tools, [toolName]: config })
     const shared = new Set(sharedSchemaExclusions(toolsOnCategory).get(config.operation))
-    const unsharedNestedField = config.exclude_params?.find((field) => field.includes('.') && !shared.has(field))
-    if (unsharedNestedField) {
-        throw new Error(
-            `Tool "${toolName}" excludes nested field "${unsharedNestedField}", but other tools on "${config.operation}" do not. ` +
-                'Exclude it on every tool on this operation, or on none.'
-        )
+    const unionBodyFields = unionBodyFieldNames(resolved, spec)
+    for (const field of config.exclude_params ?? []) {
+        if (shared.has(field)) {
+            continue
+        }
+        const reason = field.includes('.')
+            ? 'it is nested'
+            : unionBodyFields.has(field)
+              ? 'the request body is a union'
+              : undefined
+        if (reason) {
+            throw new Error(
+                `Tool "${toolName}" cannot omit "${field}" on its own, because ${reason}. ` +
+                    `Exclude it on every tool on "${config.operation}", or on none.`
+            )
+        }
     }
     return shared
+}
+
+function unionBodyFieldNames(resolved: ResolvedOperation, spec: OpenApiSpec): Set<string> {
+    const bodySchemaRef = resolved.operation.requestBody?.content?.['application/json']?.schema
+    const bodySchema = bodySchemaRef ? resolveSchema(spec, bodySchemaRef) : undefined
+    if (!bodySchema?.anyOf && !bodySchema?.oneOf) {
+        return new Set()
+    }
+    return new Set(flattenBodySchemaProperties(spec, bodySchema).properties.keys())
 }
 
 function generateToolCode(
@@ -1118,7 +1143,7 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const schemaExcludedFields = schemaExcludedFieldsFor(toolName, config, category)
+    const schemaExcludedFields = schemaExcludedFieldsFor(toolName, config, resolved, category, spec)
     const composition = composeToolSchema(config, resolved, spec, getQuerySchema, schemaExcludedFields)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
