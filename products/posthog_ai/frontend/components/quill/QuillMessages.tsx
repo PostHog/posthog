@@ -26,9 +26,13 @@ const ASSISTANT_TABLE_CLASS = cn(
     '[&_:is(th,td):first-child]:sticky [&_:is(th,td):first-child]:left-0 [&_:is(th,td):first-child]:z-1 [&_:is(th,td):first-child]:bg-(--background)'
 )
 
-// The copy button gets its own strip above the code, so it never covers the first line.
-const ASSISTANT_CODE_CLASS =
-    '[&_.CodeSnippet_pre]:!pt-7 [&_.CodeSnippet>div:first-child]:!top-1 [&_.CodeSnippet>div:first-child]:!right-1'
+// The copy button sits in a header bar above the code, so it never covers the first line.
+const ASSISTANT_CODE_CLASS = cn(
+    '[&_.CodeSnippet_pre]:!pt-10',
+    '[&_.CodeSnippet_pre]:![background:linear-gradient(var(--border),var(--border))_0_2rem/100%_1px_no-repeat,linear-gradient(var(--muted),var(--muted))_0_0/100%_2rem_no-repeat,var(--card)]',
+    '[&_.CodeSnippet>div:first-child]:!top-1.5 [&_.CodeSnippet>div:first-child]:!right-1.5 [&_.CodeSnippet>div:first-child]:!bg-transparent',
+    '[&_.CodeSnippet>div:first-child_svg]:!text-(--muted-foreground)'
+)
 
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
