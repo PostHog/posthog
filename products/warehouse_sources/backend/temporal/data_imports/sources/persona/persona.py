@@ -275,19 +275,38 @@ def get_rows(
                 batcher.batch(row)
 
                 while batcher.should_yield():
-                    yield batcher.get_table()
-                    # Save AFTER yielding so a crash re-yields the last batch (merge dedupes on the
-                    # primary key) rather than skipping it. The cursor deliberately stops short of the
-                    # object being batched, whose remaining rows may still be buffered. Only
-                    # checkpoint while more pages remain.
+                    # Stage BEFORE yielding. `save_state` only stages, and the pipeline commits the
+                    # staged cursor right after it writes this table. A worker shutdown raises in the
+                    # pipeline after that write, so the generator does not resume. A cursor staged
+                    # after the yield is then lost, and the next attempt re-fetches the whole batch.
+                    # The cursor deliberately stops short of the object being batched, whose remaining
+                    # rows may still be buffered. Only checkpoint while more pages remain.
                     if has_next and checkpoint_after is not None:
                         resumable_source_manager.save_state(PersonaResumeConfig(after=checkpoint_after))
+                    yield batcher.get_table()
 
             checkpoint_after = item["id"]
+
+            if config.fanout is not None:
+                # Each parent costs one request and can add no rows, so a fan-out walk can go a long
+                # time between yields. The pipeline sees a worker shutdown only when it gets an item,
+                # so without this the run holds the worker past the graceful shutdown timeout. The
+                # point is safe because the staged cursor covers only rows that were already yielded.
+                resumable_source_manager.safe_point()
 
         if stop or not has_next:
             break
         after = items[-1]["id"]
+
+        if config.fanout is not None:
+            # Flush once per list page so a fan-out walk commits its progress at least once a page.
+            # A full source chunk of fan-out rows can take hours to fill, and each worker restart in
+            # that time discards the buffered rows. When restarts use up the job's attempts, the
+            # next job starts again at page one, so the walk can stop advancing.
+            resumable_source_manager.save_state(PersonaResumeConfig(after=after))
+            while batcher.should_yield(include_incomplete_chunk=True):
+                yield batcher.get_table()
+            resumable_source_manager.safe_point()
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()

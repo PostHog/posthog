@@ -24,9 +24,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.persona.pe
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import PERSONA_ENDPOINTS
 
 
+class _WorkerShuttingDown(Exception):
+    pass
+
+
 class _FakeResumableManager:
-    def __init__(self, state: PersonaResumeConfig | None = None) -> None:
+    def __init__(self, state: PersonaResumeConfig | None = None, shutting_down: bool = False) -> None:
         self._state = state
+        self._shutting_down = shutting_down
         self.saved: list[PersonaResumeConfig] = []
         self.cleared = 0
 
@@ -41,6 +46,10 @@ class _FakeResumableManager:
 
     def clear_state(self) -> None:
         self.cleared += 1
+
+    def safe_point(self) -> None:
+        if self._shutting_down:
+            raise _WorkerShuttingDown()
 
 
 class TestFormatDatetimeZ:
@@ -396,10 +405,24 @@ class TestVerificationsFanout:
             {"data": {}, "included": _verifications(2, "verb")},
             {"data": [], "links": {"next": None}},
         ]
+        iterator = iter(pages)
+        monkeypatch.setattr(persona, "_fetch_page", lambda *a, **kw: next(iterator))
         manager = _FakeResumableManager()
-        _collect(manager, monkeypatch, pages, endpoint="verifications")
 
-        assert [state.after for state in manager.saved] == ["inq_a"]
+        # A worker shutdown stops the walk at a yield without resuming it, so the cursor covering a
+        # table must already be staged when the table is yielded.
+        staged_at_each_yield = [
+            (table.num_rows, manager.saved[-1].after if manager.saved else None)
+            for table in get_rows(
+                api_key="persona_test",
+                endpoint="verifications",
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        ]
+
+        # The full chunk lands part-way through `inq_b`, and the end of the list page flushes the rest.
+        assert staged_at_each_yield == [(2000, "inq_a"), (1, "inq_b")]
 
     def test_hydrate_404_skips_parent_instead_of_aborting_the_sync(self, monkeypatch: Any) -> None:
         # An inquiry can be redacted/deleted between the list page and this hydrate call. Without a
@@ -444,6 +467,38 @@ class TestVerificationsFanout:
             "https://api.withpersona.com/api/v1/inquiries?page[size]=100",
             "https://api.withpersona.com/api/v1/inquiries/inq_gone?include=verifications",
             "https://api.withpersona.com/api/v1/inquiries/inq_ok?include=verifications",
+        ]
+
+    def test_worker_shutdown_stops_a_walk_through_inquiries_without_verifications(self, monkeypatch: Any) -> None:
+        calls: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            calls.append(url)
+            if "/inquiries/" in url:
+                return {"data": {}, "included": []}
+            return {
+                "data": [
+                    {"type": "inquiry", "id": f"inq_{index}", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}
+                    for index in range(3)
+                ],
+                "links": {"next": None},
+            }
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+
+        with pytest.raises(_WorkerShuttingDown):
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="verifications",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(shutting_down=True),  # type: ignore[arg-type]
+                )
+            )
+
+        assert calls == [
+            "https://api.withpersona.com/api/v1/inquiries?page[size]=100",
+            "https://api.withpersona.com/api/v1/inquiries/inq_0?include=verifications",
         ]
 
     def test_hydrate_non_404_error_still_aborts_the_sync(self, monkeypatch: Any) -> None:
