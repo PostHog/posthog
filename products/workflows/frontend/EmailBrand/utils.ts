@@ -57,6 +57,9 @@ export function mergeDetection(
     const draft = detectedDraft(detection)
     const conflicts: BrandConflicts = {}
     for (const field of brandFields) {
+        if (editedFields.includes(field) && !draft.sources[field] && current.sources[field]) {
+            draft.sources[field] = current.sources[field]
+        }
         if (editedFields.includes(field) && current[field] !== draft[field]) {
             conflicts[field] = {
                 value: draft[field],

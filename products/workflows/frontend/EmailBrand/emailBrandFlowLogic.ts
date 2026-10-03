@@ -103,8 +103,10 @@ export interface emailBrandFlowLogicActions {
     acceptDetectedField: (
         field: BrandField,
         value: string,
-        fontStack?: string
+        fontStack?: string,
+        clearSource?: boolean
     ) => {
+        clearSource: boolean
         field: 'accent_color' | 'background_color' | 'font_family' | 'name' | 'primary_color' | 'text_color'
         fontStack: string | undefined
         value: string
@@ -141,6 +143,9 @@ export interface emailBrandFlowLogicActions {
     }
     chooseApp: (appRoot: string) => {
         appRoot: string
+    }
+    clearLogoSource: () => {
+        value: true
     }
     connectGitHub: () => {
         value: true
@@ -507,7 +512,13 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
         setError: (error: { code: string; detail: string } | null) => ({ error }),
         setRepository: (repository: string | null) => ({ repository: repository ?? '' }),
         editField: (field: BrandField, value: string) => ({ field, value }),
-        acceptDetectedField: (field: BrandField, value: string, fontStack?: string) => ({ field, value, fontStack }),
+        acceptDetectedField: (field: BrandField, value: string, fontStack?: string, clearSource: boolean = false) => ({
+            field,
+            value,
+            fontStack,
+            clearSource,
+        }),
+        clearLogoSource: true,
         detect: (refresh: boolean = false, appRoot?: string) => ({ refresh, appRoot }),
         applyDetection: (draft: BrandDraft, conflicts: BrandConflicts) => ({ draft, conflicts }),
         resolveConflict: (field: BrandField, choice: 'mine' | 'detected') => ({ field, choice }),
@@ -778,11 +789,23 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                             : draft.sources,
                 }),
                 skipToManual: (draft) => ({ ...draft, source_repository: '', app_root: '', sources: {} }),
-                acceptDetectedField: (draft, { field, value, fontStack }): BrandDraft => ({
-                    ...draft,
-                    [field]: value,
-                    ...(field === 'font_family' ? { font_stack: fontStack ?? emptyBrand.font_stack } : {}),
-                }),
+                clearLogoSource: (draft) => {
+                    const sources = { ...draft.sources }
+                    delete sources.logo
+                    return { ...draft, sources }
+                },
+                acceptDetectedField: (draft, { field, value, fontStack, clearSource }): BrandDraft => {
+                    const sources = { ...draft.sources }
+                    if (clearSource) {
+                        delete sources[field]
+                    }
+                    return {
+                        ...draft,
+                        sources,
+                        [field]: value,
+                        ...(field === 'font_family' ? { font_stack: fontStack ?? emptyBrand.font_stack } : {}),
+                    }
+                },
                 editField: (draft, { field, value }): BrandDraft => ({
                     ...draft,
                     [field]: value,
@@ -940,7 +963,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             }
         },
         loadEmailBrandLogoSuccess: ({ importedLogo }) =>
-            actions.setLogo(importedLogo.id, importedLogo.url, importedLogo.sourcePath),
+            actions.setLogo(importedLogo.id, importedLogo.url, values.logoEdited ? undefined : importedLogo.sourcePath),
         loadEmailBrandLogoFailure: ({ errorObject }) => {
             const code = errorObject?.code ?? 'logo_failed'
             actions.setError({
@@ -981,6 +1004,9 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             } else if (path) {
                 actions.loadEmailBrandLogo({ logoPath: path })
             } else {
+                if (!values.logoEdited) {
+                    actions.clearLogoSource()
+                }
                 actions.setLogo(null, null)
             }
         },
@@ -1096,7 +1122,8 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                 actions.acceptDetectedField(
                     field,
                     values.detection?.proposal[field]?.value ?? emptyBrand[field],
-                    values.detection?.proposal.font_family?.font_stack ?? undefined
+                    values.detection?.proposal.font_family?.font_stack ?? undefined,
+                    !values.detection?.proposal[field]?.path
                 )
             }
         },
@@ -1110,6 +1137,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                 if (path) {
                     actions.loadEmailBrandLogo({ logoPath: path })
                 } else {
+                    actions.clearLogoSource()
                     actions.setLogo(null, null)
                 }
             }

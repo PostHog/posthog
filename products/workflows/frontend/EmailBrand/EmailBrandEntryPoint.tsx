@@ -23,7 +23,9 @@ export function EmailBrandEntryPoint({ entryPoint }: EmailBrandEntryProps): JSX.
                             <LemonSkeleton className="h-5 w-40" />
                         ) : summary && entryPoint === 'channels' ? (
                             <div className="flex flex-wrap items-center gap-2">
-                                <span className="break-words">{summary.name || 'Your Email brand'}</span>
+                                <span className="min-w-0 max-w-full break-all">
+                                    {summary.name || 'Your Email brand'}
+                                </span>
                                 <LemonTag>
                                     {summary.source_repository ? 'Detected from GitHub' : 'Entered by hand'}
                                 </LemonTag>

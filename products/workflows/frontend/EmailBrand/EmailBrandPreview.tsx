@@ -85,7 +85,7 @@ export function EmailBrandPreview({
                                     {previewText(block.values.text)}
                                 </span>
                             ) : block.type === 'custom' ? (
-                                <p key={block.id} className="text-center text-xs mb-0">
+                                <p key={block.id} className="text-center text-xs mb-0 break-all">
                                     {previewText(block.values.unsubscribe_link_content)}
                                 </p>
                             ) : (

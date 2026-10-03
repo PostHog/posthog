@@ -9,6 +9,7 @@ import { initKeaTests } from '~/test/init'
 
 import { emailBrandFlowLogic } from './emailBrandFlowLogic'
 import { exampleDetection, exampleBrand } from './fixtures'
+import type { BrandDraft } from './utils'
 
 const SUGGESTIONS = {
     integration_id: 7,
@@ -90,7 +91,7 @@ describe('emailBrandFlowLogic', () => {
     it('previews unsaved edits without saving the brand', async () => {
         const save = jest.fn(() => exampleBrand)
         const preview = jest.fn(async ({ request }) => {
-            const draft = await request.json()
+            const draft = (await request.json()) as BrandDraft
             return {
                 name: `${draft.name} starter template`,
                 description: 'Created from your Email brand.',
@@ -717,5 +718,118 @@ describe('emailBrandFlowLogic', () => {
         expect(logic.values.step).toBe('connect')
         expect(logic.values.draft.name).toBe('Juniper Mail')
         expect(logic.values.error?.code).toBe('github_disconnected')
+    })
+    it('keeps an explicitly chosen repository logo protected after saving and reopening', async () => {
+        let savedBrand = exampleBrand
+        const importLogo = jest.fn(async ({ request }) => {
+            const body = await request.json()
+            return {
+                outcome: 'imported',
+                media_id: body.path === 'public/default.png' ? 'default-logo' : 'chosen-logo',
+                url: 'https://example.com/logo.png',
+                svg: null,
+            }
+        })
+        useMocks({
+            post: {
+                '/api/projects/:id/email_brand/detect/': {
+                    ...exampleDetection,
+                    logo_candidates: [
+                        { path: 'public/default.png', width: 320, height: 120 },
+                        { path: 'public/chosen.png', width: 320, height: 120 },
+                    ],
+                },
+                '/api/projects/:id/email_brand/import_logo/': importLogo,
+            },
+            patch: {
+                '/api/projects/:id/email_brand/current/': async ({ request }) => {
+                    const draft = (await request.json()) as BrandDraft
+                    savedBrand = {
+                        ...exampleBrand,
+                        ...draft,
+                        edited: { ...exampleBrand.edited, logo: draft.logo !== draft.sources.logo?.detected_value },
+                    }
+                    return savedBrand
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewDetection()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.pickLogo('public/chosen.png')).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.save(false)).toFinishAllListeners()
+        logic.unmount()
+        useMocks({ get: { '/api/projects/:id/email_brand/current/': () => savedBrand } })
+        logic = emailBrandFlowLogic({ entryPoint: 'template_library', onComplete })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewDetection()).toFinishAllListeners()
+        expect(logic.values.draft.logo).toBe('chosen-logo')
+        expect(logic.values.logoConflict).toEqual({ path: 'public/default.png' })
+        expect(importLogo).toHaveBeenCalledTimes(2)
+    })
+    it('preserves an edited default through signal loss and save/reopen', async () => {
+        let savedBrand = exampleBrand
+        useMocks({
+            get: { '/api/projects/:id/email_brand/current/': exampleBrand },
+            post: {
+                '/api/projects/:id/email_brand/detect/': {
+                    ...exampleDetection,
+                    proposal: { ...exampleDetection.proposal, primary_color: null },
+                },
+            },
+            patch: {
+                '/api/projects/:id/email_brand/current/': async ({ request }) => {
+                    savedBrand = { ...exampleBrand, ...((await request.json()) as BrandDraft) }
+                    return savedBrand
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.editField('primary_color', '#111111')
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.save(false)).toFinishAllListeners()
+        logic.unmount()
+        useMocks({
+            get: { '/api/projects/:id/email_brand/current/': () => savedBrand },
+            post: { '/api/projects/:id/email_brand/detect/': exampleDetection },
+        })
+        logic = emailBrandFlowLogic({ entryPoint: 'template_library', onComplete })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        expect(logic.values.draft.primary_color).toBe('#111111')
+        expect(logic.values.conflicts.primary_color).toEqual({ value: '#276749' })
+    })
+
+    it('clears obsolete logo provenance when adopting detection without a logo', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:id/email_brand/current/': {
+                    ...exampleBrand,
+                    logo: 'old-logo',
+                    sources: {
+                        ...exampleBrand.sources,
+                        logo: { path: 'public/old.png', line: null, detected_value: 'old-logo' },
+                    },
+                },
+            },
+            post: { '/api/projects/:id/email_brand/detect/': exampleDetection },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewDetection()).toFinishAllListeners()
+        expect(logic.values.draft.logo).toBeNull()
+        expect(logic.values.draft.sources.logo).toBeUndefined()
+        expect(logic.values.logoEdited).toBe(false)
     })
 })

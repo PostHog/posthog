@@ -59,4 +59,27 @@ describe('emailBrandEntryLogic', () => {
         expect(logic.values.summary?.name).toBe('Saved new brand')
         logic.unmount()
     })
+    it('loads the saved summary once when the feature becomes enabled after mount', async () => {
+        const read = jest.fn(() => exampleBrand)
+        useMocks({ get: { '/api/projects/:id/email_brand/current/': read } })
+        featureFlagLogic.actions.setFeatureFlags([], { 'workflows-brand-detection': false })
+        const logic = emailBrandEntryLogic({ entryPoint: 'channels' })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(read).not.toHaveBeenCalled()
+        await expectLogic(logic, () =>
+            featureFlagLogic.actions.setFeatureFlags(['workflows-brand-detection'], {
+                'workflows-brand-detection': true,
+            })
+        ).toFinishAllListeners()
+        await expectLogic(logic, () =>
+            featureFlagLogic.actions.setFeatureFlags(['workflows-brand-detection'], {
+                'workflows-brand-detection': true,
+            })
+        ).toFinishAllListeners()
+        expect(read).toHaveBeenCalledTimes(1)
+        expect(logic.values.summary?.name).toBe('Juniper')
+        logic.unmount()
+    })
 })

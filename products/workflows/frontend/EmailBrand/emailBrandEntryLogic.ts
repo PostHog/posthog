@@ -118,6 +118,18 @@ export const emailBrandEntryLogic = kea<emailBrandEntryLogicType>([
         enabled: [(s) => [s.featureFlags], (flags: FeatureFlagsSet): boolean => !!flags['workflows-brand-detection']],
     }),
     listeners(({ values, actions, props, cache }) => ({
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (
+                props.entryPoint === 'channels' &&
+                values.enabled &&
+                !cache.summaryRequested &&
+                !values.summaryLoading &&
+                !values.summary
+            ) {
+                cache.summaryRequested = true
+                actions.loadEmailBrandSummary({})
+            }
+        },
         openFlow: () => {
             if (values.enabled) {
                 actions.setOpen(true)
@@ -130,8 +142,9 @@ export const emailBrandEntryLogic = kea<emailBrandEntryLogicType>([
             }
         },
     })),
-    afterMount(({ props, actions, values }) => {
+    afterMount(({ props, actions, values, cache }) => {
         if (values.enabled && props.entryPoint === 'channels') {
+            cache.summaryRequested = true
             actions.loadEmailBrandSummary({})
         }
     }),
