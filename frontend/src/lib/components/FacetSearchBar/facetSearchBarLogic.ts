@@ -94,6 +94,14 @@ function newPills(
     )
 }
 
+const ACCESS_FAILURE_STATUSES = [401, 403, 404]
+
+/** Typing again cannot fix a missing permission or a missing resource. */
+function isAccessFailure(error: unknown): boolean {
+    const status = (error as { status?: unknown } | null)?.status
+    return typeof status === 'number' && ACCESS_FAILURE_STATUSES.includes(status)
+}
+
 const isSearchRow = (suggestion: FacetSuggestion): boolean => suggestion.kind === 'search'
 
 const isFilterRow = (suggestion: FacetSuggestion | null | undefined): boolean =>
@@ -450,7 +458,11 @@ export const facetSearchBarLogic: LogicWrapper<facetSearchBarLogicType> = kea<fa
                 const options = await request.facet.loadValues(request.search.trim())
                 state = { status: 'loaded', options: uniqBy(options, 'value') }
             } catch (error) {
-                state = { status: 'error', reason: error instanceof Error ? error.message : undefined }
+                state = {
+                    status: 'error',
+                    reason: error instanceof Error ? error.message : undefined,
+                    retryable: !isAccessFailure(error),
+                }
             }
             if (isStillCurrent(request, loadKey, load)) {
                 actions.setValuesState(loadKey, state)

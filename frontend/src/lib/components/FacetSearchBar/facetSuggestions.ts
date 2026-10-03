@@ -28,7 +28,7 @@ export type AnyFacet = ClientFacet<any> | ServerFacet
 export type FacetValuesState =
     | { status: 'loaded'; options: FacetValueOption[] }
     | { status: 'loading' }
-    | { status: 'error'; reason?: string }
+    | { status: 'error'; reason?: string; retryable: boolean }
 
 export type FacetValueLoads = Record<string, FacetValuesState>
 
@@ -139,9 +139,12 @@ function chosenFilters({ data, filters }: SuggestionContext): IsChosen {
     return (filter) => chosen.has(identity(filter))
 }
 
-function loadFailedMessage(reason: string | undefined, facetLabel?: string): string {
+type FailedLoad = Extract<FacetValuesState, { status: 'error' }>
+
+function loadFailedMessage({ reason, retryable }: FailedLoad, facetLabel?: string): string {
     const because = reason?.trim().replace(/\.$/, '')
-    return `Couldn't load values${facetLabel ? ` for ${facetLabel}` : ''}${because ? `: ${because}` : ''}. Type again to retry.`
+    const failure = `Couldn't load values${facetLabel ? ` for ${facetLabel}` : ''}${because ? `: ${because}` : ''}.`
+    return retryable ? `${failure} Type again to retry.` : failure
 }
 
 function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChosen: IsChosen): FacetSuggestion[] {
@@ -151,7 +154,7 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
         return message('loading', 'Loading values…')
     }
     if (state.status === 'error') {
-        return message('error', loadFailedMessage(state.reason))
+        return message('error', loadFailedMessage(state))
     }
     const partial = draft.partial.toLowerCase()
     const filterOf = (option: FacetValueOption): FacetFilter => ({
@@ -176,8 +179,9 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
     if (rows.length) {
         return rows
     }
-    if (!partial && state.options.length && !unchosen.length) {
-        return message('none', 'Every value is already a filter')
+    const matching = state.options.filter((option) => matchesPartial(facet, option, partial))
+    if (matching.length && matching.every((option) => isChosen(filterOf(option)))) {
+        return message('none', partial ? 'Every matching value is already a filter' : 'Every value is already a filter')
     }
     const hasOtherFilters = context.filters.some((filter) => filter.facet !== facet.key) || !!draft.rest.trim()
     if (context.data && !state.options.length && hasOtherFilters) {
@@ -232,9 +236,7 @@ function unfinishedLoadMessage(loads: UnfinishedLoad[]): FacetSuggestion[] {
         return message('loading', 'Loading values…')
     }
     const failed = loads.find(({ state }) => state.status === 'error')
-    return failed?.state.status === 'error'
-        ? message('error', loadFailedMessage(failed.state.reason, failed.facet.label))
-        : []
+    return failed?.state.status === 'error' ? message('error', loadFailedMessage(failed.state, failed.facet.label)) : []
 }
 
 export function buildSuggestions(
@@ -313,7 +315,7 @@ function pillLabelRequests(
         .map((facet) => ({ facet, search: '' }))
 }
 
-/** The loads the open suggestions and the pill labels need that have not started yet. Failed loads run again. */
+/** The loads the open suggestions and the pill labels need that have not started yet. A failed load runs again only for what the person types. */
 export function pendingValueRequests({
     input,
     draft,
@@ -324,17 +326,16 @@ export function pendingValueRequests({
     valueLoads,
 }: ValueRequestContext): FacetValueRequest[] {
     const loaded = facets.filter(isLoadedFacet)
+    const statusOf = (request: FacetValueRequest): FacetValuesState['status'] | undefined =>
+        valueLoads[valueLoadKey(request.facet.key, request.search)]?.status
+    const unstarted = (request: FacetValueRequest): boolean => !statusOf(request)
+    const unstartedOrFailed = (request: FacetValueRequest): boolean =>
+        !statusOf(request) || statusOf(request) === 'error'
     const requests = [
-        ...(open ? inputValueRequests(input, draft, loaded) : []),
-        ...pillLabelRequests(filters, loaded, valueLabels),
+        ...(open ? inputValueRequests(input, draft, loaded) : []).filter(unstartedOrFailed),
+        ...pillLabelRequests(filters, loaded, valueLabels).filter(unstarted),
     ]
-    const byLoadKey = new Map(requests.map((request) => [valueLoadKey(request.facet.key, request.search), request]))
-    return [...byLoadKey]
-        .filter(([loadKey]) => {
-            const state = valueLoads[loadKey]
-            return !state || state.status === 'error'
-        })
-        .map(([, request]) => request)
+    return uniqBy(requests, (request) => valueLoadKey(request.facet.key, request.search))
 }
 
 export type FacetValueLabels = Map<string, string>

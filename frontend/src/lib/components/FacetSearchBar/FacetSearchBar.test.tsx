@@ -140,6 +140,8 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 const input = (): HTMLInputElement => document.querySelector<HTMLInputElement>('input[role="combobox"]')!
 const shown = (attr: string): string => document.querySelector(`[data-attr="${attr}"]`)?.textContent ?? ''
 const listbox = (): Element | null => document.querySelector('[role="listbox"]')
+const option = (startingWith: string): Element =>
+    [...document.querySelectorAll('[role="option"]')].find((element) => element.textContent?.startsWith(startingWith))!
 const pills = (): string[] =>
     [...document.querySelectorAll('[aria-label^="Remove filter "]')].map((button) =>
         button.getAttribute('aria-label')!.replace('Remove filter ', '')
@@ -272,6 +274,27 @@ describe('FacetSearchBar', () => {
             await user.hover(document.querySelectorAll('[role="option"]')[1])
             await user.keyboard('{Enter}')
             expect(pills()).toEqual(['Status: Active'])
+        })
+
+        it('keeps the keyboard highlight when a row scrolls under a pointer that does not move', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('status:{ArrowDown}')
+            fireEvent.mouseOver(document.querySelectorAll('[role="option"]')[2])
+            await user.keyboard('{Enter}')
+            expect(pills()).toEqual(['Status: Active'])
+        })
+
+        it('picks a facet and then a value with the pointer', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.click(option('status:'))
+            expect(input()).toHaveValue('status:')
+
+            await user.click(option('Active'))
+            expect(pills()).toEqual(['Status: Active'])
+            expect(shown('url')).toEqual('status:active')
+            expect(input()).toHaveFocus()
         })
 
         it('keeps Tab picking a filter after a click inside the open input', async () => {
@@ -622,6 +645,13 @@ describe('FacetSearchBar', () => {
             ['the other filters', '', DATA, 'zzz status:', 'No values match your other filters'],
             ['a facet no row has a value for', 'sends:Old', NO_SUBJECTS, 'sends:', 'This filter has no values'],
             ['a facet whose every value is a pill', 'stage:one', DATA, 'stage:', 'Every value is already a filter'],
+            [
+                'a typed value that only matches pills',
+                'status:draft',
+                DATA,
+                'status:dra',
+                'Every matching value is already a filter',
+            ],
         ])('shows the no-values message for %s as text, not as an option', async (_, url, data, typed, expected) => {
             render(<ClientConsumer url={url} data={data} />)
             const user = userEvent.setup()
@@ -796,10 +826,10 @@ describe('FacetSearchBar', () => {
             await waitFor(() => expect(suggestions()).toEqual(['Search for "gro"', 'Team: Growth']))
         })
 
-        it('marks a restored pill whose label could not load, and keeps its raw value', async () => {
-            const loadValues = async (): Promise<FacetValueOption[]> => {
-                throw new Error('Forbidden')
-            }
+        it('marks a restored pill whose label could not load, and keeps it marked while unrelated text is typed', async () => {
+            const loadValues = jest
+                .fn<Promise<FacetValueOption[]>, [string]>()
+                .mockRejectedValue(new Error('Forbidden'))
             render(
                 <ServerConsumer
                     url="-team:t-2"
@@ -807,11 +837,32 @@ describe('FacetSearchBar', () => {
                 />
             )
             const note = "Team is not: t-2 (couldn't load the label)"
-            await waitFor(() =>
-                expect(document.querySelector('[data-attr="server-search-filter"]')).toHaveTextContent(note)
-            )
+            const pill = (): Element => document.querySelector('[data-attr="server-search-filter"]')!
+            await waitFor(() => expect(pill()).toHaveTextContent(note))
             expect(screen.getByTitle(note)).toBeInTheDocument()
             expect(pills()).toEqual(['Team is not: t-2'])
+
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('acme')
+            await waitFor(() => expect(loadValues).toHaveBeenCalledWith('acme'))
+            expect(loadValues.mock.calls.filter(([search]) => search === '')).toHaveLength(1)
+            expect(pill()).toHaveTextContent(note)
+        })
+
+        it('leaves out the retry hint when the error says access is missing', async () => {
+            const loadValues = async (): Promise<FacetValueOption[]> => {
+                throw Object.assign(new Error('You do not have access to teams.'), { status: 403 })
+            }
+            render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.paste('team:')
+            await waitFor(() =>
+                expect(document.querySelector('[role="status"]')).toHaveTextContent(
+                    /^Couldn't load values: You do not have access to teams\.$/
+                )
+            )
         })
 
         it('marks a restored pill while its label loads, then labels it', async () => {

@@ -26,6 +26,7 @@ export interface LemonButtonPropsBase
         | 'onMouseDown'
         | 'onMouseUp'
         | 'onMouseEnter'
+        | 'onMouseMove'
         | 'onMouseLeave'
         | 'onKeyDown'
         | 'className'

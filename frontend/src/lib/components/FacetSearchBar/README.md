@@ -44,7 +44,7 @@ const facets: ServerFacet[] = [
 
 Loads are debounced and cached per facet and search text.
 The bar shows what `loadValues` returns as is, so it can match on fields the label leaves out, such as an email.
-A failed load shows the error message and runs again on the next keystroke.
+A failed load shows the error message and runs again on the next keystroke. An error with an HTTP `status` of 401, 403 or 404 shows no "Type again to retry", because typing cannot fix it.
 Keep `loadValues` stable between renders: a new function drops the values the old one loaded.
 A pill restored from a URL takes its label from `loadValues('')`. If that list can miss the value, give `formatValue` too.
 While that load runs, the pill shows the raw value with a spinner. If it fails, the pill keeps the raw value, and its tooltip and screen reader text add "couldn't load the label".
@@ -57,5 +57,5 @@ While that load runs, the pill shows the raw value with a spinner. If it fails, 
 ## Keyboard
 
 - ↑ and ↓ move through the suggestions. Enter picks the highlighted one. The search row starts highlighted, so Enter on a typed word runs the search.
-- Tab and → pick the first facet or value, never the plain search. Until the person types, Tab moves focus as usual.
+- Tab and → pick the highlighted facet or value, or the first one while the search row is highlighted. They never run the plain search. Until the person types, Tab moves focus as usual.
 - Backspace on an empty input removes the last pill. Esc closes the suggestions.

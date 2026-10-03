@@ -98,7 +98,7 @@ const loadTeamsAfterDelay = async (search: string): Promise<FacetValueOption[]> 
 const neverLoads = (): Promise<FacetValueOption[]> => new Promise(() => {})
 
 const failsToLoad = async (): Promise<FacetValueOption[]> => {
-    throw new Error('You do not have access to teams.')
+    throw Object.assign(new Error('You do not have access to teams.'), { status: 403 })
 }
 
 interface ConsumerProps {

@@ -152,9 +152,12 @@ export function FacetSearchBar<TRow>({
                             fullWidth
                             size="small"
                             onClick={() => applySuggestion(suggestion)}
-                            onMouseEnter={() => {
+                            // Rows that scroll or re-render under a resting pointer get mouseenter, not mousemove.
+                            onMouseMove={() => {
                                 movedByKeyboard.current = false
-                                setHighlightedId(suggestion.id)
+                                if (suggestion.id !== highlightedSuggestion?.id) {
+                                    setHighlightedId(suggestion.id)
+                                }
                             }}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
