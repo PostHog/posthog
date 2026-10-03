@@ -41,7 +41,7 @@ export function TodayPhoneHeader(): JSX.Element {
                 data-attr="today-phone-back"
                 onClick={goBackOnPhone}
             >
-                <IconChevronLeft />
+                <IconChevronLeft aria-hidden />
             </Button>
             <Text
                 render={<span />}
@@ -58,7 +58,7 @@ export function TodayPhoneHeader(): JSX.Element {
                 data-attr="today-phone-context-panel"
                 onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}
             >
-                <IconSidePanel />
+                <IconSidePanel aria-hidden />
             </Button>
         </header>
     )
