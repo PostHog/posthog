@@ -23,7 +23,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     const logic = emailSetupModalLogic(props)
     const { savedIntegration, verificationLoading, isEmailSenderSubmitting, dnsRecords, domain, isDomainVerified } =
         useValues(logic)
-    const { verifyDomain, submitEmailSender } = useActions(logic)
+    const { verifyDomain, submitEmailSender, finishSetup } = useActions(logic)
 
     const emailDomain = savedIntegration?.config?.domain || ''
 
@@ -224,7 +224,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                 type="primary"
                                 onClick={async () => {
                                     await submitEmailSender()
-                                    props.onComplete(savedIntegration?.id)
+                                    finishSetup()
                                 }}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >

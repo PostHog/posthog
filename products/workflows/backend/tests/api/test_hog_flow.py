@@ -739,6 +739,33 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
 
+    def test_unverified_sender_saves_as_a_draft_but_blocks_enabling(self):
+        # The sender's verified flag was only read at send time, so a workflow went live with a
+        # pending domain and every send failed. The draft must still save while DNS propagates.
+        sync_template_to_db(_email_function_template())
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "hello@example.dev", "name": "Pending", "domain": "example.dev", "verified": False},
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id}
+        hog_flow, action = self._create_hog_flow_with_action({"inputs": inputs})
+        action["type"] = "function_email"
+        action["name"] = "Welcome email"
+
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert created.status_code == 201, created.json()
+
+        enabled = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}", {"status": "active"}
+        )
+
+        assert enabled.status_code == 400, enabled.json()
+        detail = enabled.json()["detail"]
+        assert "step 'Welcome email'" in detail
+        assert 'The email sender "hello@example.dev" is not verified yet' in detail
+
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.
         # Re-sending the stored graph unchanged must not fail on it, or every edit to an affected

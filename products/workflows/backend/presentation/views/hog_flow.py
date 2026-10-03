@@ -1627,6 +1627,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "email_integration_domain_cache": self.context.setdefault(
                             "_email_integration_domain_cache", {}
                         ),
+                        # A draft keeps saving while the sender's DNS propagates; going live
+                        # (activation, publish, a live save) is where an unverified sender fails.
+                        "require_verified_email_sender": not is_draft,
                     },
                 )
 

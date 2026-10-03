@@ -33,4 +33,31 @@ describe('emailSetupModalLogic', () => {
             emailSender: expect.objectContaining({ email: '', name: '', provider: 'ses' }),
         })
     })
+
+    // "Save & finish later" used to report the channel as set up, so the setup checklist ticked the
+    // email channel while its domain still could not send.
+    it.each([
+        ['pending', 'onClose'],
+        ['success', 'onComplete'],
+    ])('finishing with a %s domain verification calls %s with the saved sender', async (status, callback) => {
+        useMocks({
+            post: { '/api/environments/:team_id/integrations/:id/email/verify': { status, dnsRecords: [] } },
+        })
+        const onComplete = jest.fn()
+        const onClose = jest.fn()
+        const logic = emailSetupModalLogic({
+            integration: { id: 7, kind: 'email', config: { email: 'hello@example.com' } } as IntegrationType,
+            onComplete,
+            onClose,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['verifyDomainSuccess'])
+
+        logic.actions.finishSetup()
+
+        const called = { onClose, onComplete }[callback]
+        const notCalled = callback === 'onClose' ? onComplete : onClose
+        expect(called).toHaveBeenCalledWith(7)
+        expect(notCalled).not.toHaveBeenCalled()
+    })
 })

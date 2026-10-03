@@ -607,10 +607,12 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             config={"email": f"sender@{domain}", "name": "Sender", "domain": domain, "verified": True},
         )
 
-    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None):
+    def _validate_email_from(
+        self, from_value, existing_from=None, get_team=True, cache=None, require_verified_sender=False
+    ):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
-        context_extra = {"existing_email_from": existing_from}
+        context_extra = {"existing_email_from": existing_from, "require_verified_email_sender": require_verified_sender}
         if get_team:
             context_extra["get_team"] = lambda: self.team
         if cache is not None:
@@ -752,6 +754,40 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # not resolve has no domain to compare against. Both must not block the save; the runtime
         # still enforces the domain at send time.
         self._validate_email_from({"integrationId": integration_id, "email": "sales@evil.com"}, get_team=get_team)
+
+    @parameterized.expand(
+        [
+            ("single_sender", False),
+            ("rotation_with_one_unverified_sender", True),
+        ]
+    )
+    def test_unverified_sender_blocks_the_workflow_from_going_live(self, _name, rotation):
+        # An unverified sender passed every save check, so a workflow went live and failed every
+        # send with only a metrics counter to show for it. Going live is where it has to fail.
+        verified = self._create_email_integration("posthog.com")
+        unverified = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "hello@example.dev", "name": "Pending", "domain": "example.dev", "verified": False},
+        )
+        from_value = {"integrationId": verified.id if rotation else unverified.id}
+        if rotation:
+            from_value["integrationIds"] = [verified.id, unverified.id]
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(from_value, require_verified_sender=True)
+        assert 'The email sender "hello@example.dev" is not verified yet' in str(ctx.value.detail)
+
+    def test_unverified_sender_is_allowed_on_a_draft(self):
+        # DNS can take a day to propagate; the draft must stay saveable while that happens.
+        unverified = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "hello@example.dev", "name": "Pending", "domain": "example.dev", "verified": False},
+        )
+
+        validated = self._validate_email_from({"integrationId": unverified.id})
+        assert validated["email"]["value"]["from"]["integrationId"] == unverified.id
 
     @parameterized.expand(
         [

@@ -1,7 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { IntegrationType } from '~/types'
 
 import { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
@@ -100,6 +103,10 @@ const loadedTemplatesResponse = {
 }
 
 const SENDER_ERROR = 'Choose an email sender, or connect a new one'
+const UNVERIFIED_SENDER_ERROR = "Verify the sender's domain before enabling"
+
+const emailSender = (id: number, verified: boolean): IntegrationType =>
+    ({ id, kind: 'email', display_name: `sender-${id}`, config: { verified } }) as IntegrationType
 
 describe('workflowLogic email step "from" validation', () => {
     let logic: ReturnType<typeof workflowLogic.build>
@@ -270,6 +277,40 @@ describe('workflowLogic email step "from" validation', () => {
         // The generic input validator also joins the sub-fields into `errors.email`; it must be
         // stripped so nothing renders under the whole input.
         expect(result?.errors.email).toBeUndefined()
+    })
+
+    it.each([
+        ['the sender is unverified', [emailSender(42, false)], false, UNVERIFIED_SENDER_ERROR],
+        [
+            'one rotation sender is unverified',
+            [emailSender(42, true), emailSender(43, false)],
+            false,
+            UNVERIFIED_SENDER_ERROR,
+        ],
+        ['every sender is verified', [emailSender(42, true), emailSender(43, true)], true, undefined],
+    ])('marks the email step with a field message when %s', async (_name, senders, valid, expectedError) => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
+                    integrationId: 42,
+                    integrationIds: [42, 43],
+                }),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+                '/api/environments/:team_id/integrations': { results: senders },
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+        // An unverified sender fails every send, so the step is invalid and the reason sits on the field.
+        logic.actions.saveWorkflowPartial({ status: 'active' })
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(valid)
+        expect(result?.emailErrors?.from).toBe(expectedError)
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
