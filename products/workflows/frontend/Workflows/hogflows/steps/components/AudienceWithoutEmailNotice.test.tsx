@@ -25,15 +25,18 @@ describe('AudienceWithoutEmailNotice', () => {
 
     it.each([
         [1, '1 person in this audience has no email address and will not get the email.'],
-        [1342, '1,342 people in this audience have no email address and will not get the email.'],
+        [1342, 'About 1,342 people in this audience have no email address and will not get the email.'],
     ])('names the %s unreachable people and links to them', (withoutEmail, text) => {
         render(<AudienceWithoutEmailNotice withoutEmail={withoutEmail} audienceProperties={AUDIENCE_PROPERTIES} />)
 
         expect(screen.getByText(text)).toBeInTheDocument()
         const link = screen.getByTestId('audience-without-email-link')
+        expect(link).toHaveAttribute('target', '_blank')
         const href = decodeURIComponent(link.getAttribute('href') ?? '')
         expect(href).toContain('/persons')
-        expect(href).toContain('"operator":"is_not_set"')
         expect(href).toContain('"key":"plan"')
+        expect(href).toContain(
+            `"type":"hogql","key":"isNull(properties.email) OR trim(toString(properties.email)) = ''"`
+        )
     })
 })

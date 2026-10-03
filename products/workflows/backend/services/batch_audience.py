@@ -40,6 +40,11 @@ class DedupeAudienceSize:
     total: int
     without_email: int
 
+    @classmethod
+    def capped_at_total(cls, count: DedupeAudienceCount, total: int) -> "DedupeAudienceSize":
+        affected = min(count.sends, total)
+        return cls(affected=affected, total=total, without_email=min(count.without_email, affected))
+
 
 def person_audience_page_size() -> int:
     return settings.WORKFLOWS_PERSON_BATCH_SIZE

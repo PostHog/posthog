@@ -4000,12 +4000,14 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("dedupe_key_uses_deduped_count", "email", 3, 1),
-            ("no_dedupe_key_keeps_person_count", None, 5, None),
+            ("dedupe_key_uses_deduped_count", "email", (3, 1), 3, 1),
+            ("no_dedupe_key_keeps_person_count", None, (3, 1), 5, None),
+            # The team-wide total is a cached count that can lag the audience query.
+            ("deduped_counts_capped_at_total", "email", (12, 11), 10, 10),
         ]
     )
     def test_user_blast_radius_dedupe_key_affects_count(
-        self, _name, dedupe_key, expected_affected, expected_without_email
+        self, _name, dedupe_key, deduped_count, expected_affected, expected_without_email
     ):
         from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
         from products.workflows.backend.services.batch_audience import DedupeAudienceCount  # noqa: PLC0415
@@ -4021,7 +4023,7 @@ class TestHogFlowAPI(APIBaseTest):
             ) as mock_legacy_count,
             patch(
                 "products.workflows.backend.services.blast_radius.get_batch_audience_count",
-                return_value=DedupeAudienceCount(sends=3, without_email=1),
+                return_value=DedupeAudienceCount(sends=deduped_count[0], without_email=deduped_count[1]),
             ) as mock_deduped_count,
             patch(
                 "posthog.models.team.team.Team.persons_seen_so_far",

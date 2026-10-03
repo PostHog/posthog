@@ -73,9 +73,9 @@ def get_audience_size(
 
 def _get_dedupe_audience_size(team: Team, filters: dict, dedupe_key: str) -> DedupeAudienceSize:
     # "total" comes straight from the cached team-wide count the legacy query would have returned.
-    total = team.persons_seen_so_far
-    count = get_batch_audience_count(team, filters, dedupe_key)
-    return DedupeAudienceSize(affected=min(count.sends, total), total=total, without_email=count.without_email)
+    return DedupeAudienceSize.capped_at_total(
+        get_batch_audience_count(team, filters, dedupe_key), total=team.persons_seen_so_far
+    )
 
 
 def get_account_audience_size(*, team_id: int, filters: dict, sends_email: bool) -> AudienceSize:

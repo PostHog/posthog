@@ -84,7 +84,7 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
         count = _sampled_or_exact_dedupe_count(
             lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus)
         )
-        return DedupeAudienceSize(affected=min(count.sends, total), total=total, without_email=count.without_email)
+        return DedupeAudienceSize.capped_at_total(count, total)
 
 
 def _sampled_or_exact_dedupe_count(

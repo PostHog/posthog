@@ -2,10 +2,15 @@ import { IconWarning } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { matchingActorsUrl } from 'scenes/feature-flags/matchingActorsUrl'
 
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, HogQLPropertyFilter, PropertyFilterType } from '~/types'
 
-import { audienceWithoutEmailUrl } from './audienceWithoutEmailUrl'
+/** Mirrors `email_missing_expr` in the backend, so the list holds exactly the people the warning counts. */
+const HAS_NO_EMAIL: HogQLPropertyFilter = {
+    type: PropertyFilterType.HogQL,
+    key: "isNull(properties.email) OR trim(toString(properties.email)) = ''",
+}
 
 export function AudienceWithoutEmailNotice({
     withoutEmail,
@@ -18,16 +23,18 @@ export function AudienceWithoutEmailNotice({
         return null
     }
 
-    const subject = withoutEmail === 1 ? '1 person' : `${humanFriendlyNumber(withoutEmail)} people`
-    const verb = withoutEmail === 1 ? 'has' : 'have'
     return (
         <div className="text-warning text-xs flex items-start gap-1 mt-1">
             <IconWarning className="text-base shrink-0 mt-0.5" />
             <div>
-                <div>{`${subject} in this audience ${verb} no email address and will not get the email.`}</div>
+                <div>{describeWithoutEmail(withoutEmail)}</div>
                 <div className="text-secondary">
-                    Set the email property, for example by calling identify() with an email, or{' '}
-                    <Link to={audienceWithoutEmailUrl(audienceProperties)} data-attr="audience-without-email-link">
+                    Add an email property to them, or{' '}
+                    <Link
+                        to={matchingActorsUrl([...audienceProperties, HAS_NO_EMAIL], null)}
+                        target="_blank"
+                        data-attr="audience-without-email-link"
+                    >
                         view who is affected
                     </Link>
                     .
@@ -35,4 +42,11 @@ export function AudienceWithoutEmailNotice({
             </div>
         </div>
     )
+}
+
+function describeWithoutEmail(withoutEmail: number): string {
+    if (withoutEmail === 1) {
+        return '1 person in this audience has no email address and will not get the email.'
+    }
+    return `About ${humanFriendlyNumber(withoutEmail)} people in this audience have no email address and will not get the email.`
 }
