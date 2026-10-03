@@ -59,10 +59,6 @@ tools:
     workflows-list-email-templates:
         operation: messaging_templates_list
         enabled: true
-        exclude_params:
-            - include_design
-        inject_query:
-            include_design: false
         scopes:
             - hog_flow:read
         annotations:
@@ -75,6 +71,10 @@ tools:
         description: >
             List email templates in the workflows library — metadata only; fetch a template's content with
             workflows-get-email-template. Templates are referenced from a workflow's function_email action.
+        exclude_params:
+            - include_design
+        inject_query:
+            include_design: false
         response:
             exclude:
                 - content
