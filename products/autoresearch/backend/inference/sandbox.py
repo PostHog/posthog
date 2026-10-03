@@ -151,7 +151,10 @@ class SandboxInferenceError(Exception):
 
 @frozen
 class FeatureQueryCost:
-    """What ClickHouse spent on one run of the feature query, from the query's own statistics."""
+    """What ClickHouse spent on one run of the feature query, from the query's own statistics.
+
+    ``elapsed_ms`` is the time ClickHouse reports for the query, not the wall-clock time of the request.
+    """
 
     elapsed_ms: int = 0
     rows_read: int = 0

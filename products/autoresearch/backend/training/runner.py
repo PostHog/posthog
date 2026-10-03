@@ -391,9 +391,9 @@ def build_agent_description(
             a.person_id AS distinct_id,
             -- direct use of the feature the target depends on
             countIf(e.event = 'uploaded_file') AS uploads,
-            -- days with activity: a habit predicts more than one busy day
+            -- days with activity: a habit predicts more than one busy day (the filter drops the empty row of a person with no events)
             uniqIf(toDate(e.timestamp), e.event != '') AS active_days,
-            -- recent browsing: people who come back often convert more
+            -- browsing volume over the lookback: heavy browsers convert more
             countIf(e.event = '$pageview') AS pageviews,
             dateDiff('day', max(e.timestamp), fromUnixTimestamp(a.cutoff_ts)) AS days_since_last_event
         FROM {{anchors}} a
