@@ -233,7 +233,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
 
     @parameterized.expand(
         [
-            ("ending_in_a_non_breaking_space", "a@example.com\u00a0"),
+            ("ending_in_whitespace_the_send_path_keeps", "a@example.com\u0085"),
             ("longer_than_any_stored_identifier", f"a{'x' * 600}@example.com"),
         ]
     )
@@ -264,7 +264,12 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         [
             ("non_ascii_casing", "Jürgen.MÜLLER@example.com", "jürgen.müller@example.com", "MÜLLER"),
             ("surrounding_whitespace", "\tTab@Example.com \n", "tab@example.com", "TAB@"),
-            ("non_breaking_space_is_part_of_the_address", "Nb@Example.com\u00a0", "nb@example.com\u00a0", "NB@"),
+            (
+                "unicode_whitespace_the_send_path_trims",
+                "\ufeff\u3000Nb\u00a0Inner@Example.com\u00a0",
+                "nb\u00a0inner@example.com",
+                "B\u00a0INNER",
+            ),
         ]
     )
     def test_folds_an_address_the_same_way_in_list_search_and_lookup(
@@ -436,7 +441,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._prefer("recent@example.com", {})
         self._prefer("stale@example.com", {})
         self._send("Recent@Example.com", recent - timedelta(days=1))
-        self._send("Recent@Example.com", recent)
+        self._send("\u2028Recent@Example.com\u00a0", recent)
         self._send("stale@example.com", recent - timedelta(days=40))
 
         last_sent = {row["email"]: row["last_sent_at"] for row in self._list()["results"]}
@@ -452,10 +457,11 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._person(None, distinct_id="anonymous-2", name="No Email")
         self._person("", distinct_id="blank-email")
         self._person("   ", distinct_id="whitespace-email")
+        self._person("\u00a0", distinct_id="non-breaking-space-email")
         self._person(None, distinct_id="other-team-anonymous", team=Team.objects.create(organization=self.organization))
 
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/coverage/")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"persons_without_email": 4}
+        assert response.json() == {"persons_without_email": 5}
         assert self._emails() == ["reachable@example.com"]
