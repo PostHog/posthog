@@ -15,7 +15,8 @@ import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFi
 import { BroadcastEmailValue, DEFAULT_BROADCAST_EMAIL, broadcastWizardLogic } from '../broadcastWizardLogic'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { email, name, stepValidationErrors, selectedSender, emailSettings } = useValues(broadcastWizardLogic)
+    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
+        useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -125,7 +126,9 @@ export function BroadcastContentStep(): JSX.Element {
                     value={emailSettings.utmParams}
                     onChange={(utmParams) => setEmailSettings({ utmParams })}
                     campaignDefault={name || 'Broadcast name'}
-                    contentDefault="Send email"
+                    contentDefault={
+                        broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
+                    }
                 />
             )}
         </div>

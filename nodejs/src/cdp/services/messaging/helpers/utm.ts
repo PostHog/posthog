@@ -12,8 +12,6 @@ export type UtmTags = {
 
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const
 
-// A quoted attribute value may contain `>`, so the tag ends at the first `>` outside quotes.
-const ANCHOR_TAG_REGEX = /<a\b(?:"[^"]*"|'[^']*'|[^'">])*>/gi
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
 // inside another attribute's value or as part of a longer name like `data-href`.
 const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g
@@ -98,28 +96,72 @@ export const addUtmTagsToUrl = (url: string, tags: UtmTags, siteHost: string | n
     return `${base}${separator}${query}${hash}`
 }
 
+/** Index of the `>` that closes the tag opened before `from`, skipping quoted values, or -1 if it never closes. */
+const findTagEnd = (html: string, from: number): number => {
+    let quote: string | null = null
+    for (let i = from; i < html.length; i++) {
+        const char = html[i]
+        if (quote) {
+            if (char === quote) {
+                quote = null
+            }
+        } else if (char === '"' || char === "'") {
+            quote = char
+        } else if (char === '>') {
+            return i
+        }
+    }
+    return -1
+}
+
+const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): string => {
+    const attributes = [...anchor.matchAll(ATTRIBUTE_REGEX)]
+    if (attributes.some((attribute) => attribute[1].toLowerCase() === 'data-ph-no-utm')) {
+        return anchor
+    }
+    const href = attributes.find((attribute) => attribute[1].toLowerCase() === 'href')
+    const value = href ? (href[2] ?? href[3]) : undefined
+    if (!href || value === undefined) {
+        return anchor
+    }
+    const tagged = addUtmTagsToUrl(decodeHtmlEntitiesInHref(value), tags, siteHost)
+    if (tagged === null) {
+        return anchor
+    }
+    const quote = href[2] !== undefined ? '"' : "'"
+    const encoded = tagged
+        .replace(/&/g, '&amp;')
+        .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
+    const start = href.index! + href[0].indexOf('=')
+    return anchor.slice(0, start) + `=${quote}${encoded}${quote}` + anchor.slice(href.index! + href[0].length)
+}
+
+// One forward pass rather than a regex, so a body full of unclosed `<a` tags costs linear time instead
+// of rescanning the rest of the email for each one and stalling the worker.
 export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string): string => {
     const siteHost = hostOf(siteUrl)
-    return html.replace(ANCHOR_TAG_REGEX, (anchor) => {
-        const attributes = [...anchor.matchAll(ATTRIBUTE_REGEX)]
-        if (attributes.some((attribute) => attribute[1].toLowerCase() === 'data-ph-no-utm')) {
-            return anchor
+    const lower = html.toLowerCase()
+    let output = ''
+    let cursor = 0
+    while (cursor < html.length) {
+        const start = lower.indexOf('<a', cursor)
+        if (start === -1) {
+            break
         }
-        const href = attributes.find((attribute) => attribute[1].toLowerCase() === 'href')
-        const value = href ? (href[2] ?? href[3]) : undefined
-        if (!href || value === undefined) {
-            return anchor
+        const after = lower[start + 2]
+        if (after !== undefined && !/[\s>/]/.test(after)) {
+            // `<abbr>`, `<area>` and other tags that only start with "a".
+            output += html.slice(cursor, start + 2)
+            cursor = start + 2
+            continue
         }
-        const tagged = addUtmTagsToUrl(decodeHtmlEntitiesInHref(value), tags, siteHost)
-        if (tagged === null) {
-            return anchor
+        const end = findTagEnd(html, start + 2)
+        if (end === -1) {
+            // The tag never closes, so it is not a link, and the rest of the email is left as is.
+            break
         }
-        const quote = href[2] !== undefined ? '"' : "'"
-        const encoded = tagged
-            .replace(/&/g, '&amp;')
-            .replace(quote === '"' ? /"/g : /'/g, quote === '"' ? '&quot;' : '&#39;')
-        const start = href.index! + href[0].indexOf('=')
-        const replaced = `=${quote}${encoded}${quote}`
-        return anchor.slice(0, start) + replaced + anchor.slice(href.index! + href[0].length)
-    })
+        output += html.slice(cursor, start) + tagAnchor(html.slice(start, end + 1), tags, siteHost)
+        cursor = end + 1
+    }
+    return output + html.slice(cursor)
 }

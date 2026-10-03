@@ -8,6 +8,7 @@ import {
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -23,6 +24,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-
 import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { MessageAssetsService } from './message-assets.service'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -1514,8 +1516,11 @@ describe('EmailService', () => {
                     hog_flow_name: 'Spring sale',
                     hog_flow_action_name: 'Welcome',
                 }
-                const buildRowForEmail = jest.fn().mockReturnValue(null)
-                service['messageAssetsService'] = { buildRowForEmail } as any
+                const messageAssets = new MessageAssetsService({
+                    produce: jest.fn().mockResolvedValue(undefined),
+                } as unknown as IngestionOutputs<'message_assets'>)
+                const buildRowForEmail = jest.spyOn(messageAssets, 'buildRowForEmail').mockReturnValue(null)
+                service['messageAssetsService'] = messageAssets
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }

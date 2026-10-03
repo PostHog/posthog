@@ -20,9 +20,14 @@ export function UtmTagFields({ value, onChange, campaignDefault, contentDefault 
         utm_campaign: campaignDefault,
         utm_content: contentDefault,
     }
-    const example = UTM_TAG_KEYS.filter((key) => (value[key] || defaults[key]).trim())
-        .map((key) => `${key}=${(value[key] || defaults[key]).trim()}`)
+    const values = UTM_TAG_KEYS.map((key) => [key, (value[key] || defaults[key]).trim()] as const).filter(
+        ([, tagValue]) => tagValue
+    )
+    // Encoded like the sent links, except variables, which stay readable because they differ per person.
+    const example = values
+        .map(([key, tagValue]) => `${key}=${tagValue.includes('{{') ? tagValue : encodeURIComponent(tagValue)}`)
         .join('&')
+    const hasVariables = values.some(([, tagValue]) => tagValue.includes('{{'))
 
     return (
         <div className="flex flex-col gap-1">
@@ -47,7 +52,10 @@ export function UtmTagFields({ value, onChange, campaignDefault, contentDefault 
                 Leave a field empty to use the value shown. Fields accept variables like{' '}
                 <code>{'{{ person.properties.plan }}'}</code>.
             </span>
-            <span className="text-xs text-secondary break-all">Example: https://example.com/?{example}</span>
+            <span className="text-xs text-secondary break-all">
+                Example: https://example.com/?{example}
+                {hasVariables ? ' (variables are filled in for each person)' : ''}
+            </span>
         </div>
     )
 }
