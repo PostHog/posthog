@@ -25,15 +25,23 @@ def _response(status: int = 200) -> requests.Response:
 
 
 class TestGitHubTransport(SimpleTestCase):
-    @parameterized.expand([("success", 200, "UNSET"), ("http_error", 429, "ERROR")])
-    def test_request_records_normalized_client_span(self, _name: str, status_code: int, span_status: str) -> None:
+    @parameterized.expand(
+        [
+            ("success", 200, True, "UNSET"),
+            ("http_error", 429, True, "ERROR"),
+            ("denied_critical_call_proceeds", 200, False, "UNSET"),
+        ]
+    )
+    def test_request_records_normalized_client_span(
+        self, _name: str, status_code: int, granted: bool, span_status: str
+    ) -> None:
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
 
         with (
             patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
-            patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=True),
+            patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=granted),
             patch("requests.request", return_value=_response(status_code)),
         ):
             github_request(
@@ -55,7 +63,7 @@ class TestGitHubTransport(SimpleTestCase):
             "egress.priority": "critical",
             "egress.endpoint": "/repos/{owner}/{repo}/branches",
             "egress.scoped": True,
-            "egress.admission.granted": True,
+            "egress.admission.granted": granted,
             "github.resource": "core",
             "http.response.status_code": status_code,
         }
@@ -84,6 +92,25 @@ class TestGitHubTransport(SimpleTestCase):
         ):
             github_request("GET", "https://api.github.com/search/code?q=x", source="test", installation_id=None)
         consume.assert_not_called()
+
+    def test_span_marks_a_gate_error(self) -> None:
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with (
+            patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")),
+            patch("posthog.egress.github.transport.consume_github_installation_sync", side_effect=RuntimeError),
+            patch("requests.request") as send,
+            self.assertRaises(RuntimeError),
+        ):
+            github_request("GET", "https://api.github.com/repos/example/repo", source="test", installation_id="42")
+
+        send.assert_not_called()
+        span = exporter.get_finished_spans()[0]
+        assert span.attributes is not None
+        assert span.attributes["error.type"] == "RuntimeError"
+        assert span.status.status_code.name == "ERROR"
 
     def test_span_uses_the_request_host_for_raw_github_urls(self) -> None:
         exporter = InMemorySpanExporter()
@@ -155,3 +182,4 @@ class TestGitHubTransport(SimpleTestCase):
         assert attributes is not None
         assert attributes["egress.endpoint"] == "/repos/{owner}/{repo}/branches"
         assert attributes["egress.scoped"] is False
+        assert "egress.admission.granted" not in attributes
