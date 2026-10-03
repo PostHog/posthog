@@ -11090,6 +11090,8 @@ export namespace Schemas {
       /**
          * Concrete places to look, such as an issue id, a service name, or a query to repeat.
          * @maxItems 5
+         * @items.minLength 1
+         * @items.maxLength 300
          */
       probe_hints?: string[];
     }
