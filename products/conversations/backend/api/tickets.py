@@ -1237,9 +1237,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     def _log_update_activity(self, request, instance: Ticket, diff: _TicketUpdateDiff) -> None:
         changes = diff.activity_changes()
-        if not changes:
-            return
+        if changes:
+            self._log_ticket_changes(request, instance, changes)
 
+    def _log_ticket_changes(self, request, instance: Ticket, changes: list[Change]) -> None:
         try:
             log_activity(
                 organization_id=self.organization.id,
@@ -1837,44 +1838,33 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         Removing an address that is not a participant changes nothing and returns the ticket.
         """
-        ticket = self.get_object()
         serializer = TicketRemoveCcParticipantRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         email = serializer.validated_data["email"].lower()
+        ticket = self.get_object()
 
         with transaction.atomic():
             locked = Ticket.objects.select_for_update().only("cc_participants").get(id=ticket.id, team_id=self.team_id)
             before = list(locked.cc_participants or [])
             after = [addr for addr in before if addr.lower() != email]
-            if after != before:
+            changed = after != before
+            if changed:
                 locked.cc_participants = after
                 locked.save(update_fields=["cc_participants", "updated_at"])
 
-        ticket.refresh_from_db()
-        if after != before:
+        ticket.cc_participants = after
+        if changed:
+            ticket.updated_at = locked.updated_at
             self._log_cc_participant_removal(request, ticket, before, after)
         self._attach_persons_to_tickets([ticket])
         return Response(self.get_serializer(ticket).data)
 
     def _log_cc_participant_removal(self, request, ticket: Ticket, before: list[str], after: list[str]) -> None:
-        try:
-            log_activity(
-                organization_id=self.organization.id,
-                team_id=self.team_id,
-                user=request.user,
-                was_impersonated=is_impersonated(request),
-                item_id=str(ticket.id),
-                scope="Ticket",
-                activity="updated",
-                detail=Detail(
-                    name=f"Ticket #{ticket.ticket_number}",
-                    changes=[
-                        Change(type="Ticket", field="cc_participants", before=before, after=after, action="changed")
-                    ],
-                ),
-            )
-        except Exception as e:
-            capture_exception(e, {"ticket_id": str(ticket.id)})
+        self._log_ticket_changes(
+            request,
+            ticket,
+            [Change(type="Ticket", field="cc_participants", before=before, after=after, action="changed")],
+        )
         try:
             report_user_action(
                 request.user,
