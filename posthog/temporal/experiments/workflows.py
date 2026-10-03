@@ -181,10 +181,9 @@ class ExperimentRegularMetricsWorkflow(PostHogWorkflow):
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
         run_started_at = temporalio.workflow.now()
 
-        # A history recorded before this change expects the publish activities it already wrote, so
-        # only an execution that records this marker takes the calculate-only path. The branch goes
-        # once no pre-patch execution is left; these workflows carry no execution timeout, so that is
-        # a later decision rather than a known date.
+        # Only an execution carrying this marker skips the publish activities. A history without it
+        # replays the commands it recorded, so the branches below must stay until no such execution
+        # is left. These workflows set no execution timeout, so nothing bounds that wait.
         if temporalio.workflow.patched("experiment-drop-timeseries-publish-2026-10"):
             results = await _calculate_metrics(calculate_experiment_regular_metric, experiment_metrics, semaphore)
         elif temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
@@ -257,10 +256,9 @@ class ExperimentSavedMetricsWorkflow(PostHogWorkflow):
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
         run_started_at = temporalio.workflow.now()
 
-        # A history recorded before this change expects the publish activities it already wrote, so
-        # only an execution that records this marker takes the calculate-only path. The branch goes
-        # once no pre-patch execution is left; these workflows carry no execution timeout, so that is
-        # a later decision rather than a known date.
+        # Only an execution carrying this marker skips the publish activities. A history without it
+        # replays the commands it recorded, so the branches below must stay until no such execution
+        # is left. These workflows set no execution timeout, so nothing bounds that wait.
         if temporalio.workflow.patched("experiment-drop-timeseries-publish-2026-10"):
             results = await _calculate_metrics(calculate_experiment_saved_metric, experiment_metrics, semaphore)
         elif temporalio.workflow.patched("experiment-per-experiment-publish-2026-09"):
