@@ -21,6 +21,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
 from posthog.helpers.dashboard_templates import create_from_template, create_group_type_mapping_detail_dashboard
 from posthog.models import Filter, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -954,8 +955,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     def test_impersonated_view_does_not_bump_last_accessed_at(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
 
-        with patch("products.dashboards.backend.api.dashboard.is_impersonated", return_value=True):
+        with patch("products.dashboards.backend.access.is_impersonated", return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        self.assertIsNone(dashboard.last_accessed_at)
+
+    @parameterized.expand([("retrieve", ""), ("stream_tiles", "stream_tiles/")])
+    def test_self_driving_view_does_not_bump_last_accessed_at(self, _name: str, path_suffix: str) -> None:
+        # The anomaly-detection scout reads dashboards to score them. Its own reads must not
+        # look like team access, or it would keep promoting stale dashboards only it touched.
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+
+        with patch(
+            "products.dashboards.backend.access.get_event_source",
+            return_value=EventSource.SELF_DRIVING,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/{path_suffix}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         dashboard.refresh_from_db()
