@@ -119,8 +119,8 @@ def test_llm_analytics_queries_take_a_concurrency_slot(client_from_pool, llm_ana
     assert llm_analytics_slots.call_count == expected_slots
 
 
-def _fake_query_info(rows: int, elapsed_ns: int) -> SimpleNamespace:
-    return SimpleNamespace(progress=SimpleNamespace(rows=rows, elapsed_ns=elapsed_ns))
+def _fake_query_info(rows: int, bytes_read: int, elapsed_ns: int) -> SimpleNamespace:
+    return SimpleNamespace(progress=SimpleNamespace(rows=rows, bytes=bytes_read, elapsed_ns=elapsed_ns))
 
 
 class _FakeNativeClient(ClickHouseClient):
@@ -134,7 +134,7 @@ class _FakeNativeClient(ClickHouseClient):
         if self._fails == "connect":
             self.disconnect()
             raise ValueError("Connection refused")
-        self.last_query = _fake_query_info(rows=7, elapsed_ns=3_000_000)
+        self.last_query = _fake_query_info(rows=7, bytes_read=512, elapsed_ns=3_000_000)
         if self._fails == "kill":
             self.disconnect()
             raise ValueError("Memory limit (for query) exceeded")
@@ -142,7 +142,7 @@ class _FakeNativeClient(ClickHouseClient):
 
 
 def _proxy_client() -> ProxyClient:
-    summary = {"read_rows": "7", "elapsed_ns": "3000000"}
+    summary = {"read_rows": "7", "read_bytes": "512", "elapsed_ns": "3000000"}
     http_client = SimpleNamespace(query=lambda **kwargs: SimpleNamespace(summary=summary, result_set=[(1,)]))
     return ProxyClient(http_client)  # type: ignore[arg-type]
 
@@ -150,25 +150,27 @@ def _proxy_client() -> ProxyClient:
 @pytest.mark.parametrize(
     "make_client,raises,tags,expected,expected_workload",
     [
-        (_FakeNativeClient, False, {}, (7, 3.0), "default"),
-        (_FakeNativeClient, False, {"kind": "celery"}, (7, 3.0), "OFFLINE"),
+        (_FakeNativeClient, False, {}, (7, 512, 3.0), "default"),
+        (_FakeNativeClient, False, {"kind": "celery"}, (7, 512, 3.0), "OFFLINE"),
         (
             _FakeNativeClient,
             False,
             {"kind": "celery", "id": "posthog.tasks.tasks.process_query_task"},
-            (7, 3.0),
+            (7, 512, 3.0),
             "ONLINE",
         ),
-        (lambda: _FakeNativeClient(fails="kill"), True, {}, (7, 3.0), "default"),
+        (lambda: _FakeNativeClient(fails="kill"), True, {}, (7, 512, 3.0), "default"),
         # Counting the previous query's progress would charge this query with another query's rows.
         (
-            lambda: _FakeNativeClient(fails="connect", last_query=_fake_query_info(rows=99, elapsed_ns=1)),
+            lambda: _FakeNativeClient(
+                fails="connect", last_query=_fake_query_info(rows=99, bytes_read=99, elapsed_ns=1)
+            ),
             True,
             {},
-            (0, 0.0),
+            (0, 0, 0.0),
             None,
         ),
-        (_proxy_client, False, {}, (7, 3.0), "default"),
+        (_proxy_client, False, {}, (7, 512, 3.0), "default"),
     ],
     ids=[
         "ok",
@@ -189,7 +191,7 @@ def test_sync_execute_records_what_clickhouse_read(make_client, raises, tags, ex
             else:
                 sync_execute("SELECT 1", flush=False)
 
-    assert (stats.rows_read, stats.duration_ms) == expected
+    assert (stats.rows_read, stats.bytes_read, stats.duration_ms) == expected
     if expected_workload == "default":
         expected_workload = get_default_clickhouse_workload_type().value
     assert stats.workload() == expected_workload

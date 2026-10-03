@@ -8,7 +8,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
-from products.autoresearch.backend.inference.sandbox import MaterializedData
+from products.autoresearch.backend.inference.sandbox import FeatureQueryCost, MaterializedData
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchTrainingRun
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.tasks.backend.facade.sandbox import ExecutionResult, SandboxNotRunningError
@@ -46,6 +46,7 @@ def _materialized(
         feature_cols=cols,
         train_rows=_rows(1, list(train_labels), cols),
         holdout_rows=_rows(0, list(holdout_labels), cols),
+        feature_query_cost=FeatureQueryCost(elapsed_ms=120, rows_read=5000, bytes_read=64000),
     )
 
 
@@ -140,6 +141,11 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
         assert body["n_holdout"] == 2
         assert body["n_features"] == 2
         assert body["feature_cols"] == ["pv", "uploads"]
+        assert (
+            body["feature_query_elapsed_ms"],
+            body["feature_query_rows_read"],
+            body["feature_query_bytes_read"],
+        ) == (120, 5000, 64000)
         # All four parquet files land in one per-request directory under the framework-controlled base.
         directory = body["train_features_path"].rsplit("/", 1)[0]
         assert directory.startswith("/tmp/workspace/autoresearch/data/")

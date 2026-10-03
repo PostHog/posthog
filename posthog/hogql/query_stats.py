@@ -1,4 +1,4 @@
-"""Add up the rows and time ClickHouse spent on one query request.
+"""Add up the rows, bytes and time ClickHouse spent on one query request.
 
 One request can run several ClickHouse queries (a trends insight runs one per series). The runner
 opens ``query_stats_scope()`` around the run, ``sync_execute`` calls ``record()`` after each query,
@@ -46,6 +46,7 @@ class QueryStats:
     """The totals for one request."""
 
     rows_read: int = 0
+    bytes_read: int = 0
     duration_ms: float = 0.0
     # How many ClickHouse queries the request ran. Zero means it never reached ClickHouse, for
     # example a warehouse query over a direct connection, so there is nothing to report.
@@ -62,9 +63,18 @@ class QueryStats:
     executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
     workloads: set[str] = field(default_factory=set, repr=False, compare=False)
 
-    def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
+    def add(
+        self,
+        *,
+        rows_read: int,
+        duration_ms: float,
+        bytes_read: int = 0,
+        lookup: bool = False,
+        workload: str | None = None,
+    ) -> None:
         with self.lock:
             self.rows_read += rows_read
+            self.bytes_read += bytes_read
             self.duration_ms += duration_ms
             self.query_count += 1
             if lookup:
@@ -147,13 +157,20 @@ def use(stats: QueryStats | None) -> Iterator[None]:
         _accumulator.reset(token)
 
 
-def record(*, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
+def record(
+    *,
+    rows_read: int,
+    duration_ms: float,
+    bytes_read: int = 0,
+    lookup: bool = False,
+    workload: str | None = None,
+) -> None:
     """Add one ClickHouse query to the open scope. Does nothing without one."""
     _last_rows_read.set(rows_read)
     stats = _accumulator.get()
     if stats is None:
         return
-    stats.add(rows_read=rows_read, duration_ms=duration_ms, lookup=lookup, workload=workload)
+    stats.add(rows_read=rows_read, bytes_read=bytes_read, duration_ms=duration_ms, lookup=lookup, workload=workload)
 
 
 def reset_last_rows_read() -> None:

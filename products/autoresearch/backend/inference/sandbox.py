@@ -56,6 +56,7 @@ from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
@@ -149,6 +150,15 @@ class SandboxInferenceError(Exception):
 
 
 @frozen
+class FeatureQueryCost:
+    """What ClickHouse spent on one run of the feature query, from the query's own statistics."""
+
+    elapsed_ms: int = 0
+    rows_read: int = 0
+    bytes_read: int = 0
+
+
+@frozen
 class MaterializedData:
     """Labeled training matrix for a train run: train + holdout folds. Predict runs return a plain row list."""
 
@@ -157,6 +167,7 @@ class MaterializedData:
     holdout_rows: list[dict[str, Any]] = field(default_factory=list)
     # The rate the rows were drawn at; the fitted model's scores need its prior correction.
     negative_sample_rate: float = 1.0
+    feature_query_cost: FeatureQueryCost = field(default_factory=FeatureQueryCost)
 
 
 @frozen
@@ -400,7 +411,15 @@ def materialize_training_data(
         anchor_ts=anchor_ts,
         negative_sample_rate=sample.negative_sample_rate,
     )
-    training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
+    # Read the difference, not the totals: an enclosing scope also holds the queries that ran before this one.
+    with query_stats_scope() as stats:
+        rows_before, bytes_before, ms_before = stats.rows_read, stats.bytes_read, stats.duration_ms
+        training_rows = _materialize_rows(team=team, sql=train_sql, values=train_values, user=user)
+        feature_query_cost = FeatureQueryCost(
+            elapsed_ms=round(stats.duration_ms - ms_before),
+            rows_read=stats.rows_read - rows_before,
+            bytes_read=stats.bytes_read - bytes_before,
+        )
     expected = count_training_anchors(
         team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user, negative_sample_rate=sample.negative_sample_rate
     )
@@ -423,12 +442,16 @@ def materialize_training_data(
         n_holdout=len(holdout_rows),
         n_features=len(feature_cols),
         negative_sample_rate=sample.negative_sample_rate,
+        feature_query_elapsed_ms=feature_query_cost.elapsed_ms,
+        feature_query_rows_read=feature_query_cost.rows_read,
+        feature_query_bytes_read=feature_query_cost.bytes_read,
     )
     return MaterializedData(
         feature_cols=feature_cols,
         train_rows=train_rows,
         holdout_rows=holdout_rows,
         negative_sample_rate=sample.negative_sample_rate,
+        feature_query_cost=feature_query_cost,
     )
 
 

@@ -1217,6 +1217,9 @@ def materialize_features(
         n_holdout=len(data.holdout_rows),
         n_features=len(data.feature_cols),
         feature_cols=list(data.feature_cols),
+        feature_query_elapsed_ms=data.feature_query_cost.elapsed_ms,
+        feature_query_rows_read=data.feature_query_cost.rows_read,
+        feature_query_bytes_read=data.feature_query_cost.bytes_read,
     )
 
 

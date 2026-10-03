@@ -388,3 +388,6 @@ class MaterializedFeatures:
     n_holdout: int
     n_features: int
     feature_cols: list[str]
+    feature_query_elapsed_ms: int
+    feature_query_rows_read: int
+    feature_query_bytes_read: int
