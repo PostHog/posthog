@@ -26,6 +26,7 @@ from .serializers import (
     CandidateListSerializer,
     ExcerptChoiceQuerySerializer,
     ExcerptChoiceSerializer,
+    FigureMarksSerializer,
     KeyClausesQuerySerializer,
     KeyClausesSerializer,
     ReportPageSerializer,
@@ -52,7 +53,14 @@ def _ask_jev[T](team_id: int, ask: Callable[[], T]) -> T:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["briefing", "candidates", "report_page", "key_clauses", "excerpt_choice"]
+    scope_object_read_actions = [
+        "briefing",
+        "candidates",
+        "report_page",
+        "key_clauses",
+        "figure_marks",
+        "excerpt_choice",
+    ]
     scope_object_write_actions = ["refresh"]
 
     def _user(self) -> User:
@@ -150,6 +158,19 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if texts is None:
             raise NotFound()
         return Response(KeyClausesSerializer({"texts": texts}).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=FigureMarksSerializer), 503: JEV_UNAVAILABLE},
+        summary="Mark the numbers of a report with their sources",
+        description="The numbers in the report's lead and impact sentence that a signal or the agent's research states, each with the sentence that states it. A number is marked only when the decision model is sure it is a measured result and that one source states the same result. 404 when the report is missing or the person may not use Jev.",
+    )
+    @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks")
+    def figure_marks(self, request: Request, report_id: str, **kwargs) -> Response:
+        user = self._jev_user()
+        marks = _ask_jev(self.team.id, lambda: api.report_figure_marks(team=self.team, user=user, report_id=report_id))
+        if marks is None:
+            raise NotFound()
+        return Response(FigureMarksSerializer({"marks": marks}).data)
 
     @validated_request(
         request_serializer=ExcerptChoiceQuerySerializer,

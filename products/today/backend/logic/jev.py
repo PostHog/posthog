@@ -42,14 +42,15 @@ def _probability(answer: Answer) -> float | None:
 
 
 class GatewayJev:
-    def __init__(self, *, team_id: int, distinct_id: str) -> None:
+    def __init__(self, *, team_id: int, distinct_id: str, model: str | None = None) -> None:
         self._team_id = team_id
         self._distinct_id = distinct_id
+        self._model = model or settings.HOGQL_PROMPT_JEV_MODEL
 
     @cached_property
     def _client(self) -> GatewaySystemOneClient:
         client = build_system_one_client(
-            model=settings.HOGQL_PROMPT_JEV_MODEL,
+            model=self._model,
             ai_product=_AI_PRODUCT,
             team_id=self._team_id,
             distinct_id=self._distinct_id,
@@ -59,7 +60,7 @@ class GatewayJev:
         return client
 
     def _cache_key(self, question: Question, item: str) -> str:
-        body = json.dumps([self._team_id, question.to_json(), item], sort_keys=True)
+        body = json.dumps([self._team_id, self._model, question.to_json(), item], sort_keys=True)
         return f"today_jev:{hashlib.sha256(body.encode()).hexdigest()}"
 
     async def _ask(self, items: list[str], question: Question) -> list[Answer]:

@@ -1,4 +1,5 @@
 import json
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 
@@ -33,6 +34,15 @@ class ReportPageSource:
     suggested_prompts: list[str]
     repo_slug: str | None
     signals: list[ReportSignal]
+
+
+@frozen
+class ReportArtefactText:
+    artefact_id: str
+    type: str
+    content: str
+    created_at: datetime
+    written_by_person: bool
 
 
 def _latest_content(report: SignalReport, artefact_type: str) -> dict[str, object]:
@@ -86,3 +96,21 @@ def report_page_source(*, team: Team, report_id: str) -> ReportPageSource | None
         repo_slug=repository if isinstance(repository, str) and repository else None,
         signals=_report_signals(team, report_id),
     )
+
+
+def report_artefact_texts(*, team: Team, report_id: str, types: Collection[str]) -> list[ReportArtefactText]:
+    rows = (
+        SignalReportArtefact.objects.filter(team_id=team.id, report_id=report_id, type__in=list(types))
+        .order_by("created_at")
+        .values_list("id", "type", "content", "created_at", "created_by_id")
+    )
+    return [
+        ReportArtefactText(
+            artefact_id=str(artefact_id),
+            type=artefact_type,
+            content=content,
+            created_at=created_at,
+            written_by_person=created_by_id is not None,
+        )
+        for artefact_id, artefact_type, content, created_at, created_by_id in rows
+    ]

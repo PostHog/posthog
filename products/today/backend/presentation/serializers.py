@@ -16,6 +16,8 @@ from ..facade.contracts import (
     CandidateFact,
     CandidateList,
     CodeFile,
+    FigureMark,
+    FigureQuote,
     ImpactNumber,
     ImpactWorking,
     KeyClause,
@@ -28,7 +30,7 @@ from ..facade.contracts import (
     SignalView,
     TextKeyClauses,
 )
-from ..facade.enums import CitedSource, KeyClauseRole
+from ..facade.enums import CitedSource, FigureSourceKind, FigureText, KeyClauseRole
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -229,6 +231,39 @@ class TextKeyClausesSerializer(DataclassSerializer):
 
 class KeyClausesSerializer(serializers.Serializer):
     texts = TextKeyClausesSerializer(many=True, help_text="The marks for each text, in the order they were sent.")
+
+
+class FigureQuoteSerializer(DataclassSerializer):
+    kind = serializers.ChoiceField(
+        choices=FigureSourceKind.choices, help_text="Where the number comes from: a signal or the agent's research."
+    )
+    signal_id = serializers.CharField(
+        allow_null=True, help_text="The signal that states the number. Null when the agent's research states it."
+    )
+    at = serializers.DateTimeField(help_text="When the source was written.")
+    sentence = serializers.CharField(help_text="The source sentence that states the number.")
+    start = serializers.IntegerField(help_text="Where the number starts in the sentence.")
+    end = serializers.IntegerField(help_text="Where the number ends in the sentence.")
+
+    class Meta:
+        dataclass = FigureQuote
+
+
+class FigureMarkSerializer(DataclassSerializer):
+    text = serializers.ChoiceField(
+        choices=FigureText.choices, help_text="The page text the number is in: the lead or the impact sentence."
+    )
+    start = serializers.IntegerField(help_text="Where the number starts in that text, as the reader sees it.")
+    end = serializers.IntegerField(help_text="Where the number ends in that text.")
+    figure = serializers.CharField(help_text="The number as the page shows it.")
+    quote = FigureQuoteSerializer(help_text="The sentence that states the same result.")
+
+    class Meta:
+        dataclass = FigureMark
+
+
+class FigureMarksSerializer(serializers.Serializer):
+    marks = FigureMarkSerializer(many=True, help_text="The numbers to mark, at most 4, each with its source.")
 
 
 class ExcerptChoiceQuerySerializer(serializers.Serializer):

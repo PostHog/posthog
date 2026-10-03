@@ -1,20 +1,6 @@
-import { figuresToMark, findFigures, highlightSegments } from './todayFigures'
+import { highlightSegments, quoteSegments } from './todayFigures'
 
 describe('todayFigures', () => {
-    test.each([
-        [
-            'counts with units',
-            'Crashing across 41 teams, 2,316 people and 120–150 users a week.',
-            ['41', '2,316', '120–150'],
-        ],
-        ['not times, dates, versions or years', 'At 07:00 on 2026-08-12 an SDK-5.6 build failed in 2026.', []],
-        ['not the time window of a claim', 'In the trailing 14 days 63 people waited 9 minutes.', ['63', '9 minutes']],
-        ['not a day of the month', 'Over the 30 days to 1 Sep, 4,512 orders failed.', ['4,512']],
-        ['amounts of money', 'About $4.2K in spend and €40 a seat, filed as #123 on $pageview.', ['$4.2K', '€40']],
-    ])('finds figures in %s', (_, text, expected) => {
-        expect(findFigures(text).map((figure) => figure.text)).toEqual(expected)
-    })
-
     test.each([
         [
             'each backing number once and never a day of the month',
@@ -29,10 +15,12 @@ describe('todayFigures', () => {
         expect(segments.map((segment) => segment.text).join('')).toEqual(text)
     })
 
-    test('marks counts of people before other figures', () => {
-        const figures = findFigures(
-            'We logged 212 failed requests across 57 people and showed it 33 times to 18 people.'
-        )
-        expect([...figuresToMark(figures, 3)].map((figure) => figure.text)).toEqual(['57', '18', '212'])
+    test('emphasizes the exact number a source states when its value repeats', () => {
+        const quote = { excerpt: '4 events came from 4 issues.', highlight: { start: 19, end: 20 } }
+        expect(quoteSegments(quote, '4')).toEqual([
+            { text: '4 events came from ', marked: false },
+            { text: '4', marked: true },
+            { text: ' issues.', marked: false },
+        ])
     })
 })

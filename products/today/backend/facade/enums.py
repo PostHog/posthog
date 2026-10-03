@@ -70,3 +70,13 @@ class KeyClauseRole(LabeledStrEnum):
 class CitedSource(LabeledStrEnum):
     CODE = "code", "Code"
     SLACK = "slack", "Slack"
+
+
+class FigureText(LabeledStrEnum):
+    LEAD = "lead", "Lead"
+    IMPACT = "impact", "Impact"
+
+
+class FigureSourceKind(LabeledStrEnum):
+    SIGNAL = "signal", "Signal"
+    RESEARCH = "research", "Agent's research"

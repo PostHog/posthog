@@ -7,19 +7,12 @@ import { dayjs } from 'lib/dayjs'
 
 import type { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayMarkedFigure, daysAgo, staleEvidenceDate } from './todayFigureSources'
+import { daysAgo } from './todayFigureSources'
 import { shortDate } from './todayProse'
 import { todayReportLogic } from './todayReportLogic'
 
-export function TodayEvidenceAge({
-    marked,
-    report,
-}: {
-    marked: TodayMarkedFigure[]
-    report: Pick<SignalReport, 'id' | 'updated_at'>
-}): JSX.Element | null {
-    const { lastSeen } = useValues(todayReportLogic({ reportId: report.id }))
-    const date = staleEvidenceDate(marked)
+export function TodayEvidenceAge({ report }: { report: Pick<SignalReport, 'id' | 'updated_at'> }): JSX.Element | null {
+    const { lastSeen, staleFiguresDate: date } = useValues(todayReportLogic({ reportId: report.id }))
     if (!date || daysAgo(date) <= daysAgo(report.updated_at)) {
         return null
     }

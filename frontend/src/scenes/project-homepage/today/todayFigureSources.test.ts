@@ -1,7 +1,29 @@
 import { dayjs } from 'lib/dayjs'
 
-import { anchorToday, figureSource, researchNotes } from './todayFigureSources'
+import type { FigureMarkApi } from 'products/today/frontend/generated/api.schemas'
+
+import { anchorToday, markedFigures } from './todayFigureSources'
 import { signal } from './todayTestFixtures'
+
+const LEAD = 'Since `syncCart` shipped, [checkout](https://example.com) fails for 212 users.'
+const SHOWN = 'Since syncCart shipped, checkout fails for 212 users.'
+
+function mark(figure: string, at: number, signalId: string = 'carts'): FigureMarkApi {
+    return {
+        text: 'lead',
+        start: at,
+        end: at + figure.length,
+        figure,
+        quote: {
+            kind: 'signal',
+            signal_id: signalId,
+            at: '2026-10-01T10:00:00Z',
+            sentence: 'Checkout failed for 212 users.',
+            start: 20,
+            end: 23,
+        },
+    }
+}
 
 describe('todayFigureSources', () => {
     test.each([
@@ -17,61 +39,11 @@ describe('todayFigureSources', () => {
     })
 
     test.each([
-        [
-            'the signal that states the figure',
-            { text: '2,316', value: '2,316', noun: 'people' },
-            [signal({ signal_id: 'carts', content: 'Saved carts were opened by 2316 people in 30 days.' })],
-            [],
-            { kind: 'signal', excerpt: 'Saved carts were opened by 2,316 people in 30 days.', parts: null },
-        ],
-        [
-            'a small figure only when its noun matches',
-            { text: '14', value: '14', noun: 'days' },
-            [signal({ content: 'Retries happened 14 times today.' })],
-            [],
-            null,
-        ],
-        [
-            'the newest research that states the figure',
-            { text: '18', value: '18', noun: 'people' },
-            [],
-            [
-                {
-                    type: 'priority_judgment',
-                    created_at: '2026-10-02T00:00:00Z',
-                    content: { explanation: 'The empty cart page was shown to 18 people.' },
-                },
-                {
-                    type: 'priority_judgment',
-                    created_at: '2026-09-01T00:00:00Z',
-                    content: { explanation: 'The empty cart page was shown to 18 people last month.' },
-                },
-            ],
-            { kind: 'research', excerpt: 'The empty cart page was shown to 18 people.', parts: null },
-        ],
-        [
-            'a total the research gives as parts',
-            { text: '212', value: '212', noun: 'failed' },
-            [],
-            [
-                {
-                    type: 'priority_judgment',
-                    created_at: '2026-10-02T00:00:00Z',
-                    content: { explanation: 'Failed checkout requests rose to 150 timeout and 62 declined.' },
-                },
-            ],
-            {
-                kind: 'research',
-                excerpt: 'Failed checkout requests rose to 150 timeout and 62 declined.',
-                parts: ['150', '62'],
-            },
-        ],
-    ])('traces %s', (_, figure, signals, artefacts, expected) => {
-        const source = figureSource(
-            figure,
-            { signals, research: researchNotes(artefacts), summary: null },
-            'We logged 212 failed checkout requests, shown to 18 people.'
-        )
-        expect(source ? { kind: source.kind, excerpt: source.excerpt, parts: source.parts } : null).toEqual(expected)
+        ['a number after code and a link', mark('212', SHOWN.indexOf('212')), [[4, 11, '212']]],
+        ['no number where the page text differs', mark('212', SHOWN.indexOf('212') + 1), []],
+        ['no number whose signal the page does not list', mark('212', SHOWN.indexOf('212'), 'gone'), []],
+    ])('places %s', (_, figureMark, expected) => {
+        const placed = markedFigures(LEAD, [figureMark], [signal({ signal_id: 'carts' })])
+        expect(placed.map((figure) => [figure.segment, figure.start, figure.text])).toEqual(expected)
     })
 })

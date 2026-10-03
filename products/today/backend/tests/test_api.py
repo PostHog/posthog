@@ -1,3 +1,5 @@
+import json
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import time_machine
@@ -9,15 +11,20 @@ from rest_framework import status
 
 from posthog.llm.system_one import SystemOneNotConfigured
 
+from products.signals.backend.facade import api as signals
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
+from products.today.backend.tests.test_figure_sources import AGREEING, SameAnswerJev
 from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY, FakeJev
 from products.today.backend.tests.test_report_page import page_source
 
 REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
+FIGURE_LEAD = "The export failed for 212 users."
+FIGURE_SOURCE = "On Monday the export failed for 212 users."
+WRITTEN_AT = datetime(2026, 10, 1, 9, 0, tzinfo=UTC)
 
 
 @patch("products.today.backend.logic.briefings.sync_connect")
@@ -190,6 +197,78 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             [text] = response.json()["texts"]
             assert [(clause["text"], clause["role"], clause["expansion"]) for clause in text["key_clauses"]] == [
                 (CAUSE, "cause", [CAUSE_EXPLAINED])
+            ]
+
+    @parameterized.expand(
+        [
+            ("a signal states the number", True, "signal", None, status.HTTP_200_OK),
+            ("the agent's research states the number", True, "research", None, status.HTTP_200_OK),
+            ("flag off", False, "signal", None, status.HTTP_404_NOT_FOUND),
+            ("no gateway", True, "signal", SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
+        ]
+    )
+    def test_figure_marks_name_the_sentence_that_states_each_number(
+        self,
+        _sync_connect: MagicMock,
+        _name: str,
+        flag: bool,
+        source_kind: str,
+        gateway_error: Exception | None,
+        expected: int,
+    ) -> None:
+        signal = signals.ReportSignal(
+            signal_id="signal-1",
+            content=FIGURE_SOURCE,
+            source_product="error_tracking",
+            source_type="issue",
+            source_id="issue-1",
+            timestamp=WRITTEN_AT,
+            extra={},
+        )
+        finding = signals.ReportArtefactText(
+            artefact_id="artefact-1",
+            type="signal_finding",
+            content=json.dumps({"data_queried": FIGURE_SOURCE}),
+            created_at=WRITTEN_AT,
+            written_by_person=False,
+        )
+        page = replace(
+            page_source(),
+            sections=signals.ReportSections(lead=FIGURE_LEAD, impact=None, solution=None),
+            signals=[signal] if source_kind == "signal" else [],
+        )
+        with (
+            self._flag(flag),
+            patch("products.today.backend.facade.api.signals.report_page_source", return_value=page),
+            patch(
+                "products.today.backend.facade.api.signals.report_artefact_texts",
+                return_value=[finding] if source_kind == "research" else [],
+            ),
+            patch(
+                "products.today.backend.facade.api.GatewayJev",
+                return_value=SameAnswerJev(AGREEING),
+                side_effect=gateway_error,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/figure_marks/")
+
+        assert response.status_code == expected
+        if expected == status.HTTP_200_OK:
+            assert response.json()["marks"] == [
+                {
+                    "text": "lead",
+                    "start": FIGURE_LEAD.index("212"),
+                    "end": FIGURE_LEAD.index("212") + 3,
+                    "figure": "212",
+                    "quote": {
+                        "kind": source_kind,
+                        "signal_id": "signal-1" if source_kind == "signal" else None,
+                        "at": "2026-10-01T09:00:00Z",
+                        "sentence": FIGURE_SOURCE,
+                        "start": FIGURE_SOURCE.index("212"),
+                        "end": FIGURE_SOURCE.index("212") + 3,
+                    },
+                }
             ]
 
     @parameterized.expand(

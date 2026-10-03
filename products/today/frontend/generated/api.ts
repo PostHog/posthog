@@ -13,6 +13,7 @@ import type {
     CandidateListApi,
     ExcerptChoiceApi,
     ExcerptChoiceQueryApi,
+    FigureMarksApi,
     KeyClausesApi,
     KeyClausesQueryApi,
     ReportPageApi,
@@ -132,6 +133,25 @@ export const todayExcerptChoiceCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(excerptChoiceQueryApi),
+    })
+}
+
+export const getTodayReportsFigureMarksRetrieveUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/today/reports/${reportId}/figure_marks/`
+}
+
+/**
+ * The numbers in the report's lead and impact sentence that a signal or the agent's research states, each with the sentence that states it. A number is marked only when the decision model is sure it is a measured result and that one source states the same result. 404 when the report is missing or the person may not use Jev.
+ * @summary Mark the numbers of a report with their sources
+ */
+export const todayReportsFigureMarksRetrieve = async (
+    projectId: string,
+    reportId: string,
+    options?: RequestInit
+): Promise<FigureMarksApi> => {
+    return apiMutator<FigureMarksApi>(getTodayReportsFigureMarksRetrieveUrl(projectId, reportId), {
+        ...options,
+        method: 'GET',
     })
 }
 

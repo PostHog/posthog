@@ -383,6 +383,70 @@ export interface ExcerptChoiceApi {
 }
 
 /**
+ * * `lead` - Lead
+ * * `impact` - Impact
+ */
+export type FigureTextEnumApi = (typeof FigureTextEnumApi)[keyof typeof FigureTextEnumApi]
+
+export const FigureTextEnumApi = {
+    Lead: 'lead',
+    Impact: 'impact',
+} as const
+
+/**
+ * * `signal` - Signal
+ * * `research` - Agent's research
+ */
+export type FigureSourceKindEnumApi = (typeof FigureSourceKindEnumApi)[keyof typeof FigureSourceKindEnumApi]
+
+export const FigureSourceKindEnumApi = {
+    Signal: 'signal',
+    Research: 'research',
+} as const
+
+export interface FigureQuoteApi {
+    /** Where the number comes from: a signal or the agent's research.
+     *
+     * * `signal` - Signal
+     * * `research` - Agent's research */
+    kind: FigureSourceKindEnumApi
+    /**
+     * The signal that states the number. Null when the agent's research states it.
+     * @nullable
+     */
+    signal_id: string | null
+    /** When the source was written. */
+    at: string
+    /** The source sentence that states the number. */
+    sentence: string
+    /** Where the number starts in the sentence. */
+    start: number
+    /** Where the number ends in the sentence. */
+    end: number
+}
+
+export interface FigureMarkApi {
+    /** The page text the number is in: the lead or the impact sentence.
+     *
+     * * `lead` - Lead
+     * * `impact` - Impact */
+    text: FigureTextEnumApi
+    /** Where the number starts in that text, as the reader sees it. */
+    start: number
+    /** Where the number ends in that text. */
+    end: number
+    /** The number as the page shows it. */
+    figure: string
+    /** The sentence that states the same result. */
+    quote: FigureQuoteApi
+}
+
+export interface FigureMarksApi {
+    /** The numbers to mark, at most 4, each with its source. */
+    marks: FigureMarkApi[]
+}
+
+/**
  * * `problem` - Problem
  * * `cause` - Cause
  * * `fix` - Fix

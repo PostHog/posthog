@@ -4,26 +4,21 @@ import { Text } from '@posthog/quill'
 
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayFigureMark } from './TodayFigureMark'
-import type { TodayMarkedFigure } from './todayFigureSources'
 import { TodayInlineTrend } from './TodayInlineTrend'
 import { TodayMarkedText } from './TodayMarkedText'
 import { todayReportLogic } from './todayReportLogic'
 
-export function TodayReportAbstract({
-    report,
-    leadIsMeasured,
-    impactMarks,
-}: {
-    report: SignalReport
-    leadIsMeasured: boolean
-    impactMarks: TodayMarkedFigure[]
-}): JSX.Element | null {
-    const { impactNumbers: numbers, impactText } = useValues(todayReportLogic({ reportId: report.id }))
+export function TodayReportAbstract({ report }: { report: SignalReport }): JSX.Element | null {
+    const {
+        impactNumbers: numbers,
+        impactText,
+        impactMarks,
+        leadStatesNumber,
+    } = useValues(todayReportLogic({ reportId: report.id }))
 
     if (numbers.length === 0 && !impactText) {
-        if (leadIsMeasured) {
+        if (leadStatesNumber) {
             return null
         }
         return (
@@ -39,7 +34,6 @@ export function TodayReportAbstract({
                 <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
                     <TodayMarkedText markdown={impactText} marked={impactMarks} reportId={report.id} />
                 </Text>
-                <TodayEvidenceAge marked={impactMarks} report={report} />
             </div>
         )
     }

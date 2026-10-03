@@ -6,14 +6,13 @@ import { Button, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { isNotNil } from 'lib/utils/guards'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { signalDestination } from './todayEvidence'
-import { highlightSegments } from './todayFigures'
+import { TodayQuoteSegment, quoteSegments } from './todayFigures'
 import { TodayFigureCardContent, anchorToday } from './todayFigureSources'
 import { TodayIcon } from './TodayIcon'
 import { TodayInlineTrend } from './TodayInlineTrend'
@@ -25,14 +24,8 @@ import { signalSourceLabel } from './todaySignalText'
 const PEN_DELAY_MS = 180
 const PEN_STAGGER_MS = 140
 
-type QuotedContent = Extract<TodayFigureCardContent, { kind: 'signal' | 'research' | 'report' }>
+type QuotedContent = Extract<TodayFigureCardContent, { kind: 'signal' | 'research' }>
 type MetricContent = Extract<TodayFigureCardContent, { kind: 'metric' }>
-
-interface Equation {
-    left: string
-    sign: '=' | '≈'
-    right: string
-}
 
 interface QuoteSource {
     icon: TodayReportIcon | null
@@ -42,28 +35,15 @@ interface QuoteSource {
 }
 
 function quoteSource(content: QuotedContent): QuoteSource {
-    switch (content.kind) {
-        case 'signal':
-            return {
-                icon: sourceStyle(content.signal.source_product).icon,
-                label: signalSourceLabel(content.signal),
-                date: content.signal.timestamp,
-                signal: content.signal,
-            }
-        case 'research':
-            return { icon: 'scout', label: 'Agent’s research', date: content.note.at, signal: content.signal }
-        case 'report':
-            return { icon: null, label: 'Later in the report', date: null, signal: null }
+    if (content.kind === 'research') {
+        return { icon: 'scout', label: 'Agent’s research', date: content.at, signal: null }
     }
-}
-
-function equations(content: QuotedContent, figure: string): Equation[] {
-    const working = content.kind === 'signal' ? content.working : undefined
-    return [
-        content.parts ? { left: content.parts.join(' + '), sign: '=' as const, right: figure } : null,
-        content.exact ? { left: content.exact, sign: '≈' as const, right: figure } : null,
-        working ? { left: working.expression, sign: '=' as const, right: working.result } : null,
-    ].filter(isNotNil)
+    return {
+        icon: sourceStyle(content.signal.source_product).icon,
+        label: signalSourceLabel(content.signal),
+        date: content.signal.timestamp,
+        signal: content.signal,
+    }
 }
 
 function CardHeader({ icon, children }: { icon: ReactNode; children: ReactNode }): JSX.Element {
@@ -156,7 +136,7 @@ function SignalAction({ signal, reportId }: { signal: SignalViewApi | null; repo
     return <FullReportLink reportId={reportId}>Open the full report</FullReportLink>
 }
 
-function Quote({ text, values }: { text: string; values: string[] }): JSX.Element {
+function Quote({ segments }: { segments: TodayQuoteSegment[] }): JSX.Element {
     let order = 0
     return (
         <Text
@@ -164,7 +144,7 @@ function Quote({ text, values }: { text: string; values: string[] }): JSX.Elemen
             render={<blockquote />}
             className="m-0 border-l-2 border-solid ps-3 text-pretty text-[var(--foreground)]"
         >
-            {highlightSegments(text, values).map((segment, index) =>
+            {segments.map((segment, index) =>
                 segment.marked ? (
                     <TodayPenMark key={index} seed={segment.text} delayMs={PEN_DELAY_MS + order++ * PEN_STAGGER_MS}>
                         {segment.text}
@@ -187,22 +167,23 @@ function QuoteCard({
     reportId: string
 }): JSX.Element {
     const source = quoteSource(content)
+    const working = content.kind === 'signal' ? content.working : undefined
+    const segments = quoteSegments(content, figure).map((segment) =>
+        source.date && !segment.marked ? { ...segment, text: anchorToday(segment.text, source.date) } : segment
+    )
     return (
         <div className="flex flex-col gap-2 p-3">
             <CardHeader icon={source.icon && <TodayIcon icon={source.icon} />}>
                 <span>{source.label}</span>
                 {source.date && <CardDate date={source.date} />}
             </CardHeader>
-            <Quote
-                text={source.date ? anchorToday(content.excerpt, source.date) : content.excerpt}
-                values={content.values ?? [figure]}
-            />
-            {equations(content, figure).map((equation) => (
-                <Text key={equation.left} size="xs" variant="muted" render={<p />} className="tabular-nums">
-                    {`${equation.left} ${equation.sign} `}
-                    <span className="font-semibold text-[var(--foreground)]">{equation.right}</span>
+            <Quote segments={segments} />
+            {working && (
+                <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
+                    {`${working.expression} = `}
+                    <span className="font-semibold text-[var(--foreground)]">{working.result}</span>
                 </Text>
-            ))}
+            )}
             <SignalAction signal={source.signal} reportId={reportId} />
         </div>
     )

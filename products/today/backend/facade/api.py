@@ -12,6 +12,7 @@ from ..feature_flags import (
 from ..logic import (
     briefings,
     code_excerpts,
+    figure_sources,
     key_clauses,
     report_page as report_pages,
 )
@@ -75,3 +76,12 @@ def pick_code_excerpt(*, team: Team, user: User, finding: str, excerpts: list[st
 def report_page(*, team: Team, report_id: str) -> contracts.ReportPage | None:
     source = report_pages.page_source(team=team, report_id=report_id)
     return report_pages.report_page(source) if source is not None else None
+
+
+def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contracts.FigureMark] | None:
+    page = signals.report_page_source(team=team, report_id=report_id)
+    if page is None:
+        return None
+    artefacts = signals.report_artefact_texts(team=team, report_id=report_id, types=figure_sources.RESEARCH_TYPES)
+    jev = GatewayJev(team_id=team.id, distinct_id=str(user.distinct_id), model=figure_sources.FIGURE_MODEL)
+    return report_pages.figure_marks(page, artefacts, jev)

@@ -6,9 +6,12 @@ from posthog.models import Team
 from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
-from . import evidence, impact, samples
+from ..facade.enums import FigureSourceKind, FigureText
+from . import evidence, figure_sources, impact, samples
 from .formats import digits_end, github_links, is_word_char
+from .jev import JevClient
 from .prose import concise_text
+from .report_text import rendered_text
 
 _PROPOSAL_CHARS = 260
 _IMPACT_CHARS = 180
@@ -113,3 +116,36 @@ def page_source(*, team: Team, report_id: str) -> signals.ReportPageSource | Non
         return signals.report_page_source(team=team, report_id=report_id)
     sample = samples.sample_report(report_id)
     return samples.sample_page_source(sample) if sample is not None else None
+
+
+def _figure_quote(candidate: figure_sources.Candidate) -> contracts.FigureQuote:
+    source = candidate.source
+    return contracts.FigureQuote(
+        kind=source.kind,
+        signal_id=source.source_id if source.kind == FigureSourceKind.SIGNAL else None,
+        at=source.at,
+        sentence=source.sentence,
+        start=candidate.number.start,
+        end=candidate.number.end,
+    )
+
+
+def figure_marks(
+    page: signals.ReportPageSource, artefacts: list[signals.ReportArtefactText], jev: JevClient
+) -> list[contracts.FigureMark]:
+    texts = {
+        FigureText.LEAD.value: rendered_text(page.sections.lead),
+        FigureText.IMPACT.value: rendered_text(impact_sentence(page.sections.impact)),
+    }
+    notes = figure_sources.research_notes(artefacts)
+    matches = figure_sources.match_figures(texts, [_signal_input(signal) for signal in page.signals], notes, jev)
+    return [
+        contracts.FigureMark(
+            text=FigureText(match.claim.text_name),
+            start=match.claim.figure.start,
+            end=match.claim.figure.end,
+            figure=match.claim.figure.text,
+            quote=_figure_quote(match.source),
+        )
+        for match in matches
+    ]

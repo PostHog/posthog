@@ -15,7 +15,6 @@ import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/
 import { TodayActionButton } from './TodayActionButton'
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayEvidenceAge } from './TodayEvidenceAge'
-import type { TodayMarkedFigure } from './todayFigureSources'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { TodayMarkedText } from './TodayMarkedText'
 import { resolveDisabledReason } from './todayNextStep'
@@ -23,15 +22,9 @@ import { todayReportLogic } from './todayReportLogic'
 import { priorityBadgeVariant, reportSourceLine, reportTitle } from './todaySignalReports'
 
 const SAMPLE_REASON = 'This is a sample report.'
-export function TodayReportHeader({
-    report,
-    leadMarks,
-}: {
-    report: SignalReport
-    leadMarks: TodayMarkedFigure[]
-}): JSX.Element {
+export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
     const { requestReportVerdict } = useActions(todayLogic)
-    const { lead, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
+    const { lead, leadMarks, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
     const sampleReason = isSample ? SAMPLE_REASON : null
     const stateLabel = itemStateLabel({ state: reportState })
     const sources = reportSourceLine(report)
@@ -115,7 +108,7 @@ export function TodayReportHeader({
                         <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
                             <TodayMarkedText markdown={lead} marked={leadMarks} reportId={report.id} />
                         </Text>
-                        <TodayEvidenceAge marked={leadMarks} report={report} />
+                        <TodayEvidenceAge report={report} />
                     </div>
                 ) : (
                     <Text variant="muted" render={<p />}>

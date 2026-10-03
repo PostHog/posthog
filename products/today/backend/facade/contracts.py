@@ -9,6 +9,8 @@ from .enums import (
     BriefingStatus,
     BriefingWriter,
     CitedSource,
+    FigureSourceKind,
+    FigureText,
     ItemGroup,
     ItemReason,
     ItemSource,
@@ -139,6 +141,25 @@ class KeyClause:
 class TextKeyClauses:
     text: str
     key_clauses: list[KeyClause]
+
+
+@dataclass(frozen=True)
+class FigureQuote:
+    kind: FigureSourceKind
+    signal_id: str | None
+    at: datetime
+    sentence: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
+class FigureMark:
+    text: FigureText
+    start: int
+    end: int
+    figure: str
+    quote: FigureQuote
 
 
 @dataclass(frozen=True)

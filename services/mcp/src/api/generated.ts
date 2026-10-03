@@ -49768,6 +49768,72 @@ export namespace Schemas {
     }
 
     /**
+     * * `lead` - Lead
+     * * `impact` - Impact
+     */
+    export type FigureTextEnum = typeof FigureTextEnum[keyof typeof FigureTextEnum];
+
+
+    export const FigureTextEnum = {
+      Lead: 'lead',
+      Impact: 'impact',
+    } as const;
+
+    /**
+     * * `signal` - Signal
+     * * `research` - Agent's research
+     */
+    export type FigureSourceKindEnum = typeof FigureSourceKindEnum[keyof typeof FigureSourceKindEnum];
+
+
+    export const FigureSourceKindEnum = {
+      Signal: 'signal',
+      Research: 'research',
+    } as const;
+
+    export interface FigureQuote {
+      /** Where the number comes from: a signal or the agent's research.
+       *
+       * * `signal` - Signal
+       * * `research` - Agent's research */
+      kind: FigureSourceKindEnum;
+      /**
+         * The signal that states the number. Null when the agent's research states it.
+         * @nullable
+         */
+      signal_id: string | null;
+      /** When the source was written. */
+      at: string;
+      /** The source sentence that states the number. */
+      sentence: string;
+      /** Where the number starts in the sentence. */
+      start: number;
+      /** Where the number ends in the sentence. */
+      end: number;
+    }
+
+    export interface FigureMark {
+      /** The page text the number is in: the lead or the impact sentence.
+       *
+       * * `lead` - Lead
+       * * `impact` - Impact */
+      text: FigureTextEnum;
+      /** Where the number starts in that text, as the reader sees it. */
+      start: number;
+      /** Where the number ends in that text. */
+      end: number;
+      /** The number as the page shows it. */
+      figure: string;
+      /** The sentence that states the same result. */
+      quote: FigureQuote;
+    }
+
+    export interface FigureMarks {
+      /** The numbers to mark, at most 4, each with its source. */
+      marks: FigureMark[];
+    }
+
+    /**
      * * `hogql` - hogql
      */
     export type FileDownloadHogQLModelEnum = typeof FileDownloadHogQLModelEnum[keyof typeof FileDownloadHogQLModelEnum];
