@@ -160,12 +160,14 @@ class SweepScannerWorkflow(PostHogWorkflow):
             ),
         )
         # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
-        # UNIQUE(scanner_id, session_id) dedups retries.
+        # UNIQUE(scanner_id, session_id) dedups retries. Priming samples everything, so the tick's
+        # balanced rates describe only the fast and deep candidates.
         await asyncio.gather(
             *(
-                self._start_child(inputs, c)
-                for c in (*find_result.candidates, *find_result.deep_candidates, *find_result.priming_candidates)
-            )
+                self._start_child(inputs, c, find_result.variant_sampling_rates)
+                for c in (*find_result.candidates, *find_result.deep_candidates)
+            ),
+            *(self._start_child(inputs, c, None) for c in find_result.priming_candidates),
         )
 
         if find_result.keyset_end is not None:
@@ -215,7 +217,12 @@ class SweepScannerWorkflow(PostHogWorkflow):
             retry_policy=common.RetryPolicy(maximum_attempts=3),
         )
 
-    async def _start_child(self, inputs: SweepScannerInputs, candidate: CandidateSessionPayload) -> None:
+    async def _start_child(
+        self,
+        inputs: SweepScannerInputs,
+        candidate: CandidateSessionPayload,
+        variant_sampling_rates: dict[str, float] | None,
+    ) -> None:
         try:
             await wf.start_child_workflow(
                 APPLY_SCANNER_WORKFLOW_NAME,
@@ -224,6 +231,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     session_id=candidate.session_id,
                     team_id=inputs.team_id,
                     triggered_by=ObservationTrigger.SCHEDULE,
+                    variant_sampling_rates=variant_sampling_rates,
                 ),
                 id=build_apply_scanner_workflow_id(inputs.scanner_id, candidate.session_id),
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
