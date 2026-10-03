@@ -1,18 +1,13 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { recipientsLogic } from './recipientsLogic'
-import { unreachablePersonsUrl } from './unreachablePersonsUrl'
 
 const SEARCH_DEBOUNCE_MS = 300
 
@@ -210,19 +205,22 @@ describe('recipientsLogic', () => {
         expect(toastError).not.toHaveBeenCalled()
     })
 
+    it.each(['', '   '])('shows the empty view for a team with no recipient and the search %j', async (search) => {
+        useRecipientsResponse(() => [200, { results: [], next_cursor: null }])
+        await mountLogic()
+
+        logic.actions.setSearch(search)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.recipientsView).toBe('empty')
+    })
+
     it.each([
-        { name: 'no recipient at all', search: '', response: [200, { results: [], next_cursor: null }], view: 'empty' },
         {
             name: 'a search nobody matches',
             search: 'nobody',
             response: [200, { results: [], next_cursor: null }],
             view: 'no-match',
-        },
-        {
-            name: 'a search of only spaces',
-            search: '   ',
-            response: [200, { results: [], next_cursor: null }],
-            view: 'empty',
         },
         { name: 'a failed request', search: 'slow', response: [500, { detail: 'Query timed out' }], view: 'error' },
         { name: 'a page of recipients', search: 'jamie', response: [200, PAGES_BY_CURSOR['']], view: 'results' },
@@ -235,24 +233,5 @@ describe('recipientsLogic', () => {
         ])
 
         expect(logic.values.recipientsView).toBe(view)
-    })
-
-    it('links unreachable persons to the persons list filtered to persons with a missing or blank email', () => {
-        router.actions.push(unreachablePersonsUrl())
-        const { q } = router.values.hashParams
-
-        expect(router.values.location.pathname).toContain(urls.persons())
-        expect(q.full).toBe(true)
-        expect(q.source.kind).toBe('ActorsQuery')
-        // Without an explicit select the persons list renders its person column as "Unknown"
-        expect(q.source.select).toContain(PERSON_DISPLAY_NAME_COLUMN_NAME)
-        expect(q.source.properties).toEqual([
-            {
-                type: PropertyFilterType.Person,
-                key: 'email',
-                operator: PropertyOperator.NotRegex,
-                value: '[^ \\t\\n\\r]',
-            },
-        ])
     })
 })

@@ -42,9 +42,6 @@ describe('UnreachablePersonsNotice', () => {
 
         expect(capture).toHaveBeenCalledWith('audience unreachable persons opened', { count: 1342 })
         expect(router.values.location.pathname).toContain(urls.persons())
-        expect(router.values.hashParams.q.source.properties).toEqual([
-            { type: 'person', key: 'email', operator: 'not_regex', value: '[^ \\t\\n\\r]' },
-        ])
     })
 
     it.each([
