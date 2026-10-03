@@ -109,6 +109,10 @@
     display: contents;
 }
 
+body:has(.TodayAppLayout--phone) :is(input, textarea, select) {
+    font-size: 1rem;
+}
+
 body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     bottom: calc(84px + env(safe-area-inset-bottom));
 }
@@ -131,6 +135,15 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
         visibility: visible;
         opacity: 1;
         transform: none;
+    }
+
+    .quill-button--size-row {
+        height: 2.75rem;
+        font-size: 0.9375rem;
+    }
+
+    .quill-input-group {
+        height: 2.5rem;
     }
 }
 
