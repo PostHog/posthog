@@ -63,9 +63,60 @@
     }
 }
 
+.TodayAppLayout--phone {
+    --today-tab-bar-height: calc(76px + env(safe-area-inset-bottom));
+
+    padding-bottom: var(--today-tab-bar-height);
+}
+
+.TodayShell--phone {
+    display: contents;
+}
+
+// The toast container mounts outside the app layout, so it cannot read the tab bar height variable.
+body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
+    bottom: calc(84px + env(safe-area-inset-bottom));
+}
+
+.TodayShell__page {
+    position: fixed;
+    inset: 0 0 var(--today-tab-bar-height);
+    z-index: var(--z-layout-navbar);
+    height: auto;
+    visibility: hidden;
+    background: var(--today-paper);
+    opacity: 0;
+    transition:
+        transform 240ms var(--today-ease),
+        opacity 180ms var(--today-ease),
+        visibility 240ms;
+    transform: translateY(8px);
+
+    &[data-open='true'] {
+        visibility: visible;
+        opacity: 1;
+        transform: none;
+    }
+}
+
+.TodayTabBar {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-layout-navbar);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    height: var(--today-tab-bar-height);
+    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    background: var(--today-paper);
+}
+
 @media (prefers-reduced-motion: reduce) {
     .TodayShell__scrim,
-    .TodayShell__drawer {
+    .TodayShell__drawer,
+    .TodayShell__page {
         transition: none;
     }
 }

@@ -114,4 +114,22 @@ describe('todayShellLogic', () => {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
     })
+
+    it('on phone widths, drops the rail width and opens More without leaving the page', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            const logic = todayShellLogic()
+            logic.mount()
+            expect(logic.values.leftNavWidth).toBe(0)
+
+            router.actions.push('/project/1/airplane')
+            logic.actions.pickPane('more')
+            expect(router.values.location.pathname).toBe('/project/1/airplane')
+            expect(logic.values.activePane).toBe('more')
+            expect(logic.values.sidebarVisible).toBe(true)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
 })
