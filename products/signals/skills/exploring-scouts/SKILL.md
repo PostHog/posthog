@@ -53,6 +53,7 @@ There are six things you can observe about the fleet, each with its own tool:
 | What the scouts surfaced to the user         | `inbox-reports-list`            | The scout-written reports, as the user sees them (`scout: "<skill_name>"` for one scout; `source_product: "signals_scout"` for the fleet)                                                                                                                                               |
 
 `scout-config-list` takes a `tags` parameter (comma-separated) to narrow the roster to the scouts carrying any of the given labels — useful on a large fleet when the question is scoped to one area, e.g. `tags=revenue`.
+Its rows are compact by default (names, `enabled`, `status` / `pause_reason`, `emit`, schedule, `last_run_at`, `tags`), which is enough for the scripts below. Pass `"compact": false` for the other fields in the table above. Pass `limit` and `offset` to read a large roster in pages.
 `scout-runs-list` takes `skill_name` (and optionally `skill_version`) to scope the dump to one scout, which is the normal way to answer any question about a single scout without paging through the fleet.
 
 The orienting tool is `scout-project-profile-get` — the deterministic snapshot of "what's true about this project" that every scout cold-starts from.

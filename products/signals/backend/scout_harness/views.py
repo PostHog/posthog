@@ -97,6 +97,7 @@ from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW
 from products.signals.backend.scout_harness.scout_naming import SLUG_ALLOCATION_ATTEMPTS, allocate_scout_slug
 from products.signals.backend.scout_harness.serializers import (
     REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY,
+    SIGNAL_SCOUT_CONFIG_COMPACT_FIELDS,
     CancelReportCheckRequestSerializer,
     CreateReportCheckRequestSerializer,
     EditReportRequestSerializer,
@@ -3177,7 +3178,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here "
             "once its config is registered, either explicitly via create or by the coordinator's next "
             "tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given "
-            "labels, and `search` to narrow it to the scouts matching a substring of either name."
+            "labels, and `search` to narrow it to the scouts matching a substring of either name. "
+            "On a large fleet, pass `compact=true` to drop the long per-scout fields, and `limit` with "
+            "`offset` to read the roster in pages."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -3212,7 +3215,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # first. A scout with no name of its own falls back to its slug, which is close enough to the
         # label the clients derive from it to keep the two kinds interleaved instead of clumping the
         # unnamed ones at one end.
-        configs = list(queryset.order_by(Lower(Coalesce(NullIf("display_name", Value("")), "skill_name"))))
+        # `id` breaks ties between scouts that share a label, so pages never repeat or skip a row.
+        queryset = queryset.order_by(Lower(Coalesce(NullIf("display_name", Value("")), "skill_name")), "id")
+        offset = query.get("offset", 0)
+        limit = query.get("limit")
+        configs = list(queryset[offset : offset + limit] if limit is not None else queryset[offset:])
+        if query.get("compact"):
+            # The compact fields read only the row itself, so the skill and owner lookups are skipped.
+            serializer = SignalScoutConfigSerializer(configs, many=True, context={"request": request})
+            for field_name in set(serializer.child.fields) - set(SIGNAL_SCOUT_CONFIG_COMPACT_FIELDS):
+                serializer.child.fields.pop(field_name)
+            return Response(serializer.data)
         context = scout_config_context(team, [c.skill_name for c in configs], request)
         serializer = SignalScoutConfigSerializer(configs, many=True, context=context)
         return Response(serializer.data)

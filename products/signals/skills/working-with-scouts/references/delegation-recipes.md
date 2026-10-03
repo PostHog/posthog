@@ -10,7 +10,7 @@ A new custom event ("`checkout_v2_completed`", "`ai_summary_generated`") that no
 
 1. Confirm the event actually captures: `posthog:read-data-schema` for its shape, a quick `posthog:execute-sql` for volume.
    No data yet? Wait until it flows — a scout can't baseline an empty stream.
-2. Check the roster (`posthog:scout-config-list` descriptions): if the event belongs to a surface a specialist already watches (an error, a survey response, a flag call), a **note** telling that scout about the new event is enough.
+2. Check the roster (`posthog:scout-config-list` with `"compact": false` for the descriptions): if the event belongs to a surface a specialist already watches (an error, a survey response, a flag call), a **note** telling that scout about the new event is enough.
 3. Otherwise author a **custom single-event scout** via `authoring-scouts` — the custom single-event pattern in its `references/scout-patterns.md` is the template.
    Give it a real discriminator ("volume drops >50% against the trailing week while site traffic holds") rather than "watch for anything odd".
 
