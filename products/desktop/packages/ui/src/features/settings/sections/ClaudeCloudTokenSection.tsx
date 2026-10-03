@@ -194,6 +194,20 @@ export function ClaudeCloudTokenSection({
             Try again
           </Button>
         </div>
+      ) : !serverStoresToken && localToken.isError ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span role="alert" className="text-muted-foreground text-xs">
+            Desktop cannot read the token on this device. Try again.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            loading={localToken.isFetching}
+            onClick={() => void localToken.refetch()}
+          >
+            Try again
+          </Button>
+        </div>
       ) : status === "connected" && !replacingToken ? (
         confirmRemoval ? (
           removalRow
