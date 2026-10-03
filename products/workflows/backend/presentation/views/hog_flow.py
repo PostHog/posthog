@@ -83,7 +83,12 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaItemSerializer,
+    InputsSerializer,
+    validate_sandbox_email_sender,
+)
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
@@ -1602,6 +1607,11 @@ class HogFlowActionSerializer(serializers.Serializer):
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
+                for schema in input_schema or []:
+                    if schema.get("type") == "native_email":
+                        email_input = inputs.get(schema["key"])
+                        if isinstance(email_input, dict):
+                            validate_sandbox_email_sender(email_input.get("value"), self.context)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -2954,6 +2964,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+        self.context["workflow_origin_product"] = data.get(
+            "origin_product", instance.origin_product if instance else None
+        )
 
         # Who a "Create AI task" step runs as: the existing creator for an update, or the
         # requesting user for a brand-new flow (matches the `created_by` a create() actually

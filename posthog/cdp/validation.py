@@ -25,7 +25,7 @@ from posthog.cdp.filters import (
     compile_filters_bytecode,
     compile_filters_expr,
 )
-from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration
+from posthog.models.integration import POSTHOG_CONNECT_KIND, SANDBOX_EMAIL_PROVIDER, Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -77,6 +77,26 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
         for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
+
+
+def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
+    if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
+        return
+    integration_ids = _sender_integration_ids(email_value["from"])
+    get_team = context.get("get_team")
+    if not integration_ids or get_team is None:
+        return
+    if not Integration.objects.filter(
+        team_id=get_team().id,
+        id__in=integration_ids,
+        kind="email",
+        config__provider=SANDBOX_EMAIL_PROVIDER,
+    ).exists():
+        return
+    if context.get("workflow_origin_product") == "broadcasts":
+        raise serializers.ValidationError(
+            {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
+        )
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
