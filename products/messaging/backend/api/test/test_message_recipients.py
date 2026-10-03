@@ -448,6 +448,7 @@ class TestMessageRecipients(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self._person(None, distinct_id="anonymous-2", name="No Email")
         self._person("", distinct_id="blank-email")
         self._person("   ", distinct_id="whitespace-email")
+        self._person(None, distinct_id="other-team-anonymous", team=Team.objects.create(organization=self.organization))
 
         response = self.client.get(f"/api/projects/{self.team.id}/messaging_recipients/coverage/")
 
