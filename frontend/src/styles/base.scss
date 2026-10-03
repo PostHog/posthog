@@ -333,6 +333,8 @@
     --color-product-experiments-light: rgb(182 42 217);
     --color-product-error-tracking-light: rgb(211 148 24);
     --color-product-error-tracking-dark: rgb(247 165 1);
+    --color-product-autoresearch-light: rgb(182 42 217);
+    --color-product-autoresearch-dark: rgb(212 106 240);
     --color-product-alerts-light: rgb(229 142 0);
     --color-product-alerts-dark: rgb(255 168 28);
     --color-product-surveys-light: rgb(243 84 84);
@@ -739,6 +741,10 @@
     // sit above --z-modal. Pinned tooltips dismiss on outside pointer-down, so they can't linger
     // over a modal opened after pinning.
     --z-chart-tooltip: var(--z-graph-tooltip);
+
+    // A popover that holds a chart sits one layer under chart tooltips, which portal to the body,
+    // so the chart's tooltip shows on top of it. It stays above --z-modal.
+    --z-popover-with-chart: calc(var(--z-graph-tooltip) - 1);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code

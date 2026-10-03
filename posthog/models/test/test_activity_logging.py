@@ -13,7 +13,7 @@ class TeatActivityLog(TestCase):
         changes = dict_changes_between(
             model_type="Plugin",
             previous={"change_field": "foo", "delete_field": "foo"},
-            new={"change_field": "bar", "new_field": "bar"},
+            new={"change_field": "bar", "new_field": "bar", "_fp_loaded_team_api_token": "phc_fake_token"},
         )
 
         self.assertEqual(len(changes), 3)

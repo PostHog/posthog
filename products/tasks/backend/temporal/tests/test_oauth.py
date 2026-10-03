@@ -1,7 +1,11 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import Organization, Team
+from django.utils import timezone
+
+from posthog.models import OAuthAccessToken, Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
@@ -12,6 +16,7 @@ from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     MCPBuiltInAgentKey,
     Task,
+    TaskRun,
 )
 from products.tasks.backend.temporal.oauth import (
     INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS,
@@ -212,11 +217,28 @@ def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
         internal=True,
     )
 
-    create_oauth_access_token_for_run(task, {"ai_stage": "implementation", "mode": "background"})
+    first = TaskRun.objects.create(task=task, team=team, state={"ai_stage": "implementation", "mode": "background"})
+    token = OAuthAccessToken.objects.create(
+        user=creator,
+        token="token",
+        expires=timezone.now() + timedelta(hours=1),
+        scope="task:read",
+        sandbox_task_id=task.id,
+    )
+    create_oauth_access_token_for_run(task, first.state, run_id=first.id)
     assert "include_interactive_run_scope" not in mock_create.call_args.kwargs
-
-    create_oauth_access_token_for_run(task, {"mode": "interactive"})
+    first.refresh_from_db()
+    assert first.state["sandbox_oauth_token_ids"] == [str(token.id)]
+    second = task.create_run(extra_state={"resume_from_run_id": str(first.id), "mode": "interactive"})
+    assert "sandbox_oauth_token_ids" not in second.state
+    token.token = "second-token"
+    token.pk = None
+    token.save()
+    mock_create.return_value = "second-token"
+    create_oauth_access_token_for_run(task, second.state, run_id=second.id)
     assert mock_create.call_args.kwargs["include_interactive_run_scope"] is True
+    second.refresh_from_db()
+    assert second.state["sandbox_oauth_token_ids"] == [str(token.id)]
 
 
 def test_oauth_token_can_disable_task_creator_fallback() -> None:
@@ -526,6 +548,7 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 @pytest.mark.parametrize(
     ("origin_product", "state", "requested", "granted"),
     [
+        (Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS, {"pending_dispatch": {"posthog_mcp_scopes": []}}, None, []),
         (Task.OriginProduct.SPACE_SETUP, {"pending_dispatch": {"posthog_mcp_scopes": "full"}}, None, "full"),
         (
             Task.OriginProduct.SPACE_SETUP,

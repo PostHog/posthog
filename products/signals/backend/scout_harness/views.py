@@ -62,6 +62,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -158,7 +159,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     load_skill_for_run,
     resolve_scout_acting_user_id,
 )
-from products.signals.backend.scout_harness.suggestions import find_suggestion, mark_suggestion_created
+from products.signals.backend.scout_harness.suggestions import mark_suggestion_created
 from products.signals.backend.scout_harness.team_limits import (
     max_enabled_scouts_for_team,
     resolve_team_metadata,
@@ -208,6 +209,7 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -1239,7 +1241,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
                 # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
                 team=run.team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 title=data["title"],
                 summary=data["summary"],
                 evidence=evidence,
@@ -1253,6 +1255,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 charts=_to_report_charts(data.get("charts")),
                 metrics=_to_report_metrics(data.get("metrics")),
                 suggested_prompts=data.get("suggested_prompts"),
+                links=_to_report_links(data.get("links")),
                 idempotency_key=data.get("idempotency_key"),
             )
         except InvalidScoutReportError as exc:
@@ -1773,7 +1776,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "and what to establish; this call is the only thing that records the answer, so a run that "
             "investigates and says nothing leaves the check unanswered. The verdict lands on the report as a "
             "`check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a "
-            "recurring one, and `errored` retries it, so send the outcome you actually reached rather than "
+            "recurring one, and `errored` retries it. `inconclusive` with the `awaiting_data` reason looks "
+            "again later, and any other reason ends the check. Send the outcome you actually reached rather than "
             "the one that closes the loop. A run may close the check it was dispatched for, or a check on its own "
             "scout that is due or waiting on a run."
         ),
@@ -1822,6 +1826,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 outcome=data["outcome"],
                 explanation=data["explanation"],
                 observed_value=data.get("observed_value"),
+                reason=data.get("reason"),
             )
         except InvalidCheckResultError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -3036,21 +3041,8 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         # Hides the suggestion the moment its scout exists, rather than waiting for the read to
         # notice the name is taken — which it only does for enabled scouts and custom drafts.
-        # The scout is committed by here, so a failed marker must not answer 500 for a scout that
-        # exists; the read still hides the item once the name is taken. Only the draft this scout
-        # was created from is marked, so an unrelated id cannot retire another pick.
         if suggestion_id := validated.get("suggestion_id"):
-            try:
-                record = find_suggestion(canonical_team.id, suggestion_id)
-                if record is not None and record.get("skill_name") == outcome.skill.name:
-                    mark_suggestion_created(canonical_team.id, suggestion_id, config_id=str(outcome.config.id))
-            except Exception:
-                logger.warning(
-                    "scout_suggestions: failed to mark suggestion created",
-                    team_id=canonical_team.id,
-                    suggestion_id=suggestion_id,
-                    exc_info=True,
-                )
+            _mark_suggestion_created(canonical_team.id, suggestion_id, kind="custom", config=outcome.config)
         response = SignalScoutCreateResponseSerializer(
             {"created": outcome.created, "skill": outcome.skill, "config": outcome.config},
             context=scout_config_context(canonical_team, [outcome.skill.name], request),
@@ -3058,6 +3050,22 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(
             response.data,
             status=status.HTTP_201_CREATED if outcome.created else status.HTTP_200_OK,
+        )
+
+
+def _mark_suggestion_created(team_id: int, suggestion_id: str, *, kind: str, config: SignalScoutConfig) -> None:
+    # The scout is committed by here, so a failed marker must not answer 500 for a scout that
+    # exists. The read still hides the item once the scout is enabled or its name is taken.
+    try:
+        mark_suggestion_created(
+            team_id, suggestion_id, kind=kind, config_id=str(config.id), skill_name=config.skill_name
+        )
+    except Exception:
+        logger.warning(
+            "scout_suggestions: failed to mark suggestion created",
+            team_id=team_id,
+            suggestion_id=suggestion_id,
+            exc_info=True,
         )
 
 
@@ -3348,6 +3356,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 },
             )
             serializer.is_valid(raise_exception=True)
+            # Attribution only, not a config field, so it must not count as an edit of the config.
+            suggestion_id = serializer.validated_data.pop("suggestion_id", None)
             enabling = not config.enabled and serializer.validated_data.get("enabled")
             if enabling:
                 _reject_if_enabled_cap_reached(team_id, config.skill_name, cap=max_enabled_scouts)
@@ -3356,6 +3366,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if enabling:
                 save_kwargs["enabled_by"] = request.user
             instance = serializer.save(**save_kwargs)
+        if suggestion_id and instance.enabled:
+            _mark_suggestion_created(team_id, suggestion_id, kind="canonical", config=instance)
         context = scout_config_context(team, [instance.skill_name], request)
         return Response(SignalScoutConfigSerializer(instance, context=context).data)
 
@@ -3516,6 +3528,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "This scout watches the self-driving system itself, so it can't be deleted. "
                 "Switch it off in its settings if you need it to stop running."
             )
+        capture_background_scout_opted_out(
+            config=config, user=request.user if isinstance(request.user, User) else None, action=OPT_OUT_DELETED
+        )
         # Delete on the instance (not the queryset) so ModelActivityMixin's delete hook fires —
         # config changes drive spend and are activity-logged, removals included.
         config.delete()

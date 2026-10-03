@@ -27,10 +27,6 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.impact_measurement_plans import (
-    latest_measurement_plans,
-    persist_authored_measurement_plans,
-)
 from products.signals.backend.implementation_pr import ImplementationPr
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -41,9 +37,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportSuggestedReviewer,
 )
-from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
-from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Channel, Task
@@ -59,223 +53,15 @@ def _attach_github_login(user: User, login: str, *, uid: str | None = None) -> N
 
 
 class TestSignalReportArtefactViewSet(APIBaseTest):
-    def _impact_plan(self) -> dict:
-        return {
-            "metric_id": "affected-users",
-            "title": "Affected users",
-            "kind": "affected_users",
-            "value_format": "count",
-            "unit": "users",
-            "query": trends_metric_query(
-                series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-14d"
-            ),
-            "goal_value": 0,
-            "goal_direction": "at_most",
-            "decision_window_days": 7,
-        }
-
-    def test_impact_plan_approval_appends_a_version_and_rejects_stale_approval(self):
-        report = self._create_report()
-        url = self._list_url(str(report.id))
-        response = self.client.post(
-            url, {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()}, format="json"
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        plan_id = response.json()["id"]
-        approval_url = f"{self._detail_url(str(report.id), plan_id)}activate/"
-        approved = self.client.post(approval_url)
-        assert approved.status_code == status.HTTP_200_OK, approved.json()
-        assert approved.json()["content"]["activated"] is True
-        assert approved.json()["id"] != plan_id
-        assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 2
-        assert self.client.post(approval_url).status_code == status.HTTP_409_CONFLICT
-
-    def test_impact_plan_normalizes_metric_id_before_storing(self) -> None:
-        report = self._create_report()
-        plan = {**self._impact_plan(), "metric_id": " affected-users "}
-        response = self.client.post(
-            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert response.json()["content"]["metric_id"] == "affected-users"
-        assert list(latest_measurement_plans(report)) == ["affected-users"]
-
-        persist_authored_measurement_plans(report, [self._impact_plan()], ArtefactAttribution.system())
-        assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 1
-
-    def test_impact_plan_limits_active_outcomes_but_allows_revisions_and_replacements(self) -> None:
-        report = self._create_report()
-        url = self._list_url(str(report.id))
-
-        def write(metric_id: str, *, retired: bool = False) -> int:
-            content = {**self._impact_plan(), "metric_id": metric_id, "retired": retired}
-            return self.client.post(
-                url, {"artefact_type": "impact_measurement_plan", "content": content}, format="json"
-            ).status_code
-
-        for index in range(MAX_REPORT_METRICS):
-            assert write(f"outcome-{index}") == status.HTTP_201_CREATED
-
-        assert write("one-more") == status.HTTP_400_BAD_REQUEST
-        assert write("outcome-0") == status.HTTP_201_CREATED
-        assert write("outcome-0", retired=True) == status.HTTP_201_CREATED
-        assert write("one-more") == status.HTTP_201_CREATED
-        assert sum(not plan.retired for _, plan in latest_measurement_plans(report).values()) == MAX_REPORT_METRICS
-
-    def test_revised_plan_needs_new_approval_without_changing_other_outcomes(self):
-        report = self._create_report()
-        url = self._list_url(str(report.id))
-        original = self.client.post(
-            url, {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()}, format="json"
-        )
-        assert original.status_code == status.HTTP_201_CREATED, original.json()
-        approved = self.client.post(f"{self._detail_url(str(report.id), original.json()['id'])}activate/")
-        assert approved.status_code == status.HTTP_200_OK, approved.json()
-
-        another_outcome = {**self._impact_plan(), "metric_id": "another-outcome", "title": "Another outcome"}
-        assert (
-            self.client.post(
-                url, {"artefact_type": "impact_measurement_plan", "content": another_outcome}, format="json"
-            ).status_code
-            == status.HTTP_201_CREATED
-        )
-
-        revised = {**self._impact_plan(), "goal_value": 1}
-        revision = self.client.post(
-            url, {"artefact_type": "impact_measurement_plan", "content": revised}, format="json"
-        )
-        assert revision.status_code == status.HTTP_201_CREATED, revision.json()
-        latest = latest_measurement_plans(report)
-        assert str(latest["affected-users"][0].id) == revision.json()["id"]
-        assert latest["affected-users"][1].activated is False
-        assert latest["another-outcome"][1].goal_value == 0
-        assert (
-            self.client.post(f"{self._detail_url(str(report.id), approved.json()['id'])}activate/").status_code
-            == status.HTTP_409_CONFLICT
-        )
-
-    def test_impact_plan_cannot_be_activated_by_generic_write_or_changed_in_place(self):
-        report = self._create_report()
-        plan = self._impact_plan()
-        plan["activated"] = True
-        response = self.client.post(
-            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        plan["activated"] = False
-        response = self.client.post(
-            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
-        )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        detail_url = self._detail_url(str(report.id), response.json()["id"])
-        assert (
-            self.client.patch(detail_url, {"content": plan}, format="json").status_code == status.HTTP_400_BAD_REQUEST
-        )
-        assert self.client.delete(detail_url).status_code == status.HTTP_400_BAD_REQUEST
-
-    def test_research_keeps_plans_unless_it_explicitly_revises_or_retires_them(self):
-        report = self._create_report()
-        metric = self._impact_plan()
-        clean = persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
-        assert "goal_value" not in clean[0]
-        assert clean[0]["query"] == metric["query"]
-        first, proposal = latest_measurement_plans(report)["affected-users"]
-        assert proposal.goal_value == 0
-        assert proposal.activated is False
-        changed = {**metric, "goal_value": 7}
-        persist_authored_measurement_plans(report, [changed], ArtefactAttribution.system())
-        latest, unchanged = latest_measurement_plans(report)["affected-users"]
-        assert latest.id == first.id
-        assert unchanged.goal_value == 0
-
-        approved = SignalReportArtefact.add_log(
-            team_id=report.team_id,
-            report_id=str(report.id),
-            content=unchanged.model_copy(update={"activated": True}),
-            attribution=ArtefactAttribution.system(),
-        )
-        previous_plan_ids = {"affected-users": str(approved.id)}
-        persist_authored_measurement_plans(
-            report,
-            [metric],
-            ArtefactAttribution.system(),
-            revise_metric_ids=["affected-users"],
-            previous_plan_ids=previous_plan_ids,
-        )
-        assert latest_measurement_plans(report)["affected-users"][0].id == approved.id
-
-        persist_authored_measurement_plans(
-            report,
-            [changed],
-            ArtefactAttribution.system(),
-            revise_metric_ids=["affected-users"],
-            previous_plan_ids={"affected-users": str(first.id)},
-        )
-        assert latest_measurement_plans(report)["affected-users"][0].id == approved.id
-
-        persist_authored_measurement_plans(
-            report,
-            [changed],
-            ArtefactAttribution.system(),
-            revise_metric_ids=["affected-users"],
-            previous_plan_ids=previous_plan_ids,
-        )
-        revised_row, revised = latest_measurement_plans(report)["affected-users"]
-        assert revised_row.id != approved.id
-        assert revised.goal_value == 7
-        assert revised.activated is False
-
-        persist_authored_measurement_plans(
-            report,
-            [changed],
-            ArtefactAttribution.system(),
-            retire_metric_ids=["affected-users"],
-            previous_plan_ids={"affected-users": str(revised_row.id)},
-        )
-        retired_row, retired = latest_measurement_plans(report)["affected-users"]
-        assert retired_row.id != revised_row.id
-        assert retired.retired is True
-        assert retired.activated is False
-
-    def test_research_respects_the_active_measurement_limit(self) -> None:
-        report = self._create_report()
-        for index in range(MAX_REPORT_METRICS):
-            metric = {**self._impact_plan(), "metric_id": f"outcome-{index}"}
-            persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
-
-        extra = {**self._impact_plan(), "metric_id": "one-more"}
-        observations = persist_authored_measurement_plans(report, [extra], ArtefactAttribution.system())
-        assert "goal_value" not in observations[0]
-        assert "one-more" not in latest_measurement_plans(report)
-
-    def test_minimum_sample_requires_a_query_for_eligible_opportunities(self):
-        report = self._create_report()
-        plan = {**self._impact_plan(), "minimum_data_points": 30}
-        url = self._list_url(str(report.id))
-        payload = {"artefact_type": "impact_measurement_plan", "content": plan}
-        assert self.client.post(url, payload, format="json").status_code == status.HTTP_400_BAD_REQUEST
-
-        eligible_query = json.loads(json.dumps(plan["query"]))
-        eligible_query["source"]["series"][0]["math"] = "total"
-        payload["content"] = {**plan, "eligibility_query": eligible_query}
-        response = self.client.post(url, payload, format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-    def test_impact_plan_redacts_the_goal_if_query_access_is_denied(self):
+    def test_retired_measurement_plan_type_cannot_be_written(self) -> None:
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            {"artefact_type": "impact_measurement_plan", "content": self._impact_plan()},
+            {"artefact_type": "impact_measurement_plan", "content": {}},
             format="json",
         )
-        assert response.status_code == status.HTTP_201_CREATED
-        with patch(
-            "products.signals.backend.report_metric_access.ReportMetricAccessPolicy.may_read_query", return_value=False
-        ):
-            listed = self.client.get(self._list_url(str(report.id)))
-        content = listed.json()["results"][0]["content"]
-        assert "query" not in content
-        assert "goal_value" not in content
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "read-only" in response.json()["error"]
 
     def _list_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/artefacts/"

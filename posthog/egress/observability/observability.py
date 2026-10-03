@@ -170,10 +170,9 @@ class EgressObservability:
         request = getattr(response, "request", None)
         request_method = getattr(request, "method", None)
         request_url = getattr(request, "url", None)
-        response_headers = getattr(response, "headers", None)
         self.record_response(
             response.status_code,
-            response_headers if isinstance(response_headers, Mapping) else None,
+            response.headers if isinstance(response.headers, Mapping) else None,
             source=source,
             scope=scope,
             method=method,

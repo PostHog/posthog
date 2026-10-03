@@ -181,12 +181,15 @@ class _Recorder:
         has_assigned_signals: bool = True,
         research_choice: ActionabilityChoice = ActionabilityChoice.NOT_ACTIONABLE,
         research_metrics: list[dict[str, object]] | None = None,
+        checks_snapshot: dict[str, str] | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
         self.has_assigned_signals = has_assigned_signals
         self.research_choice = research_choice
         self.research_metrics = research_metrics
+        self.checks_snapshot = checks_snapshot
+        self.checks_summary: str | None = None
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -230,6 +233,7 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
 
     assert decoded.metrics is None
     assert decoded.charts is None
+    assert decoded.checks_snapshot is None
 
 
 async def _run_summary_workflow(recorder: _Recorder) -> None:
@@ -275,6 +279,8 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             already_addressed=False,
             repository="owner/repo",
             metrics=recorder.research_metrics,
+            checks_snapshot=recorder.checks_snapshot,
+            checks_summary=recorder.checks_summary,
         )
 
     @activity.defn(name="mark_report_pending_input_activity")
@@ -384,13 +390,17 @@ async def test_open_gates_let_the_run_flow_through():
 )
 async def test_metric_payload_reaches_the_report_transition(choice, target):
     metrics = [{"metric_id": "affected-users", "kind": "affected_users", "value": 12}]
-    recorder = _Recorder(research_choice=choice, research_metrics=metrics)
+    snapshot = {"check-1": "2026-10-02T12:00:00+00:00"}
+    recorder = _Recorder(research_choice=choice, research_metrics=metrics, checks_snapshot=snapshot)
+    recorder.checks_summary = "Expected impact matches the reconciled checks."
 
     await _run_summary_workflow(recorder)
 
     inputs = recorder.pending_inputs if target == "pending" else recorder.ready_inputs
     assert len(inputs) == 1
     assert inputs[0].metrics == metrics
+    assert inputs[0].checks_snapshot == snapshot
+    assert inputs[0].checks_summary == recorder.checks_summary
 
 
 # ---------------------------------------------------------------------------

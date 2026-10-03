@@ -60,6 +60,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -169,6 +170,7 @@ def create_scout_report(
     charts: Sequence[ReportChart] = (),
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
+    links: Sequence[ReportLink] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
@@ -201,6 +203,11 @@ def create_scout_report(
     `suggested_prompts`, when supplied, become the prompts (questions or next-step actions) the
     inbox offers above the report's "Ask AI" box. Written on the same terms as `charts`, and for
     the same reason.
+
+    `links`, when supplied, become the report's typed `report_link` rows. They are written in the
+    same transaction as the report, so the link gates in `auto_start` see them when the caller
+    fires autostart. A link that `add_log` rejects rolls back the whole report and raises
+    `InvalidScoutReportError`.
 
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
@@ -296,6 +303,17 @@ def create_scout_report(
                 SignalReportArtefact.append_status(
                     team_id=team_id, report_id=report_id, content=priority, attribution=attribution
                 )
+            for link in links:
+                try:
+                    SignalReportArtefact.add_log(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=link,
+                        attribution=attribution,
+                        write_path=ReportLinkWritePath.EMIT,
+                    )
+                except ArtefactContentValidationError as err:
+                    raise InvalidScoutReportError(str(err))
             if suggested_reviewers is not None and len(suggested_reviewers.root) > 0:
                 SignalReportArtefact.append_status(
                     team_id=team_id,
@@ -320,6 +338,10 @@ def create_scout_report(
                         source="scout",
                     )
                 )
+            # In-txn and before the signal emits below: the autostart gate reads authorship from this
+            # tally, so a report must never commit without it, and a failed Kafka emit must not skip it.
+            if run is not None:
+                _record_report_emit(team_id=team_id, run_id=run.id, report_id=report_id)
     except IntegrityError:
         # A concurrent emit of the same emission won the race, so this transaction rolled back. Hand
         # its report back: the loser is a retry, and it wants the twin it just avoided creating.
@@ -348,9 +370,6 @@ def create_scout_report(
             _emit_bound_signal(
                 team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
             )
-
-    if run is not None:
-        _record_report_emit(team_id=team_id, run_id=run.id, report_id=report_id)
 
     logger.info(
         "signals_scout.emit_report: created",
@@ -391,6 +410,24 @@ def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     only — the write paths keep their own fail-closed resolution under their transactions."""
     _validate_report_id(report_id)
     return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
+
+
+def missing_link_targets(*, team_id: int, links: Sequence[ReportLink]) -> list[str]:
+    """The link targets that name no live report in this team, in the order the caller gave them.
+
+    For the emit path's pre-judge gate: a new report has no incoming links, so a dead or foreign target
+    is the only link check the write can fail. A cost gate only — `add_log` re-checks every link under
+    the team's link lock."""
+    target_ids = list(dict.fromkeys(link.report_id for link in links))
+    if not target_ids:
+        return []
+    live = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team_id=team_id, id__in=target_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    return [target_id for target_id in target_ids if target_id not in live]
 
 
 def get_scout_report_signal_count(*, team_id: int, report_id: str) -> int | None:
@@ -619,6 +656,7 @@ def append_report_links(
                     report_id=report_id,
                     content=link,
                     attribution=attribution,
+                    write_path=ReportLinkWritePath.EDIT,
                 )
             except ArtefactContentValidationError as err:
                 raise InvalidScoutReportError(str(err))
@@ -1347,22 +1385,16 @@ def _signal_metadata(*, report_id: str, source_id: str, weight: float, extra: di
 
 def _record_report_emit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:
     """Append `report_id` to the run's `emitted_report_ids` tally so "which reports did this run
-    author?" is a column lookup. Best-effort and observability only (mirrors `emit._record_emit`):
-    the report has already been created by the time this runs, so any failure here is swallowed rather
-    than surfaced as a false emit failure. Runs under `select_for_update` so the read-modify-write on
-    the JSON list is safe, and scopes the lookup to `team_id` via the fail-closed manager so the tally
-    write can never touch a foreign team's run even if the caller's ownership guard regresses."""
-    try:
-        with transaction.atomic():
-            run = SignalScoutRun.objects.for_team(team_id).select_for_update().filter(pk=run_id).first()
-            if run is None:
-                logger.warning("signals_scout.emit_report: run %s gone, skipping report tally", run_id)
-                return
-            report_ids = [*(run.emitted_report_ids or []), report_id]
-            run.emitted_report_ids = report_ids
-            run.save(update_fields=["emitted_report_ids"])
-    except Exception:
-        logger.exception("signals_scout.emit_report: failed to record report emit for run %s", run_id)
+    author?" is a column lookup. Unlike `emit._record_emit` this is not best-effort: the autostart
+    gate reads the tally to hold back reports a background scout authored. So the caller runs it in
+    the report's transaction, and any failure here (run row gone included) rolls the report back
+    instead of leaving it without its authoring run. Runs under `select_for_update` so the
+    read-modify-write on the JSON list is safe, and scopes the lookup to `team_id` via the fail-closed
+    manager so the tally write can never touch a foreign team's run even if the caller's ownership
+    guard regresses."""
+    run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(pk=run_id)
+    run.emitted_report_ids = [*(run.emitted_report_ids or []), report_id]
+    run.save(update_fields=["emitted_report_ids"])
 
 
 def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:

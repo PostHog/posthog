@@ -19,6 +19,7 @@ degraded, never raised to users).
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Mapping
 from datetime import datetime
 from enum import Enum
@@ -28,6 +29,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority
+from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -131,6 +133,19 @@ class ActionabilityAssessment(BaseModel):
         if not v.strip():
             raise ValueError("Explanation must not be empty")
         return v
+
+
+def priority_from_judgment(content: str | None) -> str | None:
+    """The priority of a `priority_judgment` artefact's content, or None when the content has none.
+
+    Tolerant on purpose: an old or malformed judgment reads as "no priority" rather than an error.
+    """
+    try:
+        data = json.loads(content or "")
+    except (TypeError, ValueError):
+        return None
+    priority = data.get("priority") if isinstance(data, dict) else None
+    return priority if isinstance(priority, str) else None
 
 
 class PriorityAssessment(BaseModel):
@@ -319,6 +334,15 @@ class RankingModelResult(BaseModel):
     scores: dict[str, Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
         default_factory=dict,
         description="Outcome head name to its calibrated probability. Empty on a skipped model.",
+    )
+    # No upper bound: a lift reaches `1 / base_rate`.
+    lifts: dict[str, Annotated[float, Field(ge=0.0)]] = Field(
+        default_factory=dict,
+        description=(
+            "Outcome head name to its probability divided by the head's base rate "
+            "(`refit_classification_threshold`) from the model's metadata. Empty on a skipped model. "
+            "A head without a saved threshold has no entry."
+        ),
     )
     metadata: dict[str, Any] = Field(
         default_factory=dict,
@@ -934,12 +958,20 @@ class CheckResult(BaseModel):
     check_id: str = Field(description="UUID of the SignalReportCheck this run belongs to.")
     kind: str = Field(description="The check's kind, e.g. `metric_threshold`.")
     title: str = Field(description="The check's title, copied so the log entry reads on its own.")
-    outcome: Literal["passed", "failed", "errored"] = Field(
+    outcome: CheckOutcome = Field(
         description=(
-            "`passed` (the expectation held), `failed` (it did not), or `errored` (the check could not be measured)."
+            "`passed` (the expectation held), `failed` (it did not), `errored` (the check could not be measured), "
+            "or `inconclusive` (the run worked but could not settle the claim)."
         )
     )
     explanation: str = Field(description="One line saying what was measured and how it compared.")
+    reason: CheckInconclusiveReason | None = Field(
+        default=None,
+        description=(
+            "Why an `inconclusive` run could not settle the claim. Required on `inconclusive`, absent on any other "
+            "outcome."
+        ),
+    )
     observed_value: float | None = Field(default=None, description="The measured value; absent when the run errored.")
     baseline_value: float | None = Field(
         default=None, description="The value recorded when the check was written, when the author gave one."
@@ -956,6 +988,12 @@ class CheckResult(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    @model_validator(mode="after")
+    def reason_must_match_outcome(self) -> CheckResult:
+        if (self.outcome == "inconclusive") != (self.reason is not None):
+            raise ValueError("`reason` is required on an `inconclusive` result and refused on any other")
+        return self
 
 
 class CheckLifecycleEntry(BaseModel):
@@ -1010,7 +1048,7 @@ class CheckCancelled(CheckLifecycleEntry):
     the type rather than a nullable field.
     """
 
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research"] = Field(
+    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"] = Field(
         description="Which path stopped the check."
     )
 
@@ -1187,6 +1225,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "implementation_replacement",
         "implementation_handover",
         "ranking_score",
+        "impact_measurement_plan",
     }
 )
 
