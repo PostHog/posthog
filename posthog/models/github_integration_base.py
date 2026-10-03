@@ -2905,10 +2905,13 @@ class GitHubIntegrationBase:
         transient_status_codes = {502, 503, 504}
         if retry_transient is None:
             retry_transient = method.upper() == "GET"
-        # Proactively refresh expiring tokens (failure here is non-fatal — the loop retries on 401).
+        # Proactively refresh expiring tokens. A transient failure here is non-fatal because the loop
+        # retries on 401, but a lost installation cannot recover, so it fails the request now.
         try:
             if self.access_token_expired():
                 self.refresh_access_token()
+        except GitHubInstallationUnavailable as exc:
+            raise self._installation_unavailable_on(path) from exc
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
@@ -2947,8 +2950,8 @@ class GitHubIntegrationBase:
             if response.status_code == 401 and attempt == 0:
                 try:
                     self.refresh_access_token()
-                except GitHubInstallationUnavailable:
-                    raise
+                except GitHubInstallationUnavailable as exc:
+                    raise self._installation_unavailable_on(path) from exc
                 except Exception as exc:
                     raise GitHubIntegrationError(
                         f"GitHubIntegration: token refresh after 401 failed on {path}"
@@ -2965,6 +2968,14 @@ class GitHubIntegrationBase:
                 continue
             return response
         raise GitHubIntegrationError(f"GitHubIntegration: api_request exhausted retries on {path}")
+
+    @staticmethod
+    def _installation_unavailable_on(path: str) -> GitHubInstallationUnavailable:
+        # No status_code, because callers read it as the status of their own request. The refused
+        # mint's 404 would read as "this repository is gone", and evict or stop retrying on that.
+        return GitHubInstallationUnavailable(
+            f"GitHubIntegration: installation unavailable, token refresh failed on {path}"
+        )
 
     def _gh_api_get(self, path: str, *, endpoint: str, timeout: int = 10) -> dict:
         """Authenticated GET against ``https://api.github.com`` returning parsed JSON.

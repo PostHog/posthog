@@ -89,7 +89,7 @@ class FakeGitHub:
     repositories: dict[str, dict[str, str]]
     status_overrides: dict[str, int] = field(default_factory=dict)
     override_headers: dict[str, str] = field(default_factory=dict)
-    token_refresh_status: int = status.HTTP_201_CREATED
+    refused_token_refresh: requests.Response | None = None
     times_out_on: str | None = None
     shed: bool = False
     calls: list[dict] = field(default_factory=list)
@@ -124,11 +124,9 @@ class FakeGitHub:
         return _response(404, {"message": "Not Found"})
 
     def _token_refresh(self) -> requests.Response:
-        if self.token_refresh_status != status.HTTP_201_CREATED:
-            return _response(self.token_refresh_status, {"message": "refused"})
-        return _response(
-            self.token_refresh_status, {"token": "invented-fresh-token", "expires_at": "2099-01-01T00:00:00+00:00"}
-        )
+        if self.refused_token_refresh is not None:
+            return self.refused_token_refresh
+        return _response(201, {"token": "invented-fresh-token", "expires_at": "2099-01-01T00:00:00+00:00"})
 
     def blob_reads(self) -> int:
         return sum("/git/blobs/" in call["url"] for call in self.calls)
@@ -239,19 +237,42 @@ class TestEmailBrandDetectAPI(APIBaseTest):
             ),
             (
                 "token refresh fails for a moment",
-                {"status_overrides": {"/repos/": 401}, "token_refresh_status": 502},
+                {"status_overrides": {"/repos/": 401}, "refused_token_refresh": _response(502, b"Bad gateway")},
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "github_busy",
+            ),
+            (
+                "token refresh rate limited",
+                {
+                    "status_overrides": {"/repos/": 401},
+                    "refused_token_refresh": _response(
+                        403, {"message": "API rate limit exceeded"}, {"X-RateLimit-Remaining": "0"}
+                    ),
+                },
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "github_busy",
+            ),
+            (
+                "fresh token not accepted yet",
+                {"status_overrides": {"/repos/": 401}},
                 status.HTTP_429_TOO_MANY_REQUESTS,
                 "github_busy",
             ),
             (
                 "app uninstalled, so the token refresh is refused",
-                {"status_overrides": {"/repos/": 401}, "token_refresh_status": 404},
+                {
+                    "status_overrides": {"/repos/": 401},
+                    "refused_token_refresh": _response(404, {"message": "Not Found"}),
+                },
                 status.HTTP_400_BAD_REQUEST,
                 "github_disconnected",
             ),
             (
-                "token rejected again after a refresh",
-                {"status_overrides": {"/repos/": 401}},
+                "app suspended, so the token refresh is refused",
+                {
+                    "status_overrides": {"/repos/": 401},
+                    "refused_token_refresh": _response(403, {"message": "This installation has been suspended"}),
+                },
                 status.HTTP_400_BAD_REQUEST,
                 "github_disconnected",
             ),
@@ -278,22 +299,25 @@ class TestEmailBrandDetectAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert response.json()["code"] == expected_code
 
-    @parameterized.expand(
-        [
-            ("GitHub times out", {"times_out_on": "/git/blobs/"}),
-            ("token refresh fails for a moment", {"status_overrides": {"/repos/": 401}, "token_refresh_status": 502}),
-        ]
-    )
-    def test_reports_busy_for_a_passing_failure_after_the_installation_came_back(self, _flag, _name, fake_state):
+    def test_reports_busy_for_a_timeout_after_the_installation_came_back(self, _flag):
         self.integration.config = {**self.integration.config, INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY: 1}
         self.integration.save()
-        for attribute, value in fake_state.items():
-            setattr(self.github, attribute, value)
+        self.github.times_out_on = "/git/blobs/"
 
         response = self._detect(repository="acme/acme-web")
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
         assert response.json()["code"] == "github_busy"
+
+    def test_reports_disconnected_when_the_scheduled_token_refresh_is_refused(self, _flag):
+        self.integration.config = {**self.integration.config, "expires_in": 3600, "refreshed_at": 1}
+        self.integration.save()
+        self.github.refused_token_refresh = _response(404, {"message": "Not Found"})
+
+        response = self._detect(repository="acme/acme-web")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "github_disconnected"
 
     def test_reports_a_github_server_error_without_retrying_past_the_time_budget(self, _flag):
         self.github.status_overrides = {"/git/blobs/": 502}

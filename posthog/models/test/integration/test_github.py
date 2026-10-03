@@ -29,6 +29,7 @@ from posthog.github.merge_queue import MergeQueueState
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
+    GitHubInstallationUnavailable,
     GitHubIntegrationBase,
     PullRequestRef,
 )
@@ -2531,6 +2532,22 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert body == {"after_refresh": True}
         assert mock_refresh.called
+
+    @patch("posthog.egress.transport.transport.requests.request")
+    @patch("posthog.models.integration.github.GitHubIntegration.refresh_access_token")
+    @patch("posthog.models.integration.github.GitHubIntegration.access_token_expired", return_value=False)
+    def test_lost_installation_does_not_report_the_mint_status_as_the_request_status(
+        self, _mock_expired, mock_refresh, mock_get
+    ):
+        unauth = MagicMock()
+        unauth.status_code = 401
+        mock_get.return_value = unauth
+        mock_refresh.side_effect = GitHubInstallationUnavailable("installation gone", status_code=404)
+
+        integration = self._create_integration()
+        with pytest.raises(GitHubInstallationUnavailable) as excinfo:
+            GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
+        assert excinfo.value.status_code is None
 
     def test_rejects_path_without_leading_slash(self):
         integration = self._create_integration()
