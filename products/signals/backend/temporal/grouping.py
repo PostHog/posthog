@@ -1,5 +1,4 @@
 import os
-import json
 import uuid
 import asyncio
 from collections import defaultdict
@@ -43,7 +42,12 @@ from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
-from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
+from products.signals.backend.temporal.llm import (
+    MAX_QUERY_TOKENS,
+    call_llm,
+    parse_json_object,
+    truncate_query_to_token_limit,
+)
 from products.signals.backend.temporal.signal_queries import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -193,7 +197,7 @@ async def generate_search_queries(input: GenerateSearchQueriesInput) -> list[str
 - Description: {input.description}"""
 
     def validate(text: str) -> list[str]:
-        data = json.loads(text)
+        data = parse_json_object(text)
         result = QueryGenerationResponse.model_validate(data)
         return [truncate_query_to_token_limit(q) for q in result.queries[:MAX_SEARCH_QUERIES]]
 
@@ -462,7 +466,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
     )
 
     def validate(text: str) -> MatchResult:
-        data = json.loads(text)
+        data = parse_json_object(text)
         result = _parse_match_response(data)
 
         if isinstance(result, MatchFound):

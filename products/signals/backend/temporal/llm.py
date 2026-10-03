@@ -1,6 +1,7 @@
 import os
+import json
 from collections.abc import Callable, Mapping
-from typing import Final, Literal, Optional, TypedDict, TypeVar
+from typing import Any, Final, Literal, Optional, TypedDict, TypeVar
 
 from django.conf import settings
 
@@ -130,6 +131,40 @@ def _strip_markdown_json_fences(text: str) -> str:
     if stripped.startswith("```") and stripped.endswith("```"):
         return stripped[len("```") : -len("```")].strip()
     return text
+
+
+def parse_json_object(text: str) -> dict[str, Any]:
+    """Decode the first JSON object in the reply and ignore any text around it."""
+    decoder = json.JSONDecoder()
+    first_error: json.JSONDecodeError | None = None
+    # Only top-level braces are candidates. A nested object inside a malformed reply can match the
+    # schema on its own, and accepting it would skip the retry.
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"' and depth > 0:
+            in_string = True
+        elif char == "{":
+            if depth == 0:
+                try:
+                    data, _ = decoder.raw_decode(text, index)
+                except json.JSONDecodeError as e:
+                    first_error = first_error or e
+                else:
+                    if isinstance(data, dict):
+                        return data
+            depth += 1
+        elif char == "}" and depth > 0:
+            depth -= 1
+    raise first_error or json.JSONDecodeError("No JSON object found", text, 0)
 
 
 T = TypeVar("T")
