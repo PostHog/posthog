@@ -213,7 +213,6 @@ from products.workflows.backend.services.workflow_email_health import (
     resume_workflow_email_sending,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
-from products.workflows.backend.utils.batch_trigger_limit import hogflow_batch_trigger_limit_can_rise
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -6137,9 +6136,7 @@ class HogFlowViewSet(
                         "affected": size.affected,
                         "total": size.total,
                         "limit": size.limit,
-                        "limit_can_rise": hogflow_batch_trigger_limit_can_rise(
-                            self.team_id, sends_email=params["sends_email"]
-                        ),
+                        "limit_can_rise": size.limit_can_rise,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -6161,9 +6158,7 @@ class HogFlowViewSet(
                     "affected": size.affected,
                     "total": size.total,
                     "limit": size.limit,
-                    "limit_can_rise": hogflow_batch_trigger_limit_can_rise(
-                        self.team_id, sends_email=params["sends_email"]
-                    ),
+                    "limit_can_rise": size.limit_can_rise,
                     "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key

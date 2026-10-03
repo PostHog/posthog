@@ -113,6 +113,8 @@ class AudienceSize:
     total: int
     limit: int
     dedupe_key: str | None
+    # Whether `limit` grows on its own with clean sending, rather than being a fixed ceiling.
+    limit_can_rise: bool = False
 
 
 @frozen

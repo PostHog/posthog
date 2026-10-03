@@ -23,7 +23,10 @@ from products.workflows.backend.services.batch_audience import (
     get_batch_audience_count,
     get_batch_audience_person_ids,
 )
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.batch_trigger_limit import (
+    get_hogflow_batch_trigger_limit,
+    hogflow_batch_trigger_limit_can_rise,
+)
 
 
 def get_audience_size(
@@ -61,6 +64,7 @@ def get_audience_size(
         total=blast_radius.total,
         limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
         dedupe_key=applied_dedupe_key,
+        limit_can_rise=hogflow_batch_trigger_limit_can_rise(team_id, sends_email=sends_email),
     )
 
 
@@ -71,6 +75,7 @@ def get_account_audience_size(*, team_id: int, filters: dict, sends_email: bool)
         total=get_account_audience_count(team, {"audience_type": "accounts"}),
         limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
         dedupe_key=None,
+        limit_can_rise=hogflow_batch_trigger_limit_can_rise(team_id, sends_email=sends_email),
     )
 
 
