@@ -22,7 +22,7 @@ from products.tracing.backend.facade.team_extension import (
 )
 
 # Both routes resolve to the same handler — /api/projects/ is canonical, /api/environments/
-# remains as the back-compat alias. See `handle_tracing_config` in posthog/api/team/integration_config.py.
+# remains as the back-compat alias. See `handle_tracing_config`.
 URL_PREFIXES = [("projects", "api/projects"), ("environments", "api/environments")]
 
 DEFAULT_CONFIG = {
