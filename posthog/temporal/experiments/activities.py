@@ -38,7 +38,6 @@ from products.experiments.backend.facade.timeseries import (
     is_daily_timeseries_metric,
     is_scheduled_metric,
     resolve_saved_metric_definition,
-    sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -689,20 +688,6 @@ async def calculate_experiment_saved_metric(
     return await _calculate_experiment_saved_metric_sync(
         experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
     )
-
-
-@database_sync_to_async
-def _create_recalculation_from_timeseries_sync(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
-    close_old_connections()
-    return sync_timeseries_recalculation(
-        experiment_id, team_id=team_id, run_started_at=datetime.fromisoformat(run_started_at)
-    )
-
-
-@temporalio.activity.defn
-async def create_recalculation_from_timeseries(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
-    """Assemble a completed metrics recalculation from the timeseries points this run wrote for one experiment."""
-    return await _create_recalculation_from_timeseries_sync(experiment_id, team_id, run_started_at)
 
 
 @temporalio.activity.defn
