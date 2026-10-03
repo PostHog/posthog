@@ -267,7 +267,18 @@ describe('EmailService', () => {
                 capture.mockRestore()
             })
 
-            it.each([false, true])('skips with the global switch off (isTest=%s)', async (isTest) => {
+            it.each([
+                [false, {}],
+                [true, {}],
+                [false, { verified: false }],
+                [false, { name: '' }],
+            ] as const)('skips with the global switch off (isTest=%s, identity=%j)', async (isTest, senderConfig) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'UPDATE posthog_integration SET config = config || $1::jsonb WHERE team_id = $2 AND id = $3',
+                    [JSON.stringify(senderConfig), team.id, getIntegrationId(4)],
+                    'test:update-sandbox-sender'
+                )
                 service = createSandboxService(false)
                 const result = await service.executeSendEmail(invocation, isTest)
 

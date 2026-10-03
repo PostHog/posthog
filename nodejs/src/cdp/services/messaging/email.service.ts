@@ -480,8 +480,6 @@ export class EmailService {
                 )
             }
 
-            const from = this.resolveFromSender(integration, params.from, addLog)
-
             if (isSandbox && !this.sandboxSender?.config.enabled) {
                 addLog(
                     'info',
@@ -496,6 +494,8 @@ export class EmailService {
                 })
                 return result
             }
+            const from = this.resolveFromSender(integration, params.from, addLog)
+
             if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
                 addLog(
                     'info',
