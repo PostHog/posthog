@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { type ReactNode } from 'react'
 
 import { IconArchive, IconChevronLeft } from '@posthog/icons'
@@ -21,6 +22,7 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { sessionIconFields } from '~/layout/today/todayWorkItems'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -74,6 +76,8 @@ export function TaskRunSceneShell({
     children,
 }: TaskRunSceneShellProps): JSX.Element {
     const skin = useThreadSkin()
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const todayPhone = todayRailEnabled && phoneLayout
     return (
         <SceneContent className="h-full min-h-0 gap-y-0">
             {/* The quill skin moves the panel's facts and actions into the title's overflow menu (QuillTaskMenu). */}
@@ -147,7 +151,7 @@ export function TaskRunSceneShell({
                         <QuillSceneHeader
                             className={cn(taskError && 'mt-4')}
                             back={
-                                isMobile ? (
+                                isMobile && !todayPhone ? (
                                     <Button
                                         variant="default"
                                         size="icon-sm"
