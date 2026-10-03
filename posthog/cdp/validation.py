@@ -26,6 +26,7 @@ from posthog.cdp.filters import (
     compile_filters_expr,
 )
 from posthog.models.integration import POSTHOG_CONNECT_KIND, SANDBOX_EMAIL_PROVIDER, Integration
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -104,6 +105,13 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
                 "Select a sender on your own verified domain for destinations."
             }
         )
+    for stored in context.get("existing_email_values") or []:
+        if (
+            isinstance(stored, dict)
+            and email_value["from"] == stored.get("from")
+            and (email_value.get("replyTo") or "") == (stored.get("replyTo") or "")
+        ):
+            return
     if len(integration_ids) != 1:
         raise serializers.ValidationError(
             {
@@ -116,6 +124,20 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
             {
                 "input": "The sandbox sender uses a fixed From address and name and does not support Reply-To. "
                 "Remove these overrides or select a sender on your own verified domain."
+            }
+        )
+    team = get_team()
+    try:
+        enabled = posthog_feature_flag_enabled(
+            "workflows-sandbox-sender", str(team.uuid), organization_id=team.organization_id, team_id=team.id
+        )
+    except Exception:
+        enabled = False
+    if not enabled:
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender is not available for this project. "
+                "Select a sender on your own verified domain."
             }
         )
 

@@ -851,8 +851,8 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
-    """Stored email sender overrides keyed by action id, live and draft variants both kept.
+def _existing_email_values_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
+    """Stored email inputs keyed by action id, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
     builder save targets the draft, a raw API write targets live), so validation grandfathers
@@ -868,7 +868,7 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
             value = email_input.get("value") if isinstance(email_input, dict) else None
             from_value = value.get("from") if isinstance(value, dict) else None
             if isinstance(from_value, dict):
-                result.setdefault(stored_action["id"], []).append(from_value)
+                result.setdefault(stored_action["id"], []).append(value)
     return result
 
 
@@ -1607,12 +1607,18 @@ class HogFlowActionSerializer(serializers.Serializer):
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
+                existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
                 for schema in input_schema or []:
                     if schema.get("type") == "native_email":
                         email_input = inputs.get(schema["key"])
                         if isinstance(email_input, dict):
                             validate_sandbox_email_sender(
-                                email_input.get("value"), {**self.context, "workflow_action_type": data.get("type")}
+                                email_input.get("value"),
+                                {
+                                    **self.context,
+                                    "workflow_action_type": data.get("type"),
+                                    "existing_email_values": existing_emails,
+                                },
                             )
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
@@ -1624,6 +1630,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "function_type": template.type,
                         "workflow_action_type": data.get("type"),
                         "workflow_origin_product": self.context.get("workflow_origin_product"),
+                        "existing_email_values": existing_emails,
                         "is_dwh_source": self.context.get("is_dwh_source", False),
                         # The existing (decrypted) secret inputs for this action, so a resent
                         # {"secret": true} marker recovers the stored value instead of wiping it.
@@ -1633,9 +1640,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # sender address is checked against the integration's verified domain at
                         # save time, while an unchanged stored value is grandfathered.
                         "get_team": self.context.get("get_team"),
-                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
-                            data.get("id")
-                        ),
+                        "existing_email_from": [email["from"] for email in existing_emails],
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
                         "email_integration_domain_cache": self.context.setdefault(
@@ -3045,7 +3050,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
-            self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["existing_action_emails"] = _existing_email_values_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
