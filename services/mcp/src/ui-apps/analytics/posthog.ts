@@ -186,6 +186,25 @@ export function captureHostContextChanged(params: {
     })
 }
 
+export function captureChartRendered(params: {
+    visualizationType: string
+    queryKind?: string | undefined
+    display?: string | undefined
+}): void {
+    capture('mcp_ui_app_chart_rendered', {
+        visualization_type: params.visualizationType,
+        query_kind: params.queryKind,
+        display: params.display,
+    })
+}
+
+export function captureChartTypeChanged(params: { from: string; to: string }): void {
+    capture('mcp_ui_app_chart_type_changed', {
+        from_chart_type: params.from,
+        to_chart_type: params.to,
+    })
+}
+
 /**
  * Capture link opened via host.
  */

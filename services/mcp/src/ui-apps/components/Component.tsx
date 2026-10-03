@@ -1,11 +1,12 @@
-import type { ReactElement } from 'react'
+import { type ReactElement, useEffect } from 'react'
 
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Card, CardContent, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
+import { captureChartRendered } from '../analytics/posthog'
 import { ChartHeader } from './ChartHeader'
 import { FunnelVisualizer } from './FunnelVisualizer'
-import { inferVisualizationType } from './infer-visualization'
+import { inferVisualizationType, unwrapQueryKind } from './infer-visualization'
 import { LifecycleVisualizer } from './LifecycleVisualizer'
 import { PathsVisualizer } from './PathsVisualizer'
 import { RetentionVisualizer } from './RetentionVisualizer'
@@ -27,6 +28,7 @@ import type {
     TrendsQuery,
     TrendsResult,
 } from './types'
+import { getDisplayType } from './utils'
 
 /** Data payload from MCP tools */
 interface DataPayload {
@@ -56,6 +58,19 @@ export interface ComponentProps {
 export function Component({ data }: ComponentProps): ReactElement {
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
+    const queryKind = unwrapQueryKind(payload?.query as Record<string, unknown> | undefined)
+    const display =
+        visualizationType === 'trends'
+            ? getDisplayType(payload.query as TrendsQuery)
+            : visualizationType === 'stickiness'
+              ? (payload.query as StickinessQuery | undefined)?.stickinessFilter?.display
+              : undefined
+
+    const queryKey = JSON.stringify(payload?.query)
+
+    useEffect(() => {
+        captureChartRendered({ visualizationType: visualizationType ?? 'unsupported', queryKind, display })
+    }, [queryKey, visualizationType, queryKind, display])
 
     if (!visualizationType) {
         return (
