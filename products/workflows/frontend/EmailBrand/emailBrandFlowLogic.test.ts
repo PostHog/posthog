@@ -247,6 +247,7 @@ describe('emailBrandFlowLogic', () => {
                 },
             })
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: 42 }, { ...MOCK_DEFAULT_PROJECT, id: 9 })
+            logic = emailBrandFlowLogic({ entryPoint: 'template_library', onComplete })
             await expectLogic(logic, () => {
                 logic.mount()
             }).toFinishAllListeners()
@@ -404,5 +405,172 @@ describe('emailBrandFlowLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'email brand flow opened')).toEqual([
             ['email brand flow opened', { entry_point: 'template_library' }],
         ])
+    })
+    it('redetects the saved source rather than a new suggestion', async () => {
+        const detect = jest.fn(async ({ request }) => {
+            expect(await request.json()).toEqual(
+                expect.objectContaining({ repository: 'example/saved-app', app_root: 'apps/web' })
+            )
+            return exampleDetection
+        })
+        useMocks({
+            get: {
+                '/api/projects/:id/email_brand/current/': {
+                    ...exampleBrand,
+                    source_repository: 'example/saved-app',
+                    app_root: 'apps/web',
+                },
+            },
+            post: { '/api/projects/:id/email_brand/detect/': detect },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        expect(detect).toHaveBeenCalledTimes(1)
+        expect(logic.values.error).toBeNull()
+    })
+
+    it('preserves a kept saved edit when its detection signal disappears and returns', async () => {
+        useMocks({
+            get: { '/api/projects/:id/email_brand/current/': { ...exampleBrand, primary_color: '#ff5500' } },
+            post: {
+                '/api/projects/:id/email_brand/detect/': {
+                    ...exampleDetection,
+                    proposal: { ...exampleDetection.proposal, primary_color: null },
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        logic.actions.resolveConflict('primary_color', 'mine')
+        useMocks({ post: { '/api/projects/:id/email_brand/detect/': exampleDetection } })
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        expect(logic.values.draft.primary_color).toBe('#ff5500')
+        expect(logic.values.conflicts.primary_color).toEqual({ value: '#276749' })
+    })
+
+    it('keeps manual review when a pending connection check finishes', async () => {
+        let finish: () => void = () => {}
+        const waiting = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        const connection = jest.fn(async () => {
+            await waiting
+            return SUGGESTIONS
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:id/email_brand/suggest_repository/': connection } })
+        logic.actions.refreshConnection()
+        await expectLogic(logic).toDispatchActions(['loadEmailBrandConnection'])
+        logic.actions.skipToManual()
+        logic.actions.editField('name', 'Juniper Mail')
+        finish()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.step).toBe('review')
+        expect(logic.values.draft.name).toBe('Juniper Mail')
+    })
+
+    it.each(['save', 'starter'])('ignores a pending %s response after cancel and reopen', async (phase) => {
+        let finish: () => void = () => {}
+        const waiting = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        const create = jest.fn(async () => {
+            if (phase === 'starter') {
+                await waiting
+            }
+            return [201, { template_id: 'old-starter' }]
+        })
+        useMocks({
+            patch: {
+                '/api/projects/:id/email_brand/current/': async () => {
+                    if (phase === 'save') {
+                        await waiting
+                    }
+                    return exampleBrand
+                },
+            },
+            post: { '/api/projects/:id/email_brand/create_starter_template/': create },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.skipToManual()
+        logic.actions.save(true)
+        await expectLogic(logic).toDispatchActions([
+            phase === 'save' ? 'saveEmailBrand' : 'createEmailBrandStarterTemplate',
+        ])
+        logic.unmount()
+        const reopened = jest.fn()
+        logic = emailBrandFlowLogic({ entryPoint: 'template_library', onComplete: reopened })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadEmailBrandInitialSuccess'])
+        logic.actions.skipToManual()
+        logic.actions.editField('name', 'New draft')
+        finish()
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(reopened).not.toHaveBeenCalled()
+        expect(onComplete).not.toHaveBeenCalled()
+        expect(logic.values.completed).toBe(false)
+        expect(logic.values.draft.name).toBe('New draft')
+        expect(create).toHaveBeenCalledTimes(phase === 'save' ? 0 : 1)
+    })
+
+    it('does not retry starter creation after an uncertain response', async () => {
+        const create = jest.fn(() => [500, { detail: 'Response unavailable' }])
+        useMocks({
+            patch: { '/api/projects/:id/email_brand/current/': exampleBrand },
+            post: { '/api/projects/:id/email_brand/create_starter_template/': create },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.skipToManual()
+        await expectLogic(logic, () => logic.actions.save(true)).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.save(true)).toFinishAllListeners()
+        expect(create).toHaveBeenCalledTimes(1)
+        expect(logic.values.error?.code).toBe('create_outcome_unknown')
+        await expectLogic(logic, () => logic.actions.save(false)).toFinishAllListeners()
+        expect(onComplete).toHaveBeenCalledWith({ emailBrand: exampleBrand, templateId: null })
+    })
+
+    it('retains a loaded brand when repository suggestions fail', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:id/email_brand/current/': exampleBrand,
+                '/api/projects/:id/email_brand/suggest_repository/': () => [
+                    429,
+                    { code: 'github_busy', detail: 'GitHub is busy' },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        expect(logic.values.step).toBe('review')
+        expect(logic.values.draft.name).toBe(exampleBrand.name)
+        expect(logic.values.draft.primary_color).toBe(exampleBrand.primary_color)
+    })
+
+    it('cannot save defaults when the saved-brand lookup fails', async () => {
+        const save = jest.fn(() => exampleBrand)
+        useMocks({
+            get: { '/api/projects/:id/email_brand/current/': () => [500, { detail: 'Unavailable' }] },
+            patch: { '/api/projects/:id/email_brand/current/': save },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.skipToManual()
+        await expectLogic(logic, () => logic.actions.save(false)).toFinishAllListeners()
+        expect(save).not.toHaveBeenCalled()
+        expect(logic.values.step).toBe('loading')
     })
 })

@@ -85,6 +85,7 @@ export interface emailBrandFlowLogicValues {
     repository: string
     savedBrand: EmailBrandApi | null
     savedBrandLoading: boolean
+    starterAttempted: boolean
     starterTemplate: {
         path: 'editor' | 'server'
         templateId: string | null
@@ -135,7 +136,7 @@ export interface emailBrandFlowLogicActions {
     connectGitHub: () => {
         value: true
     }
-    createEmailBrandStarterTemplate: () => any
+    createEmailBrandStarterTemplate: (_: any) => any
     createEmailBrandStarterTemplateFailure: (
         error: string,
         errorObject?: any
@@ -180,7 +181,7 @@ export interface emailBrandFlowLogicActions {
         field: 'accent_color' | 'background_color' | 'font_family' | 'name' | 'primary_color' | 'text_color'
         value: string
     }
-    loadEmailBrandConnection: () => any
+    loadEmailBrandConnection: (_: any) => any
     loadEmailBrandConnectionFailure: (
         error: string,
         errorObject?: any
@@ -219,7 +220,7 @@ export interface emailBrandFlowLogicActions {
             appRoot?: string
         }
     }
-    loadEmailBrandInitial: () => any
+    loadEmailBrandInitial: (_: any) => any
     loadEmailBrandInitialFailure: (
         error: string,
         errorObject?: any
@@ -504,19 +505,23 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
         save: (createTemplate: boolean) => ({ createTemplate }),
         setStep: (step: 'loading' | 'connect' | 'repository' | 'detecting' | 'app' | 'files' | 'review') => ({ step }),
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ values, cache, actions }) => ({
         preview: [
             null as EmailBrandStarterDesignApi | null,
             {
                 loadEmailBrandPreview: async (_, breakpoint) => {
-                    await breakpoint(200)
-                    const draft = values.draft
-                    const result = await brandApi.emailBrandPreviewStarterDesignCreate(
-                        String(values.currentTeamId),
-                        draft
-                    )
-                    breakpoint()
-                    return result
+                    try {
+                        await breakpoint(200)
+                        const draft = values.draft
+                        const result = await brandApi.emailBrandPreviewStarterDesignCreate(
+                            String(values.currentTeamId),
+                            draft
+                        )
+                        breakpoint()
+                        return result
+                    } finally {
+                        breakpoint()
+                    }
                 },
             },
         ],
@@ -524,54 +529,73 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             null as { id: string; url: string; sourcePath?: string } | null,
             {
                 loadEmailBrandLogo: async ({ logoPath, file }: { logoPath?: string; file?: File }, breakpoint) => {
-                    if (
-                        file &&
-                        (file.size > 4 * 1024 * 1024 ||
-                            !['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'].includes(
-                                file.type
-                            ))
-                    ) {
-                        throw new Error('Upload a PNG, JPEG, GIF, WebP or SVG under 4 MB.')
-                    }
-                    let image = file
-                    if (logoPath) {
-                        const imported = await brandApi.emailBrandImportLogoCreate(String(values.currentTeamId), {
-                            integration_id: values.integrationId!,
-                            repository: values.repository,
-                            path: logoPath,
+                    try {
+                        if (
+                            file &&
+                            (file.size > 4 * 1024 * 1024 ||
+                                !['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'].includes(
+                                    file.type
+                                ))
+                        ) {
+                            throw new Error('Upload a PNG, JPEG, GIF, WebP or SVG under 4 MB.')
+                        }
+                        let image = file
+                        if (logoPath) {
+                            const imported = await brandApi.emailBrandImportLogoCreate(String(values.currentTeamId), {
+                                integration_id: values.integrationId!,
+                                repository: values.repository,
+                                path: logoPath,
+                            })
+                            breakpoint()
+                            if (imported.outcome === 'imported' && imported.media_id && imported.url) {
+                                return { id: imported.media_id, url: imported.url, sourcePath: logoPath }
+                            }
+                            if (!imported.svg) {
+                                throw new Error('Could not import this logo. Upload an image instead.')
+                            }
+                            image = await rasterizeLogo(imported.svg)
+                        } else if (image?.type === 'image/svg+xml') {
+                            image = await rasterizeLogo(await image.text())
+                        }
+                        breakpoint()
+                        if (!image) {
+                            throw new Error('Choose an image to upload.')
+                        }
+                        const uploaded = await uploadedMediaCreate(String(values.currentTeamId), {
+                            image,
+                            purpose: 'email',
                         })
                         breakpoint()
-                        if (imported.outcome === 'imported' && imported.media_id && imported.url) {
-                            return { id: imported.media_id, url: imported.url, sourcePath: logoPath }
+                        if (typeof uploaded.id !== 'string' || typeof uploaded.image_location !== 'string') {
+                            throw new Error('Could not upload this image. Try again.')
                         }
-                        if (!imported.svg) {
-                            throw new Error('Could not import this logo. Upload an image instead.')
-                        }
-                        image = await rasterizeLogo(imported.svg)
-                    } else if (image?.type === 'image/svg+xml') {
-                        image = await rasterizeLogo(await image.text())
+                        return { id: uploaded.id, url: uploaded.image_location, sourcePath: logoPath }
+                    } finally {
+                        breakpoint()
                     }
-                    breakpoint()
-                    if (!image) {
-                        throw new Error('Choose an image to upload.')
-                    }
-                    const uploaded = await uploadedMediaCreate(String(values.currentTeamId), {
-                        image,
-                        purpose: 'email',
-                    })
-                    breakpoint()
-                    if (typeof uploaded.id !== 'string' || typeof uploaded.image_location !== 'string') {
-                        throw new Error('Could not upload this image. Try again.')
-                    }
-                    return { id: uploaded.id, url: uploaded.image_location, sourcePath: logoPath }
                 },
             },
         ],
         connection: [
             null as RepositorySuggestionsApi | null,
             {
-                loadEmailBrandConnection: async () =>
-                    brandApi.emailBrandSuggestRepositoryRetrieve(String(values.currentTeamId)),
+                loadEmailBrandConnection: async (_, breakpoint) => {
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'connection')
+                    try {
+                        const result = await brandApi.emailBrandSuggestRepositoryRetrieve(
+                            String(values.currentTeamId),
+                            undefined,
+                            { signal: controller.signal }
+                        )
+                        if (controller.signal.aborted) {
+                            throw new DOMException('Connection check cancelled', 'AbortError')
+                        }
+                        return result
+                    } finally {
+                        breakpoint()
+                    }
+                },
             },
         ],
         detection: [
@@ -581,27 +605,31 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                     { refresh, appRoot }: { refresh: boolean; appRoot?: string },
                     breakpoint
                 ) => {
-                    const controller = new AbortController()
-                    cache.disposables.add(() => () => controller.abort(), 'detection')
-                    const result = await brandApi.emailBrandDetectCreate(
-                        String(values.currentTeamId),
-                        {
-                            integration_id: values.integrationId!,
-                            repository: values.repository,
-                            refresh,
-                            app_root: appRoot,
-                        },
-                        { signal: controller.signal }
-                    )
-                    breakpoint()
-                    return result
+                    try {
+                        const controller = new AbortController()
+                        cache.disposables.add(() => () => controller.abort(), 'detection')
+                        const result = await brandApi.emailBrandDetectCreate(
+                            String(values.currentTeamId),
+                            {
+                                integration_id: values.integrationId!,
+                                repository: values.repository,
+                                refresh,
+                                app_root: appRoot,
+                            },
+                            { signal: controller.signal }
+                        )
+                        breakpoint()
+                        return result
+                    } finally {
+                        breakpoint()
+                    }
                 },
             },
         ],
         starterTemplate: [
             null as { templateId: string | null; path: 'server' | 'editor' } | null,
             {
-                createEmailBrandStarterTemplate: async () => {
+                createEmailBrandStarterTemplate: async (_, breakpoint) => {
                     try {
                         const result = await brandApi.emailBrandCreateStarterTemplateCreate(
                             String(values.currentTeamId)
@@ -612,6 +640,8 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                             return { templateId: null, path: 'editor' as const }
                         }
                         throw error
+                    } finally {
+                        breakpoint()
                     }
                 },
             },
@@ -619,29 +649,55 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
         savedBrand: [
             null as EmailBrandApi | null,
             {
-                saveEmailBrand: async (_: { createTemplate: boolean }) =>
-                    brandApi.emailBrandCurrentPartialUpdate(String(values.currentTeamId), values.draft),
+                saveEmailBrand: async (_: { createTemplate: boolean }, breakpoint) => {
+                    try {
+                        return await brandApi.emailBrandCurrentPartialUpdate(String(values.currentTeamId), values.draft)
+                    } finally {
+                        breakpoint()
+                    }
+                },
             },
         ],
         initial: [
             null as { brand: EmailBrandApi | null; suggestions: RepositorySuggestionsApi } | null,
             {
-                loadEmailBrandInitial: async () => {
-                    let brand: EmailBrandApi | null = null
+                loadEmailBrandInitial: async (_, breakpoint) => {
                     try {
-                        brand = await brandApi.emailBrandCurrentRetrieve(String(values.currentTeamId))
-                    } catch (error) {
-                        if (!(error instanceof ApiError) || error.status !== 404) {
-                            throw error
+                        let brand: EmailBrandApi | null = null
+                        try {
+                            brand = await brandApi.emailBrandCurrentRetrieve(String(values.currentTeamId))
+                        } catch (error) {
+                            breakpoint()
+                            if (!(error instanceof ApiError) || error.status !== 404) {
+                                throw error
+                            }
                         }
+                        breakpoint()
+                        let suggestions: RepositorySuggestionsApi = { integration_id: null, repositories: [] }
+                        try {
+                            suggestions = await brandApi.emailBrandSuggestRepositoryRetrieve(
+                                String(values.currentTeamId)
+                            )
+                        } catch (error) {
+                            breakpoint()
+                            actions.setError({
+                                code:
+                                    error instanceof ApiError
+                                        ? (error.code ?? 'connection_failed')
+                                        : 'connection_failed',
+                                detail: 'Could not check GitHub. Your saved brand is still available. Reconnect or try again.',
+                            })
+                        }
+                        return { brand, suggestions }
+                    } finally {
+                        breakpoint()
                     }
-                    const suggestions = await brandApi.emailBrandSuggestRepositoryRetrieve(String(values.currentTeamId))
-                    return { brand, suggestions }
                 },
             },
         ],
     })),
     reducers({
+        starterAttempted: [false, { createEmailBrandStarterTemplate: () => true }],
         logoEdited: [
             false,
             {
@@ -723,10 +779,14 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             [] as BrandField[],
             {
                 editField: (fields, { field }) => Array.from(new Set([...fields, field])),
+                resolveConflict: (fields, { field, choice }) =>
+                    choice === 'mine' ? Array.from(new Set([...fields, field])) : fields,
                 loadEmailBrandInitialSuccess: (_, { initial }) =>
                     initial.brand
-                        ? brandFields.filter(
-                              (field) => !initial.brand!.sources?.[field] && initial.brand![field] !== emptyBrand[field]
+                        ? brandFields.filter((field) =>
+                              initial.brand!.sources?.[field]
+                                  ? initial.brand![field] !== initial.brand!.sources[field].detected_value
+                                  : initial.brand![field] !== emptyBrand[field]
                           )
                         : [],
             },
@@ -747,7 +807,8 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             {
                 setRepository: (_, { repository }) => repository,
                 loadEmailBrandConnectionSuccess: (_, { connection }) => connection.repositories[0]?.full_name ?? '',
-                loadEmailBrandInitialSuccess: (_, { initial }) => initial.suggestions.repositories[0]?.full_name ?? '',
+                loadEmailBrandInitialSuccess: (_, { initial }) =>
+                    initial.brand?.source_repository || initial.suggestions.repositories[0]?.full_name || '',
             },
         ],
         integrationId: [
@@ -761,7 +822,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             'loading' as 'loading' | 'connect' | 'repository' | 'detecting' | 'app' | 'files' | 'review',
             {
                 setStep: (_, { step }) => step,
-                skipToManual: () => 'review',
+                skipToManual: (step) => (step === 'loading' ? step : 'review'),
                 loadEmailBrandConnectionSuccess: (_, { connection }) =>
                     connection.integration_id ? 'repository' : 'connect',
                 loadEmailBrandInitialSuccess: (_, { initial }) =>
@@ -833,7 +894,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
         retryInitial: () => {
             if (!values.busy) {
                 actions.setError(null)
-                actions.loadEmailBrandInitial()
+                actions.loadEmailBrandInitial({})
             }
         },
         loadEmailBrandInitialSuccess: () => actions.refreshPreview(),
@@ -905,15 +966,20 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                 cache.disposables.dispose('fileReplay')
             }
         },
-        loadEmailBrandConnectionFailure: ({ errorObject }) =>
+        loadEmailBrandConnectionFailure: ({ errorObject }) => {
+            if (cache.skipConnection || errorObject?.name === 'AbortError') {
+                return
+            }
             actions.setError({
                 code: 'connection_failed',
                 detail: errorObject?.detail ?? 'Could not check GitHub. Try again.',
-            }),
+            })
+        },
         refreshConnection: () => {
             if (!values.busy) {
                 actions.setError(null)
-                actions.loadEmailBrandConnection()
+                cache.skipConnection = false
+                actions.loadEmailBrandConnection({})
             }
         },
         loadEmailBrandConnectionSuccess: ({ connection }) => {
@@ -923,6 +989,8 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             }
         },
         skipToManual: () => {
+            cache.skipConnection = true
+            cache.disposables.dispose('connection')
             cache.skipDetection = true
             cache.disposables.dispose('detection')
             cache.disposables.dispose('fileReplay')
@@ -948,10 +1016,10 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             actions.setStep(code === 'github_disconnected' ? 'connect' : 'repository')
             posthog.capture('email brand detection failed', { reason: code })
         },
-        createEmailBrandStarterTemplateFailure: ({ errorObject }) => {
+        createEmailBrandStarterTemplateFailure: () => {
             actions.setError({
-                code: 'create_failed',
-                detail: errorObject?.detail ?? 'Could not create the starter template. Try again.',
+                code: 'create_outcome_unknown',
+                detail: 'Your Email brand was saved. The starter template may have been created. Check the template library before creating another.',
             })
         },
         saveEmailBrandFailure: ({ errorObject }) => {
@@ -980,7 +1048,11 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
             actions.setStep('detecting')
             actions.loadEmailBrandDetection({
                 refresh,
-                appRoot: appRoot ?? (refresh && values.draft.app_root ? values.draft.app_root : undefined),
+                appRoot:
+                    appRoot ??
+                    (refresh && values.repository === values.draft.source_repository && values.draft.app_root
+                        ? values.draft.app_root
+                        : undefined),
             })
         },
         loadEmailBrandDetectionSuccess: ({ detection, payload }) => {
@@ -1033,7 +1105,9 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
         save: ({ createTemplate }) => {
             if (
                 values.busy ||
+                !values.initial ||
                 values.completed ||
+                (createTemplate && values.starterAttempted) ||
                 values.validationError ||
                 values.logoConflict ||
                 Object.keys(values.conflicts).length
@@ -1049,7 +1123,7 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
                 source: values.draft.source_repository ? 'detected' : 'manual',
             })
             if (payload?.createTemplate) {
-                actions.createEmailBrandStarterTemplate()
+                actions.createEmailBrandStarterTemplate({})
             } else {
                 props.onComplete({ emailBrand: savedBrand, templateId: null })
             }
@@ -1066,6 +1140,6 @@ export const emailBrandFlowLogic = kea<emailBrandFlowLogicType>([
     })),
     afterMount(({ actions, props }) => {
         posthog.capture('email brand flow opened', { entry_point: props.entryPoint })
-        actions.loadEmailBrandInitial()
+        actions.loadEmailBrandInitial({})
     }),
 ])

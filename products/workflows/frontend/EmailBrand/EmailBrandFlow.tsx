@@ -25,7 +25,7 @@ export function EmailBrandFlow(props: EmailBrandFlowProps): JSX.Element | null {
 
 function EmailBrandFlowContent(props: EmailBrandFlowProps): JSX.Element {
     const logic = emailBrandFlowLogic(props)
-    const { step, error, busy, initialLoading } = useValues(logic)
+    const { step, error, busy, initialLoading, initial } = useValues(logic)
     const { skipToManual, retryInitial } = useActions(logic)
     const index =
         step === 'review' ? 3 : ['app', 'files', 'detecting'].includes(step) ? 2 : step === 'repository' ? 1 : 0
@@ -89,7 +89,7 @@ function EmailBrandFlowContent(props: EmailBrandFlowProps): JSX.Element {
                     <LemonButton
                         type="tertiary"
                         onClick={skipToManual}
-                        disabledReason={initialLoading ? 'Wait for your brand to load' : undefined}
+                        disabledReason={!initial ? 'Load your saved brand before continuing' : undefined}
                         data-attr="email-brand-skip"
                     >
                         Skip, I'll fill it in by hand

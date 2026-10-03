@@ -384,15 +384,17 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         starter = build_starter_template(self._saved_brand())
         return Response(EmailBrandStarterDesignSerializer(starter).data)
 
-    @validated_request(
-        request_serializer=EmailBrandSerializer,
+    @extend_schema(
+        request=EmailBrandSerializer,
         responses={200: EmailBrandStarterDesignSerializer},
         summary="Preview a starter email design from unsaved brand values",
         description="Validates draft values and builds the starter design without saving a brand or template.",
     )
     @action(detail=False, methods=["POST"])
-    def preview_starter_design(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        brand = EmailBrand(team_id=self._project_team_id(), **request.validated_data)
+    def preview_starter_design(self, request: Request, **kwargs: Any) -> Response:
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        brand = EmailBrand(team_id=self._project_team_id(), **serializer.validated_data)
         starter = build_starter_template(brand)
         return Response(EmailBrandStarterDesignSerializer(starter).data)
 

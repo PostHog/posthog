@@ -8,7 +8,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import UploadedMedia
+from posthog.models import Team, UploadedMedia
 
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models import MessageTemplate
@@ -103,6 +103,33 @@ class TestEmailBrandStarterTemplateAPI(APIBaseTest):
         design = response.json()["design"]
         assert validate_design(design) == []
         assert _content(design, "brand-starter-cta")["values"]["buttonColors"]["backgroundColor"] == "#276749"
+        assert self.client.get(self._brand_url("current")).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_preview_accepts_own_email_logo_without_saving(self, _flag: MagicMock) -> None:
+        logo = self._logo()
+        response = self.client.post(
+            self._brand_url("preview_starter_design"), {"name": "Juniper", "logo": str(logo.id)}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert _content(response.json()["design"], "brand-starter-logo")["values"]["src"]["url"].endswith(
+            f"/uploaded_media/{logo.id}"
+        )
+        assert self.client.get(self._brand_url("current")).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_preview_rejects_foreign_pending_and_non_email_logos(self, _flag: MagicMock) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        logos = [
+            UploadedMedia.objects.create(team=other_team, purpose="email", file_name="logo.png"),
+            UploadedMedia.objects.create(team=self.team, purpose="email", file_name="logo.png", pending=True),
+            UploadedMedia.objects.create(team=self.team, purpose="desktop_feedback", file_name="shot.png"),
+        ]
+        for logo in logos:
+            response = self.client.post(
+                self._brand_url("preview_starter_design"), {"logo": str(logo.id)}, format="json"
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json()["attr"] == "logo"
         assert self.client.get(self._brand_url("current")).status_code == status.HTTP_404_NOT_FOUND
 
     def test_brand_without_a_logo_shows_its_name_as_the_header(self, _flag):

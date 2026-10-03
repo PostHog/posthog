@@ -32,6 +32,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
         preview,
         previewError,
         validationError,
+        starterAttempted,
     } = useValues(logic)
     const {
         editField,
@@ -110,7 +111,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                                 <div className="flex flex-wrap gap-1">
                                     {source ? (
                                         <Tooltip title={`${source.path}${source.line ? `, line ${source.line}` : ''}`}>
-                                            <LemonTag>
+                                            <LemonTag wrap className="max-w-full">
                                                 <span className="break-all">{`From ${source.path}`}</span>
                                             </LemonTag>
                                         </Tooltip>
@@ -182,7 +183,15 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                             loading={importedLogoLoading}
                             disabledReason={busy ? 'Wait for the current request to finish' : undefined}
                             onChange={(files) => files[0] && uploadLogo(files[0])}
-                            callToAction="Upload a logo"
+                            callToAction={
+                                <LemonButton
+                                    type="secondary"
+                                    loading={importedLogoLoading}
+                                    disabledReason={busy ? 'Wait for the current request to finish' : undefined}
+                                >
+                                    Upload a logo
+                                </LemonButton>
+                            }
                             showUploadedFiles={false}
                         />
                         <LemonButton
@@ -221,7 +230,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                             </div>
                         )}
                         {draft.sources.logo && (
-                            <LemonTag>
+                            <LemonTag wrap className="max-w-full">
                                 <span className="break-all">{`From ${draft.sources.logo.path}`}</span>
                             </LemonTag>
                         )}
@@ -242,12 +251,14 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
             <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
                 <LemonButton
                     type="primary"
-                    onClick={() => save(props.entryPoint !== 'channels')}
+                    onClick={() => save(props.entryPoint !== 'channels' && !starterAttempted)}
                     loading={busy}
                     disabledReason={hasConflicts ? 'Resolve the detected values first' : validationError}
                     data-attr="email-brand-save"
                 >
-                    {props.entryPoint === 'channels' ? 'Save Email brand' : 'Save and create starter template'}
+                    {props.entryPoint === 'channels' || starterAttempted
+                        ? 'Save Email brand'
+                        : 'Save and create starter template'}
                 </LemonButton>
             </div>
         </div>
