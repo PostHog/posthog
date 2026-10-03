@@ -220,7 +220,7 @@ class TestGitHubIntegrationModel(BaseTest):
             autospec=True,
             side_effect=publish_branch_cache,
         )
-        publish_patcher.start()
+        self.publish = publish_patcher.start()
         self.addCleanup(publish_patcher.stop)
 
     def create_integration(self, config: Optional[dict] = None, sensitive_config: Optional[dict] = None) -> Integration:
@@ -2450,8 +2450,8 @@ class TestGitHubIntegrationModel(BaseTest):
             )
             return False
 
-        with patch.object(CoalescedCacheRefresh, "_publish", autospec=True, side_effect=reject_expired_owner):
-            branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+        self.publish.side_effect = reject_expired_owner
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
 
         assert branches == ["successor"]
         assert default_branch == "successor"
