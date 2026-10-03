@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -120,9 +122,19 @@ describe('accountRelationshipsLogic', () => {
         expect(postedBody).toEqual({ definition: AE.id, user: 7 })
     })
 
-    it('deletes an assignment and closes the confirmation', async () => {
+    it.each([
+        { status: 204, body: {}, toast: null, reloads: true },
+        {
+            status: 409,
+            body: { detail: "The history of a controlled relationship can't be deleted." },
+            toast: "The history of a controlled relationship can't be deleted.",
+            reloads: false,
+        },
+    ])('closes the confirmation after a $status delete response', async ({ status, body, toast, reloads }) => {
         const relationship = buildRelationship()
-        useMocks({ delete: { [RELATIONSHIP_URL]: {} } })
+        const toastError = jest.spyOn(lemonToast, 'error').mockImplementation(() => '' as never)
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        useMocks({ delete: { [RELATIONSHIP_URL]: () => [status, body] } })
         await expectLogic(logic).toDispatchActions(['loadRelationshipsSuccess'])
 
         logic.actions.openDeleteConfirmation(relationship)
@@ -130,10 +142,12 @@ describe('accountRelationshipsLogic', () => {
         await expectLogic(logic).toDispatchActions([
             'relationshipSaveStarted',
             'closeDeleteConfirmation',
-            'loadRelationships',
+            ...(reloads ? ['loadRelationships'] : []),
             'relationshipSaveFinished',
         ])
 
         expect(logic.values.relationshipToDelete).toBeNull()
+        expect(captureException).not.toHaveBeenCalled()
+        expect(toastError.mock.calls).toEqual(toast ? [[toast]] : [])
     })
 })
