@@ -26,6 +26,7 @@ import { ElkDirection } from './autolayout'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
+import { lineageScopeLogic } from './lineageScopeLogic'
 import { LineageSelectionMode } from './lineageSelection'
 import { useNodesMeasured } from './useNodesMeasured'
 
@@ -76,11 +77,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, nodeOpenUrl, focusNodeIds, searchFocusRequest } =
         props
+    const variant = props.variant ?? 'full'
+    const direction = props.direction ?? 'RIGHT'
+    const scopeLogic = lineageScopeLogic({ nodes: props.nodes, edges: props.edges, variant, direction })
+    const { scoped } = useValues(scopeLogic)
+    const { showOnly, showAll } = useActions(scopeLogic)
     const logic = lineageGraphLogic({
-        nodes: props.loading ? EMPTY_NODES : props.nodes,
-        edges: props.loading ? EMPTY_EDGES : props.edges,
-        variant: props.variant ?? 'full',
-        direction: props.direction ?? 'RIGHT',
+        nodes: props.loading ? EMPTY_NODES : (scoped?.nodes ?? props.nodes),
+        edges: props.loading ? EMPTY_EDGES : (scoped?.edges ?? props.edges),
+        variant,
+        direction,
     })
     const { layout, selection, selectionCone } = useValues(logic)
     const { selectNode, clearSelection } = useActions(logic)
@@ -105,6 +111,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                           onClick: () => selectNode(node.id, 'both'),
                           onSelectLineage: (mode: LineageSelectionMode) => selectNode(node.id, mode),
                           onClearSelection: selection ? clearSelection : undefined,
+                          onShowOnly: (mode: LineageSelectionMode) => showOnly(node.id, mode),
+                          onShowAll: scoped ? showAll : undefined,
                       }
                     : baseCallbacks
                 const onClick = callbacks.onClick
@@ -154,6 +162,9 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             selectionCone,
             selectNode,
             clearSelection,
+            scoped,
+            showOnly,
+            showAll,
         ]
     )
 

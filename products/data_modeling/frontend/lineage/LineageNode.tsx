@@ -76,6 +76,8 @@ export interface LineageNodeCallbacks {
     onRunDownstream?: () => void
     onSelectLineage?: (mode: LineageSelectionMode) => void
     onClearSelection?: () => void
+    onShowOnly?: (mode: LineageSelectionMode) => void
+    onShowAll?: () => void
     onMouseEnter?: () => void
     onMouseLeave?: () => void
 }
@@ -217,6 +219,11 @@ function LineageNodeMenu({ data }: { data: LineageNodeData }): JSX.Element {
         { mode: 'upstream', label: 'Highlight upstream only' },
         { mode: 'downstream', label: 'Highlight downstream only' },
     ]
+    const showOnlyItems: { mode: LineageSelectionMode; label: string }[] = [
+        { mode: 'both', label: 'Show only lineage' },
+        { mode: 'upstream', label: 'Show only upstream' },
+        { mode: 'downstream', label: 'Show only downstream' },
+    ]
     return (
         <ContextMenuContent>
             <ContextMenuGroup>
@@ -232,6 +239,23 @@ function LineageNodeMenu({ data }: { data: LineageNodeData }): JSX.Element {
                     </ContextMenuItem>
                 )}
             </ContextMenuGroup>
+            {callbacks.onShowOnly && (
+                <>
+                    <ContextMenuSeparator />
+                    <ContextMenuGroup>
+                        {showOnlyItems.map(({ mode, label }) => (
+                            <ContextMenuItem key={mode} asChild onClick={() => callbacks.onShowOnly?.(mode)}>
+                                <ButtonPrimitive menuItem>{label}</ButtonPrimitive>
+                            </ContextMenuItem>
+                        ))}
+                        {callbacks.onShowAll && (
+                            <ContextMenuItem asChild onClick={callbacks.onShowAll}>
+                                <ButtonPrimitive menuItem>Show all models</ButtonPrimitive>
+                            </ContextMenuItem>
+                        )}
+                    </ContextMenuGroup>
+                </>
+            )}
             {callbacks.onSelectLineage && <ContextMenuSeparator />}
             <ContextMenuGroup>
                 {openUrl && (

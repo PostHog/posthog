@@ -1,4 +1,4 @@
-import { DataModelingEdge } from '~/types'
+import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { buildAdjacencyMaps, traverseLineage } from './lineageSearch'
 
@@ -37,4 +37,19 @@ export function lineageCone(edges: DataModelingEdge[], selection: LineageSelecti
     }
 
     return { nodeIds: new Set([selection.nodeId, ...upstream, ...downstream]), edgeIds }
+}
+
+export function scopeLineage(
+    nodes: DataModelingNode[],
+    edges: DataModelingEdge[],
+    scope: LineageSelection | null
+): { nodes: DataModelingNode[]; edges: DataModelingEdge[] } | null {
+    if (!scope || !nodes.some((node) => node.id === scope.nodeId)) {
+        return null
+    }
+    const cone = lineageCone(edges, scope)
+    return {
+        nodes: nodes.filter((node) => cone.nodeIds.has(node.id)),
+        edges: edges.filter((edge) => cone.edgeIds.has(edge.id)),
+    }
 }
