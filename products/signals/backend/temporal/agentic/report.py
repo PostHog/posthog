@@ -723,7 +723,6 @@ def _resolve_report_metrics_payload(
     return [metric.model_dump(mode="json", exclude=set(REPORT_METRIC_GOAL_FIELDS)) for metric in metrics]
 
 
-# Starts the reason of every selection research writes, so a later run can tell it from an agent guess.
 RESEARCH_REPOSITORY_REASON_PREFIX = "Research found the code for this report in"
 
 
@@ -735,19 +734,14 @@ def _reconcile_repo_selection(
     The selection agent guesses from the signals before anybody reads code. Research reads the code,
     so its answer wins over that guess. Only a guess yields: a selection without the agent's task id
     is a pin, the only connected repository, or a correction by a person or a scout, and stays. A
-    selection research already wrote also stays, because it carries the research task id too.
+    selection research already wrote also stays: `from_research` marks it, and the model cannot set it.
 
     A connected repository replaces the guess. Any other repository clears it, because research
     showed that the guess is wrong, and the next run then selects again. When the connected list is
     empty, the installation is unavailable rather than missing the repository, so the guess stays.
     """
     found = sanitized_repository(code_repository)
-    if (
-        found is None
-        or found == selection.repository
-        or selection.task_id is None
-        or selection.reason.startswith(RESEARCH_REPOSITORY_REASON_PREFIX)
-    ):
+    if found is None or found == selection.repository or selection.task_id is None or selection.from_research:
         return selection
     connected = list_team_connected_repositories(team_id)
     if not connected:
@@ -765,6 +759,7 @@ def _reconcile_repo_selection(
             reason=f"{RESEARCH_REPOSITORY_REASON_PREFIX} `{found}`, not in `{selection.repository}`.",
             task_id=research_task_id,
             autostart_eligible=False,
+            from_research=True,
         )
     return RepoSelectionResult(
         repository=None,

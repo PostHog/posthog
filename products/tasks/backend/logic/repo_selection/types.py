@@ -36,3 +36,8 @@ class RepoSelectionResult(BaseModel):
         default=True,
         description="Whether this selection may start an implementation task without a person asking for one.",
     )
+    # Set by Signals research when it rewrites the selection, never by the LLM (stripped from the prompt).
+    from_research: bool = Field(
+        default=False,
+        description="Whether report research wrote this selection, rather than the selection agent.",
+    )
