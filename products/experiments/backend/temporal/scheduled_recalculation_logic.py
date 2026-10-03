@@ -79,6 +79,8 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
 
     Deliberately applies no metrics filter: an experiment with no metrics gets a run, and the
     recalculation workflow completes it immediately.
+
+    An exposure-frozen experiment stays eligible, because its metric events keep arriving.
     """
     # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
     # activities.py, which imports back into products.experiments.backend.facade.timeseries.
@@ -94,6 +96,9 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
             time_filter,
             deleted=False,
             status=Experiment.Status.RUNNING,
+            # A paused experiment keeps status RUNNING and only deactivates its flag, so the stored
+            # status alone would select one that collects no new data.
+            feature_flag__active=True,
             start_date__gte=now - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
             start_date__lte=now - MIN_EXPERIMENT_AGE,
         )
