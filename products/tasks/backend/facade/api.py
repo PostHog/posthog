@@ -2920,7 +2920,11 @@ def task_accessible_for_run_view(
     """
     task_filter = Task.objects.filter(id=task_id, team_id=team_id, deleted=False)
     if not bypass_visibility:
-        scope_q = task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+        scope_q = (
+            task_control_q(user_id, team_id=team_id)
+            if for_control
+            else task_visibility_q(user_id, team_id=team_id) | _shared_slack_thread_q()
+        )
         task_filter = task_filter.filter(scope_q)
     return task_filter.exists()
 
@@ -6380,7 +6384,9 @@ def _visible_task_qs(team_id: int, user_id: int | None, *, bypass_visibility: bo
     qs = Task.objects.filter(team_id=team_id, deleted=False)
     if not bypass_visibility:
         qs = qs.filter(
-            task_control_q(user_id) if for_control else task_visibility_q(user_id) | _shared_slack_thread_q()
+            task_control_q(user_id, team_id=team_id)
+            if for_control
+            else task_visibility_q(user_id, team_id=team_id) | _shared_slack_thread_q()
         )
         # Another product may hide tasks it owns from this user, for example the copies of chats a
         # user cannot continue as tasks yet.

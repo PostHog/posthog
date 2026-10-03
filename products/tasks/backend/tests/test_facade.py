@@ -28,6 +28,7 @@ from products.tasks.backend.facade import (
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
+    ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
     Task,
@@ -1744,6 +1745,20 @@ class TestFacadeReadsAndMappers(TestCase):
                 facade.create_channel_task(
                     self.team.id, self.user.id, channel_id, title="From canvas", description="desc"
                 )
+
+    @parameterized.expand([("member", True), ("outsider", False)])
+    def test_environment_task_in_a_parent_team_private_channel(self, _name, is_member):
+        environment = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="env"
+        )
+        channel = self._make_channel(name="secret", channel_type=Channel.ChannelType.PRIVATE)
+        reader = User.objects.create(email="env-reader@test.com", distinct_id="env-reader")
+        if is_member:
+            ChannelMembership.objects.unscoped().create(team=self.team, channel=channel, user=reader)
+        task = self._make_task(team=environment, channel=channel)
+
+        assert (facade.get_task_detail(task.id, environment.id, reader.id) is not None) == is_member
+        assert facade.task_accessible_for_run_view(task.id, environment.id, reader.id) == is_member
 
     def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
         # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
