@@ -91,6 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
+    PostgresKeyset,
     PostgreSQLColumn,
     RangeAsStringLoader,
     SafeDateLoader,
@@ -144,6 +145,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
+    get_enforced_unique_keys,
     get_foreign_keys,
     get_leading_index_columns,
     get_postgres_row_count,
@@ -153,6 +155,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+
+@pytest.fixture
+def server_cursor_path():
+    # Every full load over a seekable key reads by keyset seek. These tests cover the server-cursor
+    # path, which still serves a table without one, so they make the table ineligible to seek.
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.resolve_postgres_keyset",
+        return_value=PostgresKeyset(reason="no_primary_key"),
+    ):
+        yield
 
 
 class TestSafeDateLoader:
@@ -2160,6 +2173,9 @@ class TestSetupStatementTimeoutUnsupported:
         def fetchmany(self, _n: int):
             return []
 
+        def fetchall(self):
+            return []
+
         def fetchone(self):
             return None
 
@@ -2235,6 +2251,7 @@ class TestSetupStatementTimeoutUnsupported:
             assert list(cast(Iterable[Any], response.items())) == []
 
 
+@pytest.mark.usefixtures("server_cursor_path")
 class TestPostgresSourceSyncAllProjection:
     """Sync-all names the discovered columns rather than rendering `SELECT *`.
 
@@ -3484,6 +3501,7 @@ class TestStatementTimeoutAsNonRetryable:
         )
 
 
+@pytest.mark.usefixtures("server_cursor_path")
 class TestServerCursorStatementTimeout:
     """The main server-cursor streaming path in `get_rows` must not leak a raw,
     retryable QueryCanceled when a FETCH hits the statement_timeout — it must map
@@ -3603,6 +3621,7 @@ class TestServerCursorStatementTimeout:
             assert expected_substr in str(exc_info.value)
 
 
+@pytest.mark.usefixtures("server_cursor_path")
 class TestServerCursorCloseStatementTimeout:
     """Closing the `get_rows` generator (the sync finished, or the activity was cancelled) tears
     down the open server cursor; that teardown round-trip can itself hit the statement_timeout and
@@ -3927,10 +3946,9 @@ class TestOffsetChunkingConnectRecoveryConflict:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            # Calls 1 (setup), 2 (catalog re-read before streaming) and 3 (initial server-cursor
-            # read) succeed; the offset-chunking bootstrap connect hits the recovery conflict
-            # twice before succeeding.
-            if connect_calls["n"] in (4, 5):
+            # Calls 1 (setup) and 2 (catalog re-read before streaming) succeed. The keyset read's
+            # first connect hits the recovery conflict twice before succeeding.
+            if connect_calls["n"] in (3, 4):
                 raise connect_error
             return connection
 
@@ -3965,9 +3983,8 @@ class TestOffsetChunkingConnectRecoveryConflict:
             # Before the fix the connect-time conflict escaped offset_chunking and raised here.
             list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 1 catalog re-read + 1 initial read + 3 offset-chunking connects (2 conflicts
-        # + 1 success).
-        assert connect_mock.call_count == 6
+        # 1 setup + 1 catalog re-read + 3 keyset-read connects (2 conflicts + 1 success).
+        assert connect_mock.call_count == 5
 
 
 class TestOffsetChunkingConnectTimeout:
@@ -3995,10 +4012,9 @@ class TestOffsetChunkingConnectTimeout:
 
         def connect_side_effect(*args, **kwargs):
             connect_calls["n"] += 1
-            # Calls 1 (setup), 2 (catalog re-read before streaming) and 3 (initial server-cursor
-            # read) succeed; the offset-chunking bootstrap connect times out twice before
-            # succeeding.
-            if connect_calls["n"] in (4, 5):
+            # Calls 1 (setup) and 2 (catalog re-read before streaming) succeed. The keyset read's
+            # first connect times out twice before succeeding.
+            if connect_calls["n"] in (3, 4):
                 raise psycopg.errors.ConnectionTimeout("connection timeout expired")
             return connection
 
@@ -4036,128 +4052,8 @@ class TestOffsetChunkingConnectTimeout:
             # Before the fix the connect-time timeout escaped offset_chunking and raised here.
             list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 1 catalog re-read + 1 initial read + 3 offset-chunking connects (2 timeouts
-        # + 1 success).
-        assert connect_mock.call_count == 6
-
-
-class TestOffsetChunkingRecoveryConflictTimeout:
-    """When a read replica cancels the initial read with a recovery conflict, `get_rows` falls
-    back to offset chunking. If a chunk then exhausts the 10-min statement_timeout, a full-table
-    sync used to re-raise the raw, retryable QueryCanceled — so Temporal re-read from the start
-    into the same conflicting, overloaded replica every attempt. The fallback must instead surface
-    a non-retryable QueryTimeoutException with actionable replica guidance.
-    """
-
-    class _NamedCursor:
-        def __init__(self):
-            col = mock.Mock()
-            col.name = "id"
-            self.description = [col]
-
-        def execute(self, *args, **kwargs):
-            raise psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
-
-        def fetchmany(self, _n):
-            return []
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    class _OffsetCursor:
-        def __init__(self):
-            col = mock.Mock()
-            col.name = "id"
-            self.description = [col]
-
-        def execute(self, *args, **kwargs):
-            raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
-
-        def fetchall(self):
-            return []
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    class _Connection:
-        def __init__(self):
-            self.autocommit = False
-            self.closed = False
-            self.broken = False
-            self.adapters = mock.Mock()
-
-        def cursor(self, *args, **kwargs):
-            if "name" in kwargs:
-                return TestOffsetChunkingRecoveryConflictTimeout._NamedCursor()
-            return mock.MagicMock()
-
-        def commit(self):
-            return None
-
-        def close(self):
-            self.closed = True
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-    def test_statement_timeout_in_recovery_conflict_fallback_is_non_retryable(self):
-        @contextmanager
-        def fake_tunnel():
-            yield ("localhost", 5432)
-
-        fake_table = mock.Mock()
-        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
-        fake_table.type = "table"
-        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
-        fake_table.__contains__ = mock.Mock(return_value=False)
-
-        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
-        with (
-            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
-            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._OffsetCursor()),
-            patch(f"{module}._get_table", return_value=fake_table),
-            patch(f"{module}._is_read_replica", return_value=True),
-            patch(f"{module}._is_duckdb_connection", return_value=False),
-            patch(f"{module}._get_primary_keys", return_value=["id"]),
-            patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
-            patch(f"{module}._get_rows_to_sync", return_value=10),
-            patch(f"{module}._role_subject_to_rls", return_value=False),
-            patch(f"{module}._get_partition_settings", return_value=None),
-            patch(f"{module}.time.sleep"),
-        ):
-            response = postgres_source(
-                tunnel=lambda: fake_tunnel(),
-                user="u",
-                password="p",
-                database="db",
-                sslmode="prefer",
-                schema="public",
-                table_names=["companies"],
-                should_use_incremental_field=False,
-                logger=structlog.get_logger(),
-                db_incremental_field_last_value=None,
-                team_id=1,
-            )
-            with pytest.raises(QueryTimeoutException) as exc_info:
-                list(cast(Iterable[Any], response.items()))
-
-        message = str(exc_info.value)
-        assert "max_standby_streaming_delay" in message
-        # Unlike a raw QueryCanceled, QueryTimeoutException is classified non-retryable. It's matched
-        # by class name in the Temporal-wrapped error string (see external_data_job.py), so the
-        # non-retryable signal here is the type name, not the message text.
-        non_retryable = PostgresSource().get_non_retryable_errors()
-        assert type(exc_info.value).__name__ in non_retryable
+        # 1 setup + 1 catalog re-read + 3 keyset-read connects (2 timeouts + 1 success).
+        assert connect_mock.call_count == 5
 
 
 def _fake_column(name: str):
@@ -4290,7 +4186,6 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
-        keyset_full_load_enabled: bool = False,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4351,7 +4246,6 @@ class TestChunkedRereadAfterRecoveryConflict:
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
                 resumable_source_manager=resumable_source_manager,
-                keyset_full_load_enabled=keyset_full_load_enabled,
             )
             self.last_response = response
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
@@ -4409,10 +4303,6 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert sorted(ids) == [1, 2, 3, 4, 5, 6]
-
-    def test_full_refresh_stays_retryable_when_rows_are_already_written(self):
-        with pytest.raises(psycopg.errors.SerializationFailure):
-            self._read_ids(should_use_incremental_field=False, rows_before_conflict=2, primary_keys=["id"])
 
     def test_retried_full_refresh_seeks_instead_of_reopening_the_cursor(self):
         # The first attempt re-raised past its first row, so a second server cursor conflicts at the
@@ -4559,10 +4449,9 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert self.last_response.supports_resume is False
         assert manager.save_state.call_count == 0
 
-    def test_the_flag_makes_the_first_attempt_seek_and_resume(self):
-        # What the flag buys: the first attempt pages and checkpoints, so a drained worker resumes
-        # rather than restarting. Without it the seek waits for a second attempt against a replica,
-        # which is a slice too small to matter.
+    def test_the_first_attempt_seeks_and_checkpoints(self):
+        # A full load pages and checkpoints from its first attempt, so a drained worker resumes
+        # rather than restarting the read.
         manager = MagicMock()
         manager.can_resume.return_value = False
 
@@ -4572,33 +4461,14 @@ class TestChunkedRereadAfterRecoveryConflict:
             primary_keys=["id"],
             activity_attempt=1,
             resumable_source_manager=manager,
-            keyset_full_load_enabled=True,
         )
 
         assert self.last_response.supports_resume is True
         assert manager.save_state.call_count > 0
 
-    def test_the_first_attempt_does_not_seek_with_the_flag_off(self):
-        # The regression guard for the rollout: a flag-off deploy has to read exactly as it does now,
-        # so nothing changes for the fleet until the flag reaches a team.
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-
-        self._read_ids(
-            should_use_incremental_field=False,
-            rows_before_conflict=0,
-            primary_keys=["id"],
-            activity_attempt=1,
-            resumable_source_manager=manager,
-            keyset_full_load_enabled=False,
-        )
-
-        assert self.last_response.supports_resume is False
-        assert manager.save_state.call_count == 0
-
-    def test_the_flag_does_not_make_an_incremental_run_seek(self):
-        # The flag widens the full-load path only. An incremental run already resumes from its
-        # watermark, and seeking it would read the table twice.
+    def test_an_incremental_run_does_not_seek(self):
+        # Seeking is the full-load path only. An incremental run already resumes from its watermark,
+        # and seeking it would read the table twice.
         manager = MagicMock()
         manager.can_resume.return_value = False
 
@@ -4608,7 +4478,6 @@ class TestChunkedRereadAfterRecoveryConflict:
             primary_keys=["id"],
             activity_attempt=1,
             resumable_source_manager=manager,
-            keyset_full_load_enabled=True,
         )
 
         assert self.last_response.supports_resume is False
@@ -4624,7 +4493,6 @@ class TestChunkedRereadAfterRecoveryConflict:
             primary_keys=["id"],
             activity_attempt=1,
             resumable_source_manager=manager,
-            keyset_full_load_enabled=True,
         )
 
         # Rows at or below the checkpoint are never re-read, which is what makes a resumed load
@@ -7213,21 +7081,18 @@ class TestGetTableChunkSize:
 
     @parameterized.expand(
         [
-            ("cap_binds_hard", True, 400.0, 3.0 * 1024 * 1024, "info"),
-            ("cap_at_exactly_ten_times", True, 1024.0, 10240, "info"),
-            ("cap_just_short_of_ten_times", True, 1024.0, 10239, "debug"),
-            ("cap_barely_moves", True, 400.0, 420.0, "debug"),
-            ("no_cap_at_all", True, 400.0, 400.0, "debug"),
-            ("cap_binds_but_byte_bound_off", False, 400.0, 3.0 * 1024 * 1024, "debug"),
+            ("cap_binds_hard", 400.0, 3.0 * 1024 * 1024, "info"),
+            ("cap_at_exactly_ten_times", 1024.0, 10240, "info"),
+            ("cap_just_short_of_ten_times", 1024.0, 10239, "debug"),
+            ("cap_barely_moves", 400.0, 420.0, "debug"),
+            ("no_cap_at_all", 400.0, 400.0, "debug"),
         ]
     )
-    def test_the_probe_reports_at_info_only_when_an_applied_page_cap_binds(
-        self, _name, byte_bounded, p95, p99, expected_level
-    ):
+    def test_the_probe_reports_at_info_only_when_the_page_cap_binds(self, _name, p95, p99, expected_level):
         cursor = self._ProbeCursor((p95, p99, int(p99)))
         logger = mock.Mock()
 
-        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger, byte_bounded=byte_bounded)
+        _get_table_chunk_size(cast(Any, cursor), sql.SQL("SELECT 1").format(), logger)
 
         levels = [
             level
@@ -8178,6 +8043,48 @@ class TestGetLeadingIndexColumns:
         assert result is None
 
 
+class TestGetEnforcedUniqueKeys:
+    @pytest.mark.django_db
+    def test_returns_only_the_unique_indexes_postgres_checks_on_every_row(self) -> None:
+        with django_connection.cursor() as cursor:
+            for ddl in (
+                "CREATE TABLE uk_plain_pk (id int PRIMARY KEY, v text)",
+                "CREATE TABLE uk_deferrable_pk (id int PRIMARY KEY DEFERRABLE, v text)",
+                "CREATE TABLE uk_pk_and_deferrable_unique (id int PRIMARY KEY, pos int UNIQUE DEFERRABLE)",
+                "CREATE TABLE uk_no_key (id int, v text)",
+                "CREATE TABLE uk_partial (id int, active bool)",
+                "CREATE UNIQUE INDEX ON uk_partial (id) WHERE active",
+                "CREATE TABLE uk_expression (email text)",
+                "CREATE UNIQUE INDEX ON uk_expression (lower(email))",
+                "CREATE TABLE uk_covering (a int NOT NULL, b int NOT NULL, c int)",
+                "CREATE UNIQUE INDEX ON uk_covering (a, b) INCLUDE (c)",
+                "CREATE TABLE uk_nullable (id int PRIMARY KEY, code text UNIQUE)",
+            ):
+                cursor.execute(ddl)
+            django_connection.ensure_connection()
+            result = get_enforced_unique_keys(
+                cast(Any, django_connection.connection),
+                "public",
+                [
+                    "uk_plain_pk",
+                    "uk_deferrable_pk",
+                    "uk_pk_and_deferrable_unique",
+                    "uk_no_key",
+                    "uk_partial",
+                    "uk_expression",
+                    "uk_covering",
+                    "uk_nullable",
+                ],
+            )
+
+        assert result == {
+            "uk_plain_pk": [frozenset({"id"})],
+            "uk_pk_and_deferrable_unique": [frozenset({"id"})],
+            "uk_covering": [frozenset({"a", "b"})],
+            "uk_nullable": [frozenset({"id"})],
+        }
+
+
 class TestHasDuplicatePrimaryKeys:
     @pytest.mark.django_db
     def test_returns_false_when_no_primary_keys(self):
@@ -9001,7 +8908,6 @@ def _run_windows(script, **overrides):
         "db_incremental_field_last_value": date(2026, 1, 1),
         "child_partitions": [],
         "chunk_size": 1000,
-        "byte_bounded": False,
         "arrow_schema": _arrow_schema(),
         "logger": structlog.get_logger(),
         "initial_window": timedelta(days=1),
@@ -9737,6 +9643,7 @@ class TestGetRowsInitialConnectRetry:
                 dj_cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
 
 
+@pytest.mark.usefixtures("server_cursor_path")
 class TestGetRowsInitialReadDropRetry:
     # Regression: the main server-cursor read wrapped only the *connect* in
     # _connect_with_dropped_retry, so a transient drop during the server-cursor DECLARE
@@ -9875,6 +9782,7 @@ class TestGetRowsInitialReadDropRetry:
             self._run(connect_side_effect)
 
 
+@pytest.mark.usefixtures("server_cursor_path")
 class TestGetRowsInitialReadLockTimeoutRetry:
     # Regression: a source-side lock_timeout hit while opening the server-cursor DECLARE
     # (cursor.execute) raises psycopg.errors.LockNotAvailable, which subclasses OperationalError and
@@ -10199,7 +10107,6 @@ class TestExtractionByteBounds:
                 script=[list(rows)],
                 child_partitions=[self._child()],
                 chunk_size=400,
-                byte_bounded=True,
                 arrow_schema=self._schema(),
             )
 
@@ -10210,21 +10117,6 @@ class TestExtractionByteBounds:
         oversized = [table.num_rows for table in tables if table_payload_bytes(table) > self.BUDGET]
         assert oversized == []
 
-    def test_gate_off_keeps_the_row_count_batching(self):
-        rows = [(i, self.BLOB) for i in range(400)]
-
-        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self.BUDGET):
-            tables, factory = _run_windows(
-                script=[list(rows)],
-                child_partitions=[self._child()],
-                chunk_size=400,
-                byte_bounded=False,
-                arrow_schema=self._schema(),
-            )
-
-        assert [table.num_rows for table in tables] == [400]
-        assert set(factory.fetch_sizes) == {400}
-
     def test_fetch_pages_shrink_once_wide_rows_appear(self):
         rows = [(i, "s") for i in range(1000)] + [(i, self.BLOB) for i in range(1000, 2000)]
 
@@ -10233,7 +10125,6 @@ class TestExtractionByteBounds:
                 script=[list(rows)],
                 child_partitions=[self._child()],
                 chunk_size=100_000,
-                byte_bounded=True,
                 arrow_schema=self._schema(),
             )
 
@@ -10241,14 +10132,8 @@ class TestExtractionByteBounds:
         assert max(factory.fetch_sizes[-3:]) <= self.BUDGET // len(self.BLOB) + 1
 
 
-class TestFetchPageGate:
-    """The page cap is the byte bound's own instrument, so the rollout gate has to hold it back too.
-
-    Left applied with the gate off it shrinks the `FETCH` without ever flushing a batch: the read
-    pays a round trip per page and still accumulates the whole table into one batch, which is
-    strictly worse than the single full-size fetch it replaced.
-    """
-
+@pytest.mark.usefixtures("server_cursor_path")
+class TestFetchPageCap:
     class _Cursor:
         def __init__(self, *, named: bool, rows: list, fetch_sizes: list[int]):
             self._named = named
@@ -10284,7 +10169,7 @@ class TestFetchPageGate:
             self._fetch_sizes = fetch_sizes
 
         def cursor(self, *args, **kwargs):
-            return TestFetchPageGate._Cursor(named="name" in kwargs, rows=self._rows, fetch_sizes=self._fetch_sizes)
+            return TestFetchPageCap._Cursor(named="name" in kwargs, rows=self._rows, fetch_sizes=self._fetch_sizes)
 
         def commit(self):
             return None
@@ -10298,7 +10183,7 @@ class TestFetchPageGate:
         def __exit__(self, *args):
             return False
 
-    def _fetch_sizes(self, *, byte_bounded: bool) -> list[int]:
+    def _fetch_sizes(self) -> list[int]:
         from contextlib import contextmanager
 
         @contextmanager
@@ -10340,14 +10225,10 @@ class TestFetchPageGate:
                 logger=structlog.get_logger(),
                 db_incremental_field_last_value=None,
                 team_id=1,
-                byte_bounded_extraction=byte_bounded,
             )
             list(cast(Iterable[Any], response.items()))
 
         return fetch_sizes
 
-    def test_gate_off_fetches_the_whole_chunk(self):
-        assert set(self._fetch_sizes(byte_bounded=False)) == {1000}
-
-    def test_gate_on_fetches_the_measured_page(self):
-        assert max(self._fetch_sizes(byte_bounded=True)) == 7
+    def test_a_read_fetches_the_measured_page(self):
+        assert max(self._fetch_sizes()) == 7

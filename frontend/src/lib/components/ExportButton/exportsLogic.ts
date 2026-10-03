@@ -355,6 +355,16 @@ export const exportsLogic = kea<exportsLogicType>([
                     const finished = latest
                     const kickoff = cache.exportKickoffToasts?.get(fresh.id)
                     cache.exportKickoffToasts?.delete(fresh.id)
+                    if (
+                        finished.export_format === ExporterFormat.MP4 &&
+                        finished.export_context &&
+                        'session_recording_id' in finished.export_context
+                    ) {
+                        posthog.capture('recording exported to file', {
+                            format: 'mp4',
+                            is_clip: String(kickoff?.replayMode) !== 'video',
+                        })
+                    }
                     void showExportCompleteToast(finished, () => actions.downloadExport(finished), kickoff).catch(
                         (error) => posthog.captureException(error)
                     )
@@ -402,8 +412,10 @@ export const exportsLogic = kea<exportsLogicType>([
             format = ExporterFormat.PNG,
             timestamp,
             duration = 5,
+            mode,
             options,
         }) => {
+            cache.replayExportMode = mode
             const exportData: TriggerExportProps = {
                 export_format: format,
                 export_context: {
@@ -479,6 +491,8 @@ export const exportsLogic = kea<exportsLogicType>([
                     // for a while. lemonToast.promise shows a spinner right away and swaps to the
                     // result, so the menu never looks like it did nothing.
                     const runExport = async (): Promise<string> => {
+                        const replayMode = cache.replayExportMode as SessionRecordingPlayerMode | undefined
+                        cache.replayExportMode = undefined
                         let response: ExportedAssetType
                         try {
                             response = await api.exports.create({
@@ -532,7 +546,7 @@ export const exportsLogic = kea<exportsLogicType>([
                         actions.addFresh(response)
                         actions.openSidePanel(SidePanelTab.Exports)
                         cache.exportKickoffToasts ??= new Map<number, KickoffToast>()
-                        cache.exportKickoffToasts.set(response.id, { toastId: exportToastId, nudge })
+                        cache.exportKickoffToasts.set(response.id, { toastId: exportToastId, nudge, replayMode })
                         return 'Export started'
                     }
 

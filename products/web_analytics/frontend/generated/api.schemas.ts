@@ -563,6 +563,41 @@ export interface GoalApi {
     change: WoWChangeApi | null
 }
 
+/**
+ * * `ok` - OK
+ * * `no_web_sessions` - No web sessions
+ * * `no_sessions` - No sessions
+ * * `unknown` - Unknown
+ */
+export type DigestDataStatusEnumApi = (typeof DigestDataStatusEnumApi)[keyof typeof DigestDataStatusEnumApi]
+
+export const DigestDataStatusEnumApi = {
+    Ok: 'ok',
+    NoWebSessions: 'no_web_sessions',
+    NoSessions: 'no_sessions',
+    Unknown: 'unknown',
+} as const
+
+export interface DigestMetadataApi {
+    /** How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
+     *
+     * * `ok` - OK
+     * * `no_web_sessions` - No web sessions
+     * * `no_sessions` - No sessions
+     * * `unknown` - Unknown */
+    data_status: DigestDataStatusEnumApi
+    /** Start of the current period, in the project timezone. */
+    date_from: string
+    /** End of the current period, in the project timezone. */
+    date_to: string
+    /** Project timezone for the period boundaries. */
+    timezone: string
+    /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
+    filter_test_accounts: boolean
+    /** Metric definitions to use when you compare the digest with a direct query. */
+    notes: string[]
+}
+
 export interface RecapPersonaApi {
     /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
     id: string
@@ -606,6 +641,8 @@ export interface WebAnalyticsRecapResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
     /** The single weekly persona assigned from this week's data. */
@@ -641,6 +678,8 @@ export interface WeeklyDigestResponseApi {
     top_sources: TopSourceApi[]
     /** Goal conversions. */
     goals: GoalApi[]
+    /** Period, filters and metric definitions behind the numbers, and a status that explains a zero. */
+    metadata: DigestMetadataApi
     /** Link to the Web analytics dashboard for this project. */
     dashboard_url: string
 }
@@ -965,6 +1004,95 @@ export interface PaginatedContentAutopilotOpportunityListApi {
     results: ContentAutopilotOpportunityApi[]
 }
 
+export interface ContentAutopilotOpportunityDraftRequestApi {
+    /** Site profile the opportunities belong to. */
+    profile_id: string
+    /**
+     * Opportunities to draft, up to 5 at a time.
+     * @minItems 1
+     * @maxItems 5
+     */
+    opportunity_ids: string[]
+}
+
+/**
+ * * `pending` - Pending
+ * * `generating` - Generating
+ * * `ready_for_review` - Ready for review
+ * * `completed` - Completed
+ * * `canceled` - Canceled
+ * * `failed` - Failed
+ */
+export type ContentAutopilotRunRunStatusEnumApi =
+    (typeof ContentAutopilotRunRunStatusEnumApi)[keyof typeof ContentAutopilotRunRunStatusEnumApi]
+
+export const ContentAutopilotRunRunStatusEnumApi = {
+    Pending: 'pending',
+    Generating: 'generating',
+    ReadyForReview: 'ready_for_review',
+    Completed: 'completed',
+    Canceled: 'canceled',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `standard` - Standard
+ * * `lower` - Lower
+ */
+export type ContentAutopilotSnapshotConfidenceEnumApi =
+    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
+
+export const ContentAutopilotSnapshotConfidenceEnumApi = {
+    Standard: 'standard',
+    Lower: 'lower',
+} as const
+
+export interface ContentAutopilotSnapshotApi {
+    /** Site domain used for the run. */
+    domain?: string
+    /** Confidence level based on the available data sources.
+     *
+     * * `standard` - Standard
+     * * `lower` - Lower */
+    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
+    /** Public sources authorized for this run. */
+    source_urls?: string[]
+    /** Site paths authorized for this run. */
+    content_boundaries?: string[]
+    /** Editorial rules captured for this run. */
+    brand_rules?: string[]
+}
+
+export interface ContentAutopilotErrorApi {
+    /** Stable machine-readable error code. */
+    error_code: string
+    /** Error explanation suitable for the review workspace. */
+    message: string
+}
+
+export interface ContentAutopilotRunApi {
+    readonly id: string
+    /** Site profile used by this run. */
+    readonly profile_id: string
+    /** Current durable workflow status.
+     *
+     * * `pending` - Pending
+     * * `generating` - Generating
+     * * `ready_for_review` - Ready for review
+     * * `completed` - Completed
+     * * `canceled` - Canceled
+     * * `failed` - Failed */
+    readonly run_status: ContentAutopilotRunRunStatusEnumApi
+    /** Immutable inputs captured at run start. */
+    input_snapshot: ContentAutopilotSnapshotApi
+    /** Inspectable workflow errors from this run. */
+    errors: ContentAutopilotErrorApi[]
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    readonly completed_at: string | null
+}
+
 export interface ContentAutopilotOpportunityRefreshRequestApi {
     /** Site profile to refresh opportunities for. */
     profile_id: string
@@ -1133,6 +1261,70 @@ export interface ContentAutopilotPackageApi {
     internal_links: string[]
     /** Portable source notes included with the export. */
     source_notes: string[]
+    /** JSON-LD structured data to embed in the page, such as an FAQPage document. */
+    json_ld?: string
+    /** Suggested llms.txt entry for the page. */
+    llms_txt_line?: string
+}
+
+export interface ContentAutopilotBriefCompetitorApi {
+    /** Product to compare against. */
+    name: string
+    /** The product's own page to research. */
+    url: string
+}
+
+export interface ContentAutopilotBriefApi {
+    /** What the person asking wants to know or decide. */
+    intent?: string
+    /** Who the content is for. */
+    audience?: string
+    /** Whether the brief recommends new_content or page_improvement. */
+    recommended_type?: string
+    /** Site page the brief chose to improve. Empty for a new page. */
+    target_page?: string
+    /** Site pages the brief asked to read for facts. */
+    site_pages_to_read?: string[]
+    /** Products the brief asked to research for a comparison. */
+    competitors_to_research?: ContentAutopilotBriefCompetitorApi[]
+    /** Working title for the page. */
+    working_title?: string
+    /** Planned sections, in order. */
+    outline?: string[]
+    /** Questions the page must answer. */
+    questions_to_answer?: string[]
+    /** Topics the cited competitor pages cover that the site's pages don't. */
+    competitor_coverage?: string[]
+    /** What AI answer engines currently say, including what they get wrong. */
+    engine_answer_summary?: string
+    /** What the question means, when AI answer engines misread which product or company it asks about. */
+    disambiguation?: string
+}
+
+/**
+ * * `site` - site
+ * * `competitor` - competitor
+ */
+export type ContentAutopilotSourceLedgerEntryKindEnumApi =
+    (typeof ContentAutopilotSourceLedgerEntryKindEnumApi)[keyof typeof ContentAutopilotSourceLedgerEntryKindEnumApi]
+
+export const ContentAutopilotSourceLedgerEntryKindEnumApi = {
+    Site: 'site',
+    Competitor: 'competitor',
+} as const
+
+export interface ContentAutopilotSourceLedgerEntryApi {
+    /** Factual claim the draft makes. */
+    claim: string
+    /** Page that supports the claim. */
+    source_url: string
+    /** Short quote from the source page. */
+    quote: string
+    /** Whether the source is one of the site's pages or a competitor's own page.
+     *
+     * * `site` - site
+     * * `competitor` - competitor */
+    kind?: ContentAutopilotSourceLedgerEntryKindEnumApi
 }
 
 export interface ContentAutopilotProposalApi {
@@ -1168,6 +1360,10 @@ export interface ContentAutopilotProposalApi {
     readonly original_markdown: string
     /** Full proposed Markdown after edits. */
     readonly proposed_markdown: string
+    /** Content brief the draft was written from. */
+    brief: ContentAutopilotBriefApi
+    /** Factual claims in the draft and the site pages that support them. */
+    source_ledger: ContentAutopilotSourceLedgerEntryApi[]
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1189,84 +1385,6 @@ export interface ContentAutopilotExportResponseApi {
     markdown: string
     /** Structured JSON package for a CMS adapter. */
     content_package: ContentAutopilotPackageApi
-}
-
-/**
- * * `pending` - Pending
- * * `generating` - Generating
- * * `ready_for_review` - Ready for review
- * * `completed` - Completed
- * * `canceled` - Canceled
- * * `failed` - Failed
- */
-export type ContentAutopilotRunRunStatusEnumApi =
-    (typeof ContentAutopilotRunRunStatusEnumApi)[keyof typeof ContentAutopilotRunRunStatusEnumApi]
-
-export const ContentAutopilotRunRunStatusEnumApi = {
-    Pending: 'pending',
-    Generating: 'generating',
-    ReadyForReview: 'ready_for_review',
-    Completed: 'completed',
-    Canceled: 'canceled',
-    Failed: 'failed',
-} as const
-
-/**
- * * `standard` - Standard
- * * `lower` - Lower
- */
-export type ContentAutopilotSnapshotConfidenceEnumApi =
-    (typeof ContentAutopilotSnapshotConfidenceEnumApi)[keyof typeof ContentAutopilotSnapshotConfidenceEnumApi]
-
-export const ContentAutopilotSnapshotConfidenceEnumApi = {
-    Standard: 'standard',
-    Lower: 'lower',
-} as const
-
-export interface ContentAutopilotSnapshotApi {
-    /** Site domain used for the run. */
-    domain?: string
-    /** Confidence level based on the available data sources.
-     *
-     * * `standard` - Standard
-     * * `lower` - Lower */
-    confidence?: ContentAutopilotSnapshotConfidenceEnumApi
-    /** Public sources authorized for this run. */
-    source_urls?: string[]
-    /** Site paths authorized for this run. */
-    content_boundaries?: string[]
-    /** Editorial rules captured for this run. */
-    brand_rules?: string[]
-}
-
-export interface ContentAutopilotErrorApi {
-    /** Stable machine-readable error code. */
-    error_code: string
-    /** Error explanation suitable for the review workspace. */
-    message: string
-}
-
-export interface ContentAutopilotRunApi {
-    readonly id: string
-    /** Site profile used by this run. */
-    readonly profile_id: string
-    /** Current durable workflow status.
-     *
-     * * `pending` - Pending
-     * * `generating` - Generating
-     * * `ready_for_review` - Ready for review
-     * * `completed` - Completed
-     * * `canceled` - Canceled
-     * * `failed` - Failed */
-    readonly run_status: ContentAutopilotRunRunStatusEnumApi
-    /** Immutable inputs captured at run start. */
-    input_snapshot: ContentAutopilotSnapshotApi
-    /** Inspectable workflow errors from this run. */
-    errors: ContentAutopilotErrorApi[]
-    readonly created_at: string
-    readonly updated_at: string
-    /** @nullable */
-    readonly completed_at: string | null
 }
 
 export interface PaginatedContentAutopilotRunListApi {

@@ -97,16 +97,23 @@ from products.signals.dags.inbox_ranking.training.dag import (
 )
 from products.signals.dags.inbox_ranking.training.examples import (
     STATE_LAG_LIMIT,
+    ConsentExclusion,
     Snapshot,
     assemble_snapshot,
     birth_day_positives,
     build_examples,
     cap_examples,
+    drop_without_training_consent,
     example_columns,
     holdout_mask,
     reports_missing_birth_snapshot,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head, dismissed_as_wrong
+from products.signals.dags.inbox_ranking.training.heads import (
+    ACTION_LABEL_COLUMNS,
+    HEADS_BY_NAME,
+    Head,
+    dismissed_as_wrong,
+)
 from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
@@ -276,7 +283,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     snapshots = {
         # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
         # b: already opened at D0 -> excluded; c: never opened -> negative;
-        # d: never impressed -> outside the cohort.
+        # d: never impressed, opened by D0+3 from another surface -> positive.
         D0: Snapshot(
             date=D0,
             state=state,
@@ -285,14 +292,14 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
         later: Snapshot(
             date=later,
             state=state,
-            labels=_labels(ids, open_count=[2, 3, 0, 0], impression_unit_count=[1, 1, 1, 0]),
+            labels=_labels(ids, open_count=[2, 3, 0, 1], impression_unit_count=[1, 1, 1, 0]),
         ),
         # A snapshot with no horizon partner contributes nothing.
         later + datetime.timedelta(days=1): Snapshot(date=later, state=state, labels=_labels(ids)),
     }
     examples = build_examples(snapshots, open_head, _at_grain(TABULAR_FEATURE_SET, SCORING_MOMENT_GRAIN))
     assert list(examples.columns) == list(example_columns(TABULAR_FEATURE_SET))
-    assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0}
+    assert examples.set_index("report_id")["label"].to_dict() == {"a": 1, "c": 0, "d": 1}
     assert (examples["snapshot_date"] == D0).all()
     assert (examples["age_hours"] == 12.0).all()
 
@@ -300,7 +307,7 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
 def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untrusted_status_rows():
     head = HEADS_BY_NAME["pr_created"]
     wrong_head = HEADS_BY_NAME["dismiss_wrong"]
-    assert wrong_head.horizon_days == 14
+    assert wrong_head.horizon_days == 21
     later = D0 + datetime.timedelta(days=head.horizon_days)
     ids = ["a", "b", "c", "gone"]
     # a: status telemetry names another tenant -> provenance fails; b: no label row at all;
@@ -336,9 +343,10 @@ def test_assemble_snapshot_makes_never_labeled_reports_negatives_and_drops_untru
     # pr_created reads the tasks webhook, so a's untrusted status telemetry does not exclude it there.
     pr = build_examples(snapshots, head, TABULAR_FEATURE_SET).set_index("report_id")["label"].to_dict()
     assert pr == {"a": 0, "b": 0, "c": 1, "gone": 1}
-    # dismiss_wrong reads the status stream: a is dropped, b was never impressed, c is a positive.
+    # dismiss_wrong reads the status stream: a is dropped, b was never impressed but is a negative,
+    # c is a positive.
     wrong = build_examples(snapshots, wrong_head, TABULAR_FEATURE_SET).set_index("report_id")["label"].to_dict()
-    assert wrong == {"c": 1}
+    assert wrong == {"b": 0, "c": 1}
 
 
 def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
@@ -381,12 +389,34 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, True],
         ),
-        # discuss: cohort is impressed reports, label is a discuss action.
+        # action: cohort is everyone, so a never-impressed report an agent claimed is a positive.
+        # A server-side action and a UI action are the same label.
+        (
+            "action",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [0, 1, 1, 1],
+                    "claim_count": [1, 0, 0, 0],
+                    "reasoned_resolution_count": [0, 1, 0, 0],
+                    "view_diff_count": [0, 0, 2, 0],
+                }
+            ),
+            [True, True, True, True],
+            [True, True, True, False],
+        ),
+        # fixed: cohort is everyone, label is a fix read from the status stream.
+        (
+            "fixed",
+            pd.DataFrame({"fixed_count": [1, 0, 0], "pr_merged_count": [0, 1, 0]}),
+            [True, True, True],
+            [True, False, False],
+        ),
+        # discuss: cohort is everyone, so a never-impressed report counts; label is a discuss action.
         (
             "discuss",
-            pd.DataFrame({"impression_unit_count": [1, 1, 0], "discuss_count": [2, 0, 0]}),
-            [True, True, False],
-            [True, False, False],
+            pd.DataFrame({"impression_unit_count": [1, 1, 0], "discuss_count": [2, 0, 1]}),
+            [True, True, True],
+            [True, False, True],
         ),
         # refund: cohort is everyone, label is a refund event.
         (
@@ -395,25 +425,38 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, False],
         ),
-        # thumbs_up: cohort is opened reports, label is a positive rating.
+        # thumbs_up: cohort is everyone, so a never-opened report is a negative; label is a positive rating.
         (
             "thumbs_up",
             pd.DataFrame({"open_count": [1, 1, 0], "feedback_positive_count": [1, 0, 0]}),
-            [True, True, False],
+            [True, True, True],
             [True, False, False],
         ),
-        # reviewer_fix: cohort is impressed reports, and an add or a remove is the same label.
+        # reviewer_fix: cohort is everyone, and an add or a remove is the same label.
         (
             "reviewer_fix",
             pd.DataFrame(
                 {
                     "impression_unit_count": [1, 1, 1, 0],
-                    "reviewer_add_count": [1, 0, 0, 0],
+                    "reviewer_add_count": [1, 0, 0, 1],
                     "reviewer_remove_count": [0, 2, 0, 0],
                 }
             ),
-            [True, True, True, False],
-            [True, True, False, False],
+            [True, True, True, True],
+            [True, True, False, True],
+        ),
+        # dismiss_lowvalue: cohort is everyone, label is a low-value dismissal, never a wrong one.
+        (
+            "dismiss_lowvalue",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [1, 0, 1],
+                    "lowvalue_dismissal_count": [1, 1, 0],
+                    "wrong_dismissal_count": [0, 0, 1],
+                }
+            ),
+            [True, True, True],
+            [True, True, False],
         ),
     ],
 )
@@ -441,34 +484,39 @@ class _ParquetS3:
         return {"Body": io.BytesIO(self._objects[Key])}
 
 
-@pytest.mark.parametrize("head_name", ["pr_merged", "refund", "thumbs_up", "reviewer_fix"])
-def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name):
+@pytest.mark.parametrize(
+    "head_name,positive_column",
+    [
+        ("pr_merged", "pr_merged_count"),
+        ("fixed", "fixed_count"),
+        ("refund", "refund_count"),
+        ("thumbs_up", "feedback_positive_count"),
+        ("reviewer_fix", "reviewer_add_count"),
+        ("dismiss_lowvalue", "lowvalue_dismissal_count"),
+        *(("action", column) for column in ACTION_LABEL_COLUMNS),
+    ],
+)
+def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name, positive_column):
     # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
     # head whose label column is missing from that list trains on all-zero labels. The cohort/label
     # unit test hand-builds frames that already carry the columns, so it never crosses the projection.
     # Drive the real parquet -> projection -> build_examples path and assert a positive label survives.
     head = HEADS_BY_NAME[head_name]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    labels_now = _labels(
-        ["a"],
-        open_count=[1],
-        pr_created_count=[0],
-        pr_merged_count=[0],
-        refund_count=[0],
-        feedback_positive_count=[0],
-        reviewer_add_count=[0],
-        reviewer_remove_count=[0],
-    )
-    labels_later = _labels(
-        ["a"],
-        open_count=[1],
-        pr_created_count=[1],
-        pr_merged_count=[1],
-        refund_count=[1],
-        feedback_positive_count=[1],
-        reviewer_add_count=[1],
-        reviewer_remove_count=[0],
-    )
+    zeros = {
+        column: [0]
+        for column in (
+            "pr_merged_count",
+            "fixed_count",
+            "refund_count",
+            "feedback_positive_count",
+            "reviewer_add_count",
+            "lowvalue_dismissal_count",
+            *ACTION_LABEL_COLUMNS,
+        )
+    }
+    labels_now = _labels(["a"], open_count=[1], **zeros)
+    labels_later = _labels(["a"], open_count=[1], **{**zeros, positive_column: [1]})
     objects: dict[str, bytes] = {}
     for date, labels in ((D0, labels_now), (later, labels_later)):
         key = date.isoformat()
@@ -502,6 +550,25 @@ def test_build_examples_skips_label_only_rows():
         later: Snapshot(date=later, state=state, labels=_labels(["a", "eu"], pr_created_count=[1, 1])),
     }
     assert build_examples(snapshots, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["a"]
+
+
+def test_build_examples_drops_reports_without_training_consent_at_training_time():
+    head = HEADS_BY_NAME["pr_created"]
+    later = D0 + datetime.timedelta(days=head.horizon_days)
+    # opted_out: its organization opted out after these snapshots were written; no_team: a state row
+    # with no readable team; eu: a label-only row with no state.
+    ids = ["consenting", "opted_out", "no_team", "eu"]
+    state = _state(ids, report_team_id=[1, 2, None, None], signal_count=[3, 3, 3, None])
+    snapshots = {
+        D0: Snapshot(date=D0, state=state, labels=_labels(ids)),
+        later: Snapshot(date=later, state=state, labels=_labels(ids, pr_created_count=[1, 1, 1, 1])),
+    }
+
+    kept, excluded = drop_without_training_consent(snapshots, frozenset({1}))
+
+    assert build_examples(kept, head, TABULAR_FEATURE_SET)["report_id"].tolist() == ["consenting"]
+    assert (excluded.reports, excluded.teams) == (2, 1)
+    assert kept[later].labels.index.tolist() == ["consenting", "eu"]
 
 
 def test_holdout_mask_cuts_by_report_not_by_row():
@@ -816,7 +883,9 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
         pd.NaT,
     ]
     snapshots = {
-        date: Snapshot(date=date, state=_state(ids, report_created_at=created), labels=_labels(ids))
+        date: Snapshot(
+            date=date, state=_state(ids, report_created_at=created, report_team_id=[1] * 5), labels=_labels(ids)
+        )
         for date in dates
         if date != gap
     }
@@ -831,6 +900,7 @@ def test_reports_missing_birth_snapshot_counts_only_the_ones_a_partition_gap_cos
     monkeypatch.setattr(f"{module}.s3_client", lambda: None)
     monkeypatch.setattr(f"{module}.snapshot_dates", lambda *args: dates)
     monkeypatch.setattr(f"{module}.load_snapshots", lambda *args, **kwargs: snapshots)
+    monkeypatch.setattr(f"{module}.training_consent_team_ids", lambda: frozenset({1}))
     monkeypatch.setattr(f"{module}.embeddings_extras", lambda *args: NO_EXTRAS)
     monkeypatch.setattr(f"{module}._write_examples", lambda *args: {})
     with dagster.build_asset_context(partition_key=dates[-1].isoformat()) as context:
@@ -870,12 +940,12 @@ def test_grading_keeps_the_scoring_moment_rows_and_reads_the_outcome_later():
     scores = _scores(["a", "b", "c", "d", "e"], label_at_scoring=[False, True, False, False, False])
     labels = _labels(["a", "b", "c", "e"], open_count=[1, 1, 1, 0], impression_unit_count=[1, 1, 0, 1])
     graded = graded_rows(scores, labels, head, pool=POOL_NAME).set_index("report_id")
-    # c was never impressed and d has no labels row at all; b was opened on its birth day, which
-    # the newborn pool grades rather than drops.
-    assert graded["in_cohort"].to_dict() == {"a": True, "b": True, "c": False, "d": False, "e": True}
-    assert (graded.loc["a", "outcome"], graded.loc["b", "outcome"], graded.loc["e", "outcome"]) == (True, True, False)
+    # c was opened with no impression and d has no labels row at all; b was opened on its birth
+    # day, which the newborn pool grades rather than drops.
+    assert graded["in_cohort"].to_dict() == {"a": True, "b": True, "c": True, "d": False, "e": True}
+    assert graded.loc[["a", "b", "c", "e"], "outcome"].tolist() == [True, True, True, False]
     # An excluded row keeps its score with no outcome, so a calibration read can filter on the flag.
-    assert graded.loc[["c", "d"], "outcome"].isna().all()
+    assert pd.isna(graded.loc["d", "outcome"])
 
 
 def test_grading_an_older_pool_still_drops_an_outcome_that_predates_the_score():
@@ -1021,23 +1091,24 @@ def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
     assert {row["head"] for row in calibration} == baked_heads
 
 
-@pytest.mark.parametrize("impressions", [0, 1])
-def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(impressions):
-    head = HEADS_BY_NAME["open"]
+@pytest.mark.parametrize("labeled", [0, 1])
+def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(labeled):
+    head = HEADS_BY_NAME["discuss"]
+    # A report with no labels row is outside every cohort, so the unlabeled case is an empty cohort.
     graded = graded_rows(
         _scores(["pending"], head_readable=[False], classification_threshold=[0.2]),
-        _labels(["pending"], impression_unit_count=[impressions]),
+        _labels(["pending" if labeled else "other"]),
         head,
         pool=POOL_NAME,
     )
     (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition=D0.isoformat(), include_empty=True)
-    assert (grade.scored_rows, grade.rows, grade.positives) == (1, impressions, 0)
+    assert (grade.scored_rows, grade.rows, grade.positives) == (1, labeled, 0)
     assert (grade.auc, grade.recency_auc, grade.null_auc) == (None, None, None)
     assert grade.readable is False
     assert grade.classification.threshold == 0.2
-    assert (grade.classification.true_positives or 0) + (grade.classification.false_positives or 0) == impressions
+    assert (grade.classification.true_positives or 0) + (grade.classification.false_positives or 0) == labeled
     assert grade.classification.recall is None
-    if not impressions:
+    if not labeled:
         assert (grade.mean_score, grade.base_rate, grade.expected_calibration_error) == (None, None, None)
         assert head_grades(graded, head, pool=POOL_NAME, scoring_partition=D0.isoformat()) == []
 
@@ -1421,6 +1492,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             feature_set=TABULAR_FEATURE_SET.name,
             snapshots=20,
             backfilled_rows=0,
+            excluded=ConsentExclusion(reports=4, teams=2),
             per_head={
                 "open": HeadExampleCounts(
                     rows=10,
@@ -1508,6 +1580,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "example_window_start": "2026-07-01",
         "example_cap_bound": True,
         "feature_set": TABULAR_FEATURE_SET.name,
+        "excluded_no_training_consent_reports": 4,
+        "excluded_no_training_consent_teams": 2,
     }.items() <= examples_props.items()
     promotion_props = by_event["inbox_ranking_promotion_decided"][0]["properties"]
     assert {
@@ -2139,6 +2213,7 @@ def test_only_the_set_whose_snapshot_is_missing_is_skipped(monkeypatch):
     monkeypatch.setattr(f"{module}.skip_unconfigured", lambda context: False)
     monkeypatch.setattr(f"{module}.s3_client", lambda: None)
     monkeypatch.setattr(f"{module}.load_snapshots", lambda *args, **kwargs: {})
+    monkeypatch.setattr(f"{module}.training_consent_team_ids", lambda: frozenset())
     monkeypatch.setattr(
         f"{module}.embeddings_extras",
         lambda context, client, bucket, prefix, partition_key, keys: {

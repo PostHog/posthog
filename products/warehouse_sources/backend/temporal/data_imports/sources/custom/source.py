@@ -474,6 +474,22 @@ def _render_error_location(loc: tuple[Any, ...]) -> str:
     return rendered
 
 
+def _blank_builder_field_label(error: Any) -> str | None:
+    """Name a blank required field the way the source builder labels it, e.g.
+    ``("resources", 0, "endpoint", "path")`` -> ``table 1 path``."""
+    if error["type"] != "string_too_short":
+        return None
+    loc = tuple(error["loc"])
+    if loc == ("client", "base_url"):
+        return "base URL"
+    if len(loc) >= 3 and loc[0] == "resources" and isinstance(loc[1], int):
+        if loc[2:] == ("name",):
+            return f"table {loc[1] + 1} name"
+        if loc[2:] == ("endpoint", "path"):
+            return f"table {loc[1] + 1} path"
+    return None
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
     """Render Pydantic's validation errors as a single user-facing string.
 
@@ -481,8 +497,15 @@ def _format_validation_errors(exc: ValidationError) -> str:
     have at least 1 character") read like internals to someone editing manifest
     JSON, so mirror the JSON path and swap the common messages for plainer English.
     """
+    errors = exc.errors()
+    # Blank builder fields are the common wizard failure, and the builder shows form labels
+    # rather than manifest paths, so name the fields the way the form does.
+    blank_labels = [_blank_builder_field_label(error) for error in errors]
+    if errors and all(blank_labels):
+        return f"These required fields are empty: {', '.join(cast(list[str], blank_labels))}. Fill them in, then try again."
+
     messages: list[str] = []
-    for error in exc.errors():
+    for error in errors:
         location = _render_error_location(error["loc"])
         message = _VALIDATION_MESSAGE_OVERRIDES.get(error["type"], error["msg"].removeprefix("Value error, "))
         messages.append(f"{location}: {message}" if location else message)

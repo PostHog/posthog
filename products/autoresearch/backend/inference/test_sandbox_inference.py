@@ -37,7 +37,7 @@ from products.autoresearch.backend.inference.sandbox import (
 )
 from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult
+from products.autoresearch.backend.query import BATCH_QUERY, INTERACTIVE_QUERY, HogQLResult
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, BundleNotFound
 from products.tasks.backend.facade.sandbox import ExecutionResult
@@ -144,11 +144,23 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
     def test_training_data_splits_folds_and_extracts_feature_cols(self):
         pipeline = self._pipeline()
         with (
-            patch.object(sandbox_inference, "count_training_anchors", return_value=len(_TRAINING_ROWS)),
-            patch.object(sandbox_inference, "_materialize_rows", return_value=_TRAINING_ROWS),
+            patch.object(
+                sandbox_inference,
+                "run_hogql",
+                side_effect=[
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
+                    HogQLResult(columns=list(_TRAINING_ROWS[0]), rows=[list(r.values()) for r in _TRAINING_ROWS]),
+                    HogQLResult(columns=["eligible", "positives"], rows=[[len(_TRAINING_ROWS), 2]]),
+                ],
+            ) as run_hogql,
         ):
             data = materialize_training_data(team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}")
 
+        sample_query, features_query, count_query = (call.kwargs["query"] for call in run_hogql.call_args_list)
+        # Training runs inside a web request, so it keeps the interactive limit.
+        assert all(call.kwargs["query_context"] == INTERACTIVE_QUERY for call in run_hogql.call_args_list)
+        assert all("now()" not in query.query for query in (sample_query, features_query, count_query))
+        assert sample_query.values["anchor_ts"] == features_query.values["anchor_ts"] == count_query.values["anchor_ts"]
         assert data.feature_cols == ["events_total", "pageviews"]
         assert [r["distinct_id"] for r in data.train_rows] == ["p1", "p2"]
         assert [r["distinct_id"] for r in data.holdout_rows] == ["p3"]
@@ -172,15 +184,16 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
     def test_score_data_is_inference_only_no_labels(self):
         pipeline = self._pipeline()
         with (
-            patch.object(sandbox_inference, "count_inference_anchors", return_value=len(_SCORE_ROWS)),
+            patch.object(sandbox_inference, "count_inference_anchors", return_value=len(_SCORE_ROWS)) as count,
             patch.object(sandbox_inference, "_materialize_rows", return_value=_SCORE_ROWS) as run,
         ):
             score_rows = _materialize_score_data(
-                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}"
+                team=self.team, pipeline=pipeline, feature_sql="SELECT 1 FROM {anchors}", query_context=BATCH_QUERY
             )
 
         # exactly one query (inference anchors only) — no training/holdout materialization
         assert run.call_count == 1
+        assert run.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
         assert [r["distinct_id"] for r in score_rows] == ["s1", "s2"]
 
     @parameterized.expand(
@@ -690,15 +703,18 @@ class TestInferenceRouting(TeamScopedTestMixin, BaseTest):
             )
         )
         with (
-            patch("products.autoresearch.backend.inference.scoring.score_via_sandbox", return_value=sandbox_result),
+            patch(
+                "products.autoresearch.backend.inference.scoring.score_via_sandbox", return_value=sandbox_result
+            ) as score,
             patch("products.autoresearch.backend.inference.scoring._resolve_distinct_ids", return_value={}),
             patch("products.autoresearch.backend.inference.scoring.capture_batch_internal", emit),
         ):
-            run = run_inference_for_pipeline(pipeline=pipeline, model=model)
+            run = run_inference_for_pipeline(pipeline=pipeline, model=model, query_context=BATCH_QUERY)
 
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert run.rows_scored == 2
         assert run.metrics["sandbox"] is True
+        assert score.call_args.kwargs["query_context"] == BATCH_QUERY
         assert run.metrics["holdout_auc"] == 0.71
         assert emit.call_count == 1
         assert len(emit.call_args.kwargs["events"]) == 2

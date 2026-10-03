@@ -44,3 +44,13 @@ export function getReplayVisionDeleteDisabledReason(scannerUserAccessLevel?: Acc
         scannerUserAccessLevel ?? undefined
     )
 }
+
+/** Creating a scout needs the scanner edit bar, because the scout reads this scanner's observations
+ * on a schedule and spends credits, plus skill editor access, because the scout's instructions are a
+ * skill. */
+export function getScoutCreateDisabledReason(scannerUserAccessLevel?: AccessControlLevel | null): string | null {
+    return (
+        getReplayVisionEditDisabledReason(scannerUserAccessLevel) ??
+        getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
+    )
+}

@@ -11,6 +11,7 @@ import math
 import time
 import asyncio
 import functools
+import dataclasses
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, replace
@@ -88,6 +89,7 @@ from products.replay_vision.backend.temporal.scanners.base import (
     TextSegment,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
+from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorLlmResponse, MonitorScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
@@ -144,6 +146,9 @@ class _MissionOutcome:
     signals: list[SignalFinding]
     verification: VerificationRecord | None = None
     thumbnail_video_s: int | None = None
+    key_moment_video_s: int | None = None
+    # The core turn's raw answer, for fields the scanner still has to move onto the session clock.
+    core_response: BaseModel | None = None
 
 
 @activity.defn
@@ -194,6 +199,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    scanner = await _apply_experiment_scan_context(scanner, inputs)
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
@@ -294,6 +300,8 @@ async def run_scan(
     # Built before the preamble so one object decides both the wording and the tool list, which keeps the
     # prompt from describing a tool the conversation does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
+    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
+    scanner = scanner.bind_session(video_clock, duration_ms)
 
     preamble_text = scanner.preamble(
         team_name=team_name,
@@ -320,8 +328,11 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    finalized = finalized.model_copy(
+        update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
+    )
+    finalized = scanner.resolve_session_clock(finalized, outcome.core_response, video_clock, duration_ms)
     signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
     return ScannerCallOutput(
         model_output=finalized,
@@ -363,6 +374,17 @@ def _resolve_citations(
     return finalized
 
 
+def _key_moment_session_ms(video_s: int | None, duration_ms: int, clock: VideoClock) -> int | None:
+    """Move the model's key moment onto the session clock, or None when it skipped the pick or named a time past
+    the video. Same bound as a citation, because the clock would clamp an invented time onto the recording's end."""
+    if video_s is None:
+        return None
+    longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+    if longest_citable_s is not None and video_s > longest_citable_s:
+        return None
+    return min(clock.video_s_to_session_ms(video_s), duration_ms)
+
+
 def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[str, list[Segment]]:
     """Walk `(t <sec>)` markers in `text`; drop times past the recording; return (plain text, render-ready text/chip segments).
 
@@ -383,7 +405,7 @@ def _extract_segments(text: str, duration_ms: int, clock: VideoClock) -> tuple[s
             # Drop citations past the video's end (a time the model invented) before converting, because the
             # clock clamps past its last span and would turn any such value into the recording endpoint. No
             # slack: a moment the model can see has a video second inside the video. The marker is stripped either way.
-            longest_citable_s = duration_ms / 1000 if clock.is_identity else clock.video_duration_s
+            longest_citable_s = clock.citable_duration_s(duration_ms / 1000)
             if longest_citable_s is not None and video_s <= longest_citable_s:
                 segments.append(ChipSegment(timestamp_ms=clock.video_s_to_session_ms(video_s)))
         last_end = match.end()
@@ -412,6 +434,50 @@ def _is_taglike(slug: str) -> bool:
         0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
         and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
     )
+
+
+async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
+    """Give an experiment scanner the variant and experiment description the workflow resolved.
+
+    Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
+    When the inputs carry neither field — a prompt evaluation re-scanning a rated session, or a
+    history from before attribution shipped — the source observation's persisted attribution
+    stands in, so an evaluation tests the prompt with its experiment block rather than without.
+    Best effort there: a lookup failure must not fail the scan, and a pre-attribution row simply
+    has nothing persisted to inject."""
+    if not isinstance(scanner, ExperimentScanner):
+        return scanner
+    variant, context = inputs.experiment_variant, inputs.experiment_context
+    if variant is None and context is None:
+        try:
+            variant, context = await sync_to_async(_load_persisted_experiment_context)(
+                inputs.observation_id, inputs.team_id, scanner.experiment_id
+            )
+        except Exception:
+            logger.warning("replay_vision.call_scanner_provider.experiment_context_fallback_failed", exc_info=True)
+            return scanner
+        if variant is None and context is None:
+            return scanner
+    return scanner.model_copy(update={"experiment_context": context, "session_variant": variant})
+
+
+def _load_persisted_experiment_context(
+    observation_id: UUID, team_id: int, experiment_id: int
+) -> tuple[str | None, dict[str, Any] | None]:
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_prompt_context  # noqa: PLC0415
+
+    result = (
+        ReplayObservation.objects.filter(pk=observation_id, team_id=team_id)
+        .values_list("scanner_result", flat=True)
+        .first()
+    )
+    variant = result.get("experiment_variant") if isinstance(result, dict) else None
+    if not isinstance(variant, str):
+        return None, None
+    context = experiment_prompt_context(Team.objects.get(pk=team_id), experiment_id=experiment_id)
+    return variant, dataclasses.asdict(context) if context is not None else None
 
 
 def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:
@@ -585,9 +651,7 @@ async def _run_mission(
             step,
             validate=functools.partial(
                 _validate_signal_timestamps,
-                duration_seconds=llm_inputs.metadata.duration_seconds
-                if video_clock.is_identity
-                else video_clock.video_duration_s,
+                duration_seconds=video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds),
             ),
         )
         if step.name == STEP_SIGNALS
@@ -643,6 +707,8 @@ async def _run_mission(
         signals=signals,
         verification=verification,
         thumbnail_video_s=getattr(step_outputs.get(STEP_CORE), "thumbnail_t", None),
+        key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
+        core_response=step_outputs.get(STEP_CORE),
     )
 
 

@@ -1,4 +1,4 @@
-import { isLockedSpace } from '~/layout/today/todaySpacesLogic'
+import { isLockedSpace, spaceLabel } from '~/layout/today/todaySpacesLogic'
 
 import { ChannelDTOApi } from '../generated/api.schemas'
 import { spacesIndexLists } from './spacesSceneLogic'
@@ -33,5 +33,13 @@ describe('spacesSceneLogic', () => {
         ['the general space', { channel_type: 'public', system_role: 'general' }, false],
     ])('locks %s: %s', (_, identity, locked) => {
         expect(isLockedSpace(identity as ChannelDTOApi)).toBe(locked)
+    })
+
+    // Matches PostHog Desktop, which names the personal space "personal" whatever its stored name is.
+    it.each([
+        ['the personal space', space('me', 'me', false, 'personal'), 'personal'],
+        ['a shared space', space('billing', 'billing', false), 'billing'],
+    ])('labels %s', (_, channel, label) => {
+        expect(spaceLabel(channel)).toBe(label)
     })
 })

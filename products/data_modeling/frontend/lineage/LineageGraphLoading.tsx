@@ -56,15 +56,17 @@ function loadingGraph(
         }
     }
 
+    const hasUpstream = center.type !== 'table'
+
     return {
         centerNodeId,
         nodes: [
-            node(upstreamId, 'Loading upstream...', 'table'),
+            ...(hasUpstream ? [node(upstreamId, 'Loading upstream...', 'table')] : []),
             node(centerNodeId, center.name, center.type),
             node(downstreamId, 'Loading downstream...', 'view'),
         ],
         edges: [
-            edge(`${idPrefix}-upstream-edge`, upstreamId, centerNodeId),
+            ...(hasUpstream ? [edge(`${idPrefix}-upstream-edge`, upstreamId, centerNodeId)] : []),
             edge(`${idPrefix}-downstream-edge`, centerNodeId, downstreamId),
         ],
     }

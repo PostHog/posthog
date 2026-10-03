@@ -237,6 +237,7 @@ class DeltaWriter:
                 get_handle_cache,
             )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+                estimate_rewrite_profile,
                 get_governor,
             )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
@@ -260,8 +261,17 @@ class DeltaWriter:
             # so all MAX_CONCURRENT_ACTIVITIES upserts on this process are guaranteed to fit. deltalite
             # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
             # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs at
-            # mpp=1 (governor logs a capacity_exceeded ops signal).
-            async with get_governor().admit(source_bytes=data.nbytes, n_partitions=n_partitions) as adm:
+            # mpp=1 (governor logs a capacity_exceeded ops signal). The existing files the merge can
+            # rewrite are sized from the handle's add actions, so this costs no object-store request.
+            governor = get_governor()
+            rewrite = (
+                await asyncio.to_thread(
+                    estimate_rewrite_profile, existing_delta_table, data, partition_key, normalized_primary_keys
+                )
+                if governor.config.mode != "off"
+                else None
+            )
+            async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
                     return table.upsert(
@@ -317,6 +327,12 @@ class DeltaWriter:
                 governor_budget_mb=adm.budget_mb,
                 governor_capacity_exceeded=adm.capacity_exceeded,
                 governor_mpp=adm.planned_mpp,
+                governor_rewrite_mb=adm.rewrite_mb,
+                governor_rewrite_total_mb=adm.rewrite_total_mb,
+                governor_rewrite_files=adm.rewrite_files,
+                governor_reserved_slots=adm.reserved_slots,
+                governor_wait_ms=adm.wait_ms,
+                governor_wait_timed_out=adm.wait_timed_out,
                 **_deltalite_write_stats(stats),
             )
             DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()

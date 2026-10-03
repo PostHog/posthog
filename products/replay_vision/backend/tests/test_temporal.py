@@ -91,6 +91,9 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
+    resolve_experiment_variant_activity,
+)
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import (
     _write_and_upload,
     upload_video_to_gemini_activity,
@@ -143,6 +146,7 @@ from products.replay_vision.backend.temporal.types import (
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    ResolveExperimentVariantOutput,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerResult,
@@ -1440,6 +1444,29 @@ class TestObservationStateActivities:
 
 @pytest.mark.django_db(transaction=True)
 class TestEmitObservationEventActivity:
+    def test_experiment_scanner_event_carries_experiment_and_variant(self) -> None:
+        # HogQL readouts group `$recording_observed` by these two properties instead of joining
+        # the exposure data; dropping either silently empties every per-variant chart.
+        from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
+
+        scanner = _make_scanner(
+            scanner_type=ScannerType.EXPERIMENT, scanner_config={"prompt": "p", "experiment_id": 42}
+        )
+        observation = _make_observation(scanner, scanner_result={"experiment_variant": "test"})
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=ExperimentOutput(title="t", summary="s", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["experiment_id"] == 42
+        assert properties["experiment_variant"] == "test"
+
     def test_event_prices_credits_from_the_frozen_snapshot(self) -> None:
         # The spend chart sums this property; dropping or mispricing it silently flatlines the chart.
         scanner = _make_scanner()
@@ -2635,8 +2662,14 @@ class _WorkflowMocks:
 
 
 async def _run_workflow(
-    inputs: ApplyScannerInputs, mocks: _WorkflowMocks, workflow_id: str = "wf-test", patched: bool = True
+    inputs: ApplyScannerInputs,
+    mocks: _WorkflowMocks,
+    workflow_id: str = "wf-test",
+    patched: bool | dict[str, bool] = True,
 ) -> None:
+    """`patched` is one answer for every marker, or a per-marker map where unlisted markers are patched."""
+    markers = patched if isinstance(patched, dict) else {}
+    default = patched if isinstance(patched, bool) else True
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
     with (
@@ -2647,7 +2680,7 @@ async def _run_workflow(
         patch("temporalio.workflow.logger"),
         # `wf.patched` also needs that loop; True models a fresh execution, False a history that
         # already ran past this point before the patch existed.
-        patch("temporalio.workflow.patched", return_value=patched),
+        patch("temporalio.workflow.patched", side_effect=lambda marker: markers.get(marker, default)),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -2727,6 +2760,81 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     failed_input = mocks.activity_calls[-1][1]
     assert failed_input.observation_id == new_observation_id
     assert "no events" in failed_input.error_reason.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "variant_patched,network_patched,exposed",
+    [
+        # Both parallel fetches: the four-way gather.
+        (True, True, True),
+        # A history from before the network fetch: the three-way gather.
+        (True, False, True),
+        # A history from before attribution: no lookup, so no variant anywhere.
+        (False, True, True),
+        # An unexposed session is refused before the model call, as ineligible.
+        (True, True, False),
+    ],
+)
+async def test_apply_scanner_workflow_attributes_an_experiment_scan_end_to_end(
+    variant_patched: bool, network_patched: bool, exposed: bool
+) -> None:
+    # The gather unpacks results by position, so a swapped index would hand the provider and the
+    # stored result the wrong value without any activity-level test noticing.
+    from products.replay_vision.backend.temporal.scanners.experiment import ExperimentOutput
+
+    context = {"name": "Checkout test", "feature_flag_key": "checkout-flag"}
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.EXPERIMENT
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+            resolve_experiment_variant_activity: ResolveExperimentVariantOutput(
+                applicable=True, experiment_variant="test", session_duration_s=250.0, experiment_context=context
+            ),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(
+                model_output=ExperimentOutput(title="t", summary="s", confidence=0.9)
+            ),
+        },
+        activity_errors=(
+            {}
+            if exposed
+            else {
+                resolve_experiment_variant_activity: IneligibleSessionError(
+                    "not exposed", kind=IneligibleSessionKind.NOT_EXPOSED
+                )
+            }
+        ),
+    )
+    patched = {
+        "replay-vision-experiment-variant-2026-09": variant_patched,
+        "replay-vision-session-network-2026-09": network_patched,
+    }
+
+    if exposed:
+        await _run_workflow(_build_inputs(session_id="sess-exp"), mocks, patched=patched)
+    else:
+        with pytest.raises(IneligibleSessionError):
+            await _run_workflow(_build_inputs(session_id="sess-exp"), mocks, patched=patched)
+
+    called = [fn for fn, _ in mocks.activity_calls]
+    assert (resolve_experiment_variant_activity in called) is variant_patched
+    assert (fetch_session_network_activity in called) is network_patched
+    if not exposed:
+        ineligible = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_ineligible_activity)
+        assert ineligible.error_reason.startswith(f"{IneligibleSessionKind.NOT_EXPOSED}:")
+        assert call_scanner_provider_activity not in called
+        return
+    provider = next(arg for fn, arg in mocks.activity_calls if fn is call_scanner_provider_activity)
+    succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
+    assert provider.experiment_variant == ("test" if variant_patched else None)
+    assert provider.experiment_context == (context if variant_patched else None)
+    assert succeeded.scanner_result.experiment_variant == ("test" if variant_patched else None)
+    assert succeeded.scanner_result.session_duration_s == (250.0 if variant_patched else None)
 
 
 @pytest.mark.asyncio

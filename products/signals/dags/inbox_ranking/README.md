@@ -50,9 +50,10 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 - Label columns are **cumulative**: later partitions strictly dominate earlier ones, so training reads features from `dt=D` and labels from any later partition, choosing the label-maturity window at read time. Late labels are never backfilled into old partitions.
 - `latest/` advances **monotonically**: each write stamps a `snapshot-date` in S3 object metadata, and a partition rewrites `latest/` only when it is at or ahead of what `latest/` holds. Delayed retries of the newest day repair it; backfills of older days never clobber it.
 - Rows for reports **outside this dag's region** are label-only: no Postgres state, no embedding, and `report_team_id` null (a US team id and an EU team id of the same number are different teams, so the label stream's id can't be merged in). `status_event_team_id` carries the team the transition itself reported, which is the tenant attribution those rows do have.
-- **Backfills are not fully point-in-time**: labels are exact for any past day, embeddings are exact within the source table's 3-month TTL, but report state is read from Postgres as of the run (`features_observed_at` flags this per row). The title snapshot has the same guarantee and the same limit as the report snapshot, through the same `inserted_at < snapshot_end` bound.
+- **Backfills are not fully point-in-time**: labels are exact for any past day apart from the server-side action counts (see below), embeddings are exact within the source table's 3-month TTL, but report state is read from Postgres as of the run (`features_observed_at` flags this per row). The title snapshot has the same guarantee and the same limit as the report snapshot, through the same `inserted_at < snapshot_end` bound.
 - **The `inserted_at` bound does not cover a re-embedded rendering.** The source replaces on a key that includes the rendering and the document id, so a partition rebuilt _later_ for an earlier day finds only the newer row, whose `inserted_at` is past the cutoff, and the report reads as having no vector that day. That loses coverage and never leaks a future vector. A forward run carries the same loss over a shorter window: the schedule fires at 02:30 UTC for the previous day, so the query starts at least 2.5 hours after the cutoff, and the title snapshot runs after the join, which makes its window the wider of the two. A partition before `title_v1` emission shipped holds zero rows, which is written as an empty Parquet with the full schema rather than skipped.
 - Report-state mutability reaches **inclusion**, not just feature values: `promoted_at` is cleared on suppression and snooze, so a report promoted before the cutoff and suppressed after it leaves the spine unless a label event referenced it before the cutoff. Forward runs see this only for the 2.5 hours between the cutoff and the schedule; backfills see the full accumulated effect. Deriving the spine from immutable promotion history (`signal_report_status_changed` carries `promoted_at`) is the v2 fix.
+- **The server-side action counts read current artefact rows**, bounded by `created_at < snapshot_end`. A report merge moves the source's notes and linked PRs to the survivor and keeps their `created_at`, and a note can be deleted. A partition rebuilt after either change gives that action to the survivor, or loses it. Claims and Slack discussions stay on the source report. Forward runs see this only for the 2.5 hours between the cutoff and the schedule.
 
 ### Signal-grain partitions
 
@@ -68,7 +69,7 @@ The first four are report grain and land in one table. `inbox_signal_embeddings`
 
 ## The training dag
 
-`inbox_ranking_training_job` runs daily at 06:00 UTC on the same partition definition (gated like the dataset job) and writes:
+`inbox_ranking_training_job` runs daily at 06:13 UTC on the same partition definition (gated like the dataset job) and writes:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -82,7 +83,7 @@ s3://<bucket>/<prefix>/
 
 - **A model is a `(model_name, model_version, model_role)`.** `model_name` is the family: which features and which learner, `tabular_xgb` for the per-head XGBoost trained here. `model_version` is the partition day it was fit on, and `model_role` is `candidate` or `champion`. Each family owns a prefix under the models path and its own `champion.json`, so two families trained on the same day cannot collide, and promotion stays inside a family. A richer family is a second candidate graded on the same unseen rows, not a competitor for the tabular family's pointer.
 - **A feature set is one feature universe.** `products/signals/backend/ranking/features.py` holds a `FeatureSet` per universe: its name, its schema version, its ordered feature names, the report-state columns it reads, `build_matrix`, and how many rows it wants per report and per head. `tabular`, `report_embeddings` and `title_embeddings` are the three today. A candidate records the set it was fit on in its `metadata.json`, so the grader checks a model against its own set rather than one global contract, the examples asset writes one Parquet per set, and the unseen scorer builds one matrix per set and shares it across the families that read it. Adding a set means an entry in `FEATURE_SETS`; a model naming a set this build cannot produce is logged and left unscored.
-- **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / pr_created / discuss / thumbs_up, 14 for dismiss_wrong / pr_merged / refund / reviewer_fix). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the `dismiss_wrong` head, rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
+- **Examples are one row per report at its birth, by default.** For partition `dt=D` the examples asset reads the report-state and labels snapshots `dt=D-lookback..D` and emits one row per report, on the snapshot of the day it was created, labeled from the snapshot `horizon_days` later (3 for open, 7 for action / pr_created / discuss / thumbs_up, 14 for pr_merged / refund / reviewer_fix, 21 for dismiss_wrong / fixed / dismiss_lowvalue). Features are built by the feature set from that snapshot's state columns plus `age_hours`, the report's age at the snapshot. Labels are aligned to the state spine, so a report with no label event is a negative (all-zero labels), not absent. Label-only rows (no Postgres state) are skipped, as are state rows read long after their snapshot day (backfills carry current Postgres state; see `features_observed_at`) and, for the heads that read the status stream (`dismiss_wrong`, `action`, `fixed` and `dismiss_lowvalue`), rows whose status telemetry fails the dataset's `label_provenance_ok` check. Birth is the moment serving scores a report, and the label that comes out is a per-report probability, which is what the inbox ordering needs. A report born before the window, or one whose birth-day snapshot is missing from it, is no example; `reports_missing_birth_snapshot` on the asset counts the second case, which is a gap in the partitions.
 - **An outcome already visible on the birth day is a future positive.** A report born on day D has no scoring moment before D, so an outcome visible at D belongs to the moment being built rather than to an earlier one; the labels of D therefore read as their defaults for a report born on D. Most outcomes land on the birth day, so this is where the positives are: censoring on them costs the `pr_created` head most of its training signal. `<set>_<head>_birth_day_positives` on the examples asset, and `birth_day_positives` on the `inbox_ranking_examples_built` event, say how many positives the rule keeps. These rows carry a hindsight the other rows do not: the state snapshot reads `signal_count`, `total_weight`, `run_count` and the text sizes live from Postgres a few hours after day D ends, so a birth-day outcome happened before its own feature read. Both the holdout AUC and the newborn unseen grade therefore read optimistically on these rows, until the scoring sweep's timestamped score log replaces the daily snapshot as this table's source.
 - **Every head asks whether the outcome happened within N days of the scoring moment.** `pr_merged` includes every report, so the label covers the whole report-to-merge path without requiring a PR at birth or at the horizon.
 - **A set may ask for another grain**, and cap the rows one head keeps (`max_examples_per_head`, whole report-creation days, newest first). The scoring-moment grain is one row per (report, snapshot) whose head label is still 0 on that snapshot: the serving situation replayed over history, but its label is a hazard conditional on the report still being live, and one long-lived report contributes dozens of near-duplicate rows. The report grain is the first snapshot of the window where the report is a usable moment, which is later than birth only when a side input landed late. Both stay selectable for re-scoring families; nothing ships on them today. The row budget shortens the history a head is fit on and keeps each kept day whole, so the scores stay calibrated to the population of that window. The lookback is the tabular set's whatever the grain, so positives accrue over the whole window until the budget binds.
@@ -113,20 +114,27 @@ The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. I
 
 ### Outcome heads
 
-| Head            | Cohort at the horizon | Horizon (days) |
-| --------------- | --------------------- | -------------- |
-| `open`          | Impressed reports     | 3              |
-| `action`        | Impressed reports     | 7              |
-| `dismiss_wrong` | Impressed reports     | 14             |
-| `pr_created`    | Every report          | 7              |
-| `pr_merged`     | Every report          | 14             |
-| `discuss`       | Impressed reports     | 7              |
-| `refund`        | Every report          | 14             |
-| `thumbs_up`     | Opened reports        | 7              |
-| `reviewer_fix`  | Impressed reports     | 14             |
+| Head               | Cohort at the horizon | Horizon (days) |
+| ------------------ | --------------------- | -------------- |
+| `open`             | Every report          | 3              |
+| `action`           | Every report          | 7              |
+| `dismiss_wrong`    | Every report          | 21             |
+| `pr_created`       | Every report          | 7              |
+| `pr_merged`        | Every report          | 14             |
+| `fixed`            | Every report          | 21             |
+| `discuss`          | Every report          | 7              |
+| `refund`           | Every report          | 14             |
+| `thumbs_up`        | Every report          | 7              |
+| `reviewer_fix`     | Every report          | 14             |
+| `dismiss_lowvalue` | Every report          | 21             |
+
+`action` counts intent from every surface, not only the cloud inbox list.
+A report is a positive when someone clicked an intent action in the inbox UI (create PR, implement, copy the prompt, discuss, open or view a PR, edit the reviewers, restore), or when a person or an external agent claimed it, linked a PR, left a note, discussed it in Slack, or resolved it with a reason.
+Self-driving's own `task` and `system` writes do not count: they are internal operational work.
+A resolve without a reason is the automatic resolve after a tracked PR merges, so it does not count either.
 
 `thumbs_up` (a positive rating on the report body) and `reviewer_fix` (a suggested reviewer added or removed) are the explicit human-feedback pair.
-Both are rare — about 1% of opened reports and 1.5% of impressed reports — so neither clears its holdout bar on a single day.
+Both are rare, so neither clears its holdout bar on a single day.
 They are carried for the pooled newborn grade and as scorer inputs, not for a holdout AUC, and the promotion gate keeps ignoring an unreadable head.
 
 Every training series resets on the first partition after deploy.
@@ -143,7 +151,7 @@ Two assets add the missing number, an offline batch proxy for performance on rep
 
 At the full horizon, the cohort, label and provenance rules are the trainer's own, so the baked unseen AUC is directly comparable to the holdout AUC of the same head and model version. The gap between the two series is the overfitting read the promotion gate cannot see.
 
-Four events carry the scores and baked results to the dashboard, next to the training events: `inbox_ranking_unseen_report_scored` per (report, model) with `p_<head>`, the raw feature inputs, and `pool` (which pool definition produced the row), `inbox_ranking_unseen_head_graded` per (model, head) with `readable` (whether the head's holdout could be read on the model that wrote the scores), `rows`, `positives`, `birth_day_positives` (of the positives, how many landed on the report's birth day), `base_rate`, `mean_score`, `expected_calibration_error`, `auc` and `recency_auc`, `inbox_ranking_unseen_calibration` per (model, head, decile) with `bucket`, `rows`, `positives`, `mean_score` and `realized_rate` (one event per decile, because a table on the head event would be an array no insight can break down), and `inbox_ranking_unseen_report_graded` per (report, model, horizon) with `p_<head>`, `in_cohort_<head>` and `outcome_<head>` for a calibration read on the raw rows. Both graded events are stamped on the day the outcome was read and carry `scoring_partition`, the day the report was scored, so a chart can be built on either axis. Both also carry `pool`, read back from the scores object, so an AUC series never mixes two pool definitions: the grader reads scores from up to 14 days earlier, so the days after a pool change grade both populations. A scores object written before the column existed reads as `sampled`, the pool the old seeded sample defined.
+Four events carry the scores and baked results to the dashboard, next to the training events: `inbox_ranking_unseen_report_scored` per (report, model) with `p_<head>`, the raw feature inputs, and `pool` (which pool definition produced the row), `inbox_ranking_unseen_head_graded` per (model, head) with `readable` (whether the head's holdout could be read on the model that wrote the scores), `rows`, `positives`, `birth_day_positives` (of the positives, how many landed on the report's birth day), `base_rate`, `mean_score`, `expected_calibration_error`, `auc` and `recency_auc`, `inbox_ranking_unseen_calibration` per (model, head, decile) with `bucket`, `rows`, `positives`, `mean_score` and `realized_rate` (one event per decile, because a table on the head event would be an array no insight can break down), and `inbox_ranking_unseen_report_graded` per (report, model, horizon) with `p_<head>`, `in_cohort_<head>` and `outcome_<head>` for a calibration read on the raw rows. Both graded events are stamped on the day the outcome was read and carry `scoring_partition`, the day the report was scored, so a chart can be built on either axis. Both also carry `pool`, read back from the scores object, so an AUC series never mixes two pool definitions: the grader reads scores from up to the longest head horizon (21 days) earlier, so the days after a pool change grade both populations. A scores object written before the column existed reads as `sampled`, the pool the old seeded sample defined.
 
 #### Reading one rendering against another
 
@@ -249,13 +257,28 @@ Writes use boto3: ambient AWS config (the node role) when the dedicated bucket i
 
 ## ClickHouse posture
 
-All reads route to the offline cluster replicas on Cloud (`etl_workload()`), carry the dagster run in `log_comment`, and the cross-team embeddings scan runs under explicit time/memory/spill guards (see `queries.py` for why that scan has no `team_id` sort-key prefix and why that is acceptable).
+All reads route to the offline cluster replicas on Cloud (`etl_workload()`), carry the dagster run in `log_comment`, and the cross-team embeddings scan runs under explicit time/memory/spill guards (see `queries.py` for why that scan still reads nearly the whole table, even with the training consent `team_id` list, and why that is acceptable).
 
 ## Operating it
 
 - Backfill any day range from the Dagster UI; partitions start 2026-04-01 (the label epoch). Every asset sits in the `inbox_ranking_etl` pool so concurrent partitions don't each start their own fleet-wide embeddings scan — the pool's limit is a Dagster deployment setting, provisioned with the bucket.
 - Failures alert `#alerts-self-driving` (owner `team-self-driving`); assets retry twice with a 60s delay before failing a run. A UI-launched materialization runs under Dagster's implicit `__ASSET_JOB`, which carries no owner tag, so alert routing falls back to matching the `inbox_report_`, `inbox_signal_`, and `inbox_ranking_` asset-name prefixes.
 - Runtime budgets are per job (`dagster/max_runtime`): 3h for the dataset and training jobs, 1h for the shadow job. The 3h figure is what the dataset needs — its seven label streams run sequentially, each allowed up to 600s, and the join and S3 writes come after them. The shadow read is one day of two event families plus the scores objects in its lookback, so it gets an hour.
+
+## Training consent
+
+The dags train only on reports from organizations whose `Organization.is_ai_training_opted_in` is `True`.
+`False` and `None` both mean no consent.
+`consent.training_consent_team_ids()` returns the consenting teams that hold an inbox report, and every asset reads it once per run.
+
+- `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
+- `inbox_report_embeddings`, `inbox_report_title_embeddings` and `inbox_signal_embeddings` read only those teams, through `team_id IN (...)` in the ClickHouse query.
+- The examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
+
+The filter follows the current setting, so an organization that opts back in is trained on again.
+The state asset and the examples asset record `excluded_no_training_consent_reports` and `excluded_no_training_consent_teams` as metadata, and `inbox_ranking_examples_built` carries the examples counts. They are counts, never ids.
+The unseen scores read the dt=D state snapshot, so the newborn pool shrinks to consenting teams too. Scoring in the sweep and the shadow read do not change.
+The filter does not delete existing partitions or models. A re-run of `inbox_signal_embeddings` stays additive, so rows that an older run wrote remain in that partition. Nothing trains on signal embeddings today, and a future reader must apply the same filter.
 
 ## Deletion and retention
 

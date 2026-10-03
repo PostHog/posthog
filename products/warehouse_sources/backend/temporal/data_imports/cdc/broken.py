@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
 )
@@ -40,6 +41,15 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 logger = structlog.get_logger(__name__)
 
 SELF_MANAGED_LAG_REASON = "critical_lag_self_managed"
+AUTO_DROPPED_LAG_REASON = "auto_dropped_critical_lag"
+
+# Markers that report a lost slot or publication. A recreated slot resolves them. Billing and a
+# customer-owned slot's lag have causes of their own, so their markers stay.
+_SLOT_LOSS_REASONS = (
+    AUTO_DROPPED_LAG_REASON,
+    CDCErrorCategory.SLOT_MISSING.value,
+    CDCErrorCategory.PUBLICATION_MISSING.value,
+)
 
 
 def mark_cdc_broken(
@@ -116,6 +126,25 @@ def mark_cdc_broken(
     log.warning("cdc_marked_broken", schemas=len(cdc_schemas), newly_broken=len(newly_broken), paused=pause)
 
 
+def broken_for_another_reason(source: ExternalDataSource, reason: str) -> bool:
+    """Whether a table that `mark_cdc_broken` would mark already holds a marker with a different reason.
+
+    A table whose sync is off keeps the marker it had, so it must not count.
+    """
+    return (
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            sync_type_config__has_key="cdc_broken",
+        )
+        .exclude(deleted=True)
+        .exclude(sync_type_config__cdc_broken__reason=reason)
+        .exists()
+    )
+
+
 def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     """Lift the ``critical_lag_self_managed`` marker once the slot's lag is back under the warning threshold.
 
@@ -124,6 +153,15 @@ def clear_recovered_self_managed_lag(source: ExternalDataSource) -> int:
     long after the customer has recovered. Returns how many schemas were cleared.
     """
     return clear_broken_markers(source, reason=SELF_MANAGED_LAG_REASON)
+
+
+def clear_slot_loss_markers(source: ExternalDataSource) -> int:
+    """Lift the markers of a lost slot once capture has recreated it. Returns how many schemas were cleared.
+
+    Left in place, a marker keeps each table's status on the old error, and every check that reads
+    ``cdc_halted`` treats the table as halted although it streams again.
+    """
+    return sum(clear_broken_markers(source, reason=reason) for reason in _SLOT_LOSS_REASONS)
 
 
 def clear_broken_markers(source: ExternalDataSource, **marker_fields: typing.Any) -> int:

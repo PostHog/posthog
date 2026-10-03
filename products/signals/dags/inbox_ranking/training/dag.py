@@ -94,6 +94,7 @@ from products.signals.dags.inbox_ranking.common import (
     snapshot_bounds,
     write_parquet,
 )
+from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
@@ -104,17 +105,24 @@ from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
     PROVENANCE_LABEL_COLUMNS,
     PROVENANCE_STATE_COLUMNS,
+    ConsentExclusion,
     HeadExamples,
     Snapshot,
     assemble_snapshot,
     birth_day_positives,
     build_head_examples,
+    drop_without_training_consent,
     example_columns,
     point_in_time_mask,
     reports_missing_birth_snapshot,
     state_rows,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_HORIZON, HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.heads import (
+    ACTION_LABEL_COLUMNS,
+    HEADS,
+    HEADS_BY_HORIZON,
+    HEADS_BY_NAME,
+)
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
@@ -176,16 +184,15 @@ METADATA_FILE = "metadata.json"
 _LABEL_COLUMNS = (
     "impression_unit_count",
     "open_count",
-    "create_pr_click_count",
-    "discuss_count",
     "dismissal_reason",
     "wrong_dismissal_count",
+    "fixed_count",
+    "lowvalue_dismissal_count",
     "pr_created_count",
     "pr_merged_count",
     "refund_count",
     "feedback_positive_count",
-    "reviewer_add_count",
-    "reviewer_remove_count",
+    *ACTION_LABEL_COLUMNS,
     *PROVENANCE_LABEL_COLUMNS,
 )
 # Every registered feature set's columns in one read: the state snapshot is loaded once and every
@@ -407,6 +414,9 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
     dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
     snapshots = load_snapshots(client, bucket, prefix, dates, required=dates[-1])
     context.log.info(f"{len(snapshots)} of {len(dates)} snapshots present")
+    snapshots, excluded = drop_without_training_consent(snapshots, training_consent_team_ids())
+    if excluded.reports:
+        context.log.info(f"{excluded.reports} reports from {excluded.teams} teams without AI training consent excluded")
     backfilled_rows = sum(int((~point_in_time_mask(snap.state, snap.date)).sum()) for snap in snapshots.values())
     if backfilled_rows:
         context.log.warning(f"{backfilled_rows} state rows read after the snapshot window are excluded (backfill)")
@@ -421,10 +431,12 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
         "snapshots": dagster.MetadataValue.int(len(snapshots)),
         "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
         "reports_missing_birth_snapshot": dagster.MetadataValue.int(unreachable_reports),
+        "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded.reports),
+        "excluded_no_training_consent_teams": dagster.MetadataValue.int(excluded.teams),
     }
     for feature_set in FEATURE_SETS.values():
         metadata |= _examples_for_set(
-            context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows
+            context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, excluded
         )
     context.add_output_metadata(metadata)
 
@@ -438,6 +450,7 @@ def _examples_for_set(
     feature_set: FeatureSet,
     snapshots: Mapping[datetime.date, Snapshot],
     backfilled_rows: int,
+    excluded: ConsentExclusion,
 ) -> dict[str, dagster.MetadataValue]:
     """One feature set's examples for the partition, side inputs included, and its asset metadata.
 
@@ -456,7 +469,7 @@ def _examples_for_set(
         context.log.warning(f"{feature_set.name} examples not rebuilt for dt={partition_key}: no {', '.join(missing)}")
         return {f"{feature_set.name}_skipped": dagster.MetadataValue.bool(True)}
     return _write_examples(
-        context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, extras
+        context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, excluded, extras
     )
 
 
@@ -469,6 +482,7 @@ def _write_examples(
     feature_set: FeatureSet,
     snapshots: Mapping[datetime.date, Snapshot],
     backfilled_rows: int,
+    excluded: ConsentExclusion,
     extras: Extras,
 ) -> dict[str, dagster.MetadataValue]:
     """One feature set's examples for the partition, as its own object and its own events, with
@@ -521,6 +535,7 @@ def _write_examples(
             feature_set=feature_set.name,
             snapshots=len(snapshots),
             backfilled_rows=backfilled_rows,
+            excluded=excluded,
             per_head=counts,
         ),
     )
@@ -1381,7 +1396,7 @@ inbox_ranking_training_job = dagster.define_asset_job(
 
 # Runs after the dataset job's 3h budget (02:30 UTC start) so dt=D-1's snapshots exist.
 @dagster.schedule(
-    cron_schedule="0 6 * * *",
+    cron_schedule="13 6 * * *",
     job=inbox_ranking_training_job,
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING
