@@ -113,7 +113,8 @@ class TestStripProperties:
                 "session_id in (select `$session_id` from events where event = 'a')",
                 False,
             ),
-            ("person property with an event field", "person.properties.email = 'a' and event = 'b'", False),
+            ("person property with an event field", "person.properties.email = 'a' and event = 'b'", True),
+            ("person property only", "person.properties.email = 'a'", False),
             ("expression that does not parse", "event = (", False),
         ]
     )

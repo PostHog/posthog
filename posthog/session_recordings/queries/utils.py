@@ -143,7 +143,7 @@ def is_event_property(p: AnyPropertyFilter) -> bool:
         return False
     if re.search(r"(?<!person\.)properties\.", p_key):
         return True
-    if "person.properties" in p_key or "session.properties" in p_key:
+    if "session.properties" in p_key:
         return False
     return _hogql_uses_event_only_fields(p_key)
 
@@ -151,7 +151,10 @@ def is_event_property(p: AnyPropertyFilter) -> bool:
 def is_person_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "person" or (p_type == "hogql" and "person.properties" in p_key)
+    # A hogql filter that also uses an event field cannot compile on the persons table.
+    return p_type == "person" or (
+        p_type == "hogql" and "person.properties" in p_key and not _hogql_uses_event_only_fields(p_key)
+    )
 
 
 def is_group_property(p: AnyPropertyFilter) -> bool:
