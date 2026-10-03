@@ -2876,7 +2876,7 @@ class TestEmitReportMetricGoalFields(SimpleTestCase):
         serializer = EmitReportRequestSerializer(data=self._payload(**goal))
 
         assert not serializer.is_valid()
-        assert "impact_measurement_plan" in str(serializer.errors["metrics"])
+        assert "follow-up checks" in str(serializer.errors["metrics"])
 
     @parameterized.expand(
         [("no_goal_fields", {}), ("goal_grain_default_from_an_older_client", {"goal_grain": "whole_window"})]

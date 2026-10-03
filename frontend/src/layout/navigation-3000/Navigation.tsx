@@ -54,8 +54,10 @@ export function Navigation({
         leftNavWidth: todayLeftNavWidth,
         todayRailEnabled: todayRail,
         sidebarVisible: todaySidebarVisible,
+        phoneLayout: todayPhoneLayout,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
+    const todayPhone = todayRail && todayPhoneLayout
 
     // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
     // context above scene content, so we hide the notice for users on the new menu bar.
@@ -161,8 +163,9 @@ export function Navigation({
             </a>
             <div
                 className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': mobileLayout && !todayRail,
+                    'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
                     TodayAppLayout: todayRail,
+                    'TodayAppLayout--phone': todayPhone,
                 })}
                 style={
                     {
