@@ -546,8 +546,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             runId,
             streamKey,
         }),
-        // `question` is the reader's own text: the chat shows it and the report's scout receives it as
-        // reader feedback. `agentQuestion` replaces it in the agent prompt only, for app-built requests.
+        // `question` is the reader's own text: the report's scout receives it as reader feedback.
+        // `agentQuestion` replaces it as the message for app-built requests. The chat shows the message
+        // the agent got, because the thread pairs the bubble with its echo by text.
         discussReport: (
             report: SignalReport,
             reportUrl: string,
