@@ -121,8 +121,9 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         mock_create_email_domain.assert_not_called()
         assert not Integration.objects.filter(integration_id="new@example.com").exists()
 
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain", return_value={"status": "pending"})
     @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
-    def test_changing_the_mail_from_label_updates_every_sender_on_the_domain(self, mock_update_mail_from_subdomain):
+    def test_verifying_any_sender_keeps_a_changed_mail_from_label(self, _mock_update, mock_verify_email_domain):
         other_team = Team.objects.create(organization=self.organization, name="other team")
         senders = {
             email: Integration.objects.create(
@@ -147,11 +148,11 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             {"mail_from_subdomain": "bounce"}, team_id=self.team.id
         )
 
-        labels = {
-            email: Integration.objects.get(pk=sender.pk).config["mail_from_subdomain"]
-            for email, sender in senders.items()
-        }
-        assert labels == {
+        verified_labels = {}
+        for email, sender in senders.items():
+            EmailIntegration(Integration.objects.get(pk=sender.pk)).verify()
+            verified_labels[email] = mock_verify_email_domain.call_args.kwargs["mail_from_subdomain"]
+        assert verified_labels == {
             "edited@example.com": "bounce",
             "sibling@example.com": "bounce",
             "unrelated@other.com": "feedback",
