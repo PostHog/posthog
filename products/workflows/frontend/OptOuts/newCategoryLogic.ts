@@ -32,7 +32,9 @@ export type CategoryLogicProps = {
 const TOPIC_KEY_MAX_LENGTH = 64
 
 function topicKeyFromName(name: string): string {
-    return slugify(name).slice(0, TOPIC_KEY_MAX_LENGTH).replace(/-+$/, '')
+    return slugify(name)
+        .slice(0, TOPIC_KEY_MAX_LENGTH)
+        .replace(/^-+|-+$/g, '')
 }
 
 function fieldName(name: FieldName): string {
