@@ -205,7 +205,7 @@
                         },
                         "funnelOrderType": {
                             "default": "ordered",
-                            "description": "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence.",
+                            "description": "Defines the behavior of event matching between steps. Use the `ordered` default unless the steps must happen consecutively or in any order. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `unordered` - order doesn't matter. Steps can be completed in any sequence.",
                             "enum": ["strict", "unordered", "ordered"],
                             "type": "string"
                         },
