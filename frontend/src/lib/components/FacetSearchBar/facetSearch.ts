@@ -73,11 +73,11 @@ export function facetFilterKey(filter: FacetFilter): string {
     return `${filter.negated ? '-' : ''}${filter.facet}:${filter.value}`
 }
 
-const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s|$))/g
-const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
-const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
+const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"|([^\s"]+)(?=\s|$))/g
+const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"|([^\s"]+)(?=\s))/g
+const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"?|(\S*))$/
 const QUOTED_TOKEN_START = /-?[\w-]+:"/y
-const OPEN_QUOTED_DRAFT = /^(-?)([\w-]+):"((?:[^"\\]|\\.)*\\?)$/
+const OPEN_QUOTED_DRAFT = /^(-?)([\w-]+):"((?:[^"\\]|\\[\s\S])*\\?)$/
 
 function isSpace(char: string): boolean {
     return /\s/.test(char)
@@ -109,7 +109,7 @@ function openQuotedTokenStart(input: string): number {
 }
 
 function unescapeFacetValue(quoted: string): string {
-    return quoted.replace(/\\(.)/g, '$1')
+    return quoted.replace(/\\([\s\S])/g, '$1')
 }
 
 /**
@@ -241,13 +241,10 @@ function groupFilters<TRow>(filters: FacetFilter[], facets: ClientFacet<TRow>[])
     return [...groups.values()]
 }
 
-function passesGroups<TRow>(row: TRow, groups: FacetFilterGroup<TRow>[], skipFacet?: string): boolean {
+function passesGroups<TRow>(row: TRow, groups: FacetFilterGroup<TRow>[], orAlternativesOf?: string): boolean {
     for (const { facet, positive, negative } of groups) {
-        if (facet.key === skipFacet) {
-            continue
-        }
         const values = facet.getValues(row).map((value) => value.toLowerCase())
-        if (positive.size && !values.some((value) => positive.has(value))) {
+        if (facet.key !== orAlternativesOf && positive.size && !values.some((value) => positive.has(value))) {
             return false
         }
         if (values.some((value) => negative.has(value))) {
@@ -268,26 +265,31 @@ export function filterFacetRows<TRow>(
     return rows.filter((row) => passesGroups(row, groups) && (!text || matchesText(row, text)))
 }
 
+export type FacetValueCounter = (facetKey: string, pill: { negated: boolean }) => FacetValueOption[]
+
 /**
- * Counts each facet's values over the rows the other pills and the text let through.
- * A facet's own pills are left out, so picking one value keeps the counts of its OR alternatives.
+ * Counts each facet's values over the rows the pills and the text let through.
+ * For a new pill the facet's own pills are left out, so picking one value keeps the counts of its OR alternatives.
+ * Its negated pills stay, so a value it already excludes is not offered.
+ * For a new negated pill every pill counts, so the count is the rows it would hide.
  */
 export function createFacetCounter<TRow>(
     { rows, matchesText }: FacetSearchRows<TRow>,
     value: FacetSearchValue,
     facets: ClientFacet<TRow>[]
-): (facetKey: string) => FacetValueOption[] {
+): FacetValueCounter {
     const text = value.text.trim()
     const textMatches = text ? rows.filter((row) => matchesText(row, text)) : rows
     const groups = groupFilters(value.filters, facets)
-    return (facetKey) => {
+    return (facetKey, { negated }) => {
         const facet = findFacet(facets, facetKey)
         if (!facet) {
             return []
         }
+        const orAlternativesOf = negated ? undefined : facet.key
         const counts = new Map<string, { value: string; count: number }>()
         for (const row of textMatches) {
-            if (!passesGroups(row, groups, facet.key)) {
+            if (!passesGroups(row, groups, orAlternativesOf)) {
                 continue
             }
             const rowValues = new Map(facet.getValues(row).map((rowValue) => [rowValue.toLowerCase(), rowValue]))

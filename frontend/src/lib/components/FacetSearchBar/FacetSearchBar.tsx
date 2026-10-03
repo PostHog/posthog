@@ -95,7 +95,8 @@ export function FacetSearchBar<TRow>({
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
         // Keys during IME composition belong to the input method, not to the suggestions.
-        if (event.nativeEvent.isComposing) {
+        // Safari sends the Enter that confirms the text after composition ends, marked only by keyCode 229.
+        if (event.nativeEvent.isComposing || event.keyCode === 229) {
             return
         }
         const caretAtEnd =

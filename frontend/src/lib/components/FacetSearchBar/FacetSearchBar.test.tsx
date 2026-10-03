@@ -57,6 +57,8 @@ const DATA: FacetSearchRows<Row> = {
     matchesText: (row, text) => row.name.toLowerCase().includes(text.toLowerCase()),
 }
 
+const NO_SUBJECTS: FacetSearchRows<Row> = { ...DATA, rows: DATA.rows.map((row) => ({ ...row, subjects: [] })) }
+
 function ClientConsumer({ url, data = DATA }: { url: string; data?: FacetSearchRows<Row> }): JSX.Element {
     const [value, setValue] = useState(() => parseFacetSearch(url, CLIENT_FACETS))
     return (
@@ -192,6 +194,18 @@ describe('FacetSearchBar', () => {
             ['leave out the facet own pills', 'status:draft', 'status:', ['Active (1)', 'Archived (1)']],
             ['narrow down as the value is typed', 'status:draft', 'status:arch', ['Archived (1)']],
             ['count only rows the other facets let through', 'sends:Deals', 'status:', ['Archived (1)']],
+            [
+                'leave out a value the facet already excludes',
+                '-status:archived',
+                'status:',
+                ['Draft (2)', 'Active (1)'],
+            ],
+            [
+                'of a negated value count only rows the facet still lets through',
+                'status:draft',
+                '-status:',
+                ['Not Draft · Hides 2'],
+            ],
         ])('value counts %s', async (_, url, typed, expected) => {
             const user = setup(url)
             await user.click(input())
@@ -312,11 +326,11 @@ describe('FacetSearchBar', () => {
             expect(shown('rows')).toEqual('Renewal,Sync,Promo')
             await user.keyboard('sends:Deals ')
             expect(shown('rows')).toEqual('Promo')
-            await user.keyboard('{Backspace}-sends:Deals ')
-            expect(shown('rows')).toEqual('Renewal,Sync')
-            await user.keyboard('ren')
-            expect(shown('rows')).toEqual('Renewal')
-            expect(shown('url')).toEqual('status:draft status:archived -sends:Deals ren')
+            await user.keyboard('{Backspace}-sends:"Your trial ends" ')
+            expect(shown('rows')).toEqual('Sync,Promo')
+            await user.keyboard('syn')
+            expect(shown('rows')).toEqual('Sync')
+            expect(shown('url')).toEqual('status:draft status:archived -sends:"Your trial ends" syn')
         })
 
         it('picks a value row with the keyboard and keeps the text typed before it', async () => {
@@ -542,6 +556,13 @@ describe('FacetSearchBar', () => {
             expect(parseFacetSearch(serializeFacetSearch(search), CLIENT_FACETS)).toEqual(search)
         })
 
+        it('keeps a facet token after an escaped line break inside a quoted URL value', () => {
+            expect(parseFacetSearch('sends:"Say \\\nstatus:open now"', CLIENT_FACETS)).toEqual({
+                filters: [{ facet: 'sends', value: 'Say \nstatus:open now', negated: false }],
+                text: '',
+            })
+        })
+
         it('turns a pasted query into pills, each once', async () => {
             const user = setup()
             await user.click(input())
@@ -559,11 +580,14 @@ describe('FacetSearchBar', () => {
             expect(input()).toHaveValue('')
         })
 
-        it('ignores Enter while an IME is composing', async () => {
+        it.each([
+            ['while it composes', { isComposing: true }],
+            ['that confirms the text in Safari', { keyCode: 229 }],
+        ])('ignores the IME Enter %s', async (_, composition) => {
             const user = setup()
             await user.click(input())
             await user.keyboard('status:')
-            fireEvent.keyDown(input(), { key: 'Enter', isComposing: true })
+            fireEvent.keyDown(input(), { key: 'Enter', ...composition })
             expect(pills()).toEqual([])
             expect(input()).toHaveValue('status:')
         })
@@ -577,10 +601,13 @@ describe('FacetSearchBar', () => {
         })
 
         it.each([
-            ['the typed value', 'status:zzz', 'No values match'],
-            ['the other filters', 'zzz status:', 'No values match your other filters'],
-        ])('shows the no-values message for %s as text, not as an option', async (_, typed, expected) => {
-            const user = setup()
+            ['the typed value', '', DATA, 'status:zzz', 'No values match'],
+            ['the other filters', '', DATA, 'zzz status:', 'No values match your other filters'],
+            ['a facet no row has a value for', 'sends:Old', NO_SUBJECTS, 'sends:', 'No values match'],
+            ['a facet whose every value is a pill', 'stage:one', DATA, 'stage:', 'Every value is already a filter'],
+        ])('shows the no-values message for %s as text, not as an option', async (_, url, data, typed, expected) => {
+            render(<ClientConsumer url={url} data={data} />)
+            const user = userEvent.setup()
             await user.click(input())
             await user.keyboard(typed)
             expect(suggestions()).toEqual([])
@@ -680,19 +707,20 @@ describe('FacetSearchBar', () => {
                 .mockReturnValueOnce(teams.promise)
                 .mockRejectedValue(new Error('You are offline.'))
             render(<ServerConsumer facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]} />)
+            const status = document.querySelector('[role="status"]')
+            expect(status).toBeEmptyDOMElement()
             const user = userEvent.setup()
             await user.click(input())
             await user.paste('gr')
             await waitFor(() => expect(loadValues).toHaveBeenCalledWith('gr'))
-            expect(document.querySelector('[role="status"]')).toHaveTextContent('Loading values…')
+            expect(status).toHaveTextContent('Loading values…')
             expect(suggestions()).toEqual(['Search for "gr"'])
 
             await user.paste('o')
             await waitFor(() =>
-                expect(document.querySelector('[role="status"]')).toHaveTextContent(
-                    "Couldn't load values: You are offline. Type again to retry."
-                )
+                expect(status).toHaveTextContent("Couldn't load values for Team: You are offline. Type again to retry.")
             )
+            expect(document.querySelector('[role="status"]')).toBe(status)
             expect(suggestions()).toEqual(['Search for "gro"'])
         })
 

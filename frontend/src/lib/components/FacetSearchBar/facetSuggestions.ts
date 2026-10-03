@@ -5,6 +5,7 @@ import {
     FacetDraft,
     FacetFilter,
     FacetSearchRows,
+    FacetValueCounter,
     FacetValueOption,
     LoadFacetValues,
     ServerFacet,
@@ -66,17 +67,23 @@ interface SuggestionContext {
     valueLoads: FacetValueLoads
 }
 
-type ListFacetValues = (facet: AnyFacet, text: string, search: string) => FacetValuesState
+interface ValueQuery {
+    text: string
+    search: string
+    negated: boolean
+}
+
+type ListFacetValues = (facet: AnyFacet, query: ValueQuery) => FacetValuesState
 
 function createValueLister({ facets, data, filters, valueLoads }: SuggestionContext): ListFacetValues {
-    const countersByText = new Map<string, (facetKey: string) => FacetValueOption[]>()
-    return (facet, text, search) => {
+    const countersByText = new Map<string, FacetValueCounter>()
+    return (facet, { text, search, negated }) => {
         if (data && 'getValues' in facet) {
             const counter =
                 countersByText.get(text) ??
                 createFacetCounter(data, { filters, text }, facets as ClientFacet<unknown>[])
             countersByText.set(text, counter)
-            return { status: 'loaded', options: counter(facet.key) }
+            return { status: 'loaded', options: counter(facet.key, { negated }) }
         }
         if (isLoadedFacet(facet)) {
             return valueLoads[valueLoadKey(facet.key, search)] ?? { status: 'loading' }
@@ -130,14 +137,14 @@ function chosenFilters({ data, filters }: SuggestionContext): IsChosen {
     return (filter) => chosen.has(identity(filter))
 }
 
-function loadFailedMessage(reason: string | undefined): string {
+function loadFailedMessage(reason: string | undefined, facetLabel?: string): string {
     const because = reason?.trim().replace(/\.$/, '')
-    return `Couldn't load values${because ? `: ${because}` : ''}. Type again to retry.`
+    return `Couldn't load values${facetLabel ? ` for ${facetLabel}` : ''}${because ? `: ${because}` : ''}. Type again to retry.`
 }
 
 function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChosen: IsChosen): FacetSuggestion[] {
     const facet = findFacet(context.facets, draft.facetKey)!
-    const state = createValueLister(context)(facet, draft.rest, draft.partial)
+    const state = createValueLister(context)(facet, { text: draft.rest, search: draft.partial, negated: draft.negated })
     if (state.status === 'loading') {
         return message('loading', 'Loading values…')
     }
@@ -150,8 +157,8 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
         value: option.value,
         negated: draft.negated,
     })
-    const rows = state.options
-        .filter((option) => !isChosen(filterOf(option)))
+    const unchosen = state.options.filter((option) => !isChosen(filterOf(option)))
+    const rows = unchosen
         .filter((option) => matchesPartial(facet, option, partial))
         .slice(0, MAX_VALUE_SUGGESTIONS)
         .map(
@@ -167,8 +174,11 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
     if (rows.length) {
         return rows
     }
-    const otherFiltersHideEverything =
-        !!context.data && !state.options.length && (context.filters.length > 0 || !!draft.rest.trim())
+    if (!partial && state.options.length && !unchosen.length) {
+        return message('none', 'Every value is already a filter')
+    }
+    const hasOtherFilters = context.filters.some((filter) => filter.facet !== facet.key) || !!draft.rest.trim()
+    const otherFiltersHideEverything = !!context.data && !state.options.length && hasOtherFilters
     return message('none', otherFiltersHideEverything ? 'No values match your other filters' : 'No values match')
 }
 
@@ -183,11 +193,11 @@ function crossFacetValueSuggestions(
 ): FacetSuggestion[] {
     const listValues = createValueLister(context)
     const matches: FacetSuggestion[] = []
-    const unfinished: FacetValuesState[] = []
+    const unfinished: UnfinishedLoad[] = []
     for (const facet of sortFacets(context.facets)) {
-        const state = listValues(facet, token.rest, token.search)
+        const state = listValues(facet, { text: token.rest, search: token.search, negated: token.negated })
         if (state.status !== 'loaded') {
-            unfinished.push(state)
+            unfinished.push({ facet, state })
             continue
         }
         for (const option of state.options) {
@@ -208,12 +218,19 @@ function crossFacetValueSuggestions(
     return [...matches.slice(0, MAX_CROSS_FACET_SUGGESTIONS), ...unfinishedLoadMessage(unfinished)]
 }
 
-function unfinishedLoadMessage(states: FacetValuesState[]): FacetSuggestion[] {
-    if (states.some((state) => state.status === 'loading')) {
+interface UnfinishedLoad {
+    facet: AnyFacet
+    state: Exclude<FacetValuesState, { status: 'loaded' }>
+}
+
+function unfinishedLoadMessage(loads: UnfinishedLoad[]): FacetSuggestion[] {
+    if (loads.some(({ state }) => state.status === 'loading')) {
         return message('loading', 'Loading values…')
     }
-    const failed = states.find((state) => state.status === 'error')
-    return failed?.status === 'error' ? message('error', loadFailedMessage(failed.reason)) : []
+    const failed = loads.find(({ state }) => state.status === 'error')
+    return failed?.state.status === 'error'
+        ? message('error', loadFailedMessage(failed.state.reason, failed.facet.label))
+        : []
 }
 
 export function buildSuggestions(
