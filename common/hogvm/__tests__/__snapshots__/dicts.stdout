@@ -8,3 +8,4 @@ value
 value
 value
 {'a': true, 'b': null, 'c': [1, 'x']}
+Error('x', {'a': 1})

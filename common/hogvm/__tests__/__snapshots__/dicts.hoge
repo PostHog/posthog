@@ -4,4 +4,5 @@
 32, "key", 32, "value", 42, 1, 32, "key", 45, 2, "print", 1, 35, 32, "key", 32, "otherKey", 32, "value", 42, 1, 42, 1,
 32, "key", 45, 32, "otherKey", 45, 2, "print", 1, 35, 32, "key", 32, "otherKey", 32, "value", 42, 1, 42, 1, 32, "key",
 45, 32, "otherKey", 45, 2, "print", 1, 35, 32, "a", 29, 32, "b", 31, 32, "c", 33, 1, 32, "x", 43, 2, 42, 3, 2,
-"toString", 1, 2, "print", 1, 35, 35]
+"toString", 1, 2, "print", 1, 35, 32, "x", 32, "a", 33, 1, 42, 1, 2, "Error", 2, 2, "toString", 1, 2, "print", 1, 35,
+35]

@@ -86,6 +86,14 @@ function __DateTimeToString(dt) {
         return isoString;
     }
 }
+function __x_Error (message, payload) { return __newHogError('Error', message, payload) }
+function __newHogError(type, message, payload) {
+    let error = new Error(message || 'An error occurred');
+    error.__hogError__ = true
+    error.type = type
+    error.payload = payload
+    return error
+}
 
 print({});
 print({"key": "value"});
@@ -98,3 +106,4 @@ print(__getProperty({"key": "value"}, "key", false));
 print(__getProperty(__getProperty({"key": {"otherKey": "value"}}, "key", false), "otherKey", false));
 print(__getProperty(__getProperty({"key": {"otherKey": "value"}}, "key", false), "otherKey", false));
 print(toString({"a": true, "b": null, "c": [1, "x"]}));
+print(toString(__x_Error("x", {"a": 1})));
