@@ -226,6 +226,14 @@ function discussReportInstructions(
 }
 
 /**
+ * Escapes the context-block tags the thread strips from the start of a message. A suggested prompt can
+ * come from report content, and an unescaped leading tag would extend the trusted block before it.
+ */
+function discussReportMessage(text: string): string {
+    return text.trim().replace(/<(\/?)((?:posthog_(?:(?:un)?trusted_)?|slack_thread_)context)/g, '<\\$1$2')
+}
+
+/**
  * The agent instructions go in a leading `<posthog_trusted_context>` block, so the chat strips them
  * and shows only the user's message, in the optimistic bubble, the live echo, and on replay.
  */
@@ -239,7 +247,7 @@ export function buildDiscussReportPrompt(
     const instructions = discussReportInstructions(report, reportUrl, intent).map(
         (value): AttachedContextItem => ({ type: 'instructions', value })
     )
-    return wrapWithPosthogContext(question.trim(), [...instructions, ...contextItems])
+    return wrapWithPosthogContext(discussReportMessage(question), [...instructions, ...contextItems])
 }
 
 // The per-report cap 429 carries code `signal_report_task_cap` with its message under `error`
@@ -799,7 +807,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 return
             }
             try {
-                const messageText = (agentQuestion ?? question).trim()
+                const messageText = discussReportMessage(agentQuestion ?? question)
                 const prompt = buildDiscussReportPrompt(currentReport, reportUrl, messageText, intent, contextItems)
                 const warmLease = values.reportWarmLease?.reportId === report.id ? values.reportWarmLease : null
                 if (warmLease) {
