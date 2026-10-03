@@ -243,7 +243,7 @@ class RepositorySuggestionsSerializer(serializers.Serializer):
 
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
-    scope_object_read_actions = ["current", "starter_design", "suggest_repository"]
+    scope_object_read_actions = ["current", "starter_design", "preview_starter_design", "suggest_repository"]
     scope_object_write_actions = ["update_current", "detect", "import_logo", "create_starter_template"]
     # The brand styles every workflow in the project, so access to one workflow must not reach it.
     requires_resource_level_access = True
@@ -382,6 +382,18 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["GET"])
     def starter_design(self, request: Request, **kwargs: Any) -> Response:
         starter = build_starter_template(self._saved_brand())
+        return Response(EmailBrandStarterDesignSerializer(starter).data)
+
+    @validated_request(
+        request_serializer=EmailBrandSerializer,
+        responses={200: EmailBrandStarterDesignSerializer},
+        summary="Preview a starter email design from unsaved brand values",
+        description="Validates draft values and builds the starter design without saving a brand or template.",
+    )
+    @action(detail=False, methods=["POST"])
+    def preview_starter_design(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        brand = EmailBrand(team_id=self._project_team_id(), **request.validated_data)
+        starter = build_starter_template(brand)
         return Response(EmailBrandStarterDesignSerializer(starter).data)
 
     @extend_schema(

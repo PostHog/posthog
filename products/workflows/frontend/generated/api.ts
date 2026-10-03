@@ -206,6 +206,27 @@ export const emailBrandImportLogoCreate = async (
     })
 }
 
+export const getEmailBrandPreviewStarterDesignCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/preview_starter_design/`
+}
+
+/**
+ * Validates draft values and builds the starter design without saving a brand or template.
+ * @summary Preview a starter email design from unsaved brand values
+ */
+export const emailBrandPreviewStarterDesignCreate = async (
+    projectId: string,
+    emailBrandApi?: NonReadonly<EmailBrandApi>,
+    options?: RequestInit
+): Promise<EmailBrandStarterDesignApi> => {
+    return apiMutator<EmailBrandStarterDesignApi>(getEmailBrandPreviewStarterDesignCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailBrandApi),
+    })
+}
+
 export const getEmailBrandStarterDesignRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/email_brand/starter_design/`
 }

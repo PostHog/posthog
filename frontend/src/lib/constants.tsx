@@ -164,6 +164,7 @@ export const RETENTION_FIRST_EVER_OCCURRENCE = 'retention_first_ever_occurrence'
 // variant keys separated by commas, e.g. `multivariate=control,test,something_else`
 export const FEATURE_FLAGS = {
     POSTHOG_TERMINAL: 'posthog-terminal', // owner: @mariusandra
+    WORKFLOWS_BRAND_DETECTION: 'workflows-brand-detection',
 
     // Eternal feature flags, shouldn't be removed, helpful for debugging/maintenance reasons
     BILLING_FORECASTING_ISSUES: 'billing-forecasting-issues', // owner: #team-billing, see `Billing.tsx`, used to raise a warning when billing is having problems

@@ -91,6 +91,20 @@ class TestEmailBrandStarterTemplateAPI(APIBaseTest):
             in _content(design, "brand-starter-unsubscribe")["values"]["unsubscribe_link_content"]
         )
 
+    def test_previews_draft_values_without_saving_a_brand(self, _flag: MagicMock) -> None:
+        response = self.client.post(
+            self._brand_url("preview_starter_design"),
+            {"name": "Juniper", "primary_color": "#276749"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "Juniper starter template"
+        design = response.json()["design"]
+        assert validate_design(design) == []
+        assert _content(design, "brand-starter-cta")["values"]["buttonColors"]["backgroundColor"] == "#276749"
+        assert self.client.get(self._brand_url("current")).status_code == status.HTTP_404_NOT_FOUND
+
     def test_brand_without_a_logo_shows_its_name_as_the_header(self, _flag):
         self._save_brand(name="Acme")
 
@@ -146,7 +160,9 @@ class TestEmailBrandStarterTemplateAPI(APIBaseTest):
         assert response.json()["code"] == "design_rendering_unavailable"
         assert not MessageTemplate.objects.filter(team_id=self.team.id).exists()
 
-    @parameterized.expand([("starter_design", "GET"), ("create_starter_template", "POST")])
+    @parameterized.expand(
+        [("starter_design", "GET"), ("preview_starter_design", "POST"), ("create_starter_template", "POST")]
+    )
     def test_routes_are_hidden_while_the_flag_is_off(self, flag, route, method):
         self._save_brand(name="Acme")
         flag.side_effect = None
