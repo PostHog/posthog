@@ -222,14 +222,26 @@
     @container main-content (max-width: 900px) {
         width: min(100% - 72px, 700px);
     }
+
+    @container main-content (max-width: 600px) {
+        width: calc(100% - 40px);
+    }
 }
 
 .TodayHome {
     padding: 94px 0 140px;
+
+    @container main-content (max-width: 600px) {
+        padding: 20px 0 64px;
+    }
 }
 
 .TodayReport {
     padding: 56px 0 140px;
+
+    @container main-content (max-width: 600px) {
+        padding: 12px 0 64px;
+    }
 }
 
 .TodayHome__meta {
@@ -241,6 +253,7 @@
     time {
         font-variant-numeric: tabular-nums;
         color: var(--today-ink);
+        white-space: nowrap;
     }
 }
 
@@ -548,6 +561,16 @@
     from {
         opacity: 0;
         transform: translateY(2px);
+    }
+}
+
+@container main-content (max-width: 600px) {
+    .TodayHome__intro {
+        margin-top: 32px;
+    }
+
+    .TodayAsk {
+        margin-top: 40px;
     }
 }
 

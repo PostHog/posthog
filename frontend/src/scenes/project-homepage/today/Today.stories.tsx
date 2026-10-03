@@ -921,6 +921,17 @@ export const NarrowWindowWithSidebar: Story = {
     },
 }
 
+export const PhoneWidth: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
+export const PhoneWidthMorePane: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
+    },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
