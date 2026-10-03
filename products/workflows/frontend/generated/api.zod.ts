@@ -90,6 +90,37 @@ export const EmailBrandCurrentPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Reads the repository's brand files and proposes an Email brand with the source of each value. Does not save the Email brand. A detection is reused for 10 minutes unless refresh is set.
+ * @summary Detect an Email brand from a GitHub repository
+ */
+export const emailBrandDetectCreateBodyRepositoryMax = 255
+
+export const emailBrandDetectCreateBodyRepositoryRegExp = new RegExp('^(?!\\.+\/)[\\w.-]+\/(?!\\.+$)[\\w.-]+$')
+export const emailBrandDetectCreateBodyAppRootMax = 255
+
+export const emailBrandDetectCreateBodyRefreshDefault = false
+
+export const EmailBrandDetectCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("Id of the project's GitHub integration to read with."),
+    repository: zod
+        .string()
+        .max(emailBrandDetectCreateBodyRepositoryMax)
+        .regex(emailBrandDetectCreateBodyRepositoryRegExp)
+        .describe('Full name of the repository to read, as owner\/repo.'),
+    app_root: zod
+        .string()
+        .max(emailBrandDetectCreateBodyAppRootMax)
+        .optional()
+        .describe(
+            'Directory of the app to read inside a monorepo, for example apps\/web. Leave it out to use the likeliest app.'
+        ),
+    refresh: zod
+        .boolean()
+        .default(emailBrandDetectCreateBodyRefreshDefault)
+        .describe('Read the repository again instead of reusing a detection from the last 10 minutes.'),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201

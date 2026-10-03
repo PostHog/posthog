@@ -14,6 +14,8 @@ import type {
     BlastRadiusApi,
     BlastRadiusRequestApi,
     EmailBrandApi,
+    EmailBrandDetectRequestApi,
+    EmailBrandDetectionApi,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -135,6 +137,27 @@ export const emailBrandCurrentPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedEmailBrandApi),
+    })
+}
+
+export const getEmailBrandDetectCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/detect/`
+}
+
+/**
+ * Reads the repository's brand files and proposes an Email brand with the source of each value. Does not save the Email brand. A detection is reused for 10 minutes unless refresh is set.
+ * @summary Detect an Email brand from a GitHub repository
+ */
+export const emailBrandDetectCreate = async (
+    projectId: string,
+    emailBrandDetectRequestApi: EmailBrandDetectRequestApi,
+    options?: RequestInit
+): Promise<EmailBrandDetectionApi> => {
+    return apiMutator<EmailBrandDetectionApi>(getEmailBrandDetectCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailBrandDetectRequestApi),
     })
 }
 

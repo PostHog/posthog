@@ -165,6 +165,105 @@ export interface PatchedEmailBrandApi {
     readonly updated_at?: string
 }
 
+export interface EmailBrandDetectRequestApi {
+    /** Id of the project's GitHub integration to read with. */
+    integration_id: number
+    /**
+     * Full name of the repository to read, as owner/repo.
+     * @maxLength 255
+     * @pattern ^(?!\.+/)[\w.-]+/(?!\.+$)[\w.-]+$
+     */
+    repository: string
+    /**
+     * Directory of the app to read inside a monorepo, for example apps/web. Leave it out to use the likeliest app.
+     * @maxLength 255
+     */
+    app_root?: string
+    /** Read the repository again instead of reusing a detection from the last 10 minutes. */
+    refresh?: boolean
+}
+
+export interface EmailBrandCandidateApi {
+    /** The value: a name, a #rrggbb color or a font family. */
+    value: string
+    /**
+     * Repository path of the file the value came from. Null for a default value.
+     * @nullable
+     */
+    path: string | null
+    /**
+     * 1-based line in that file, or null.
+     * @nullable
+     */
+    line: number | null
+    /** Whether the color is the untouched default primary of a UI kit theme, rather than a brand choice. */
+    default_theme: boolean
+    /**
+     * For a font family: a CSS font stack for email that ends in safe fonts.
+     * @nullable
+     */
+    font_stack: string | null
+}
+
+export interface EmailBrandProposalApi {
+    /** Proposed brand name. */
+    name: EmailBrandCandidateApi | null
+    /** Proposed primary color, or null. */
+    primary_color: EmailBrandCandidateApi | null
+    /** Proposed accent color, or null. */
+    accent_color: EmailBrandCandidateApi | null
+    /** Proposed body text color. */
+    text_color: EmailBrandCandidateApi | null
+    /** Proposed background color. */
+    background_color: EmailBrandCandidateApi | null
+    /** Proposed font family, or null. */
+    font_family: EmailBrandCandidateApi | null
+}
+
+export interface EmailBrandCandidatesApi {
+    /** Name candidates, best first. */
+    name: EmailBrandCandidateApi[]
+    /** Primary color candidates, best first. */
+    primary_color: EmailBrandCandidateApi[]
+    /** Accent color candidates, best first. */
+    accent_color: EmailBrandCandidateApi[]
+    /** Text color candidates, best first. */
+    text_color: EmailBrandCandidateApi[]
+    /** Background color candidates, best first. */
+    background_color: EmailBrandCandidateApi[]
+    /** Font family candidates, best first. */
+    font_family: EmailBrandCandidateApi[]
+}
+
+export interface EmailBrandFoundValueApi {
+    /** Email brand field the value is a candidate for, for example primary_color. */
+    field: string
+    /** The value found in the file. */
+    value: string
+}
+
+export interface EmailBrandFileReadApi {
+    /** Repository path of a file detection read. */
+    path: string
+    /** The brand values that file gave. */
+    found: EmailBrandFoundValueApi[]
+}
+
+export interface EmailBrandDetectionApi {
+    /** Full name of the repository that was read. */
+    repository: string
+    /** Directory of the app that was read. Empty for the repository root. */
+    app_root: string
+    /** Other app directories of a monorepo, likeliest first. */
+    app_root_alternatives: string[]
+    /** The proposed Email brand. It is not saved. */
+    proposal: EmailBrandProposalApi
+    /** Every distinct value found per field, best first. */
+    candidates: EmailBrandCandidatesApi
+    /** The files detection read, in reading order. */
+    files_read: EmailBrandFileReadApi[]
+}
+
 /**
  * * `team` - Only team
  * * `organization` - Organization
