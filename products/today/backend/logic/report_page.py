@@ -1,5 +1,3 @@
-import re
-
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
@@ -9,14 +7,14 @@ from products.signals.backend.facade import api as signals
 
 from ..facade import contracts
 from . import evidence, impact, samples
+from .formats import digits_end, github_links, is_word_char
 from .prose import concise_text
 
 _PROPOSAL_CHARS = 260
 _IMPACT_CHARS = 180
 _ACTION_CAPABLE_STATUSES = frozenset({"ready", "pending_input"})
 _MARKDOWN = MarkdownIt("commonmark")
-_GITHUB_PULL_URL = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/(\d+)", re.ASCII)
-_PULL_REFERENCE = re.compile(r"\bPR #(\d+)\b", re.ASCII)
+_PULL_REFERENCE = "PR #"
 
 
 def _code_spans(markdown: str) -> list[str]:
@@ -48,14 +46,28 @@ def proposal(page: signals.ReportPageSource) -> str:
     return concise_text(page.sections.solution or fallback, _PROPOSAL_CHARS)
 
 
+def _pull_reference_numbers(text: str) -> list[str]:
+    numbers: list[str] = []
+    index = text.find(_PULL_REFERENCE)
+    while index >= 0:
+        number_start = index + len(_PULL_REFERENCE)
+        number_end = digits_end(text, number_start)
+        starts_word = index == 0 or not is_word_char(text[index - 1])
+        ends_word = number_end == len(text) or not is_word_char(text[number_end])
+        if starts_word and ends_word and number_end > number_start:
+            numbers.append(text[number_start:number_end])
+            index = text.find(_PULL_REFERENCE, number_end)
+        else:
+            index = text.find(_PULL_REFERENCE, index + 1)
+    return numbers
+
+
 def _pull_requests_in(text: str | None, repo_slug: str | None) -> dict[str, str]:
-    found = {match.group(1): match.group(0) for match in _GITHUB_PULL_URL.finditer(text or "")}
+    body = text or ""
+    found = {link.number: body[link.start : link.end] for link in github_links(body, lambda link: link.kind == "pull")}
     if found or not repo_slug:
         return found
-    return {
-        match.group(1): f"https://github.com/{repo_slug}/pull/{match.group(1)}"
-        for match in _PULL_REFERENCE.finditer(text or "")
-    }
+    return {number: f"https://github.com/{repo_slug}/pull/{number}" for number in _pull_reference_numbers(body)}
 
 
 def _only_pull_request(text: str | None, repo_slug: str | None) -> contracts.PullRequestLink | None:

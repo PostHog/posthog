@@ -3,13 +3,13 @@ from datetime import date
 
 from markdown_it import MarkdownIt
 
+from .formats import replace_iso_dates
 from .report_text import readable_date, rendered_text
 from .sentences import split_markdown_sentences
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"“(*`])")
 _SENTENCE_END = re.compile(r"[.!?](?=\s+[A-Z“\"(])")
 _MIN_SENTENCE_CHARS = 40
-_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b", re.ASCII)
 _MONTH_DAY = re.compile(r"(?<=\bon )(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])\b", re.ASCII)
 _BARE_INTEGER = re.compile(r"(?<![\w#.,/:-])(?:\d{5,7}|(?!19|20)\d{4}(?= [a-z]))(?![\w/:-]|[.,]\d)", re.ASCII)
 _CODE_BLOCK = re.compile(r"```[\s\S]*?(?:```|\Z)")
@@ -71,7 +71,7 @@ def _month_day(match: re.Match[str]) -> str:
 
 
 def readable_excerpt(text: str) -> str:
-    dated = _MONTH_DAY.sub(_month_day, _ISO_DATE.sub(readable_date, text))
+    dated = _MONTH_DAY.sub(_month_day, replace_iso_dates(text, readable_date))
     return _BARE_INTEGER.sub(lambda match: f"{int(match.group(0)):,}", dated)
 
 

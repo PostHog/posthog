@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 from collections.abc import Callable
 from dataclasses import replace
+from functools import cached_property
 from typing import Protocol
 
 from django.conf import settings
@@ -43,15 +44,19 @@ def _probability(answer: Answer) -> float | None:
 class GatewayJev:
     def __init__(self, *, team_id: int, distinct_id: str) -> None:
         self._team_id = team_id
+        self._distinct_id = distinct_id
+
+    @cached_property
+    def _client(self) -> GatewaySystemOneClient:
         client = build_system_one_client(
             model=settings.HOGQL_PROMPT_JEV_MODEL,
             ai_product=_AI_PRODUCT,
-            team_id=team_id,
-            distinct_id=distinct_id,
-            properties={"team_id": str(team_id)},
+            team_id=self._team_id,
+            distinct_id=self._distinct_id,
+            properties={"team_id": str(self._team_id)},
         )
         assert isinstance(client, GatewaySystemOneClient)
-        self._client = client
+        return client
 
     def _cache_key(self, question: Question, item: str) -> str:
         body = json.dumps([self._team_id, question.to_json(), item], sort_keys=True)

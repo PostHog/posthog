@@ -1,4 +1,3 @@
-import re
 import math
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -12,8 +11,11 @@ _MIN_TICKETS = 2
 _WEEKS_FROM_DAYS = 14
 _MS_PER_HOUR = 3_600_000
 _SECONDS_PER_DAY = 86_400
-_PGANALYZE_TIME = re.compile(r"takes ([\d.,]+)\s*ms on average", re.IGNORECASE | re.ASCII)
-_PGANALYZE_CALLS = re.compile(r"([\d,]+) calls in last 24h", re.IGNORECASE | re.ASCII)
+_TIME_LEAD = "takes "
+_TIME_TAIL = "ms on average"
+_CALLS_TAIL = " calls in last 24h"
+_TIME_CHARS = frozenset("0123456789.,")
+_CALLS_CHARS = frozenset("0123456789,")
 _RECORDING_SOURCES = frozenset({"replay_vision", "session_replay"})
 _TICKET_SOURCES = frozenset({"conversations", "zendesk"})
 _QUERY_HOURS_SENTENCE = "database time a day, worked out from the query’s pganalyze stats."
@@ -83,16 +85,46 @@ def _fixed(value: float, digits: int) -> str:
     return str(Decimal(value).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP))
 
 
+def _average_ms(content: str) -> str | None:
+    lowered = content.lower()
+    index = lowered.find(_TIME_LEAD)
+    while index >= 0:
+        start = index + len(_TIME_LEAD)
+        end = start
+        while end < len(content) and content[end] in _TIME_CHARS:
+            end += 1
+        tail = end
+        while tail < len(content) and content[tail].isspace():
+            tail += 1
+        if end > start and lowered.startswith(_TIME_TAIL, tail):
+            return content[start:end]
+        index = lowered.find(_TIME_LEAD, index + 1)
+    return None
+
+
+def _calls_per_day(content: str) -> str | None:
+    lowered = content.lower()
+    index = lowered.find(_CALLS_TAIL)
+    while index >= 0:
+        start = index
+        while start > 0 and content[start - 1] in _CALLS_CHARS:
+            start -= 1
+        if start < index:
+            return content[start:index]
+        index = lowered.find(_CALLS_TAIL, index + 1)
+    return None
+
+
 def _query_cost(signals: list[SignalInput]) -> _QueryCost | None:
     for signal in signals:
-        time = _PGANALYZE_TIME.search(signal.content) if signal.source_product == "pganalyze" else None
-        calls = _PGANALYZE_CALLS.search(signal.content)
+        time = _average_ms(signal.content) if signal.source_product == "pganalyze" else None
+        calls = _calls_per_day(signal.content)
         if not time or not calls:
             continue
-        count = _amount(calls.group(1))
-        hours = _amount(time.group(1)) * count / _MS_PER_HOUR
+        count = _amount(calls)
+        hours = _amount(time) * count / _MS_PER_HOUR
         if math.isfinite(hours) and hours > 0:
-            return _QueryCost(signal=signal, average_ms=time.group(1), calls_per_day=_grouped(count, 0), hours=hours)
+            return _QueryCost(signal=signal, average_ms=time, calls_per_day=_grouped(count, 0), hours=hours)
     return None
 
 

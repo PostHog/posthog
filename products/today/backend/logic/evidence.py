@@ -1,8 +1,8 @@
-import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
 from ..facade import contracts
+from .formats import colon_duration_seconds
 from .signal_previews import plays_recording, preview
 from .signal_text import (
     SignalInput as SignalInput,
@@ -21,8 +21,6 @@ from .signal_text import (
 _SHOWN_EVIDENCE = 3
 _PLAYER_LEAD_IN_SECONDS = 5
 _SHORT_FINDING_CHARS = 240
-_COLON_DURATION = re.compile(r"^(\d\d?:)*(\d\d?)$", re.ASCII)
-_DURATION_UNITS = (1, 60, 3600, 86400, 604800)
 
 
 def newest_first(signals: list[SignalInput]) -> list[SignalInput]:
@@ -58,10 +56,7 @@ def pick_evidence(signals: list[SignalInput], count: int = _SHOWN_EVIDENCE) -> l
 def _offset_seconds(value: object) -> float | None:
     if isinstance(value, int | float) and not isinstance(value, bool):
         return float(value)
-    if not isinstance(value, str) or not _COLON_DURATION.match(value):
-        return None
-    units = [int(unit) for unit in reversed(value.split(":"))]
-    return float(sum(unit * scale for unit, scale in zip(units, _DURATION_UNITS)))
+    return colon_duration_seconds(value) if isinstance(value, str) else None
 
 
 def _offset_label(seconds: float) -> str:
