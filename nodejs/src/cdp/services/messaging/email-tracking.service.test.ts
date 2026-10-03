@@ -466,13 +466,15 @@ describe('EmailTrackingService', () => {
                 })
             })
 
-            it('reports a delivered message as a workflows activation step', async () => {
+            it.each([
+                ['reports a delivered workflow message', true],
+                ['does not report a delivered hog function message', false],
+            ])('%s as a workflows activation step', async (_name, fromWorkflow) => {
                 const reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
-                const hogFlow = await insertHogFlow(
-                    hub.postgres,
-                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
-                )
-                const trackingCode = signer.generate({ functionId: hogFlow.id, id: invocationId, teamId: team.id })
+                const functionId = fromWorkflow
+                    ? (await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())).id
+                    : hogFunction.id
+                const trackingCode = signer.generate({ functionId, id: invocationId, teamId: team.id })
                 const sesRecord = {
                     eventType: 'Delivery',
                     mail: {
@@ -502,10 +504,11 @@ describe('EmailTrackingService', () => {
                     )
 
                 expect(res.status).toBe(200)
-                expect(reportSpy).toHaveBeenCalledWith(team.id, 'workflows message delivered', {
-                    channel: 'email',
-                    workflow_id: hogFlow.id,
-                })
+                expect(reportSpy.mock.calls).toEqual(
+                    fromWorkflow
+                        ? [[team.id, 'workflows message delivered', { channel: 'email', workflow_id: functionId }]]
+                        : []
+                )
                 reportSpy.mockRestore()
             })
 

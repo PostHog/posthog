@@ -34,7 +34,7 @@ export class RecipientPreferencesService {
     constructor(
         private recipientsManager: RecipientsManagerService,
         private emailSuppressionService: EmailSuppressionService,
-        private workflowsActivationReporter?: Pick<WorkflowsActivationReporter, 'report'>
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>
     ) {}
 
     public async shouldSkipAction(
@@ -47,7 +47,7 @@ export class RecipientPreferencesService {
         }
 
         if (action.type === 'function_email' && !this.recipientIdentifier(invocation, action) && !isTest) {
-            void this.workflowsActivationReporter?.report(invocation.teamId, 'workflows send failed', {
+            void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
                 reason: 'missing_recipient',
                 channel: 'email',
                 workflow_id: invocation.functionId,

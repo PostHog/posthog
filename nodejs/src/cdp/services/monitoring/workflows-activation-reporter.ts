@@ -17,7 +17,6 @@ export type WorkflowsActivationProperties = {
 
 const REPORT_INTERVAL_MS = 60 * 60 * 1000
 
-// One event per send would flood product analytics, and a funnel only needs the first occurrence.
 export class WorkflowsActivationReporter {
     private lastReportedAt = new LRUCache<string, number>({ max: 50_000 })
 
@@ -41,10 +40,13 @@ export class WorkflowsActivationReporter {
 
         try {
             const team = await this.teamManager.getTeam(teamId)
-            if (team) {
-                this.capture(team, event, properties)
+            if (!team) {
+                this.lastReportedAt.delete(key)
+                return
             }
+            this.capture(team, event, properties)
         } catch (error) {
+            this.lastReportedAt.delete(key)
             logger.warn('Failed to report a workflows activation event', { teamId, event, error })
         }
     }

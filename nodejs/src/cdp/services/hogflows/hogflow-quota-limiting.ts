@@ -15,6 +15,7 @@ export const counterHogFlowQuotaLimited = new Counter({
 
 export interface HogFlowQuotaLimitResult {
     isLimited: boolean
+    limitedBy?: 'workflow_emails' | 'workflow_destinations_dispatched'
 }
 
 /**
@@ -42,7 +43,7 @@ export async function checkHogFlowQuotaLimits(
 
     // Check if any billable action type is quota limited
     if (isEmailQuotaLimited && billableActionTypes.includes('function_email')) {
-        return { isLimited: true }
+        return { isLimited: true, limitedBy: 'workflow_emails' }
     }
 
     // Push sends bill as destinations for now, so they fall under the destination quota
@@ -50,7 +51,7 @@ export async function checkHogFlowQuotaLimits(
         isDestinationQuotaLimited &&
         (billableActionTypes.includes('function') || billableActionTypes.includes('function_push'))
     ) {
-        return { isLimited: true }
+        return { isLimited: true, limitedBy: 'workflow_destinations_dispatched' }
     }
 
     return { isLimited: false }
@@ -86,10 +87,13 @@ export async function shouldBlockHogFlowDueToQuota(
             },
             'hog_flow'
         )
-        void context.workflowsActivationReporter.report(item.teamId, 'workflows send blocked', {
-            reason: 'quota_limited',
-            workflow_id: item.functionId,
-        })
+        if (quotaLimitResult.limitedBy === 'workflow_emails') {
+            void context.workflowsActivationReporter.report(item.teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                channel: 'email',
+                workflow_id: item.functionId,
+            })
+        }
         return true
     }
 

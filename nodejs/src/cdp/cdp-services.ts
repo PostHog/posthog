@@ -455,10 +455,10 @@ export function createCdpCoreServices(
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
+        workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter,
-        workflowsActivationReporter
+        teamEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
