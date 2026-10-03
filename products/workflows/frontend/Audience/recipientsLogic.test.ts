@@ -93,7 +93,8 @@ describe('recipientsLogic', () => {
                 },
             },
         })
-        await mountLogic()
+        logic = recipientsLogic()
+        logic.mount()
 
         await expectLogic(optOutCategoriesLogic).toDispatchActions(['loadCategoriesSuccess'])
 

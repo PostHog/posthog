@@ -4,7 +4,6 @@ import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { RecipientCell } from './RecipientCell'
 import { RecipientLastSent } from './RecipientLastSent'
 import { RecipientPersonsSummary } from './RecipientPersonsSummary'
@@ -33,11 +32,8 @@ function TopicsCell({
 }
 
 export function RecipientsTable(): JSX.Element {
-    const { recipients, pageLoading, hasNextPage, hasPreviousPage } = useValues(recipientsLogic)
+    const { recipients, pageLoading, hasNextPage, hasPreviousPage, topicNames } = useValues(recipientsLogic)
     const { loadNextPage, loadPreviousPage } = useActions(recipientsLogic)
-    const { categories } = useValues(optOutCategoriesLogic)
-
-    const topicNames = Object.fromEntries(categories.map((category) => [category.key, category.name]))
 
     const columns: LemonTableColumns<RecipientApi> = [
         {
@@ -79,6 +75,7 @@ export function RecipientsTable(): JSX.Element {
                 loading={pageLoading}
                 loadingSkeletonRows={8}
                 nouns={['recipient', 'recipients']}
+                emptyState="No more recipients"
                 pagination={{
                     controlled: true,
                     pageSize: RECIPIENTS_PAGE_SIZE,

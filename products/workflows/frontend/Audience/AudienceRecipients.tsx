@@ -21,6 +21,7 @@ export function AudienceRecipients(): JSX.Element {
             <LemonInput
                 type="search"
                 placeholder="Search by email address"
+                aria-label="Search recipients by email address"
                 value={search}
                 onChange={setSearch}
                 className="max-w-100"

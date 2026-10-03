@@ -22,7 +22,7 @@ export function RecipientCell({ recipient }: { recipient: RecipientApi }): JSX.E
             <div className={`${NARROW_RECIPIENTS_TABLE_ONLY} flex flex-wrap gap-x-2 text-xs text-secondary`}>
                 <RecipientPersonsSummary recipient={recipient} />
                 <span>
-                    <span>Last sent: </span>
+                    <span>Last sent (30 days): </span>
                     <RecipientLastSent recipient={recipient} />
                 </span>
             </div>
