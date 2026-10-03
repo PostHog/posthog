@@ -143,19 +143,16 @@ describe('the Topics tab', () => {
         expect(within(await screen.findByRole('dialog')).getByText('Customer.io integration')).toBeInTheDocument()
     })
 
-    it.each([
-        { opened: "a recipient's preferences page from the list", recipient: 'jamie@example.com', busy: false },
-        { opened: 'the preview from the More menu', recipient: undefined, busy: true },
-    ])('keeps the More menu busy only while $opened loads', async ({ recipient, busy }) => {
+    it("leaves the More menu free while a recipient's preferences page loads", async () => {
         jest.spyOn(messagingApi, 'messagingPreferencesGenerateLinkCreate').mockReturnValue(new Promise(() => {}))
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
         render(<AudienceScene />)
         await screen.findByText('Product updates')
 
-        act(() => optOutSceneLogic.actions.openPreferencesPage(recipient))
+        act(() => optOutSceneLogic.actions.openPreferencesPage('jamie@example.com'))
 
         await waitFor(() => expect(optOutSceneLogic.values.preferencesUrlLoading).toBe(true))
-        expect(screen.getByTestId('audience-topics-more').getAttribute('aria-disabled') === 'true').toBe(busy)
+        expect(screen.getByTestId('audience-topics-more')).not.toHaveAttribute('aria-disabled', 'true')
     })
 
     it("keeps the More menu busy while its preview loads, even after a recipient's page opens", async () => {
