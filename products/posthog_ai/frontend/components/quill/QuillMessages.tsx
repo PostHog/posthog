@@ -100,7 +100,12 @@ export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item 
             <ChatMessageContent className="gap-1">
                 <ChatBubble variant="ghost">
                     <ChatBubbleContent>
-                        <MarkdownMessage content={item.text ?? ''} id={item.id} />
+                        <MarkdownMessage
+                            content={item.text ?? ''}
+                            id={item.id}
+                            // A wide table scrolls sideways, so its cells break between words, not inside them.
+                            className="[&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto [&_:is(th,td)]:[overflow-wrap:normal]"
+                        />
                     </ChatBubbleContent>
                 </ChatBubble>
             </ChatMessageContent>
