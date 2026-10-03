@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +15,12 @@ import { LineageGraph } from '../lineage/LineageGraph'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
+function nodeLineageUrl(node: DataModelingNode): string {
+    return lineageNodeUrl(node, 'lineage')
+}
+
 export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
+    const nodesDraggable = useFeatureFlag('DATA_MODELING_LINEAGE_NODE_DRAGGING')
     const {
         lineageGraph,
         lineageGraphLoading,
@@ -23,9 +28,11 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         effectiveLastRunAt,
         effectiveLastRunStatus,
         lineageModalOpen,
+        lineageNodePositions,
         node,
     } = useValues(nodeDetailSceneLogic({ id }))
-    const { openLineageModal, closeLineageModal, loadLineageGraph } = useActions(nodeDetailSceneLogic({ id }))
+    const { openLineageModal, closeLineageModal, loadLineageGraph, lineageNodeDragStopped, resetLineageNodePositions } =
+        useActions(nodeDetailSceneLogic({ id }))
 
     // The current node's freshest status/run come from its materialization jobs, not the graph payload
     const nodes = useMemo((): DataModelingNode[] => {
@@ -42,26 +49,16 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                 : node
         )
     }, [lineageGraph, effectiveLastRunAt, effectiveLastRunStatus])
+    const focusNodeIds = useMemo(
+        () => (lineageGraph?.currentNodeId ? new Set([lineageGraph.currentNodeId]) : null),
+        [lineageGraph?.currentNodeId]
+    )
 
     const openNode = (node: DataModelingNode): void => {
-        router.actions.push(lineageNodeUrl(node, 'lineage'))
+        router.actions.push(nodeLineageUrl(node))
     }
 
-    if (lineageGraphLoading) {
-        return (
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
-                <LineageGraph
-                    nodes={[]}
-                    edges={[]}
-                    loading
-                    loadingCenter={node ? { name: node.name, type: node.type } : undefined}
-                    variant="full"
-                />
-            </div>
-        )
-    }
-
-    if (lineageGraphError) {
+    if (!lineageGraphLoading && lineageGraphError) {
         return (
             <LemonBanner type="error" action={{ children: 'Retry', onClick: loadLineageGraph }}>
                 Couldn't load lineage.
@@ -69,7 +66,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }
 
-    if (nodes.length <= 1 && !nodes[0]?.lineage_issue) {
+    if (!lineageGraphLoading && nodes.length <= 1 && !nodes[0]?.lineage_issue) {
         return (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded border bg-bg-light p-6 text-center">
                 <div className="max-w-120">
@@ -88,16 +85,26 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light">
+            <div className="flex-1 min-h-[400px] max-h-[70vh] w-full border rounded bg-bg-light overflow-hidden">
                 <LineageGraph
                     nodes={nodes}
                     edges={lineageGraph?.edges ?? []}
                     currentNodeId={lineageGraph?.currentNodeId}
+                    focusNodeIds={focusNodeIds}
+                    loading={lineageGraphLoading}
+                    loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
                     variant="full"
                     interactive
+                    nodesDraggable={nodesDraggable}
+                    nodePositions={nodesDraggable ? lineageNodePositions : undefined}
+                    nodeOpenUrl={nodesDraggable ? nodeLineageUrl : undefined}
+                    onNodeDragStop={
+                        nodesDraggable ? (node, position) => lineageNodeDragStopped(node.id, position) : undefined
+                    }
+                    onResetNodePositions={nodesDraggable ? resetLineageNodePositions : undefined}
                     showControls
                     showMinimap
-                    onNodeClick={openNode}
+                    onNodeClick={nodesDraggable ? undefined : openNode}
                     panels={
                         <div className="flex flex-col gap-1">
                             <LemonButton
@@ -111,8 +118,8 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={openLineageModal}
-                                tooltip="Fullscreen"
-                                icon={<IconFullScreen />}
+                                tooltip="Full screen"
+                                icon={<IconExpand45 />}
                             />
                         </div>
                     }
@@ -130,13 +137,25 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                         nodes={nodes}
                         edges={lineageGraph?.edges ?? []}
                         currentNodeId={lineageGraph?.currentNodeId}
+                        focusNodeIds={focusNodeIds}
                         variant="full"
                         interactive
+                        nodesDraggable={nodesDraggable}
+                        nodePositions={nodesDraggable ? lineageNodePositions : undefined}
+                        nodeOpenUrl={nodesDraggable ? nodeLineageUrl : undefined}
+                        onNodeDragStop={
+                            nodesDraggable ? (node, position) => lineageNodeDragStopped(node.id, position) : undefined
+                        }
+                        onResetNodePositions={nodesDraggable ? resetLineageNodePositions : undefined}
                         showControls
-                        onNodeClick={(node) => {
-                            closeLineageModal()
-                            openNode(node)
-                        }}
+                        onNodeClick={
+                            nodesDraggable
+                                ? undefined
+                                : (node) => {
+                                      closeLineageModal()
+                                      openNode(node)
+                                  }
+                        }
                     />
                 </div>
             </LemonModal>

@@ -107,6 +107,15 @@ describe('workflowProposalsLogic', () => {
         }).toDispatchActions(['loadProposalsFailure'])
 
         expect(logic.values.pendingProposals.map((p) => p.id)).toEqual([PROPOSAL_ID])
+        // Without this the panel cannot tell a failed list from one nobody asked for, and spins forever.
+        expect(logic.values.listsUnreadable).toBe(true)
+
+        proposalsListStatus = 200
+        await expectLogic(logic, () => {
+            logic.actions.reloadLists()
+        }).toDispatchActions(['loadProposalsSuccess'])
+
+        expect(logic.values.listsUnreadable).toBe(false)
     })
 
     it('treats the flag-off 404 as an empty queue with no failure', async () => {
@@ -127,11 +136,15 @@ describe('workflowProposalsLogic', () => {
         await expectLogic(flowLogic).toDispatchActions(['loadWorkflowSuccess'])
         await expectLogic(logic).toDispatchActions(['loadProposalsSuccess'])
 
+        logic.actions.setOutcome(PROPOSAL_ID, { versions: [] } as any)
+        expect(logic.values.outcomes[PROPOSAL_ID]).not.toBeUndefined()
+
         workflowVersion = 4
         await expectLogic(logic, () => {
             flowLogic.actions.loadWorkflow()
-        }).toDispatchActions(['loadProposals', 'loadApplied'])
+        }).toDispatchActions(['clearOutcomes', 'loadProposals', 'loadApplied'])
         expect(logic.values.lastSeenVersion).toBe(4)
+        expect(logic.values.outcomes).toEqual({})
     })
 
     it('reloads the queue when a discard rewrites the draft stamp without moving the version', async () => {

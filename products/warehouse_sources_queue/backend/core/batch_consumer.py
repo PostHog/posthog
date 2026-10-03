@@ -17,6 +17,7 @@ import psycopg
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources_queue.backend.core.batch_phase import (
     BatchPhaseProgress,
@@ -44,9 +45,9 @@ RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned 
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
 
-# Cap on the exponential backoff between failed polls — flat retries make the
-# whole fleet hammer a degraded queue DB in lockstep.
-POLL_BACKOFF_MAX_SECONDS = 30.0
+# Cap on the jitter window between failed polls — flat retries make the whole
+# fleet hammer a degraded queue DB in lockstep.
+POLL_BACKOFF_MAX_SECONDS = 60.0
 
 # Ceiling on the backoff exponent. A prolonged queue-DB outage drives the failure
 # count into the thousands, and 2 ** (failures - 1) then overflows float when
@@ -1340,6 +1341,7 @@ class BatchConsumer:
                 run_uuid=batch.run_uuid,
                 attempt=attempt,
             )
+            await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})", conn=lock_conn)
             return False
 
@@ -1463,6 +1465,17 @@ class BatchConsumer:
                     attempt=attempt,
                     error=str(err),
                 )
+            elif isinstance(err, NonReportableError):
+                # Classified as a known-transient or expected condition further down the stack
+                # (e.g. DeltaTableRef._capture_unless_transient) — that classification already
+                # decided this is noise, regardless of the adapter's own message-pattern checks.
+                logger.warning(
+                    self._event("batch_failed_non_retryable"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
             else:
                 logger.exception(
                     self._event("batch_failed_non_retryable"),
@@ -1471,16 +1484,30 @@ class BatchConsumer:
                     attempt=attempt,
                 )
                 capture_exception(err)
+            await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         elif attempt >= self._config.max_attempts:
             reason = f"max retries exceeded: {err}"
-            logger.exception(
-                self._event("batch_failed_no_retries_left"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            capture_exception(err)
+            if isinstance(err, NonReportableError):
+                # A sustained blip (e.g. TransientObjectStoreError) stays out of error tracking
+                # even once this batch's own retry budget runs out — it's still an infra
+                # condition, not a pipeline defect, no matter how many attempts it survived.
+                logger.warning(
+                    self._event("batch_failed_no_retries_left"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    error=str(err),
+                )
+            else:
+                logger.exception(
+                    self._event("batch_failed_no_retries_left"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                )
+                capture_exception(err)
+            await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
         else:
             logger.warning(
@@ -1489,6 +1516,7 @@ class BatchConsumer:
                 attempt=attempt,
                 error=str(err),
             )
+            await self._verify_ownership(lock_conn, batch)
             await self._adapter.update_status(
                 status_conn,
                 batch_id=batch.id,
@@ -1607,13 +1635,19 @@ class BatchConsumer:
         self._metrics.poll_duration_seconds.observe(duration)
 
     def _poll_retry_delay(self) -> float:
-        """Capped, jittered backoff before retrying a failed poll: a degraded queue DB
-        gets exponentially less pressure and the fleet's retries desynchronize."""
+        """Wait before the poll that follows a failed one: the normal poll interval
+        plus full jitter over a window that doubles per consecutive failure.
+
+        Full jitter, not a small offset on a fixed backoff: pods that time out
+        together otherwise retry together, so a struggling queue DB gets the
+        same expensive claim query from the whole fleet at once. The interval
+        floor keeps a failing pod from polling faster than a healthy one.
+        """
         base = self._config.poll_interval_seconds
         failures = max(self._consecutive_poll_failures, 1)
         exponent = min(failures - 1, POLL_BACKOFF_MAX_DOUBLINGS)
-        backoff = min(base * 2**exponent, POLL_BACKOFF_MAX_SECONDS)
-        return backoff + random.uniform(0, base)
+        window = min(base * 2**exponent, POLL_BACKOFF_MAX_SECONDS)
+        return base + random.uniform(0, window)
 
     def _report_health(self) -> None:
         """Report liveness, unless the stuck-batch watchdog or the poll-failure trip fired.
@@ -1825,5 +1859,6 @@ ProcessBatchesFn = Callable[[list[PendingBatch]], Coroutine[Any, Any, None]]
 def _group_by_key(batches: list[PendingBatch]) -> dict[tuple[int, str], list[PendingBatch]]:
     groups: dict[tuple[int, str], list[PendingBatch]] = defaultdict(list)
     for batch in batches:
-        groups[(batch.team_id, batch.schema_id)].append(batch)
+        key = getattr(batch, "consumer_group_key", (batch.team_id, batch.schema_id))
+        groups[key].append(batch)
     return groups

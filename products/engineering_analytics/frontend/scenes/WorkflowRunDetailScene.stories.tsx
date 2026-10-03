@@ -15,6 +15,7 @@ const STARTED_AT = '2026-07-01T11:12:00Z'
 const RUN: WorkflowRunDetailApi = {
     repo: REPO,
     id: RUN_ID,
+    ci_engine: 'github_actions',
     workflow_name: 'Backend CI',
     head_sha: 'c0ffee880163',
     head_branch: 'feat/run-scope-groups',
@@ -113,6 +114,25 @@ export const JobsAndLogsLoadErrors: Story = {
             get: {
                 'api/projects/:team_id/engineering_analytics/workflow_jobs/': () => [500, null],
                 'api/projects/:team_id/engineering_analytics/run_failure_logs/': () => [500, null],
+            },
+        }),
+    ],
+}
+
+export const DepotRun: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: urls.engineeringAnalyticsWorkflowRun('PostHog', 'posthog', RUN_ID, 'depot_ci'),
+        testOptions: { waitForSelector: '#ea-section-jobs' },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                'api/projects/:team_id/engineering_analytics/workflow_run/': { ...RUN, ci_engine: 'depot_ci' },
+                'api/projects/:team_id/engineering_analytics/workflow_jobs/': JOBS.map((job) => ({
+                    ...job,
+                    ci_engine: 'depot_ci',
+                })),
             },
         }),
     ],

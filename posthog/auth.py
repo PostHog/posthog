@@ -170,7 +170,10 @@ class ZxcvbnValidator:
             )
 
 
-class SessionAuthentication(ActivityCredentialMixin, authentication.SessionAuthentication):
+class SessionAuthentication(
+    ActivityCredentialMixin,
+    authentication.SessionAuthentication,  # nosemgrep: no-drf-session-authentication
+):
     """
     This class is needed, because REST Framework's default SessionAuthentication does never return 401's,
     because they cannot fill the WWW-Authenticate header with a valid value in the 401 response. As a
@@ -1198,7 +1201,7 @@ class WidgetAuthentication(ActivityCredentialMixin, authentication.BaseAuthentic
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
-        except Team.DoesNotExist:
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
         self.record_activity_actor(None)

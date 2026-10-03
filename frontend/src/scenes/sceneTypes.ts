@@ -19,6 +19,7 @@ export enum Scene {
     Annotations = 'Annotations',
     Autoresearch = 'Autoresearch',
     AutoresearchNew = 'AutoresearchNew',
+    AutoresearchPipeline = 'AutoresearchPipeline',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
@@ -103,6 +104,9 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
+    Views = 'Views',
+    ViewsNew = 'ViewsNew',
+    Tools = 'Tools',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -230,6 +234,11 @@ export enum Scene {
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
+    AIObservabilityScorers = 'AIObservabilityScorers',
+    AIObservabilityScorer = 'AIObservabilityScorer',
+    AIObservabilityOfflineExperiments = 'AIObservabilityOfflineExperiments',
+    AIObservabilityOfflineExperiment = 'AIObservabilityOfflineExperiment',
+    AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
     AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
     AIObservabilityTag = 'AIObservabilityTag',
@@ -253,6 +262,9 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
+    TaskNewSession = 'TaskNewSession',
+    TaskSpace = 'TaskSpace',
+    TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
@@ -356,7 +368,9 @@ export interface SceneConfig {
 }
 
 // Map scenes to their access control resource types
-export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+export const sceneToAccessControlResourceType: Partial<
+    Record<Scene, AccessControlResourceType | AccessControlResourceType[]>
+> = {
     // Actions
     [Scene.Action]: AccessControlResourceType.Action,
     [Scene.Actions]: AccessControlResourceType.Action,
@@ -428,6 +442,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
+    // Business knowledge
+    [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
@@ -463,7 +483,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
-    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
+    [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,

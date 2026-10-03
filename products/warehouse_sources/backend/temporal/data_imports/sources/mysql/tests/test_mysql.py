@@ -2234,6 +2234,24 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "(4151, 'Access denied, this account is locked')",
+            "OperationalError: (4151, 'Access denied, this account is locked')",
+        ],
+    )
+    def test_locked_account_is_non_retryable(self, source, error_msg):
+        # A locked account only a DB admin can unlock — retrying authenticates as the same
+        # account and fails identically forever.
+        non_retryable = source.get_non_retryable_errors()
+        friendly = next(
+            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            None,
+        )
+        assert friendly is not None, f"Locked account error should be non-retryable: {error_msg}"
+        assert "locked" in friendly
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "Source column type changed",
             "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
         ],
@@ -2257,6 +2275,18 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSL version mismatch should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(1105, 'Client requested TLS/SSL, but Doris FE MySQL SSL is disabled')",
+            "OperationalError: (1105, 'Client requested TLS/SSL, but Doris FE MySQL SSL is disabled')",
+        ],
+    )
+    def test_doris_ssl_disabled_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Doris FE SSL-disabled error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

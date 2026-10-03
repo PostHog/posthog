@@ -56,6 +56,11 @@ class LangfuseEndpointConfig:
     # ascending backfill the first page is the oldest traffic, which is where costs are most often
     # a flat 0. The table adopts int64, and every later fractional value then fails to cast.
     float_fields: frozenset[str] = frozenset()
+    # Page the endpoint by keyset instead of by offset: after each page, move the from-filter up to
+    # the newest row seen and restart at page 1. Langfuse answers a deep offset with a 422 resource
+    # limit, which kills a backfill that walks far enough. Only safe on an endpoint that is pinned
+    # ascending on the field the from-filter applies to, so a later page never holds an earlier row.
+    keyset_pagination: bool = False
 
 
 _DEFAULT_LOOKBACK = timedelta(hours=1)
@@ -86,6 +91,7 @@ LANGFUSE_ENDPOINTS: dict[str, LangfuseEndpointConfig] = {
         sort_mode="asc",
         incremental_lookback=_DEFAULT_LOOKBACK,
         float_fields=frozenset({"totalCost", "latency"}),
+        keyset_pagination=True,
     ),
     "observations": LangfuseEndpointConfig(
         name="observations",

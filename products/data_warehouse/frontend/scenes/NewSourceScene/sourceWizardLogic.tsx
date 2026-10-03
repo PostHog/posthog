@@ -12,6 +12,7 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -364,6 +365,15 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
 export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
     fields.find((field) => /^(updated|modified|last_modified)/i.test(field.label) && isTimestampType(field)) ??
     fields.find((field) => /^created/i.test(field.label) && isTimestampType(field))
+
+// An incremental sync merges rows on a primary key, and source creation rejects an incremental
+// table whose introspected columns have no key and no `id` column to fall back to. A table with
+// no introspected columns resolves its key at sync time, so it needs no key here.
+const hasIncrementalMergeKey = (schema: ExternalDataSourceSyncSchema): boolean =>
+    !schema.available_columns?.length ||
+    !!schema.primary_key_columns?.length ||
+    !!schema.detected_primary_keys?.length ||
+    schema.available_columns.some((column) => column.field.toLowerCase() === 'id')
 
 // Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
 // rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
@@ -2202,6 +2212,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
+            const crossSellAttribution =
+                values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL] === true &&
+                values.selectedConnector.category === 'Advertising' &&
+                values.currentTeamId
+                    ? getMarketingCrossSellAttribution(values.currentTeamId)
+                    : null
+
             try {
                 const { id } = await api.externalDataSources.create({
                     ...values.source,
@@ -2228,6 +2245,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
                 })
+
+                if (crossSellAttribution) {
+                    captureMarketingCrossSellSourceCreated(crossSellAttribution, id, values.selectedConnector.name)
+                }
 
                 tryShowMCPHint('data_warehouse_sources.create', {
                     derivedPrompt: `Connect a ${values.selectedConnector.name} source`,
@@ -2363,6 +2384,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
+                        } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
+                            schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
                             const resolvedField =

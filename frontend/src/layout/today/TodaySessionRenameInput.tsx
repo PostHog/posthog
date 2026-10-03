@@ -1,19 +1,16 @@
 import { useActions } from 'kea'
-import { useRef, useState } from 'react'
+import { ChangeEvent, KeyboardEvent, useRef, useState } from 'react'
 
-import { LemonInput } from '@posthog/lemon-ui'
-
-import { cn } from 'lib/utils/css-classes'
+import { Input } from '@posthog/quill'
 
 import { todaySessionMenuLogic } from './todaySessionMenuLogic'
 
 interface TodaySessionRenameInputProps {
     sessionId: string
     title: string
-    depth?: number
 }
 
-export function TodaySessionRenameInput({ sessionId, title, depth = 0 }: TodaySessionRenameInputProps): JSX.Element {
+export function TodaySessionRenameInput({ sessionId, title }: TodaySessionRenameInputProps): JSX.Element {
     const [value, setValue] = useState(title)
     const finished = useRef(false)
     const { renameSession, stopRenaming } = useActions(todaySessionMenuLogic)
@@ -32,24 +29,21 @@ export function TodaySessionRenameInput({ sessionId, title, depth = 0 }: TodaySe
     }
 
     return (
-        <div className={cn('TodayPaneRow', depth > 0 && 'TodayPaneRow--nested')}>
-            <LemonInput
-                size="xsmall"
-                fullWidth
-                autoFocus
-                value={value}
-                onChange={setValue}
-                onPressEnter={save}
-                onBlur={save}
-                onKeyDown={(event) => {
-                    if (event.key === 'Escape') {
-                        finished.current = true
-                        stopRenaming()
-                    }
-                }}
-                aria-label="Session title"
-                data-attr="today-session-rename-input"
-            />
-        </div>
+        <Input
+            autoFocus
+            value={value}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setValue(event.target.value)}
+            onBlur={save}
+            onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
+                if (event.key === 'Enter') {
+                    save()
+                } else if (event.key === 'Escape') {
+                    finished.current = true
+                    stopRenaming()
+                }
+            }}
+            aria-label="Session title"
+            data-attr="today-session-rename-input"
+        />
     )
 }

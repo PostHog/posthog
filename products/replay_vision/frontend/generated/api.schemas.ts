@@ -616,6 +616,7 @@ export const ObservationStatusEnumApi = {
  * * `classifier` - Classifier
  * * `scorer` - Scorer
  * * `summarizer` - Summarizer
+ * * `experiment` - Experiment
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -624,6 +625,7 @@ export const ScannerTypeEnumApi = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -632,12 +634,13 @@ export const ScannerTypeEnumApi = {
 export interface ScannerSnapshotApi {
     /** Scanner name at run time. */
     name: string
-    /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+    /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
      *
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
@@ -685,6 +688,16 @@ export interface ScannerResultApi {
     signals_count: number
     /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
     verification: VerificationRecordApi | null
+    /**
+     * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+     * @nullable
+     */
+    experiment_variant?: string | null
+    /**
+     * Experiment scanners only: the scanned session's duration in seconds.
+     * @nullable
+     */
+    session_duration_s?: number | null
 }
 
 /**
@@ -718,6 +731,7 @@ export interface ReplayObservationLabelApi {
 /**
  * * `thumbnail` - Thumbnail
  * * `clip` - Clip
+ * * `chapter` - Chapter
  */
 export type ReplayObservationMediaKindEnumApi =
     (typeof ReplayObservationMediaKindEnumApi)[keyof typeof ReplayObservationMediaKindEnumApi]
@@ -725,6 +739,7 @@ export type ReplayObservationMediaKindEnumApi =
 export const ReplayObservationMediaKindEnumApi = {
     Thumbnail: 'thumbnail',
     Clip: 'clip',
+    Chapter: 'chapter',
 } as const
 
 /**
@@ -733,11 +748,14 @@ export const ReplayObservationMediaKindEnumApi = {
 export interface ReplayObservationMediaApi {
     /** Id of this media entry. */
     readonly id: string
-    /** `thumbnail` for the single frame that illustrates the observation, `clip` for a short video.
+    /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
      *
      * * `thumbnail` - Thumbnail
-     * * `clip` - Clip */
+     * * `clip` - Clip
+     * * `chapter` - Chapter */
     readonly kind: ReplayObservationMediaKindEnumApi
+    /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
+    readonly position: number
     /** Export asset holding the bytes; fetch it from the export content endpoint. */
     readonly asset_id: number
     /**
@@ -773,7 +791,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -1083,8 +1101,15 @@ export interface ReplayScannerApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
+    /**
+     * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
+     * @maxLength 2000
+     * @nullable
+     */
+    goal?: string | null
     /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
      *
      * * `ai` - AI draft
@@ -1211,8 +1236,15 @@ export interface PatchedReplayScannerApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type?: ScannerTypeEnumApi
+    /**
+     * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
+     * @maxLength 2000
+     * @nullable
+     */
+    goal?: string | null
     /** How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.
      *
      * * `ai` - AI draft
@@ -1562,7 +1594,7 @@ export interface PaginatedReplayScannerBackfillListApi {
 export interface BackfillCreateApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
     /**
      * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
@@ -1574,7 +1606,7 @@ export interface BackfillCreateApi {
 export interface BackfillWindowApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
 }
 
@@ -1592,7 +1624,7 @@ export interface BackfillEstimateResponseApi {
     credits_remaining: number | null
     /** The window lower bound the estimate covered. */
     window_start: string
-    /** The window upper bound after clamping to now. */
+    /** The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date. */
     window_end: string
 }
 
@@ -2068,8 +2100,8 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 8
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 10
      */
     write_scopes?: string[]
     /** Whether this scout runs on its schedule. Defaults to true. */
@@ -2199,6 +2231,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
  * * `retired` - Retired
+ * * `background_removed` - Background removed
  */
 export type SignalScoutConfigPauseReasonEnumApi =
     (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
@@ -2208,6 +2241,19 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
     Retired: 'retired',
+    BackgroundRemoved: 'background_removed',
+} as const
+
+/**
+ * * `team` - Team
+ * * `background` - Background
+ */
+export type SignalScoutConfigManagedByEnumApi =
+    (typeof SignalScoutConfigManagedByEnumApi)[keyof typeof SignalScoutConfigManagedByEnumApi]
+
+export const SignalScoutConfigManagedByEnumApi = {
+    Team: 'team',
+    Background: 'background',
 } as const
 
 /**
@@ -2250,13 +2296,19 @@ export interface SignalScoutConfigApi {
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
     readonly status: SignalScoutConfigStatusEnumApi
-    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (the background lane stopped managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
-     * * `retired` - Retired */
+     * * `retired` - Retired
+     * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
+    /** Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.
+     *
+     * * `team` - Team
+     * * `background` - Background */
+    readonly managed_by: SignalScoutConfigManagedByEnumApi
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -2299,8 +2351,8 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 8
+     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
+     * @maxItems 10
      */
     readonly write_scopes: readonly string[]
     /**
@@ -2384,7 +2436,8 @@ export interface DraftScannerResponseApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
     scanner_config: unknown
@@ -2498,7 +2551,8 @@ export interface InlineScanRequestApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type?: ScannerTypeEnumApi
     /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
     scanner_config?: unknown
@@ -2543,6 +2597,7 @@ export interface ScannerStatsByTypeApi {
     classifier: ScannerTypeStatsApi
     scorer: ScannerTypeStatsApi
     summarizer: ScannerTypeStatsApi
+    experiment: ScannerTypeStatsApi
 }
 
 /**
@@ -2553,7 +2608,7 @@ export interface ScannerStatsResponseApi {
     total: number
     /** Number of enabled scanners on the team. */
     enabled: number
-    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
     by_type: ScannerStatsByTypeApi
 }
 
@@ -2629,6 +2684,7 @@ export interface SuggestTagsResponseApi {
  * * `rare_tag` - Rare Tag
  * * `novel_summary` - Novel Summary
  * * `friction` - Friction
+ * * `jev_watchable` - Jev Watchable
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
  */
@@ -2643,6 +2699,7 @@ export const WatchFeedReasonEnumApi = {
     RareTag: 'rare_tag',
     NovelSummary: 'novel_summary',
     Friction: 'friction',
+    JevWatchable: 'jev_watchable',
     UnviewedRecent: 'unviewed_recent',
     Recent: 'recent',
 } as const
@@ -2661,7 +2718,7 @@ export interface WatchFeedSignalApi {
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
@@ -2671,6 +2728,7 @@ export interface WatchFeedReasonApi {
      * * `rare_tag` - Rare Tag
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
+     * * `jev_watchable` - Jev Watchable
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent */
     kind: WatchFeedReasonEnumApi
@@ -2699,7 +2757,12 @@ export interface WatchFeedReasonApi {
      */
     notability?: number | null
     /**
-     * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+     * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
+     * @nullable
+     */
+    jev_probability?: number | null
+    /**
+     * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
      * @nullable
      */
     notability_reason?: string | null
@@ -2857,6 +2920,14 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+}
+
+export type VisionObservationsThumbnailRetrieveParams = {
+    /**
+     * Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the observation's thumbnail.
+     * @minimum 0
+     */
+    chapter?: number
 }
 
 export type VisionObservationsSearchRetrieveParams = {
@@ -3184,6 +3255,14 @@ export type VisionScannersObservationsSignalReportsListParams = {
     verdict?: string
 }
 
+export type VisionScannersObservationsThumbnailRetrieveParams = {
+    /**
+     * Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the observation's thumbnail.
+     * @minimum 0
+     */
+    chapter?: number
+}
+
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
      * Only observations dispatched by this backfill.
@@ -3279,6 +3358,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
@@ -3302,4 +3382,5 @@ export const VisionScannersWatchFeedRetrieveScannerType = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
+    Experiment: 'experiment',
 } as const

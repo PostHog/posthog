@@ -22,8 +22,17 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene'),
     AIObservabilityDataset: () =>
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetScene'),
-    AIObservabilityEvaluations: () =>
-        import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene'),
+    AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
+    AIObservabilityScorers: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
+    AIObservabilityScorer: () =>
+        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene'),
+    AIObservabilityOfflineExperiments: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
+    AIObservabilityOfflineExperiment: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentScene'),
+    AIObservabilityOfflineScorerHistory: () =>
+        import('../../products/ai_observability/frontend/offline-evaluations/OfflineScorerHistoryScene'),
     AIObservabilityEvaluation: () =>
         import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
     AIObservabilityEvaluationTemplates: () =>
@@ -41,6 +50,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
+    AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
     BusinessKnowledgePlayground: () =>
         import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
@@ -48,6 +58,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
+    CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
+    CanvasDetail: () => import('../../products/canvas/frontend/scene/CanvasScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),
@@ -161,6 +173,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
+    TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
+    TaskNewSession: () => import('../../products/tasks/frontend/spaces/NewSessionScene'),
+    TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     TracingRetentionNew: () =>

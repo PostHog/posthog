@@ -13,6 +13,8 @@ import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
+import { userEvent, within } from 'storybook/test'
+
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -151,6 +153,7 @@ const scannerStats: ScannerStatsResponseApi = {
         classifier: { enabled: 0, total: 1 },
         scorer: { enabled: 1, total: 1 },
         summarizer: { enabled: 1, total: 1 },
+        experiment: { enabled: 0, total: 0 },
     },
 }
 
@@ -759,7 +762,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
-                // One card per reason kind, plus one with no cited timestamps (no clip range on the tile).
+                // One card per reason kind. Only the first carries a key moment, so the rest show no time on the tile.
                 '/api/projects/:team_id/vision/scanners/watch_feed/': {
                     results: [
                         {
@@ -788,6 +791,7 @@ const meta: Meta = {
                                             { kind: 'text', value: ' Retried the payment form twice ' },
                                             { kind: 'chip', timestamp_ms: 154000 },
                                         ],
+                                        key_moment_ms: 154000,
                                     },
                                     signals_count: 2,
                                     verification: null,
@@ -963,6 +967,7 @@ const emptyProjectDecorators = [
                     classifier: { enabled: 0, total: 0 },
                     scorer: { enabled: 0, total: 0 },
                     summarizer: { enabled: 0, total: 0 },
+                    experiment: { enabled: 0, total: 0 },
                 },
             } satisfies ScannerStatsResponseApi,
             '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
@@ -982,6 +987,22 @@ export const UsageTab: StoryObj = {
 export const HomeWatchFeed: StoryObj = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
+
+// The same feed as thumbnail cards, each closing with why the recording was picked.
+export const HomeWatchFeedGrid: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
+    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
+    // later feed story renders as a grid too.
+    beforeEach: () => {
+        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
+        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
     },
 }
 
@@ -1039,6 +1060,27 @@ export const ClassifierOverview: StoryObj = {
 export const ScorerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(scorerOverviewScanner.id) },
     decorators: [overviewDecorator(scorerOverviewScanner, scorerOverviewStats)],
+}
+
+// The Scouts tab offers each scanner type only the templates that fit it: root cause for a monitor.
+export const MonitorScouts: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision(monitorOverviewScanner.id)}?tab=scouts` },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats)],
+}
+
+// A summarizer has no outcome to explain, so it gets weekly themes instead of root cause.
+export const SummarizerScouts: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts` },
+}
+
+// The root cause prompt under the findings opens the create form in place.
+export const MonitorRootCauseScoutForm: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats)],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Add scout'))
+        await within(document.body).findByText('New scout: root cause')
+    },
 }
 
 // The scan-drought banner: current version 4 has no marker, and the sweep watermark sits past the
@@ -1380,6 +1422,7 @@ const digestScoutConfig = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
     source_product: 'replay_vision',
     source_id: summarizerScanner.id,
     run_cron_schedule: '0 9 * * *',
@@ -1475,6 +1518,45 @@ export const MonitorOverviewWithScoutReport: StoryObj = {
             },
         }),
     ],
+}
+
+const rootCauseScoutConfig = {
+    ...digestScoutConfig,
+    id: '00000000-0000-0000-0000-0000000000c3',
+    skill_name: 'signals-scout-confused-checkout-root-cause',
+    display_name: 'Confused checkout root cause',
+    source_id: monitorOverviewScanner.id,
+    run_cron_schedule: '0 9 * * 1',
+}
+
+const rootCauseReport = {
+    ...scoutReport,
+    report_id: '00000000-0000-0000-0000-0000000000d2',
+    title: 'Root cause confused checkout: 2026-05-11',
+    skill_name: rootCauseScoutConfig.skill_name,
+    filed_at: '2026-05-11T09:00:00Z',
+    summary: [
+        'Root cause for Confused checkout: 212 sessions answered yes vs 1,340 answered no, last 30 days',
+        '',
+        '**TL;DR:** Two causes explain 61% of flagged sessions: the shipping options reset after an address edit (38%), and a coupon error rendered below the fold on mobile (23%).',
+        '',
+        '## Shipping options reset after an address edit',
+        '',
+        '- 81 sessions, 38% of the bucket, 4% of the contrast.',
+    ].join('\n'),
+}
+
+const rootCauseMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/scout/configs/': [rootCauseScoutConfig],
+        '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [rootCauseReport],
+    },
+})
+
+// A scanner with a root cause scout no longer gets the offer; its reports show in the scout card.
+export const MonitorOverviewWithRootCause: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats), rootCauseMocks],
 }
 
 export const ScannerScouts: StoryObj = {
@@ -1627,6 +1709,56 @@ const inconclusiveObservationDetail = observation({
 
 export const ObservationDetailMonitorInconclusive: StoryObj = observationDetailStory(inconclusiveObservationDetail)
 
+// The Session Replay "Summarize" button mints an inline scanner with the session summary template's prompt, so
+// its observations carry that template's written question.
+const summarizeButtonObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000da',
+    scanner_id: '00000000-0000-0000-0000-00000000001a',
+    scanner_origin: 'inline',
+    recording_subject_email: 'bob@example.com',
+    distinct_id: 'user_2m1x9d',
+    prompt_question: 'What did the user do in this session?',
+    scanner_snapshot: {
+        ...observation().scanner_snapshot!,
+        name: '',
+        scanner_config: {
+            prompt: "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.",
+            length: 'medium',
+        },
+    },
+})
+
+export const ObservationDetailSummarizeButton: StoryObj = observationDetailStory(summarizeButtonObservationDetail)
+
+// A one-off scan asked through PostHog AI or MCP: an inline scanner with its own prompt and no written question.
+const inlineScanObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000db',
+    scanner_id: '00000000-0000-0000-0000-00000000001b',
+    scanner_origin: 'inline',
+    prompt_question: null,
+    previous_observation_id: null,
+    next_observation_id: null,
+    scanner_snapshot: {
+        ...monitorObservationDetail.scanner_snapshot!,
+        name: '',
+        scanner_config: { prompt: 'Did the user open the pricing page and leave without upgrading?' },
+    },
+    scanner_result: {
+        model_output: {
+            scanner_type: 'monitor',
+            confidence: 0.9,
+            verdict: 'yes',
+            reasoning:
+                'The user opened the pricing page twice, expanded the plan comparison, and left the app from there both times without starting a checkout.',
+        },
+        signals_count: 0,
+        verification: null,
+    },
+})
+
+export const ObservationDetailInlineScan: StoryObj = observationDetailStory(inlineScanObservationDetail)
+
 export const ObservationDetailFeedbackPrompt: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionObservation(thumbsDownObservationDetail.id),
@@ -1654,12 +1786,12 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal-based creation flow when the flag's test variant is on: the two questions (goal, budget)
-// lead, with the template gallery kept below them as a start-from-a-template alternative.
+// The goal-based creation flow when the flag's test variant is on: a typed goal and budget on the
+// left, one-click starting points on the right.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerTemplate('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
 }
 
@@ -1697,7 +1829,7 @@ const goalDraft: DraftScannerResponseApi = {
 export const ScannerEditorGoalOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
     decorators: [
         (StoryFn) => {
@@ -1725,7 +1857,7 @@ export const ScannerEditorGoalOverview: StoryObj = {
 export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
     },
     decorators: [
         mswDecorator({
@@ -1809,9 +1941,16 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
 export const ScannerEditorGoalOverviewLoading: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_FLOW_V2]: 'test' },
+        testOptions: { waitForLoadersToDisappear: false, waitForSelector: '.LemonSkeleton' },
     },
     decorators: [
+        // A draft request that never answers, because a failed one sends the page back to the goal step.
+        mswDecorator({
+            post: {
+                '/api/projects/:team_id/vision/scanners/draft/': (): Promise<never> => new Promise(() => {}),
+            },
+        }),
         (StoryFn) => {
             const logic = replayScannerLogic({ id: 'new' })
             logic.mount()

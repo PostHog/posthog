@@ -328,6 +328,16 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
 # Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
 _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
+# sshtunnel raises this once the SSH session is up but no forwarded tunnel came up with it: the
+# bastion could not open a channel to the database host and port, or it refuses port forwarding
+# altogether. Its own wording names neither, so it leaves the user nothing to act on.
+_SSH_FORWARD_FAILED_ERROR = "An error occurred while opening tunnels."
+_SSH_FORWARD_FAILED_MESSAGE = (
+    "PostHog signed in to your SSH server but couldn't reach the database through it. Check that "
+    "the database host and port are reachable from the SSH server, and that the server allows port "
+    "forwarding."
+)
+
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
 # `require_tls` off is the supported way to reach such a server.
@@ -401,12 +411,15 @@ class PostgresSource(
     def merge_cursors(self, current: XminCursor, candidate: XminCursor) -> XminCursor:
         return max(current, candidate, key=lambda cursor: cursor.ceiling_xid8)
 
-    def resume_covers_run(self, *, incremental_or_append: bool, keyset_full_load_enabled: bool = False) -> bool:
-        # Both halves. Keyset seeking is a full-load path, so an incremental or xmin run resumes from
-        # its watermark and keeps the incremental budget. And a full load only resumes once the flag
-        # reaches it — before that it still restarts, so the resumable allowance would buy it nothing
-        # and would cost a whole re-read on each extra attempt.
-        return not incremental_or_append and keyset_full_load_enabled
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # Keyset seeking is a full-load path, so an incremental or xmin run resumes from its watermark
+        # and keeps the incremental budget.
+        return not incremental_or_append
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
         return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
@@ -1688,10 +1701,14 @@ class PostgresSource(
             raw = e.value or ""
             if _SSH_GATEWAY_SESSION_ERROR in raw:
                 return False, _SSH_GATEWAY_UNREACHABLE_MESSAGE
+            if _SSH_FORWARD_FAILED_ERROR in raw:
+                return False, _SSH_FORWARD_FAILED_MESSAGE
+            # sshtunnel writes its messages for whoever is reading a traceback, so an unmapped one
+            # gives the user nothing and can carry the host it was dialing. Keep it for triage.
+            capture_exception(e)
             return (
                 False,
-                raw
-                or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
+                f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
@@ -1848,7 +1865,6 @@ class PostgresSource(
             has_batches_in_flight,
             served_lanes,
         )
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 
         if not served_lanes(schema):
             raise ValueError(
@@ -1872,13 +1888,6 @@ class PostgresSource(
                 # A change stream carries no seekable key, and `supports_resume` defaults to True.
                 supports_resume=False,
             )
-
-        if parse_ingest_mode(schema.source.job_inputs) != "buffered":
-            # Until capture converts this legacy source, its buffer holds copies of changes the legacy
-            # lane already delivered, which a read would load a second time. Conversion empties the
-            # buffer before it marks the source buffered.
-            inputs.logger.info("cdc_buffered_waiting_for_legacy_conversion", schema_name=schema.name)
-            return no_op_tick()
 
         # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
         # before its table started streaming, or a worker one deploy behind, would consume this
@@ -1912,13 +1921,13 @@ class PostgresSource(
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
-        proof_time = async_to_sync(completed_listing_proof)(schema)
+        proof = async_to_sync(completed_listing_proof)(schema)
         # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
         # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
         # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
         # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
         # without the longer read.
-        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+        if proof is None and async_to_sync(buffer_expired_unread)(schema):
             inputs.logger.warning(
                 "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
             )
@@ -1938,7 +1947,7 @@ class PostgresSource(
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=proof_time,
+            proof=proof,
         )
         return SourceResponse(
             name=lanes[0].name,
@@ -2030,10 +2039,8 @@ class PostgresSource(
                 # Delta table before this read and a kept cursor would collapse it to one window.
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
-                byte_bounded_extraction=inputs.byte_bounded_extraction,
                 activity_attempt=inputs.activity_attempt,
                 resumable_source_manager=resumable_source_manager,
-                keyset_full_load_enabled=inputs.keyset_full_load,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the
