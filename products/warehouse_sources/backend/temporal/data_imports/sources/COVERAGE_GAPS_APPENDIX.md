@@ -4138,7 +4138,7 @@ Diffed against: <https://github.com/hubplanner/API/tree/master/Sections>
 
 - [x] `/categories (booking categories)` — lookup resolving the category ID on every booking we already sync (high)
 - [x] `/costCategories (project cost categories)` — lookup resolving cost category IDs on projects and billing rates (high)
-- [x] `/unassigned-work` — unallocated demand alongside bookings - needed for capacity vs demand analysis (medium)
+- [x] `/unassigned-work` — lookup of unassigned-work item labels (requires the Unassigned Work extension) (medium)
 - [x] `/project-tag` — lookup resolving project tag IDs for project segmentation (medium)
 - [ ] `/resource-tag` — lookup resolving resource tag IDs (skills, roles) for resource segmentation (medium)
 - [ ] `/project/customField/template` — lookup defining the project custom fields whose values ride on the projects table (medium)
