@@ -419,6 +419,9 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
+    removeCcParticipant: (email: string) => {
+        email: string
+    }
     sendMessage: (
         content: string,
         richContent: Record<string, unknown> | null,
@@ -489,6 +492,9 @@ export interface supportTicketSceneLogicActions {
     startEditingMessage: (message: ChatMessage) => {
         message: ChatMessage
     }
+    startRemovingCcParticipant: (email: string) => {
+        email: string
+    }
     stashDraftForEdit: (
         content: string | JSONContent | null,
         isPrivate: boolean
@@ -504,12 +510,6 @@ export interface supportTicketSceneLogicActions {
         feedbackText: string | undefined
         messageId: string
         rating: AiReplyFeedbackRating
-    }
-    removeCcParticipant: (email: string) => {
-        email: string
-    }
-    startRemovingCcParticipant: (email: string) => {
-        email: string
     }
     updateTicket: () => {
         value: true
