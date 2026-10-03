@@ -5,15 +5,20 @@ use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHo
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
-    DeletePersonsRequest, DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DistinctIdTombstoneOutcome,
+    DistinctIdTombstoneResult, DistinctIdVersionFloor, DistinctIdVersionFloorResult,
+    DistinctIdVersionHead, EnsureDistinctIdVersionFloorsRequest, EnsurePersonVersionFloorsRequest,
+    GetDistinctIdVersionHeadsRequest, GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
     GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
     GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
     GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
+    GetPersonRequest, GetPersonVersionHeadsRequest, GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier,
+    GroupKey, PersonVersionFloor, PersonVersionFloorResult, PersonVersionHead,
     SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
-    TeamDistinctId, UpsertHashKeyOverridesRequest,
+    TeamDistinctId, TombstoneDistinctIdsRequest, UpsertHashKeyOverridesRequest,
+    VersionFloorOutcome,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1666,6 +1671,168 @@ async fn test_set_person_version_floor() {
         .await
         .expect("RPC failed");
     assert!(!response.into_inner().updated);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_sweep_rpcs_map_results_to_proto() {
+    let ctx = ServiceTestContext::new().await;
+    let person = ctx.insert_person("svc_sweep_live", None).await.unwrap();
+    let orphan_owner = ctx.insert_person("svc_sweep_orphan", None).await.unwrap();
+    let mut tx = ctx.pool.begin().await.unwrap();
+    // Skips the FK check, so the distinct id row outlives its person row.
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM posthog_person WHERE team_id = $1 AND id = $2")
+        .bind(ctx.team_id)
+        .bind(orphan_owner.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    let absent_person = Uuid::now_v7();
+    let team_id = ctx.team_id;
+
+    let person_floors = ctx
+        .service
+        .ensure_person_version_floors(Request::new(EnsurePersonVersionFloorsRequest {
+            team_id,
+            floors: vec![
+                PersonVersionFloor {
+                    person_uuid: person.uuid.to_string(),
+                    min_version: 2,
+                },
+                PersonVersionFloor {
+                    person_uuid: absent_person.to_string(),
+                    min_version: 5,
+                },
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        person_floors.results,
+        vec![
+            PersonVersionFloorResult {
+                person_uuid: person.uuid.to_string(),
+                outcome: VersionFloorOutcome::Live as i32,
+                version: 0,
+            },
+            PersonVersionFloorResult {
+                person_uuid: absent_person.to_string(),
+                outcome: VersionFloorOutcome::TombstoneInserted as i32,
+                version: 5,
+            },
+        ]
+    );
+
+    let distinct_id_floors = ctx
+        .service
+        .ensure_distinct_id_version_floors(Request::new(EnsureDistinctIdVersionFloorsRequest {
+            team_id,
+            floors: vec![DistinctIdVersionFloor {
+                distinct_id: "svc_sweep_absent".to_string(),
+                min_version: 3,
+                person_uuid: absent_person.to_string(),
+            }],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        distinct_id_floors.results,
+        vec![DistinctIdVersionFloorResult {
+            distinct_id: "svc_sweep_absent".to_string(),
+            outcome: VersionFloorOutcome::TombstoneInserted as i32,
+            version: 3,
+            person_uuid: Some(absent_person.to_string()),
+        }]
+    );
+
+    let tombstones = ctx
+        .service
+        .tombstone_distinct_ids(Request::new(TombstoneDistinctIdsRequest {
+            team_id,
+            distinct_ids: vec![
+                "svc_sweep_live".to_string(),
+                "svc_sweep_orphan".to_string(),
+                "svc_sweep_absent".to_string(),
+                "svc_sweep_missing".to_string(),
+            ],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        tombstones.results,
+        vec![
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_live".to_string(),
+                outcome: DistinctIdTombstoneOutcome::NotOrphaned as i32,
+                version: 0,
+                person_uuid: Some(person.uuid.to_string()),
+            },
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_orphan".to_string(),
+                outcome: DistinctIdTombstoneOutcome::Tombstoned as i32,
+                version: 1,
+                person_uuid: None,
+            },
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_absent".to_string(),
+                outcome: DistinctIdTombstoneOutcome::AlreadyTombstoned as i32,
+                version: 3,
+                person_uuid: Some(absent_person.to_string()),
+            },
+            DistinctIdTombstoneResult {
+                distinct_id: "svc_sweep_missing".to_string(),
+                outcome: DistinctIdTombstoneOutcome::Absent as i32,
+                version: 0,
+                person_uuid: None,
+            },
+        ]
+    );
+
+    let person_heads = ctx
+        .service
+        .get_person_version_heads(Request::new(GetPersonVersionHeadsRequest {
+            team_id,
+            person_uuids: vec![absent_person.to_string()],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        person_heads.heads,
+        vec![PersonVersionHead {
+            person_uuid: absent_person.to_string(),
+            version: 5,
+            is_deleted: true,
+        }]
+    );
+
+    let distinct_id_heads = ctx
+        .service
+        .get_distinct_id_version_heads(Request::new(GetDistinctIdVersionHeadsRequest {
+            team_id,
+            distinct_ids: vec!["svc_sweep_orphan".to_string()],
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(
+        distinct_id_heads.heads,
+        vec![DistinctIdVersionHead {
+            distinct_id: "svc_sweep_orphan".to_string(),
+            version: 1,
+            is_deleted: true,
+            person_uuid: None,
+        }]
+    );
 
     ctx.cleanup().await.ok();
 }

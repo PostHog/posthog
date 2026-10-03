@@ -4,16 +4,19 @@ import json
 import time
 import datetime
 import contextvars
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Union
+from enum import StrEnum
+from functools import partial
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.utils.timezone import now
 
+import grpc
 import structlog
 from dateutil.parser import isoparse
 from prometheus_client import Counter, Histogram
@@ -33,22 +36,32 @@ from posthog.models.person.sql import (
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
+from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
+    DistinctIdTombstoneOutcome as DistinctIdTombstoneOutcomeProto,
+    DistinctIdVersionFloor as DistinctIdVersionFloorProto,
+    EnsureDistinctIdVersionFloorsRequest,
+    EnsurePersonVersionFloorsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
+    GetDistinctIdVersionHeadsRequest,
     GetPersonByDistinctIdRequest,
     GetPersonByUuidRequest,
     GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    GetPersonVersionHeadsRequest,
     ListPersonTombstoneQueueRequest,
+    PersonVersionFloor as PersonVersionFloorProto,
     ReadOptions,
+    TombstoneDistinctIdsRequest,
+    VersionFloorOutcome as VersionFloorOutcomeProto,
 )
 from posthog.settings import TEST
 
@@ -58,6 +71,7 @@ PERSONHOG_BATCH_SIZE: int = settings.PERSONHOG_BATCH_SIZE
 
 
 if TYPE_CHECKING:
+    from google.protobuf.message import Message
     from personhog.types.v1 import person_pb2
 
     from posthog.personhog_client.client import PersonHogClient
@@ -940,3 +954,296 @@ def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: 
         version=version + 100,
         is_deleted=True,
     )
+
+
+# -- Version heads, version floors and distinct id tombstones --
+
+_T = TypeVar("_T")
+
+# An ensure call that loses an insert race fails whole with FAILED_PRECONDITION and commits nothing.
+VERSION_FLOOR_ATTEMPTS = 3
+VERSION_FLOOR_RETRY_BACKOFF_SECONDS = 0.05
+_LOST_RACE_CODES = frozenset({grpc.StatusCode.FAILED_PRECONDITION})
+
+# ClickHouse needs a person_id on every distinct id row. A Postgres row whose person has no
+# row has none, so its tombstone uses the nil uuid, as sync_persons_to_clickhouse does.
+ORPHAN_DISTINCT_ID_PERSON_UUID = UUID(int=0)
+
+
+@frozen
+class PersonVersionHead:
+    uuid: UUID
+    version: int
+    is_deleted: bool
+
+
+@frozen
+class DistinctIdVersionHead:
+    distinct_id: str
+    version: int
+    is_deleted: bool
+    # None when the row points at a person that has no row.
+    person_uuid: UUID | None
+
+
+class VersionFloorOutcome(StrEnum):
+    TOMBSTONE_INSERTED = "tombstone_inserted"
+    TOMBSTONE_RAISED = "tombstone_raised"
+    TOMBSTONE_AT_FLOOR = "tombstone_at_floor"
+    # A live row, left unchanged at its current version. The caller decides what to do.
+    LIVE = "live"
+
+
+_FLOOR_OUTCOMES = {
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED: VersionFloorOutcome.TOMBSTONE_INSERTED,
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED: VersionFloorOutcome.TOMBSTONE_RAISED,
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR: VersionFloorOutcome.TOMBSTONE_AT_FLOOR,
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_LIVE: VersionFloorOutcome.LIVE,
+}
+
+
+@frozen
+class PersonVersionFloor:
+    uuid: UUID
+    min_version: int
+
+
+@frozen
+class PersonVersionFloorResult:
+    uuid: UUID
+    outcome: VersionFloorOutcome
+    version: int
+
+
+@frozen
+class DistinctIdVersionFloor:
+    distinct_id: str
+    min_version: int
+    # Owner of the tombstone inserted when the distinct id has no row. Ignored when it has one.
+    person_uuid: UUID
+
+
+@frozen
+class DistinctIdVersionFloorResult:
+    distinct_id: str
+    outcome: VersionFloorOutcome
+    version: int
+    # None when the row points at a person that has no row.
+    person_uuid: UUID | None
+
+
+class DistinctIdTombstoneOutcome(StrEnum):
+    TOMBSTONED = "tombstoned"
+    ALREADY_TOMBSTONED = "already_tombstoned"
+    ABSENT = "absent"
+    # A live row whose person row exists, left unchanged.
+    NOT_ORPHANED = "not_orphaned"
+
+
+_DISTINCT_ID_TOMBSTONE_OUTCOMES = {
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED: DistinctIdTombstoneOutcome.TOMBSTONED,
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED: DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED,
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT: DistinctIdTombstoneOutcome.ABSENT,
+    DistinctIdTombstoneOutcomeProto.DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED: DistinctIdTombstoneOutcome.NOT_ORPHANED,
+}
+
+
+@frozen
+class DistinctIdTombstoneResult:
+    distinct_id: str
+    outcome: DistinctIdTombstoneOutcome
+    # 0 when the outcome is ABSENT.
+    version: int
+    # None when the row points at a person that has no row, or the outcome is ABSENT.
+    person_uuid: UUID | None
+
+
+def _optional_uuid(message: Message, field_name: str) -> UUID | None:
+    return UUID(getattr(message, field_name)) if message.HasField(field_name) else None
+
+
+def _retry_lost_race(fn: Callable[[], _T]) -> _T:
+    """Call ``fn``, retrying a bounded number of times when the server reports a lost race.
+
+    Every other error propagates, including the lock timeout, which surfaces as INTERNAL.
+    """
+    for attempt in range(1, VERSION_FLOOR_ATTEMPTS):
+        try:
+            return fn()
+        except Exception as exc:
+            if not is_transient_rpc_error(exc, codes=_LOST_RACE_CODES):
+                raise
+        time.sleep(VERSION_FLOOR_RETRY_BACKOFF_SECONDS * attempt)
+    return fn()
+
+
+def get_person_version_heads(team_id: int, uuids: Sequence[UUID]) -> list[PersonVersionHead]:
+    """Read the stored version of each person, tombstones included, from the replica.
+
+    A person with no row is left out. The order of the result is not defined.
+    """
+
+    def personhog_fn() -> list[PersonVersionHead]:
+        heads: list[PersonVersionHead] = []
+        keys = [str(u) for u in uuids]
+        for i in range(0, len(keys), PERSONHOG_BATCH_SIZE):
+            response = _get_client().get_person_version_heads(
+                GetPersonVersionHeadsRequest(team_id=team_id, person_uuids=keys[i : i + PERSONHOG_BATCH_SIZE])
+            )
+            heads.extend(
+                PersonVersionHead(uuid=UUID(h.person_uuid), version=int(h.version), is_deleted=h.is_deleted)
+                for h in response.heads
+            )
+        return heads
+
+    return personhog_call("get_person_version_heads", personhog_fn)
+
+
+def get_distinct_id_version_heads(team_id: int, distinct_ids: Sequence[str]) -> list[DistinctIdVersionHead]:
+    """Read the stored version of each distinct id row, tombstones included, from the replica.
+
+    A distinct id with no row is left out. The order of the result is not defined.
+    """
+
+    def personhog_fn() -> list[DistinctIdVersionHead]:
+        heads: list[DistinctIdVersionHead] = []
+        for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
+            response = _get_client().get_distinct_id_version_heads(
+                GetDistinctIdVersionHeadsRequest(
+                    team_id=team_id, distinct_ids=list(distinct_ids[i : i + PERSONHOG_BATCH_SIZE])
+                )
+            )
+            heads.extend(
+                DistinctIdVersionHead(
+                    distinct_id=h.distinct_id,
+                    version=int(h.version),
+                    is_deleted=h.is_deleted,
+                    person_uuid=_optional_uuid(h, "person_uuid"),
+                )
+                for h in response.heads
+            )
+        return heads
+
+    return personhog_call("get_distinct_id_version_heads", personhog_fn)
+
+
+def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFloor]) -> list[PersonVersionFloorResult]:
+    """Make the Postgres version of each person tombstone at least its floor, so a later revival lands above it.
+
+    A missing person gets a tombstone at the floor. A live row is left unchanged and comes back
+    LIVE with its current version, and the caller decides what to do with it. Each batch commits
+    on its own. A repeated call is safe. Results come back in request order.
+    """
+
+    def personhog_fn() -> list[PersonVersionFloorResult]:
+        results: list[PersonVersionFloorResult] = []
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            request = EnsurePersonVersionFloorsRequest(
+                team_id=team_id,
+                floors=[
+                    PersonVersionFloorProto(person_uuid=str(f.uuid), min_version=f.min_version)
+                    for f in floors[i : i + PERSONHOG_BATCH_SIZE]
+                ],
+            )
+            response = _retry_lost_race(partial(_get_client().ensure_person_version_floors, request))
+            results.extend(
+                PersonVersionFloorResult(
+                    uuid=UUID(r.person_uuid), outcome=_FLOOR_OUTCOMES[r.outcome], version=int(r.version)
+                )
+                for r in response.results
+            )
+        return results
+
+    return personhog_call("ensure_person_version_floors", personhog_fn)
+
+
+def ensure_distinct_id_version_floors(
+    team_id: int, floors: Sequence[DistinctIdVersionFloor]
+) -> list[DistinctIdVersionFloorResult]:
+    """``ensure_person_version_floors`` for distinct id rows.
+
+    A missing distinct id gets a tombstone owned by its ``person_uuid``. When that person has no
+    row either, it gets a person tombstone at version 0.
+    """
+
+    def personhog_fn() -> list[DistinctIdVersionFloorResult]:
+        results: list[DistinctIdVersionFloorResult] = []
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            request = EnsureDistinctIdVersionFloorsRequest(
+                team_id=team_id,
+                floors=[
+                    DistinctIdVersionFloorProto(
+                        distinct_id=f.distinct_id, min_version=f.min_version, person_uuid=str(f.person_uuid)
+                    )
+                    for f in floors[i : i + PERSONHOG_BATCH_SIZE]
+                ],
+            )
+            response = _retry_lost_race(partial(_get_client().ensure_distinct_id_version_floors, request))
+            results.extend(
+                DistinctIdVersionFloorResult(
+                    distinct_id=r.distinct_id,
+                    outcome=_FLOOR_OUTCOMES[r.outcome],
+                    version=int(r.version),
+                    person_uuid=_optional_uuid(r, "person_uuid"),
+                )
+                for r in response.results
+            )
+        return results
+
+    return personhog_call("ensure_distinct_id_version_floors", personhog_fn)
+
+
+def tombstone_distinct_ids_in_postgres(team_id: int, distinct_ids: Sequence[str]) -> list[DistinctIdTombstoneResult]:
+    """Tombstone each orphaned distinct id row (is_deleted, version + 1) and return the versions it holds.
+
+    An orphaned row is a live row whose person row does not exist. A live row whose person exists
+    comes back NOT_ORPHANED, unchanged. A row tombstoned earlier comes back unchanged with its
+    version, and a missing row comes back ABSENT. Results come back in request order.
+    """
+
+    def personhog_fn() -> list[DistinctIdTombstoneResult]:
+        results: list[DistinctIdTombstoneResult] = []
+        for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
+            response = _get_client().tombstone_distinct_ids(
+                TombstoneDistinctIdsRequest(
+                    team_id=team_id, distinct_ids=list(distinct_ids[i : i + PERSONHOG_BATCH_SIZE])
+                )
+            )
+            results.extend(
+                DistinctIdTombstoneResult(
+                    distinct_id=r.distinct_id,
+                    outcome=_DISTINCT_ID_TOMBSTONE_OUTCOMES[r.outcome],
+                    version=int(r.version),
+                    person_uuid=_optional_uuid(r, "person_uuid"),
+                )
+                for r in response.results
+            )
+        return results
+
+    return personhog_call("tombstone_distinct_ids", personhog_fn)
+
+
+def tombstone_distinct_ids_and_publish(team_id: int, distinct_ids: Sequence[str]) -> list[DistinctIdTombstoneResult]:
+    """Tombstone distinct id rows in Postgres, then publish ClickHouse tombstones at exactly those versions.
+
+    A row tombstoned earlier is published again at the version it holds, so calling again after a
+    failed delivery repairs ClickHouse. A missing row and a row whose person exists publish
+    nothing. Raises when a row fails to deliver.
+    """
+    results = tombstone_distinct_ids_in_postgres(team_id, distinct_ids)
+    produced = [
+        create_person_distinct_id(
+            team_id=team_id,
+            distinct_id=result.distinct_id,
+            person_id=str(result.person_uuid or ORPHAN_DISTINCT_ID_PERSON_UUID),
+            version=result.version,
+            is_deleted=True,
+        )
+        for result in results
+        if result.outcome in (DistinctIdTombstoneOutcome.TOMBSTONED, DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED)
+    ]
+    if not all(result.done() for result in produced):
+        _flush_person_producers(TOMBSTONE_DELIVERY_TIMEOUT_SECONDS)
+    for result in produced:
+        result.get(timeout=0)
+    return results

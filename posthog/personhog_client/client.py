@@ -46,10 +46,16 @@ from posthog.personhog_client.proto import (
     DeletePersonsResponse,
     DeleteTombstonedPersonsRequest,
     DeleteTombstonedPersonsResponse,
+    EnsureDistinctIdVersionFloorsRequest,
+    EnsureDistinctIdVersionFloorsResponse,
+    EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
     GetDistinctIdsForPersonsResponse,
+    GetDistinctIdVersionHeadsRequest,
+    GetDistinctIdVersionHeadsResponse,
     GetGroupRequest,
     GetGroupResponse,
     GetGroupsBatchRequest,
@@ -70,6 +76,8 @@ from posthog.personhog_client.proto import (
     GetPersonsRequest,
     GetPersonTombstonesRequest,
     GetPersonTombstonesResponse,
+    GetPersonVersionHeadsRequest,
+    GetPersonVersionHeadsResponse,
     GroupsResponse,
     GroupTypeMappingsBatchResponse,
     GroupTypeMappingsResponse,
@@ -90,6 +98,8 @@ from posthog.personhog_client.proto import (
     SetPersonVersionFloorResponse,
     SplitPersonRequest,
     SplitPersonResponse,
+    TombstoneDistinctIdsRequest,
+    TombstoneDistinctIdsResponse,
     UpdateGroupRequest,
     UpdateGroupResponse,
     UpdateGroupTypeMappingRequest,
@@ -260,6 +270,33 @@ class PersonHogClient:
         self, request: SetPersonVersionFloorRequest, timeout: float | None = None
     ) -> SetPersonVersionFloorResponse:
         return self._stub.SetPersonVersionFloor(request, timeout=timeout or self._timeout)
+
+    # -- Version heads, floors and distinct id tombstones --
+
+    def get_person_version_heads(
+        self, request: GetPersonVersionHeadsRequest, timeout: float | None = None
+    ) -> GetPersonVersionHeadsResponse:
+        return self._stub.GetPersonVersionHeads(request, timeout=timeout or self._timeout)
+
+    def get_distinct_id_version_heads(
+        self, request: GetDistinctIdVersionHeadsRequest, timeout: float | None = None
+    ) -> GetDistinctIdVersionHeadsResponse:
+        return self._stub.GetDistinctIdVersionHeads(request, timeout=timeout or self._timeout)
+
+    def ensure_person_version_floors(
+        self, request: EnsurePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> EnsurePersonVersionFloorsResponse:
+        return self._stub.EnsurePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def ensure_distinct_id_version_floors(
+        self, request: EnsureDistinctIdVersionFloorsRequest, timeout: float | None = None
+    ) -> EnsureDistinctIdVersionFloorsResponse:
+        return self._stub.EnsureDistinctIdVersionFloors(request, timeout=timeout or self._timeout)
+
+    def tombstone_distinct_ids(
+        self, request: TombstoneDistinctIdsRequest, timeout: float | None = None
+    ) -> TombstoneDistinctIdsResponse:
+        return self._stub.TombstoneDistinctIds(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

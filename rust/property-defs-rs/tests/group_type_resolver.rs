@@ -443,6 +443,41 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn get_person_version_heads(
+        &self,
+        _: Request<GetPersonVersionHeadsRequest>,
+    ) -> Result<Response<GetPersonVersionHeadsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        _: Request<GetDistinctIdVersionHeadsRequest>,
+    ) -> Result<Response<GetDistinctIdVersionHeadsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _: Request<EnsurePersonVersionFloorsRequest>,
+    ) -> Result<Response<EnsurePersonVersionFloorsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        _: Request<EnsureDistinctIdVersionFloorsRequest>,
+    ) -> Result<Response<EnsureDistinctIdVersionFloorsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        _: Request<TombstoneDistinctIdsRequest>,
+    ) -> Result<Response<TombstoneDistinctIdsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

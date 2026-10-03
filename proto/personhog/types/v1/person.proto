@@ -387,6 +387,163 @@ message SetPersonVersionFloorResponse {
   bool updated = 1;
 }
 
+// GetPersonVersionHeadsRequest reads the stored version of each person row,
+// tombstones included. Served from a replica, so a row written moments ago can
+// be missing. Persons with no row are left out of the response.
+message GetPersonVersionHeadsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated string person_uuids = 2;
+}
+
+message PersonVersionHead {
+  string person_uuid = 1;
+  // A NULL stored version reads as 0.
+  int64 version = 2;
+  bool is_deleted = 3;
+}
+
+message GetPersonVersionHeadsResponse {
+  repeated PersonVersionHead heads = 1;
+}
+
+// GetDistinctIdVersionHeadsRequest is GetPersonVersionHeadsRequest for
+// posthog_persondistinctid rows.
+message GetDistinctIdVersionHeadsRequest {
+  int64 team_id = 1;
+  // Max 250 per request.
+  repeated string distinct_ids = 2;
+}
+
+message DistinctIdVersionHead {
+  string distinct_id = 1;
+  // A NULL stored version reads as 0.
+  int64 version = 2;
+  bool is_deleted = 3;
+  // The person the row points at. Absent when that person row does not exist.
+  optional string person_uuid = 4;
+}
+
+message GetDistinctIdVersionHeadsResponse {
+  repeated DistinctIdVersionHead heads = 1;
+}
+
+// What an Ensure*VersionFloors call found and did for one key.
+enum VersionFloorOutcome {
+  VERSION_FLOOR_OUTCOME_UNSPECIFIED = 0;
+  // No row existed. The call inserted a tombstone at min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED = 1;
+  // A tombstone below min_version. The call raised it to min_version.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED = 2;
+  // A tombstone at or above min_version. Nothing changed.
+  VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR = 3;
+  // A live row. Nothing changed: the call never raises a live row.
+  VERSION_FLOOR_OUTCOME_LIVE = 4;
+}
+
+message PersonVersionFloor {
+  string person_uuid = 1;
+  int64 min_version = 2;
+}
+
+// EnsurePersonVersionFloorsRequest makes the Postgres version of each person
+// tombstone at least min_version, so a later revival by ingestion lands above
+// it. A missing person gets a tombstone row (is_deleted, empty properties),
+// never a live row. A live row is left unchanged. The call never lowers a
+// version and never changes is_deleted. One transaction per request: all keys
+// succeed or none do.
+message EnsurePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicate person_uuids are rejected.
+  repeated PersonVersionFloor floors = 2;
+}
+
+message PersonVersionFloorResult {
+  string person_uuid = 1;
+  VersionFloorOutcome outcome = 2;
+  // The stored version after the call.
+  int64 version = 3;
+}
+
+message EnsurePersonVersionFloorsResponse {
+  // Same order as the request.
+  repeated PersonVersionFloorResult results = 1;
+}
+
+message DistinctIdVersionFloor {
+  string distinct_id = 1;
+  int64 min_version = 2;
+  // Owner of the tombstone the call inserts when the distinct_id has no row.
+  // When this person has no row either, the call inserts a person tombstone at
+  // version 0 for it, because the distinct_id row needs an existing person.
+  // Ignored when the distinct_id has a row.
+  string person_uuid = 3;
+}
+
+// EnsureDistinctIdVersionFloorsRequest is EnsurePersonVersionFloorsRequest for
+// posthog_persondistinctid rows. The call never changes the person_id of an
+// existing row.
+message EnsureDistinctIdVersionFloorsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicate distinct_ids are rejected.
+  repeated DistinctIdVersionFloor floors = 2;
+}
+
+message DistinctIdVersionFloorResult {
+  string distinct_id = 1;
+  VersionFloorOutcome outcome = 2;
+  // The stored version after the call.
+  int64 version = 3;
+  // The person the row points at after the call. Absent when that person row
+  // does not exist.
+  optional string person_uuid = 4;
+}
+
+message EnsureDistinctIdVersionFloorsResponse {
+  // Same order as the request.
+  repeated DistinctIdVersionFloorResult results = 1;
+}
+
+// What a TombstoneDistinctIds call found and did for one distinct_id.
+enum DistinctIdTombstoneOutcome {
+  DISTINCT_ID_TOMBSTONE_OUTCOME_UNSPECIFIED = 0;
+  // A live row whose person row does not exist. The call set is_deleted and
+  // raised its version by 1.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED = 1;
+  // A tombstone. Nothing changed.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED = 2;
+  // No row. Nothing changed.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT = 3;
+  // A live row whose person row exists. Nothing changed.
+  DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED = 4;
+}
+
+// TombstoneDistinctIdsRequest tombstones orphaned posthog_persondistinctid
+// rows on the primary: live rows whose person row does not exist. It never
+// touches a person row. The rows stay, so a later revival by ingestion lands
+// above the tombstone version. One transaction per request: all keys succeed
+// or none do.
+message TombstoneDistinctIdsRequest {
+  int64 team_id = 1;
+  // Max 250 per request. Duplicates are rejected.
+  repeated string distinct_ids = 2;
+}
+
+message DistinctIdTombstoneResult {
+  string distinct_id = 1;
+  DistinctIdTombstoneOutcome outcome = 2;
+  // The stored version after the call. 0 when the outcome is ABSENT.
+  int64 version = 3;
+  // The person the row points at. Absent when that person row does not exist,
+  // or when the outcome is ABSENT.
+  optional string person_uuid = 4;
+}
+
+message TombstoneDistinctIdsResponse {
+  // Same order as the request.
+  repeated DistinctIdTombstoneResult results = 1;
+}
+
 // FencePersonRequest freezes a person for a lifecycle operation (see
 // PersonHogLeader.FencePerson). op_id is the saga's caller-supplied UUID;
 // op_type selects the rejection surfaced to writers while the fence holds.

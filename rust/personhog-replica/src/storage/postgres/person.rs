@@ -13,8 +13,10 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
-    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdTombstoneOutcome, DistinctIdTombstoneResult,
+    DistinctIdVersionFloor, DistinctIdVersionFloorResult, DistinctIdVersionHead, Person,
+    PersonTombstoneQueueEntry, PersonVersionFloorResult, PersonVersionHead, SplitResult,
+    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -1343,6 +1345,752 @@ impl PersonLookup for PostgresStorage {
 
         Ok(result.rows_affected() > 0)
     }
+
+    async fn get_person_version_heads(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<PersonVersionHead>> {
+        if uuids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_replica_labels("get_person_version_heads");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.bulk_replica_pool.clone();
+        let chunks: Vec<Vec<Uuid>> = uuids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "get_person_version_heads".to_string(),
+            )],
+            chunks.len() as f64,
+        );
+        let results: Vec<Vec<PersonVersionHead>> = stream::iter(chunks.into_iter().map(|chunk| {
+            let pool = pool.clone();
+            async move {
+                let mut conn = PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
+                let rows = sqlx::query_as!(
+                    PersonVersionHead,
+                    r#"
+                    SELECT uuid as "uuid!", COALESCE(version, 0)::bigint as "version!",
+                           is_deleted as "is_deleted!"
+                    FROM posthog_person
+                    WHERE team_id = $1 AND uuid = ANY($2)
+                    "#,
+                    team_id as i32,
+                    &chunk
+                )
+                .fetch_all(&mut *conn)
+                .await?;
+                Ok::<_, StorageError>(rows)
+            }
+        }))
+        .buffer_unordered(self.bulk_max_concurrent_chunks)
+        .try_collect()
+        .await?;
+
+        let heads: Vec<PersonVersionHead> = results.into_iter().flatten().collect();
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, heads.len() as f64);
+        Ok(heads)
+    }
+
+    async fn get_distinct_id_version_heads(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdVersionHead>> {
+        if distinct_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_replica_labels("get_distinct_id_version_heads");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.bulk_replica_pool.clone();
+        let chunks: Vec<Vec<String>> = distinct_ids
+            .chunks(self.bulk_chunk_size)
+            .map(|c| c.to_vec())
+            .collect();
+        common_metrics::histogram(
+            DB_BULK_CHUNKS,
+            &[(
+                "operation".to_string(),
+                "get_distinct_id_version_heads".to_string(),
+            )],
+            chunks.len() as f64,
+        );
+        let results: Vec<Vec<DistinctIdVersionHead>> =
+            stream::iter(chunks.into_iter().map(|chunk| {
+                let pool = pool.clone();
+                async move {
+                    let mut conn = PostgresStorage::acquire_timed(&pool, BULK_POOL_LABEL).await?;
+                    // LEFT JOIN: the distinct id FK is NOT VALID, so an old row can
+                    // point at a person that has no row.
+                    let rows = sqlx::query_as!(
+                        DistinctIdVersionHead,
+                        r#"
+                        SELECT d.distinct_id as "distinct_id!",
+                               COALESCE(d.version, 0)::bigint as "version!",
+                               d.is_deleted as "is_deleted!",
+                               p.uuid as "person_uuid?"
+                        FROM posthog_persondistinctid d
+                        LEFT JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id
+                        WHERE d.team_id = $1 AND d.distinct_id = ANY($2)
+                        "#,
+                        team_id as i32,
+                        &chunk
+                    )
+                    .fetch_all(&mut *conn)
+                    .await?;
+                    Ok::<_, StorageError>(rows)
+                }
+            }))
+            .buffer_unordered(self.bulk_max_concurrent_chunks)
+            .try_collect()
+            .await?;
+
+        let heads: Vec<DistinctIdVersionHead> = results.into_iter().flatten().collect();
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, heads.len() as f64);
+        Ok(heads)
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>> {
+        if floors.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_primary_labels("ensure_person_version_floors");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.bulk_primary_pool.begin().await?;
+        // A held row means a merge, revival or delete in flight: fail fast and let
+        // the caller retry instead of queueing behind it.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        let uuids: Vec<Uuid> = floors.iter().map(|(uuid, _)| *uuid).collect();
+        let mut before = lock_persons_by_uuids(&mut tx, team_id, &uuids).await?;
+
+        let (absent_uuids, absent_mins): (Vec<Uuid>, Vec<i64>) = floors
+            .iter()
+            .filter(|(uuid, _)| !before.contains_key(uuid))
+            .copied()
+            .unzip();
+        let inserted =
+            insert_person_tombstones(&mut tx, team_id, &absent_uuids, &absent_mins).await?;
+
+        // ON CONFLICT DO NOTHING waited for a concurrent insert of the same uuid and
+        // skipped it. Lock and classify that row like any other existing row.
+        let raced: Vec<Uuid> = absent_uuids
+            .iter()
+            .filter(|uuid| !inserted.contains_key(uuid))
+            .copied()
+            .collect();
+        if !raced.is_empty() {
+            let late = lock_persons_by_uuids(&mut tx, team_id, &raced).await?;
+            if late.len() != raced.len() {
+                return Err(StorageError::FailedPrecondition(format!(
+                    "person rows changed during ensure_person_version_floors (team_id={team_id}); retry"
+                )));
+            }
+            before.extend(late);
+        }
+
+        let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
+            .iter()
+            .filter_map(|(uuid, min_version)| {
+                before
+                    .get(uuid)
+                    .filter(|row| row.is_deleted && row.version < *min_version)
+                    .map(|row| (row.id, *min_version))
+            })
+            .unzip();
+        if !raise_ids.is_empty() {
+            sqlx::query!(
+                r#"
+                UPDATE posthog_person p
+                SET version = f.min_version
+                FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)
+                WHERE p.team_id = $1 AND p.id = f.id
+                  AND COALESCE(p.version, 0) < f.min_version
+                "#,
+                team_id as i32,
+                &raise_ids,
+                &raise_mins
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
+
+        let results = floors
+            .iter()
+            .map(|(uuid, min_version)| {
+                if inserted.contains_key(uuid) {
+                    return PersonVersionFloorResult {
+                        uuid: *uuid,
+                        outcome: VersionFloorOutcome::TombstoneInserted,
+                        version: *min_version,
+                    };
+                }
+                let row = &before[uuid];
+                PersonVersionFloorResult {
+                    uuid: *uuid,
+                    outcome: VersionFloorOutcome::for_existing(
+                        row.is_deleted,
+                        row.version,
+                        *min_version,
+                    ),
+                    version: if row.is_deleted {
+                        row.version.max(*min_version)
+                    } else {
+                        row.version
+                    },
+                }
+            })
+            .collect::<Vec<_>>();
+        record_floor_outcomes(
+            "ensure_person_version_floors",
+            results.iter().map(|r| r.outcome),
+        );
+        Ok(results)
+    }
+
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[DistinctIdVersionFloor],
+    ) -> StorageResult<Vec<DistinctIdVersionFloorResult>> {
+        if floors.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_primary_labels("ensure_distinct_id_version_floors");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.bulk_primary_pool.begin().await?;
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        let distinct_ids: Vec<String> = floors.iter().map(|f| f.distinct_id.clone()).collect();
+
+        // Unlocked: only picks which owners to prepare. Every decision below uses
+        // the locked read.
+        let present: HashSet<String> = sqlx::query_scalar!(
+            r#"
+            SELECT distinct_id as "distinct_id!" FROM posthog_persondistinctid
+            WHERE team_id = $1 AND distinct_id = ANY($2)
+            "#,
+            team_id as i32,
+            &distinct_ids
+        )
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect();
+
+        // Lock the owners before any distinct id row: persons before distinct ids
+        // is the order the tombstone paths lock in. KEY SHARE is what the FK check
+        // takes, and it keeps a concurrent drain from deleting the owner first.
+        let mut owner_uuids: Vec<Uuid> = floors
+            .iter()
+            .filter(|f| !present.contains(&f.distinct_id))
+            .map(|f| f.person_uuid)
+            .collect();
+        owner_uuids.sort_unstable();
+        owner_uuids.dedup();
+        let owner_ids = prepare_owner_persons(&mut tx, team_id, &owner_uuids).await?;
+
+        let mut before = lock_distinct_ids(&mut tx, team_id, &distinct_ids).await?;
+
+        let absent: Vec<&DistinctIdVersionFloor> = floors
+            .iter()
+            .filter(|f| !before.contains_key(&f.distinct_id))
+            .collect();
+        let mut inserted: HashSet<String> = HashSet::new();
+        if !absent.is_empty() {
+            let mut insert_dids = Vec::with_capacity(absent.len());
+            let mut insert_person_ids = Vec::with_capacity(absent.len());
+            let mut insert_mins = Vec::with_capacity(absent.len());
+            for floor in &absent {
+                // The row was present at the unlocked read and is gone now, so its
+                // owner was never prepared.
+                let person_id = owner_ids.get(&floor.person_uuid).ok_or_else(|| {
+                    StorageError::FailedPrecondition(format!(
+                        "distinct id rows changed during ensure_distinct_id_version_floors (team_id={team_id}); retry"
+                    ))
+                })?;
+                insert_dids.push(floor.distinct_id.clone());
+                insert_person_ids.push(*person_id);
+                insert_mins.push(floor.min_version);
+            }
+            inserted = sqlx::query_scalar!(
+                r#"
+                INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version, is_deleted)
+                SELECT f.distinct_id, f.person_id, $1, f.min_version, true
+                FROM UNNEST($2::text[], $3::bigint[], $4::bigint[]) AS f(distinct_id, person_id, min_version)
+                ON CONFLICT (team_id, distinct_id) DO NOTHING
+                RETURNING distinct_id as "distinct_id!"
+                "#,
+                team_id as i32,
+                &insert_dids,
+                &insert_person_ids,
+                &insert_mins
+            )
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+
+            let raced: Vec<String> = insert_dids
+                .into_iter()
+                .filter(|did| !inserted.contains(did))
+                .collect();
+            if !raced.is_empty() {
+                let late = lock_distinct_ids(&mut tx, team_id, &raced).await?;
+                if late.len() != raced.len() {
+                    return Err(StorageError::FailedPrecondition(format!(
+                        "distinct id rows changed during ensure_distinct_id_version_floors (team_id={team_id}); retry"
+                    )));
+                }
+                before.extend(late);
+            }
+        }
+
+        let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
+            .iter()
+            .filter_map(|f| {
+                before
+                    .get(&f.distinct_id)
+                    .filter(|row| row.is_deleted && row.version < f.min_version)
+                    .map(|row| (row.id, f.min_version))
+            })
+            .unzip();
+        if !raise_ids.is_empty() {
+            sqlx::query!(
+                r#"
+                UPDATE posthog_persondistinctid d
+                SET version = f.min_version
+                FROM UNNEST($2::bigint[], $3::bigint[]) AS f(id, min_version)
+                WHERE d.team_id = $1 AND d.id = f.id
+                  AND COALESCE(d.version, 0) < f.min_version
+                "#,
+                team_id as i32,
+                &raise_ids,
+                &raise_mins
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        let uuid_by_person_id =
+            person_uuids_by_id(&mut tx, team_id, before.values().map(|row| row.person_id)).await?;
+
+        tx.commit().await?;
+
+        let results = floors
+            .iter()
+            .map(|f| {
+                if inserted.contains(&f.distinct_id) {
+                    return DistinctIdVersionFloorResult {
+                        distinct_id: f.distinct_id.clone(),
+                        outcome: VersionFloorOutcome::TombstoneInserted,
+                        version: f.min_version,
+                        person_uuid: Some(f.person_uuid),
+                    };
+                }
+                let row = &before[&f.distinct_id];
+                DistinctIdVersionFloorResult {
+                    distinct_id: f.distinct_id.clone(),
+                    outcome: VersionFloorOutcome::for_existing(
+                        row.is_deleted,
+                        row.version,
+                        f.min_version,
+                    ),
+                    version: if row.is_deleted {
+                        row.version.max(f.min_version)
+                    } else {
+                        row.version
+                    },
+                    person_uuid: uuid_by_person_id.get(&row.person_id).copied(),
+                }
+            })
+            .collect::<Vec<_>>();
+        record_floor_outcomes(
+            "ensure_distinct_id_version_floors",
+            results.iter().map(|r| r.outcome),
+        );
+        Ok(results)
+    }
+
+    async fn tombstone_distinct_ids(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdTombstoneResult>> {
+        if distinct_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let labels = bulk_primary_labels("tombstone_distinct_ids");
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut tx = self.bulk_primary_pool.begin().await?;
+        // A held row means a merge or revival in flight: fail fast and let the
+        // caller retry instead of queueing behind it.
+        sqlx::query("SET LOCAL lock_timeout = '2s'")
+            .execute(&mut *tx)
+            .await?;
+
+        // Only distinct id rows are locked. The update keeps person_id, so the FK
+        // check does not run and the person row is never locked or required.
+        let before = lock_distinct_ids(&mut tx, team_id, distinct_ids).await?;
+
+        let uuid_by_person_id =
+            person_uuids_by_id(&mut tx, team_id, before.values().map(|row| row.person_id)).await?;
+        // Cannot go stale: person ids are never reused, and the row lock blocks repointing.
+        let orphaned_ids: Vec<i64> = before
+            .values()
+            .filter(|row| !row.is_deleted && !uuid_by_person_id.contains_key(&row.person_id))
+            .map(|row| row.id)
+            .collect();
+        let mut tombstoned_versions: HashMap<i64, i64> = HashMap::new();
+        if !orphaned_ids.is_empty() {
+            tombstoned_versions = sqlx::query!(
+                r#"
+                UPDATE posthog_persondistinctid
+                SET is_deleted = true, version = COALESCE(version, 0) + 1
+                WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
+                RETURNING id as "id!", version as "version!"
+                "#,
+                team_id as i32,
+                &orphaned_ids
+            )
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .map(|row| (row.id, row.version))
+            .collect();
+        }
+        // Every live row is locked, so the update cannot skip one.
+        if tombstoned_versions.len() != orphaned_ids.len() {
+            return Err(StorageError::Query(format!(
+                "tombstone_distinct_ids updated {} of {} locked live orphaned rows (team_id={team_id})",
+                tombstoned_versions.len(),
+                orphaned_ids.len()
+            )));
+        }
+
+        tx.commit().await?;
+
+        let results = distinct_ids
+            .iter()
+            .map(|distinct_id| match before.get(distinct_id) {
+                None => DistinctIdTombstoneResult {
+                    distinct_id: distinct_id.clone(),
+                    outcome: DistinctIdTombstoneOutcome::Absent,
+                    version: 0,
+                    person_uuid: None,
+                },
+                Some(row) => {
+                    let (outcome, version) = match tombstoned_versions.get(&row.id) {
+                        Some(version) => (DistinctIdTombstoneOutcome::Tombstoned, *version),
+                        None if row.is_deleted => {
+                            (DistinctIdTombstoneOutcome::AlreadyTombstoned, row.version)
+                        }
+                        None => (DistinctIdTombstoneOutcome::NotOrphaned, row.version),
+                    };
+                    DistinctIdTombstoneResult {
+                        distinct_id: distinct_id.clone(),
+                        outcome,
+                        version,
+                        person_uuid: uuid_by_person_id.get(&row.person_id).copied(),
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+        record_outcomes(
+            DISTINCT_ID_TOMBSTONE_OUTCOMES_TOTAL,
+            "tombstone_distinct_ids",
+            results.iter().map(|r| match r.outcome {
+                DistinctIdTombstoneOutcome::Tombstoned => "tombstoned",
+                DistinctIdTombstoneOutcome::AlreadyTombstoned => "already_tombstoned",
+                DistinctIdTombstoneOutcome::Absent => "absent",
+                DistinctIdTombstoneOutcome::NotOrphaned => "not_orphaned",
+            }),
+        );
+        Ok(results)
+    }
+}
+
+fn bulk_replica_labels(operation: &str) -> [(String, String); 4] {
+    [
+        ("operation".to_string(), operation.to_string()),
+        ("pool".to_string(), BULK_POOL_LABEL.to_string()),
+        ("client".to_string(), current_client_name().to_string()),
+        ("method".to_string(), current_method_name().to_string()),
+    ]
+}
+
+fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
+    [
+        ("operation".to_string(), operation.to_string()),
+        ("pool".to_string(), "bulk_primary".to_string()),
+        ("client".to_string(), current_client_name().to_string()),
+        ("method".to_string(), current_method_name().to_string()),
+    ]
+}
+
+const VERSION_FLOOR_OUTCOMES_TOTAL: &str = "personhog_replica_version_floor_outcomes_total";
+const DISTINCT_ID_TOMBSTONE_OUTCOMES_TOTAL: &str =
+    "personhog_replica_distinct_id_tombstone_outcomes_total";
+
+fn record_floor_outcomes(operation: &str, outcomes: impl Iterator<Item = VersionFloorOutcome>) {
+    record_outcomes(
+        VERSION_FLOOR_OUTCOMES_TOTAL,
+        operation,
+        outcomes.map(|outcome| match outcome {
+            VersionFloorOutcome::TombstoneInserted => "tombstone_inserted",
+            VersionFloorOutcome::TombstoneRaised => "tombstone_raised",
+            VersionFloorOutcome::TombstoneAtFloor => "tombstone_at_floor",
+            VersionFloorOutcome::Live => "live",
+        }),
+    );
+}
+
+/// Count each outcome label once per call, so a batch costs one increment per label.
+fn record_outcomes(
+    metric: &'static str,
+    operation: &str,
+    outcomes: impl Iterator<Item = &'static str>,
+) {
+    let mut counts: HashMap<&'static str, u64> = HashMap::new();
+    for outcome in outcomes {
+        *counts.entry(outcome).or_default() += 1;
+    }
+    let client = current_client_name();
+    for (outcome, count) in counts {
+        common_metrics::inc(
+            metric,
+            &[
+                ("operation".to_string(), operation.to_string()),
+                ("outcome".to_string(), outcome.to_string()),
+                ("client".to_string(), client.to_string()),
+            ],
+            count,
+        );
+    }
+}
+
+/// Resolve person ids to uuids without locking. A person id with no row is left out.
+async fn person_uuids_by_id(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    person_ids: impl Iterator<Item = i64>,
+) -> StorageResult<HashMap<i64, Uuid>> {
+    let mut person_ids: Vec<i64> = person_ids.collect();
+    if person_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    person_ids.sort_unstable();
+    person_ids.dedup();
+    Ok(sqlx::query!(
+        r#"
+        SELECT id as "id!", uuid as "uuid!" FROM posthog_person
+        WHERE team_id = $1 AND id = ANY($2)
+        "#,
+        team_id as i32,
+        &person_ids
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| (row.id, row.uuid))
+    .collect())
+}
+
+struct LockedPerson {
+    id: i64,
+    version: i64,
+    is_deleted: bool,
+}
+
+/// Lock the existing persons among `uuids` in id order, the order the ingestion
+/// writer and the tombstone paths take person locks in.
+async fn lock_persons_by_uuids(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    uuids: &[Uuid],
+) -> StorageResult<HashMap<Uuid, LockedPerson>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT id::bigint as "id!", uuid as "uuid!",
+               COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
+        FROM posthog_person
+        WHERE team_id = $1 AND uuid = ANY($2)
+        ORDER BY id FOR UPDATE
+        "#,
+        team_id as i32,
+        uuids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.uuid,
+                LockedPerson {
+                    id: row.id,
+                    version: row.version,
+                    is_deleted: row.is_deleted,
+                },
+            )
+        })
+        .collect())
+}
+
+/// Insert scrubbed person tombstones, skipping any uuid a concurrent transaction
+/// inserted first. Returns the inserted rows' ids by uuid.
+async fn insert_person_tombstones(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    uuids: &[Uuid],
+    versions: &[i64],
+) -> StorageResult<HashMap<Uuid, i64>> {
+    if uuids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query!(
+        r#"
+        INSERT INTO posthog_person (uuid, team_id, properties, properties_last_updated_at,
+                                    properties_last_operation, created_at, version,
+                                    is_identified, is_deleted)
+        SELECT f.uuid, $1, '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, NOW(), f.version, false, true
+        FROM UNNEST($2::uuid[], $3::bigint[]) AS f(uuid, version)
+        ON CONFLICT (team_id, uuid) DO NOTHING
+        RETURNING id::bigint as "id!", uuid as "uuid!"
+        "#,
+        team_id as i32,
+        uuids,
+        versions
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows.into_iter().map(|row| (row.uuid, row.id)).collect())
+}
+
+/// Resolve each owner uuid to a person id, holding a KEY SHARE lock on it until
+/// commit. An owner with no row gets a version-0 tombstone, because the distinct
+/// id FK needs an existing person. Ingestion revives it at version 1, above the
+/// version 0 it gives a person created from nothing, so the tombstone never makes
+/// the owner's versions worse than no row.
+async fn prepare_owner_persons(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    owner_uuids: &[Uuid],
+) -> StorageResult<HashMap<Uuid, i64>> {
+    if owner_uuids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut owners = lock_owner_persons(tx, team_id, owner_uuids).await?;
+    let missing: Vec<Uuid> = owner_uuids
+        .iter()
+        .filter(|uuid| !owners.contains_key(uuid))
+        .copied()
+        .collect();
+    if missing.is_empty() {
+        return Ok(owners);
+    }
+    let zeros = vec![0_i64; missing.len()];
+    let inserted = insert_person_tombstones(tx, team_id, &missing, &zeros).await?;
+    let raced: Vec<Uuid> = missing
+        .iter()
+        .filter(|uuid| !inserted.contains_key(uuid))
+        .copied()
+        .collect();
+    owners.extend(inserted);
+    if !raced.is_empty() {
+        let late = lock_owner_persons(tx, team_id, &raced).await?;
+        if late.len() != raced.len() {
+            return Err(StorageError::FailedPrecondition(format!(
+                "person rows changed during ensure_distinct_id_version_floors (team_id={team_id}); retry"
+            )));
+        }
+        owners.extend(late);
+    }
+    Ok(owners)
+}
+
+async fn lock_owner_persons(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    uuids: &[Uuid],
+) -> StorageResult<HashMap<Uuid, i64>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT id::bigint as "id!", uuid as "uuid!"
+        FROM posthog_person
+        WHERE team_id = $1 AND uuid = ANY($2)
+        ORDER BY id FOR KEY SHARE
+        "#,
+        team_id as i32,
+        uuids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows.into_iter().map(|row| (row.uuid, row.id)).collect())
+}
+
+struct LockedDistinctId {
+    id: i64,
+    person_id: i64,
+    version: i64,
+    is_deleted: bool,
+}
+
+/// Lock the existing rows among `distinct_ids` in id order, the order the
+/// tombstone paths take distinct id locks in.
+async fn lock_distinct_ids(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    distinct_ids: &[String],
+) -> StorageResult<HashMap<String, LockedDistinctId>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT id as "id!", distinct_id as "distinct_id!", person_id as "person_id!",
+               COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
+        FROM posthog_persondistinctid
+        WHERE team_id = $1 AND distinct_id = ANY($2)
+        ORDER BY id FOR UPDATE
+        "#,
+        team_id as i32,
+        distinct_ids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.distinct_id,
+                LockedDistinctId {
+                    id: row.id,
+                    person_id: row.person_id,
+                    version: row.version,
+                    is_deleted: row.is_deleted,
+                },
+            )
+        })
+        .collect())
 }
 
 /// Tombstone the requested persons in one transaction, so the caller gets

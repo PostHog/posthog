@@ -664,3 +664,209 @@ class TestFakePersonHogClientDeleteTombstonedPersons:
             self.client.get_person(person_pb2.GetPersonRequest(team_id=self.TEAM_ID, person_id=2)).HasField("person")
             is False
         )
+
+
+class TestFakePersonHogClientVersionFloors:
+    TEAM_ID = 7
+    OTHER_TEAM_ID = 8
+
+    def setup_method(self):
+        self.client = FakePersonHogClient()
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=1,
+            uuid="live",
+            version=2,
+            distinct_ids=["live-did"],
+            distinct_id_versions={"live-did": 1},
+        )
+        self.client.add_person(team_id=self.TEAM_ID, person_id=2, uuid="tomb-low", version=3, is_deleted=True)
+        self.client.add_person(
+            team_id=self.TEAM_ID,
+            person_id=3,
+            uuid="tomb-high",
+            version=9,
+            is_deleted=True,
+            distinct_ids=["tomb-did"],
+            distinct_id_versions={"tomb-did": 4},
+            tombstoned_distinct_ids=["tomb-did"],
+        )
+        self.client.add_orphan_distinct_id(team_id=self.TEAM_ID, distinct_id="orphan", version=2)
+        self.client.add_person(
+            team_id=self.OTHER_TEAM_ID, person_id=4, uuid="elsewhere", version=1, distinct_ids=["elsewhere-did"]
+        )
+
+    def _ensure_persons(self, *floors: tuple[str, int]) -> list[tuple[str, int, int]]:
+        response = self.client.ensure_person_version_floors(
+            person_pb2.EnsurePersonVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[person_pb2.PersonVersionFloor(person_uuid=u, min_version=m) for u, m in floors],
+            )
+        )
+        return [(r.person_uuid, r.outcome, r.version) for r in response.results]
+
+    def _ensure_distinct_ids(self, *floors: tuple[str, int, str]) -> list[tuple[str, int, int, str | None]]:
+        response = self.client.ensure_distinct_id_version_floors(
+            person_pb2.EnsureDistinctIdVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[
+                    person_pb2.DistinctIdVersionFloor(distinct_id=d, min_version=m, person_uuid=o) for d, m, o in floors
+                ],
+            )
+        )
+        return [
+            (r.distinct_id, r.outcome, r.version, r.person_uuid if r.HasField("person_uuid") else None)
+            for r in response.results
+        ]
+
+    def _tombstone(self, *distinct_ids: str) -> list[tuple[str, int, int, str | None]]:
+        response = self.client.tombstone_distinct_ids(
+            person_pb2.TombstoneDistinctIdsRequest(team_id=self.TEAM_ID, distinct_ids=list(distinct_ids))
+        )
+        return [
+            (r.distinct_id, r.outcome, r.version, r.person_uuid if r.HasField("person_uuid") else None)
+            for r in response.results
+        ]
+
+    def _distinct_id_head(self, distinct_id: str) -> tuple[int, bool, str | None] | None:
+        response = self.client.get_distinct_id_version_heads(
+            person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=[distinct_id])
+        )
+        if not response.heads:
+            return None
+        head = response.heads[0]
+        return head.version, head.is_deleted, head.person_uuid if head.HasField("person_uuid") else None
+
+    def test_heads_include_tombstones_and_orphans_and_skip_absent_and_other_team_keys(self):
+        persons = self.client.get_person_version_heads(
+            person_pb2.GetPersonVersionHeadsRequest(
+                team_id=self.TEAM_ID, person_uuids=["live", "tomb-high", "missing", "elsewhere"]
+            )
+        )
+        assert [(h.person_uuid, h.version, h.is_deleted) for h in persons.heads] == [
+            ("live", 2, False),
+            ("tomb-high", 9, True),
+        ]
+        assert self._distinct_id_head("tomb-did") == (4, True, "tomb-high")
+        assert self._distinct_id_head("orphan") == (2, False, None)
+        assert self._distinct_id_head("missing") is None
+        assert self._distinct_id_head("elsewhere-did") is None
+
+    def test_ensure_person_floors_classifies_each_row_and_raises_only_tombstones_below_the_floor(self):
+        live = person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        raised = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        at_floor = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+        inserted = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED
+        floors = (("live", 5), ("tomb-low", 5), ("tomb-high", 5), ("missing", 5), ("elsewhere", 5))
+
+        assert self._ensure_persons(*floors) == [
+            ("live", live, 2),
+            ("tomb-low", raised, 5),
+            ("tomb-high", at_floor, 9),
+            ("missing", inserted, 5),
+            ("elsewhere", inserted, 5),
+        ]
+        live_person = self.client.stored_person(self.TEAM_ID, "live")
+        assert live_person is not None and (live_person.is_deleted, live_person.version) == (False, 2)
+        missing = self.client.stored_person(self.TEAM_ID, "missing")
+        assert missing is not None and missing.is_deleted
+        other_team = self.client.stored_person(self.OTHER_TEAM_ID, "elsewhere")
+        assert other_team is not None and other_team.version == 1
+        # Once every row is at its floor, a repeat changes nothing.
+        assert [outcome for _, outcome, _ in self._ensure_persons(*floors)] == [
+            live,
+            at_floor,
+            at_floor,
+            at_floor,
+            at_floor,
+        ]
+
+    def test_ensure_distinct_id_floors_inserts_owned_tombstones_and_raises_only_existing_tombstones(self):
+        live = person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        raised = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        at_floor = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+        inserted = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED
+
+        assert self._ensure_distinct_ids(
+            ("live-did", 6, "ignored"),
+            ("tomb-did", 3, "ignored"),
+            ("orphan", 3, "ignored"),
+            ("new-live-owner", 6, "live"),
+            ("new-missing-owner-a", 6, "ghost"),
+            ("new-missing-owner-b", 7, "ghost"),
+            ("elsewhere-did", 6, "elsewhere"),
+        ) == [
+            ("live-did", live, 1, "live"),
+            ("tomb-did", at_floor, 4, "tomb-high"),
+            ("orphan", live, 2, None),
+            ("new-live-owner", inserted, 6, "live"),
+            ("new-missing-owner-a", inserted, 6, "ghost"),
+            ("new-missing-owner-b", inserted, 7, "ghost"),
+            ("elsewhere-did", inserted, 6, "elsewhere"),
+        ]
+        # Both distinct ids share one owner tombstone at version 0, and the live owner stays live.
+        ghost = self.client.stored_person(self.TEAM_ID, "ghost")
+        assert ghost is not None and (ghost.is_deleted, ghost.version) == (True, 0)
+        live_owner = self.client.stored_person(self.TEAM_ID, "live")
+        assert live_owner is not None and not live_owner.is_deleted
+        assert self._distinct_id_head("new-live-owner") == (6, True, "live")
+        assert self._distinct_id_head("live-did") == (1, False, "live")
+        assert self._distinct_id_head("orphan") == (2, False, None)
+        assert self._ensure_distinct_ids(("tomb-did", 8, "ignored"))[0][1:3] == (raised, 8)
+
+    def test_tombstone_bumps_only_orphaned_rows_once(self):
+        tombstoned = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_TOMBSTONED
+        already = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_ALREADY_TOMBSTONED
+        absent = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_ABSENT
+        not_orphaned = person_pb2.DISTINCT_ID_TOMBSTONE_OUTCOME_NOT_ORPHANED
+        keys = ("live-did", "tomb-did", "orphan", "missing", "elsewhere-did")
+
+        assert self._tombstone(*keys) == [
+            ("live-did", not_orphaned, 1, "live"),
+            ("tomb-did", already, 4, "tomb-high"),
+            ("orphan", tombstoned, 3, None),
+            ("missing", absent, 0, None),
+            ("elsewhere-did", absent, 0, None),
+        ]
+        person = self.client.stored_person(self.TEAM_ID, "live")
+        assert person is not None and (person.is_deleted, person.version) == (False, 2)
+        assert self._distinct_id_head("live-did") == (1, False, "live")
+        assert self._distinct_id_head("orphan") == (3, True, None)
+        assert [(d, o, v) for d, o, v, _ in self._tombstone(*keys)] == [
+            ("live-did", not_orphaned, 1),
+            ("tomb-did", already, 4),
+            ("orphan", already, 3),
+            ("missing", absent, 0),
+            ("elsewhere-did", absent, 0),
+        ]
+
+    @pytest.mark.parametrize(
+        "rpc,keys,min_version,error",
+        [
+            *(
+                (rpc, keys, 0, error)
+                for rpc in ("ensure_persons", "ensure_distinct_ids", "tombstone")
+                for keys, error in (([f"k-{i}" for i in range(251)], "Maximum 250"), (["k", "k"], "Duplicate key"))
+            ),
+            ("ensure_persons", ["k"], -1, "must not be negative"),
+            ("ensure_distinct_ids", ["k"], -1, "must not be negative"),
+            ("person_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
+            ("distinct_id_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
+        ],
+    )
+    def test_rejects_batches_the_replica_rejects(self, rpc, keys, min_version, error):
+        calls = {
+            "person_heads": lambda: self.client.get_person_version_heads(
+                person_pb2.GetPersonVersionHeadsRequest(team_id=self.TEAM_ID, person_uuids=keys)
+            ),
+            "distinct_id_heads": lambda: self.client.get_distinct_id_version_heads(
+                person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=keys)
+            ),
+            "ensure_persons": lambda: self._ensure_persons(*((k, min_version) for k in keys)),
+            "ensure_distinct_ids": lambda: self._ensure_distinct_ids(*((k, min_version, "owner") for k in keys)),
+            "tombstone": lambda: self._tombstone(*keys),
+        }
+        with pytest.raises(ValueError, match=error):
+            calls[rpc]()
+        assert self.client.stored_person(self.TEAM_ID, keys[0]) is None
+        assert self._distinct_id_head(keys[0]) is None

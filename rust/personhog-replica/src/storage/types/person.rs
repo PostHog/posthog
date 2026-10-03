@@ -71,6 +71,85 @@ pub struct TombstonedDeleteOutcome {
     pub rows_deleted: i64,
 }
 
+/// The stored version of a person row, tombstones included.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonVersionHead {
+    pub uuid: Uuid,
+    pub version: i64,
+    pub is_deleted: bool,
+}
+
+/// The stored version of a distinct id row, tombstones included.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdVersionHead {
+    pub distinct_id: String,
+    pub version: i64,
+    pub is_deleted: bool,
+    /// None when the row points at a person that has no row.
+    pub person_uuid: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionFloorOutcome {
+    TombstoneInserted,
+    TombstoneRaised,
+    TombstoneAtFloor,
+    Live,
+}
+
+impl VersionFloorOutcome {
+    /// Classify a row that existed before the call, from its state then.
+    pub fn for_existing(is_deleted: bool, version: i64, min_version: i64) -> Self {
+        match (is_deleted, version < min_version) {
+            (false, _) => Self::Live,
+            (true, true) => Self::TombstoneRaised,
+            (true, false) => Self::TombstoneAtFloor,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonVersionFloorResult {
+    pub uuid: Uuid,
+    pub outcome: VersionFloorOutcome,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdVersionFloor {
+    pub distinct_id: String,
+    pub min_version: i64,
+    pub person_uuid: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdVersionFloorResult {
+    pub distinct_id: String,
+    pub outcome: VersionFloorOutcome,
+    pub version: i64,
+    /// None when the row points at a person that has no row.
+    pub person_uuid: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DistinctIdTombstoneOutcome {
+    Tombstoned,
+    AlreadyTombstoned,
+    Absent,
+    /// A live row whose person row exists. Left unchanged.
+    NotOrphaned,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdTombstoneResult {
+    pub distinct_id: String,
+    pub outcome: DistinctIdTombstoneOutcome,
+    /// 0 when the outcome is Absent.
+    pub version: i64,
+    /// None when the row points at a person that has no row, or the outcome is Absent.
+    pub person_uuid: Option<Uuid>,
+}
+
 #[derive(Debug, Clone)]
 pub struct SplitResult {
     pub distinct_id: String,

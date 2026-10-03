@@ -3,8 +3,10 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
-    TombstonedDeleteOutcome, TombstonedPerson,
+    DeletePersonsMode, DeletePersonsOutcome, DistinctIdTombstoneResult, DistinctIdVersionFloor,
+    DistinctIdVersionFloorResult, DistinctIdVersionHead, Person, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, PersonVersionHead, SplitResult, TombstonedDeleteOutcome,
+    TombstonedPerson,
 };
 
 /// Person lookup operations by ID, UUID, and distinct ID
@@ -146,4 +148,51 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    // Sweep reconciliation
+
+    /// Read the stored version of each person, tombstones included, from the replica.
+    /// Persons with no row are left out.
+    async fn get_person_version_heads(
+        &self,
+        team_id: i64,
+        uuids: &[Uuid],
+    ) -> StorageResult<Vec<PersonVersionHead>>;
+
+    /// Read the stored version of each distinct id, tombstones included, from the
+    /// replica. Distinct ids with no row are left out.
+    async fn get_distinct_id_version_heads(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdVersionHead>>;
+
+    /// Make the stored version of each person tombstone at least its floor, in one
+    /// transaction on the primary. A missing person gets a tombstone at the floor; a
+    /// live row is left unchanged. `floors` must not repeat a uuid. Results come back
+    /// in request order.
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>>;
+
+    /// `ensure_person_version_floors` for distinct id rows. A missing distinct id gets a
+    /// tombstone owned by its `person_uuid`, which gets a version-0 person tombstone when
+    /// it has no row. `floors` must not repeat a distinct id.
+    async fn ensure_distinct_id_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[DistinctIdVersionFloor],
+    ) -> StorageResult<Vec<DistinctIdVersionFloorResult>>;
+
+    /// Tombstone each live distinct id row whose person row does not exist (is_deleted,
+    /// version + 1) in one transaction on the primary, without locking any person row. A
+    /// row whose person exists, a tombstone or a missing row is left unchanged.
+    /// `distinct_ids` must not repeat a key. Results come back in request order.
+    async fn tombstone_distinct_ids(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+    ) -> StorageResult<Vec<DistinctIdTombstoneResult>>;
 }

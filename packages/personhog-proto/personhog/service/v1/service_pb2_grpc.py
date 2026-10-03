@@ -336,6 +336,36 @@ class PersonHogServiceStub:
             response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.FromString,
             _registered_method=True,
         )
+        self.GetPersonVersionHeads = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/GetPersonVersionHeads",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonVersionHeadsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonVersionHeadsResponse.FromString,
+            _registered_method=True,
+        )
+        self.GetDistinctIdVersionHeads = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/GetDistinctIdVersionHeads",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdVersionHeadsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdVersionHeadsResponse.FromString,
+            _registered_method=True,
+        )
+        self.EnsurePersonVersionFloors = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/EnsurePersonVersionFloors",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsResponse.FromString,
+            _registered_method=True,
+        )
+        self.EnsureDistinctIdVersionFloors = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/EnsureDistinctIdVersionFloors",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsResponse.FromString,
+            _registered_method=True,
+        )
+        self.TombstoneDistinctIds = channel.unary_unary(
+            "/personhog.service.v1.PersonHogService/TombstoneDistinctIds",
+            request_serializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsRequest.SerializeToString,
+            response_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsResponse.FromString,
+            _registered_method=True,
+        )
 
 
 class PersonHogServiceServicer:
@@ -654,6 +684,39 @@ class PersonHogServiceServicer:
         context.set_details("Method not implemented!")
         raise NotImplementedError("Method not implemented!")
 
+    def GetPersonVersionHeads(self, request, context):
+        """Version heads, floors and distinct id tombstones for the ClickHouse cleanup
+        jobs. The heads are replica reads. The ensure and tombstone RPCs write the
+        primary: same routing caveat as DeletePersons above.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def GetDistinctIdVersionHeads(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def EnsurePersonVersionFloors(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def EnsureDistinctIdVersionFloors(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
+    def TombstoneDistinctIds(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details("Method not implemented!")
+        raise NotImplementedError("Method not implemented!")
+
 
 def add_PersonHogServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -901,6 +964,31 @@ def add_PersonHogServiceServicer_to_server(servicer, server):
             servicer.SetPersonVersionFloor,
             request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.FromString,
             response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.SerializeToString,
+        ),
+        "GetPersonVersionHeads": grpc.unary_unary_rpc_method_handler(
+            servicer.GetPersonVersionHeads,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonVersionHeadsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetPersonVersionHeadsResponse.SerializeToString,
+        ),
+        "GetDistinctIdVersionHeads": grpc.unary_unary_rpc_method_handler(
+            servicer.GetDistinctIdVersionHeads,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdVersionHeadsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdVersionHeadsResponse.SerializeToString,
+        ),
+        "EnsurePersonVersionFloors": grpc.unary_unary_rpc_method_handler(
+            servicer.EnsurePersonVersionFloors,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsResponse.SerializeToString,
+        ),
+        "EnsureDistinctIdVersionFloors": grpc.unary_unary_rpc_method_handler(
+            servicer.EnsureDistinctIdVersionFloors,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsResponse.SerializeToString,
+        ),
+        "TombstoneDistinctIds": grpc.unary_unary_rpc_method_handler(
+            servicer.TombstoneDistinctIds,
+            request_deserializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsRequest.FromString,
+            response_serializer=personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsResponse.SerializeToString,
         ),
     }
     generic_handler = grpc.method_handlers_generic_handler("personhog.service.v1.PersonHogService", rpc_method_handlers)
@@ -2373,6 +2461,156 @@ class PersonHogService:
             "/personhog.service.v1.PersonHogService/SetPersonVersionFloor",
             personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorRequest.SerializeToString,
             personhog_dot_types_dot_v1_dot_person__pb2.SetPersonVersionFloorResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetPersonVersionHeads(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/GetPersonVersionHeads",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonVersionHeadsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetPersonVersionHeadsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def GetDistinctIdVersionHeads(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/GetDistinctIdVersionHeads",
+            personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdVersionHeadsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.GetDistinctIdVersionHeadsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def EnsurePersonVersionFloors(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/EnsurePersonVersionFloors",
+            personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.EnsurePersonVersionFloorsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def EnsureDistinctIdVersionFloors(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/EnsureDistinctIdVersionFloors",
+            personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.EnsureDistinctIdVersionFloorsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True,
+        )
+
+    @staticmethod
+    def TombstoneDistinctIds(
+        request,
+        target,
+        options=(),
+        channel_credentials=None,
+        call_credentials=None,
+        insecure=False,
+        compression=None,
+        wait_for_ready=None,
+        timeout=None,
+        metadata=None,
+    ):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            "/personhog.service.v1.PersonHogService/TombstoneDistinctIds",
+            personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsRequest.SerializeToString,
+            personhog_dot_types_dot_v1_dot_person__pb2.TombstoneDistinctIdsResponse.FromString,
             options,
             channel_credentials,
             insecure,
