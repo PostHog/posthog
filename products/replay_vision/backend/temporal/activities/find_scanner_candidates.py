@@ -18,7 +18,12 @@ from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counte
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import (
+    SETTLE_INTERVAL,
+    ReplayScanner,
+    ScannerType,
+    initial_watermark,
+)
 from products.replay_vision.backend.queries import excluded_sessions
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
@@ -28,6 +33,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     CandidateSession,
     ScannerCandidateQuery,
     WindowedCandidateQuery,
+    build_candidate_batch,
 )
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SWEEP_INTERVAL,
@@ -67,6 +73,51 @@ class _DeepProgress:
     seen_session_id: str = ""
 
 
+@frozen
+class _LifecycleBlock:
+    kind: str
+    # Set for an ended experiment: the sweep still covers its run up to here before it stops.
+    end_date: dt.datetime | None = None
+
+
+def _experiment_lifecycle_block(scanner: ReplayScanner) -> _LifecycleBlock | None:
+    """Why this scanner's experiment can't be watched now: 'deleted', 'ended', 'archived', or 'paused'.
+
+    None when the scanner watches no experiment or the experiment is running. A pause turns the
+    flag off, so an exposed user's sessions from then on show no variant, and attributing them to
+    one would mislabel the readout. An archived experiment with no end date has no known end to
+    sweep up to, so it stops like a pause. Only the experiment type is judged: a legacy scanner
+    targeting an experiment through the column predates this gate, and changing those on deploy
+    is not its call.
+    """
+    if scanner.scanner_type != ScannerType.EXPERIMENT:
+        return None
+    scope = scanner.experiment_scope()
+    experiment_id = (scope or {}).get("experiment_id")
+    if experiment_id is None:
+        return None
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import experiment_status  # noqa: PLC0415
+
+    status = experiment_status(scanner.team, experiment_id=experiment_id)
+    if status is None:
+        return _LifecycleBlock(kind="deleted")
+    if status.end_date is not None:
+        return _LifecycleBlock(kind="ended", end_date=status.end_date)
+    if status.archived:
+        return _LifecycleBlock(kind="archived")
+    if status.status == "paused":
+        return _LifecycleBlock(kind="paused")
+    return None
+
+
+def _swept_past(scanner: ReplayScanner, end: dt.datetime) -> bool:
+    """Whether both passes have covered everything up to `end`."""
+    deep_done = scanner.deep_swept_through is None or scanner.deep_swept_through >= end
+    return scanner.last_swept_at >= end and deep_done
+
+
 def _seconds_left(started_at: float) -> float:
     """What the activity has left of its own timeout, which both ClickHouse budgets are carved from."""
     return FIND_SCANNER_CANDIDATES_TIMEOUT.total_seconds() - (time.monotonic() - started_at)
@@ -88,6 +139,40 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     if scanner.created_by is not None and not UserAccessControl(
         user=scanner.created_by, team=scanner.team
     ).check_access_level_for_resource("session_recording", required_level="viewer"):
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+
+    lifecycle_block = _experiment_lifecycle_block(scanner)
+    sweep_until: dt.datetime | None = None
+    if lifecycle_block is not None and lifecycle_block.kind == "deleted":
+        # A deleted experiment can't resolve a population again, so disable: the reconciler drops
+        # the schedule and the owner sees the scanner off instead of silently idle.
+        # nosemgrep: semgrep.rules.security.replay-vision-alert-state-direct-mutation — disables a ReplayScanner, not an alert; scanners have no state machine.
+        scanner.enabled = False
+        scanner.save(update_fields=["enabled"])
+        record_sweep_outcome("experiment_deleted")
+        activity.logger.info("replay_vision.sweep.disabled_experiment_scanner scanner_id=%s", inputs.scanner_id)
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+    if lifecycle_block is not None:
+        end = lifecycle_block.end_date
+        if end is None or _swept_past(scanner, end):
+            # A pause resumes, and an ended or archived experiment comes back through reset and
+            # relaunch, but a disabled scanner has no schedule left to notice either. So skip the
+            # tick instead, before any ClickHouse read. Both watermarks move to now, as a re-enable
+            # does, so the sweep picks up from the resume or relaunch and never bills the gap.
+            record_sweep_outcome("experiment_over")
+            horizon = initial_watermark()
+            return FindScannerCandidatesOutput(
+                candidates=[], saturated=False, swept_through=horizon, deep_swept_through=horizon
+            )
+        # Ended, but its last sessions and the deep pass's late arrivals are not swept yet. Keep
+        # sweeping with the horizon capped at the end, so the readout gets the whole run.
+        sweep_until = end
+
+    if scanner.scanner_type == ScannerType.EXPERIMENT and scanner.created_by is None:
+        # The exposure filter runs as the creator and refuses a userless caller, as each scan's
+        # variant lookup does. Skip before any read instead of building a query that can only be
+        # refused. The watermark holds, like any other skipped tick.
+        record_sweep_outcome("no_principal")
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
@@ -119,9 +204,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # Exclusion is applied below against the fetched batch instead.
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
+        until=sweep_until,
     )
+    # The fast walk has reached the end; only the deep pass is still behind it.
+    fast_done = sweep_until is not None and scanner.last_swept_at >= sweep_until
     try:
-        batch = candidate_query.run_batch(limit)
+        batch = build_candidate_batch([], [], limit, limit) if fast_done else candidate_query.run_batch(limit)
     except (DRFValidationError, PermissionDenied):
         # The exposure filter (run as the creator) can't resolve the targeted experiment: the creator
         # lost experiment access, or the experiment can't answer for its exposed population — most
@@ -207,7 +295,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
         saturated=batch.saturated,
-        swept_through=candidate_query.settle_cutoff,
+        # Held at the fast watermark once the walk reached the end, so the advance never moves it back.
+        swept_through=scanner.last_swept_at if fast_done else candidate_query.settle_cutoff,
         keyset_end=batch.keyset_end,
         keyset_session_id=batch.keyset_session_id,
         deep_candidates=[

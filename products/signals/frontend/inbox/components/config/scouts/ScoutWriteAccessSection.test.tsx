@@ -18,6 +18,7 @@ const CONFIG: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
     deprecation: null,
     emit: true,
     run_interval_minutes: 1440,

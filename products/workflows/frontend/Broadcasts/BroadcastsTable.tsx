@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -12,6 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import {
     BROADCASTS_PAGE_SIZE,
     BroadcastsStatusFilter,
@@ -20,6 +22,7 @@ import {
     isEligibleWorkflow,
 } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
+import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
 const METRIC_COLUMNS: { title: string; metricName: string }[] = [
     { title: 'Sent', metricName: 'email_sent' },
@@ -34,7 +37,8 @@ export function BroadcastsTable(): JSX.Element {
         useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
-    const { setFilters } = useActions(broadcastsLogic)
+    const { setFilters, archiveBroadcast, restoreBroadcast, deleteBroadcast } = useActions(broadcastsLogic)
+    const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
 
@@ -44,11 +48,19 @@ export function BroadcastsTable(): JSX.Element {
             key: 'name',
             render: (_, item) => (
                 <div className="flex items-center gap-2">
-                    <LemonTableLink
-                        to={urls.broadcast(item.id)}
-                        title={item.name || 'Untitled broadcast'}
-                        description={item.description}
-                    />
+                    {item.status === 'archived' ? (
+                        <Tooltip title="Restore this broadcast to make changes">
+                            <span className="font-semibold text-sm text-muted">
+                                {item.name || 'Untitled broadcast'}
+                            </span>
+                        </Tooltip>
+                    ) : (
+                        <LemonTableLink
+                            to={urls.broadcast(item.id)}
+                            title={item.name || 'Untitled broadcast'}
+                            description={item.description}
+                        />
+                    )}
                     {isEligibleWorkflow(item) && (
                         <LemonTag
                             type="muted"
@@ -85,6 +97,53 @@ export function BroadcastsTable(): JSX.Element {
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
         createdAtColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
+        {
+            width: 0,
+            render: function Render(_, item) {
+                const isArchived = item.status === 'archived'
+                const accessReason = manageDisabledReason(item.user_access_level)
+                return (
+                    <More
+                        overlay={
+                            isArchived ? (
+                                <>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => restoreBroadcast(item)}
+                                        disabledReason={accessReason}
+                                        data-attr="broadcast-row-restore"
+                                    >
+                                        Restore as draft
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        status="danger"
+                                        onClick={() => deleteBroadcast(item)}
+                                        disabledReason={accessReason}
+                                        data-attr="broadcast-row-delete"
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    onClick={() => archiveBroadcast(item)}
+                                    disabledReason={
+                                        accessReason ??
+                                        archiveDisabledReason(rowDetailsById[item.id]?.batchJobStatuses ?? null)
+                                    }
+                                    data-attr="broadcast-row-archive"
+                                >
+                                    Archive
+                                </LemonButton>
+                            )
+                        }
+                    />
+                )
+            },
+        },
     ]
 
     const isEmpty =
@@ -103,7 +162,7 @@ export function BroadcastsTable(): JSX.Element {
             >
                 <h3 className="m-0 text-lg font-semibold">No broadcasts yet</h3>
                 <p className="m-0 text-secondary">Send a one-time or scheduled email to an audience of your users.</p>
-                <LemonButton type="primary" to={urls.broadcastNew()} data-attr="broadcasts-empty-new">
+                <LemonButton type="primary" onClick={startNewBroadcast} data-attr="broadcasts-empty-new">
                     New broadcast
                 </LemonButton>
             </div>
@@ -130,8 +189,11 @@ export function BroadcastsTable(): JSX.Element {
                         onChange={(status) => setFilters({ status: status as BroadcastsStatusFilter })}
                         options={[
                             { label: 'All', value: 'all' },
-                            { label: 'Active', value: 'active' },
                             { label: 'Draft', value: 'draft' },
+                            { label: 'Scheduled', value: 'scheduled' },
+                            { label: 'Sending', value: 'sending' },
+                            { label: 'Sent', value: 'sent' },
+                            { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}
                         value={filters.status}

@@ -223,11 +223,12 @@ async def judge_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     reviewer_reasons: Sequence[str] = (),
+    link_reasons: Sequence[str] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
 
     The judge sees the authored `title`/`summary`, the backing observations, any attached charts,
-    any suggested prompts, *and* any reviewer reasons — so prompt-injection anywhere the agent
+    any suggested prompts, any reviewer reasons, *and* any link reasons — so prompt-injection anywhere the agent
     authored (not just the evidence) is caught before the report can surface or feed autostart. The
     safety judge is a plain LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox — so
     this runs inline on whatever worker is authoring the report.
@@ -236,12 +237,14 @@ async def judge_scout_report(
     metric_signal = _metric_signal(metrics)
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
     reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
+    link_signal = _link_reasons_signal(link_reasons)
     safety_input = [
         _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
         *([metric_signal] if metric_signal is not None else []),
         *([prompts_signal] if prompts_signal is not None else []),
         *([reasons_signal] if reasons_signal is not None else []),
+        *([link_signal] if link_signal is not None else []),
         *_to_signal_data(signals),
     ]
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)

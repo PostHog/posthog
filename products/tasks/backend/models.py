@@ -34,6 +34,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
@@ -336,7 +337,18 @@ def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
     return list(Task.OriginProduct.choices)
 
 
-class Task(DeletedMetaFields, models.Model):
+def task_tags_from_state(state: Any) -> list[str]:
+    """The tags a run shows, read from its state."""
+    state = state if isinstance(state, dict) else {}
+    # An explicit list on this run wins, even an empty one, so clearing tags hides inherited ones.
+    for key in (TASK_RUN_TAGS_STATE_KEY, PRIOR_RUN_TAGS_STATE_KEY):
+        tags = state.get(key)
+        if isinstance(tags, list):
+            return [tag for tag in tags if isinstance(tag, str)]
+    return []
+
+
+class Task(Taggable, DeletedMetaFields, models.Model):
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"
@@ -849,6 +861,8 @@ class Task(DeletedMetaFields, models.Model):
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
                 if resume_source is None or not resume_source.matches_task_ownership(task):
                     raise TaskOwnershipChangedError("The resume source belongs to a previous task owner")
+                if "analytics_query_context" in (resume_source.state or {}):
+                    state["analytics_query_context"] = resume_source.state["analytics_query_context"]
                 if resume_source.task_summary:
                     state.setdefault(PRIOR_RUN_SUMMARY_STATE_KEY, resume_source.task_summary)
                 if resume_source.task_tags:
@@ -1832,7 +1846,7 @@ class TaskCommentActivity(TeamScopedRootMixin):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
     comment = models.ForeignKey(
         "posthog.Comment",
         on_delete=models.CASCADE,
@@ -1873,7 +1887,7 @@ class TaskCommentActivity(TeamScopedRootMixin):
         cls,
         *,
         team_id: int,
-        task_id: uuid.UUID | str,
+        task_id: uuid.UUID | str | None,
         comment_id: uuid.UUID,
         root_comment_id: uuid.UUID,
         activity_at: datetime,
@@ -2524,13 +2538,7 @@ class TaskRun(models.Model):
 
     @property
     def task_tags(self) -> list[str]:
-        state = self.state if isinstance(self.state, dict) else {}
-        # An explicit list on this run wins, even an empty one, so clearing tags hides inherited ones.
-        for key in (TASK_RUN_TAGS_STATE_KEY, PRIOR_RUN_TAGS_STATE_KEY):
-            tags = state.get(key)
-            if isinstance(tags, list):
-                return [tag for tag in tags if isinstance(tag, str)]
-        return []
+        return task_tags_from_state(self.state)
 
     @property
     def mode(self) -> str:
@@ -2553,6 +2561,28 @@ class TaskRun(models.Model):
             task_created_by_id=self.task.created_by_id,
         )
 
+    _CLOUD_RESUME_CLEARED_STATE_KEYS = (
+        "pending_user_message",
+        "pending_user_artifact_ids",
+        "pending_user_message_id",
+        "pending_user_message_ts",
+        "sandbox_id",
+        "sandbox_url",
+        "sandbox_jwt_kid",
+        "sandbox_connect_token",
+        "sandbox_backend",
+    )
+
+    def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
+        # Accounting and callbacks can update unrelated state while a restart is dispatched.
+        state = dict(self.state or {})
+        for key in ("same_run_resume", "mode", *self._CLOUD_RESUME_CLEARED_STATE_KEYS):
+            if key in prior_state:
+                state[key] = prior_state[key]
+            else:
+                state.pop(key, None)
+        self.state = state
+
     def prepare_for_cloud_resume(self) -> None:
         """
         Restart this cloud run from its existing log and sandbox snapshot.
@@ -2574,18 +2604,11 @@ class TaskRun(models.Model):
         prior_snapshot_mount_path = state.get("snapshot_mount_path")
         state["same_run_resume"] = True
         state["mode"] = "interactive"
-        state.pop("pending_user_message", None)
-        state.pop("pending_user_artifact_ids", None)
-        state.pop("pending_user_message_id", None)
-        state.pop("pending_user_message_ts", None)
-        state.pop("sandbox_id", None)
-        state.pop("sandbox_url", None)
-        state.pop("sandbox_jwt_kid", None)
-        state.pop("sandbox_connect_token", None)
         # Drop the provider stamp because the resumed run re-resolves its backend from
         # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
         # Modal-only fallbacks, or the flag kill switch on the next context resolution.
-        state.pop("sandbox_backend", None)
+        for key in self._CLOUD_RESUME_CLEARED_STATE_KEYS:
+            state.pop(key, None)
         self.state = state
 
         logger.info(
@@ -2713,14 +2736,14 @@ class TaskRun(models.Model):
             return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
-    def heartbeat_workflow(self, agent_active: bool = False) -> None:
+    def heartbeat_workflow(self, agent_active: bool = False, *, force: bool = False) -> None:
         if not agent_active:
             return
 
         from products.tasks.backend.redis import get_tasks_cache
 
         cache_key = f"tasks:task_run:heartbeat:{self.id}:active"
-        if not get_tasks_cache().add(cache_key, True, timeout=60):
+        if not get_tasks_cache().add(cache_key, True, timeout=60) and not force:
             return
 
         import asyncio
@@ -3051,6 +3074,11 @@ class TaskRun(models.Model):
         agent_version = state.get("agent_version")
         if isinstance(agent_version, str) and agent_version:
             props["agent_version"] = agent_version
+        agent_version_expected = state.get("agent_version_expected")
+        if isinstance(agent_version_expected, str) and agent_version_expected:
+            props["agent_version_expected"] = agent_version_expected
+            if isinstance(agent_version, str) and agent_version:
+                props["agent_version_matches_pin"] = agent_version == agent_version_expected
         budget = state.get("budget_guard")
         if isinstance(budget, dict):
             for key in ("cap_usd", "spent_usd", "estimated_usd", "sdk_total_usd"):
@@ -4211,6 +4239,7 @@ class TeamTasksConfig(models.Model):
     # Same shape as SlackSettings.ai_preferences; validated as a whole triple on write
     # (see logic/services/ai_run_defaults.py).
     ai_run_preferences = models.JSONField(null=True, blank=True)
+    agent_instructions = models.TextField(blank=True, default="", db_default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4229,6 +4258,8 @@ class UserTasksConfig(TeamScopedRootMixin):
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     # Same shape and validation as TeamTasksConfig.ai_run_preferences.
     ai_run_preferences = models.JSONField(null=True, blank=True)
+    agent_instructions = models.TextField(blank=True, default="", db_default="")
+    task_defaults = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

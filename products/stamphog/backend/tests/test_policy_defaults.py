@@ -131,7 +131,8 @@ def test_clone_and_prefetch_carry_the_credential_on_every_github_fetch() -> None
 
     deadline = time.monotonic() + 600
     sandbox = _RecordingSandbox()
-    _clone_pr(sandbox, "acme/widgets", "mergebase", "headsha", 7, "tok", deadline)  # type: ignore[arg-type]
+    for step in ("head", "checkout"):
+        _clone_pr(sandbox, "acme/widgets", "mergebase", "headsha", 7, "tok", deadline, step=step)  # type: ignore[arg-type]
     _prefetch_review_blobs(sandbox, "mergebase", "tok", deadline)  # type: ignore[arg-type]
 
     # A fetch without the header is anonymous, which a private repository refuses. The token rides
@@ -216,10 +217,11 @@ def test_shallow_clone_holds_every_object_the_pr_diff_reads(
     if head_moved:
         # The pull ref now names a newer commit than the one this run was queued for.
         with pytest.raises(RuntimeError, match="the PR head is now"):
-            _clone_pr(sandbox, "acme/widgets", merge_base, base_tip, 7, "tok", deadline)  # type: ignore[arg-type]
+            _clone_pr(sandbox, "acme/widgets", "", base_tip, 7, "tok", deadline, step="head")  # type: ignore[arg-type]
         return
 
-    _clone_pr(sandbox, "acme/widgets", merge_base, head, 7, "tok", deadline)  # type: ignore[arg-type]
+    for step in ("head", "checkout"):
+        _clone_pr(sandbox, "acme/widgets", merge_base, head, 7, "tok", deadline, step=step)  # type: ignore[arg-type]
     _prefetch_review_blobs(sandbox, merge_base, "tok", deadline)  # type: ignore[arg-type]
 
     assert _git(target, "rev-parse", "HEAD") == head

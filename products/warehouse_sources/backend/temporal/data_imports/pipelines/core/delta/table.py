@@ -13,6 +13,9 @@ from posthog.sync import database_sync_to_async_pool
 from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    get_handle_cache,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_transient_delta_maintenance_error,
@@ -161,6 +164,11 @@ class DeltaTableRef:
     _logger: FilteringBoundLogger
     _is_first_sync: bool
     _cached_table: deltalake.DeltaTable | None
+    #: True while a deltalite commit has advanced the log past the cached handle's snapshot.
+    _cached_table_stale: bool
+    #: The newest version deltalite reported committing through this ref, if any.
+    _deltalite_version: int | None
+    _table_uri: str | None
 
     def __init__(
         self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
@@ -170,6 +178,9 @@ class DeltaTableRef:
         self._logger = logger
         self._is_first_sync = is_first_sync
         self._cached_table = None
+        self._cached_table_stale = False
+        self._deltalite_version = None
+        self._table_uri = None
 
     @property
     def is_first_sync(self) -> bool:
@@ -192,11 +203,14 @@ class DeltaTableRef:
 
     async def _get_delta_table_uri(self) -> str:
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return build_delta_table_uri(folder_path, self._resource_name)
+        self._table_uri = build_delta_table_uri(folder_path, self._resource_name)
+        return self._table_uri
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
-        return await self._get_delta_table_uri()
+        uri = await self._get_delta_table_uri()
+        self._table_uri = uri
+        return uri
 
     def get_storage_options(self) -> dict[str, str]:
         """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
@@ -238,7 +252,7 @@ class DeltaTableRef:
             raise TransientObjectStoreError(str(e)) from e
         capture_exception(e)
 
-    async def get_delta_table(self) -> deltalake.DeltaTable | None:
+    async def get_delta_table(self, *, allow_stale: bool = False) -> deltalake.DeltaTable | None:
         """Open the table once and hand back the same handle for the rest of this ref's life.
 
         The cache is per instance on purpose. A process-wide slot lets any other table in flight on
@@ -246,22 +260,71 @@ class DeltaTableRef:
         object storage. Writes through the handle keep it current, so it stays valid until this ref's
         own `invalidate_cached_table` (reset, repartition swap) says otherwise. A missing table is
         never cached, so a table created after the first probe is found by the next call.
+
+        A deltalite write commits past this handle (see `note_deltalite_commit`), after which the
+        cached snapshot is behind the log by that commit: same table id, same columns, same
+        partition layout, but an older version and file list. The handle catches up on the next call
+        with one incremental log read. `allow_stale` skips that read for a caller whose reads a
+        deltalite commit cannot change; anything that reads the version, the file list or the
+        per-file statistics must leave it False.
         """
         if self._cached_table is not None:
+            if self._cached_table_stale and not allow_stale:
+                await self._refresh_cached_table(self._cached_table)
             return self._cached_table
         table = await self._open_delta_table()
         self._cached_table = table
+        self._cached_table_stale = False
         return table
 
+    async def _refresh_cached_table(self, table: deltalake.DeltaTable) -> None:
+        try:
+            await asyncio.to_thread(table.update_incremental)
+        except Exception as e:
+            # The handle stays marked, so the next reader tries again instead of reading a snapshot
+            # that is known to be behind.
+            await self._capture_unless_transient(e)
+            raise
+        self._cached_table_stale = False
+
+    def note_deltalite_commit(self, version: int | None) -> None:
+        """Record that deltalite committed `version` to this table outside the cached handle.
+
+        The cached delta-rs handle is marked behind the log until the next `get_delta_table` call
+        refreshes it. The version is kept so `latest_known_version` can report it in the meantime.
+        """
+        self._cached_table_stale = True
+        if version is not None and (self._deltalite_version is None or version > self._deltalite_version):
+            self._deltalite_version = version
+
+    def latest_known_version(self, delta_table: deltalake.DeltaTable) -> int:
+        """The newest version this ref knows the table reached: the handle's, or a later deltalite commit."""
+        version = delta_table.version()
+        if self._deltalite_version is not None and self._deltalite_version > version:
+            return self._deltalite_version
+        return version
+
     def invalidate_cached_table(self) -> None:
-        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log."""
-        self._cached_table = None
+        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log.
+
+        The process-wide deltalite handle for this table goes with it: a reset or a repartition swap
+        has replaced the table under the same URI, and that handle's snapshot describes the old one.
+        """
+        self._forget_cached_table()
+        if self._table_uri is not None:
+            get_handle_cache().invalidate(self._table_uri)
 
     def pop_cached_table(self) -> deltalake.DeltaTable | None:
         """Release the cached handle without opening the table, for end-of-run memory cleanup."""
         table = self._cached_table
-        self._cached_table = None
+        self._forget_cached_table()
         return table
+
+    def _forget_cached_table(self) -> None:
+        # A version noted for the old handle describes a table incarnation this ref is done with.
+        self._cached_table = None
+        self._cached_table_stale = False
+        self._deltalite_version = None
 
     async def _open_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()

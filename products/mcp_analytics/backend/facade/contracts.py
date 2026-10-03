@@ -65,6 +65,7 @@ class CreateMissingCapabilitySubmission:
 class MCPSession:
     session_id: str
     tool_calls: int
+    error_calls: int
     session_start: datetime
     session_end: datetime
     distinct_id_count: int

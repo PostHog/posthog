@@ -5,9 +5,11 @@
     },
     "dependencies": {
         "@posthog/brand": "catalog:",
+        "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "ts-pattern": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",

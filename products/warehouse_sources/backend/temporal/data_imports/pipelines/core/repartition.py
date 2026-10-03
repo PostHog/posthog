@@ -239,24 +239,42 @@ class RepartitionTarget:
         return cls(**{k: v for k, v in data.items() if k in fields})
 
 
+# Delta's fixed marker for a Hive-style partition directory whose column value is null.
+_HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+
+
+def _partition_key_from_add_path(path: str) -> str | None:
+    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
+
+    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
+    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
+    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
+    `partition.<key>` column would give.
+    """
+    prefix = f"{PARTITION_KEY}="
+    for segment in path.split("/"):
+        if segment.startswith(prefix):
+            value = segment[len(prefix) :]
+            return None if value == _HIVE_NULL_PARTITION else value
+    return None
+
+
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
     """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
 
     Unpartitioned tables collapse to a single `None` bucket. Keyed by the `_ph_partition_key` value.
-    """
-    actions = delta_table.get_add_actions(flatten=True)
-    columns = actions.schema.names
-    sizes = actions.column("size_bytes").to_pylist()
 
-    partition_column = f"partition.{PARTITION_KEY}"
-    keys: list[str | None]
-    if partition_column in columns:
-        keys = list(actions.column(partition_column).to_pylist())
-    else:
-        keys = [None] * len(sizes)
+    Reads `get_add_file_sizes` (file path -> size only), not `get_add_actions`: the latter also
+    materializes every column's min/max/null-count stats into Arrow arrays, and a table with enough
+    files can push a single stats column past Arrow's 2^31-byte offset limit for a default
+    (32-bit-offset) string array, raising `Offset overflow error` and aborting detection for an
+    otherwise healthy table.
+    """
+    partitioned = PARTITION_KEY in (delta_table.metadata().partition_columns or [])
 
     totals: dict[str | None, int] = defaultdict(int)
-    for key, size in zip(keys, sizes):
+    for path, size in delta_table._table.get_add_file_sizes().items():
+        key = _partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -660,7 +678,7 @@ _DATETIME_KEY_FORMATS: dict[PartitionFormat, str] = {
 # Coarser tiers each partition can merge into, coarsest first. Every tier here contains the finer one
 # whole, so a row's new bucket follows from its old key, except week into month: ISO weeks straddle
 # month boundaries, and how a week's bytes divide between two months is not recoverable from the key.
-# That one is sized by upper bound instead (see `_simulate_datetime_coarsening`) rather than left
+# That one is sized by upper bound instead (see `simulate_datetime_coarsening`) rather than left
 # unreachable, because the finer path's first step is month into week, so without it a table this
 # controller wrongly split could never be merged back.
 _COARSER_DATETIME_TIERS: dict[PartitionFormat, tuple[PartitionFormat, ...]] = {
@@ -700,7 +718,7 @@ def _merged_keys(parsed: datetime, current_format: PartitionFormat, new_format: 
     return [parsed.strftime(_DATETIME_KEY_FORMATS[new_format])]
 
 
-def _simulate_datetime_coarsening(
+def simulate_datetime_coarsening(
     partition_bytes: dict[str | None, int],
     current_format: PartitionFormat,
     new_format: PartitionFormat,
@@ -804,7 +822,7 @@ def select_coarsen_target(
             return None, "datetime_at_coarsest_tier"
         # Coarsest tier first: fewer, larger partitions is the goal, and the size ceiling is what stops it.
         for new_format in candidate_formats:
-            if acceptable(_simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
+            if acceptable(simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
                 return RepartitionTarget(
                     partition_keys=keys,
                     trigger_reason="",

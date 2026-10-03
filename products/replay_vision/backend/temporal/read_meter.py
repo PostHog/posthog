@@ -5,6 +5,7 @@ hourly buckets on each scanner row. The sweep consults the trailing-24h sum befo
 stretches its effective cadence when a scanner exceeds its read budget (see `sweep_throttle_factor`).
 """
 
+import datetime as dt
 from typing import TYPE_CHECKING
 
 from temporalio import workflow
@@ -56,5 +57,7 @@ async def create_replay_vision_read_meter_schedule(client: "Client") -> None:
         workflow_id=READ_METER_WORKFLOW_ID,
         inputs=MeterScannerReadsInputs(),
         interval=READ_METER_INTERVAL,
+        offset=dt.timedelta(minutes=2),
+        jitter=dt.timedelta(minutes=10),
         execution_timeout=READ_METER_EXECUTION_TIMEOUT,
     )

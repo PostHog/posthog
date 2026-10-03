@@ -70,7 +70,7 @@ from products.replay_vision.backend.temporal.constants import (
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
 from products.replay_vision.backend.temporal.sweep_types import CandidateSessionPayload
 from products.replay_vision.backend.temporal.types import CreateObservationInputs
-from products.replay_vision.backend.tests.helpers import seed_scanner_spend
+from products.replay_vision.backend.tests.helpers import create_experiment, seed_scanner_spend
 
 _WINDOW_END = dt.datetime(2026, 5, 1, tzinfo=dt.UTC)
 _WINDOW_START = _WINDOW_END - dt.timedelta(days=30)
@@ -688,6 +688,34 @@ class TestBackfillsApi(APIBaseTest):
         assert window_end <= timezone.now() - SETTLE_INTERVAL
         # The quote has to describe the window actually walked, or it counts sessions the walk skips.
         assert mock_query.call_args.kwargs["window_end"] == window_end
+
+    @patch("products.replay_vision.backend.api.backfills.WindowedCandidateQuery")
+    def test_an_ended_experiments_window_stops_at_its_end(self, mock_query: MagicMock) -> None:
+        # Ending an experiment leaves its flag on, so exposed users keep producing matching sessions.
+        # A backfill of the experiment's own run is fine after the end; paying for that afterlife is not.
+        mock_query.return_value.count.return_value = 3
+        experiment = create_experiment(self.team, "ended-flag", launched=True, variants=["control", "test"])
+        ended_at = timezone.now() - dt.timedelta(days=3)
+        experiment.end_date = ended_at
+        experiment.save()
+        self.scanner.scanner_type = ScannerType.EXPERIMENT
+        self.scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        self.scanner.save()
+
+        response = self.client.post(f"{self.base_url}/estimate/", self._window_body(), format="json")
+
+        assert response.status_code == 200, response.json()
+        window_end = dt.datetime.fromisoformat(response.json()["window_end"])
+        assert window_end == ended_at
+        assert mock_query.call_args.kwargs["window_end"] == window_end
+
+        after_the_end = {
+            "window_start": (ended_at + dt.timedelta(days=1)).isoformat(),
+            "window_end": timezone.now().isoformat(),
+        }
+        response = self.client.post(f"{self.base_url}/estimate/", after_the_end, format="json")
+        assert response.status_code == 400
+        assert "ended before the start of the range" in response.json()["detail"]
 
     def test_window_entirely_inside_the_settle_horizon_is_rejected(self) -> None:
         body = {

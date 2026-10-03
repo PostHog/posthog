@@ -33,6 +33,7 @@ import { ActivityScope } from '~/types'
 import { AlertType } from 'products/alerts/frontend/types'
 
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from '../../products/ai_observability/frontend/clusters/constants'
+import { scorerFiltersFromSearchParams } from '../../products/ai_observability/frontend/scoreDefinitions/scoreDefinitionNavigation'
 import type { WarehousePropertiesSceneTab } from '../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/warehousePropertiesSceneLogic'
 import type { ModelsSceneTab } from '../../products/data_modeling/frontend/modelsSceneLogic'
 import type { NodeDetailSceneTab } from '../../products/data_modeling/frontend/nodeDetail/nodeDetailSceneLogic'
@@ -86,11 +87,20 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
     '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
     '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
-    '/ai-evals/evaluations/offline/experiments': ['AIObservabilityEvaluations', 'aiObservabilityOfflineEvaluations'],
+    '/ai-evals/evaluations/offline/experiments': [
+        'AIObservabilityOfflineExperiments',
+        'aiObservabilityOfflineEvaluations',
+    ],
     '/ai-evals/evaluations/offline/experiments/:experimentId': [
-        'AIObservabilityEvaluations',
+        'AIObservabilityOfflineExperiment',
         'aiObservabilityOfflineEvaluationExperiment',
     ],
+    '/ai-evals/evaluations/scorers': ['AIObservabilityScorers', 'aiObservabilityScorers'],
+    '/ai-evals/evaluations/scorers/:scorerId/offline': [
+        'AIObservabilityOfflineScorerHistory',
+        'aiObservabilityOfflineScorerHistory',
+    ],
+    '/ai-evals/evaluations/scorers/:scorerId': ['AIObservabilityScorer', 'aiObservabilityScorer'],
     '/ai-evals/evaluations/templates': ['AIObservabilityEvaluationTemplates', 'aiObservabilityEvaluationTemplates'],
     '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
@@ -99,11 +109,16 @@ export const productRoutes: Record<string, [string, string]> = {
     '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
+    '/autoresearch': ['Autoresearch', 'autoresearch'],
+    '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
+    '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/playground/:chatId': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
+    '/canvases/new': ['CanvasNew', 'canvasNew'],
+    '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
@@ -180,6 +195,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/experiments': ['Experiments', 'experiments'],
+    '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
@@ -267,6 +283,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
     '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
+    '/spaces': ['TaskSpaces', 'taskSpaces'],
+    '/spaces/new': ['TaskNewSession', 'taskNewSession'],
+    '/spaces/:id': ['TaskSpace', 'taskSpace'],
+    '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
+    '/spaces/:id/new': ['TaskNewSession', 'taskSpaceNewSession'],
+    '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
@@ -362,7 +384,9 @@ export const productRedirects: Record<
     '/llm-analytics/generations': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityGenerations(), searchParams, hashParams).url,
     '/llm-analytics/reviews': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
+        searchParams.human_reviews_tab === 'scorers'
+            ? combineUrl(urls.aiObservabilityScorers(), scorerFiltersFromSearchParams(searchParams)).url
+            : combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
     '/llm-analytics/traces': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityTraces(), searchParams, hashParams).url,
     '/llm-analytics/traces/:id': (params, searchParams, hashParams) =>
@@ -418,7 +442,9 @@ export const productRedirects: Record<
     '/llm-observability/generations': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityGenerations(), searchParams, hashParams).url,
     '/llm-observability/reviews': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
+        searchParams.human_reviews_tab === 'scorers'
+            ? combineUrl(urls.aiObservabilityScorers(), scorerFiltersFromSearchParams(searchParams)).url
+            : combineUrl(urls.aiObservabilityReviews(), searchParams, hashParams).url,
     '/llm-observability/traces': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityTraces(), searchParams, hashParams).url,
     '/llm-observability/traces/:id': (params, searchParams, hashParams) =>
@@ -538,6 +564,31 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_evaluations',
         docsHref: 'https://posthog.com/docs/ai-evals',
     },
+    AIObservabilityScorers: {
+        projectBased: true,
+        name: 'Scorers',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
+    AIObservabilityScorer: { projectBased: true, name: 'Scorer', layout: 'app-container', iconType: 'llm_evaluations' },
+    AIObservabilityOfflineExperiments: {
+        projectBased: true,
+        name: 'Offline evals',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
+    AIObservabilityOfflineExperiment: {
+        projectBased: true,
+        name: 'Offline experiment',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
+    AIObservabilityOfflineScorerHistory: {
+        projectBased: true,
+        name: 'Scorer history',
+        layout: 'app-container',
+        iconType: 'llm_evaluations',
+    },
     AIObservabilityEvaluation: {
         projectBased: true,
         name: 'Evaluation',
@@ -611,26 +662,40 @@ export const productConfiguration: Record<string, any> = {
             'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
         iconType: 'annotation',
     },
+    Autoresearch: {
+        name: 'Autoresearch',
+        projectBased: true,
+        description: 'Automatically find the best model to predict user behavior and score your users on a schedule.',
+        iconType: 'experiment',
+    },
+    AutoresearchNew: { name: 'New model', projectBased: true },
+    AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
         activityScope: 'KnowledgeSource',
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
         description:
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     BusinessKnowledgePlayground: {
         name: 'Business knowledge playground',
         projectBased: true,
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
     },
-    BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
+    BusinessKnowledgeSettings: {
+        name: 'Business knowledge settings',
+        projectBased: true,
+        iconType: 'business_knowledge',
+    },
     BusinessKnowledgeSource: {
         name: 'Knowledge source',
         projectBased: true,
         activityScope: 'KnowledgeSource',
-        iconType: 'conversations',
+        iconType: 'business_knowledge',
     },
+    CanvasNew: { name: 'New canvas', projectBased: true, layout: 'app-raw' },
+    CanvasDetail: { name: 'Canvas', projectBased: true, layout: 'app-raw' },
     Transformations: {
         projectBased: true,
         name: 'Transformations',
@@ -808,6 +873,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'experiment',
         docsHref: 'https://posthog.com/docs/experiments',
     },
+    ExperimentsStaffTools: { instanceLevel: true, name: 'Experiments staff tools' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
@@ -1041,6 +1107,9 @@ export const productConfiguration: Record<string, any> = {
         description: 'View subscription details and delivery history for this project.',
     },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
+    TaskSpaces: { name: 'Spaces', projectBased: true },
+    TaskNewSession: { name: 'New session', projectBased: true },
+    TaskSpace: { name: 'Space', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
         projectBased: true,
@@ -1225,6 +1294,15 @@ export const productUrls = {
     aiObservabilityTags: (): string => '/ai-evals/taggers',
     aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
     aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
+    aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
+    aiObservabilityScorer: (
+        scorerId: string,
+        params?: {
+            duplicate?: string
+        }
+    ): string => combineUrl(`/ai-evals/evaluations/scorers/${encodeURIComponent(scorerId)}`, params).url,
+    aiObservabilityOfflineScorerHistory: (scorerId: string, encode: boolean = true): string =>
+        `/ai-evals/evaluations/scorers/${encode ? encodeURIComponent(scorerId) : scorerId}/offline`,
     aiObservabilityOfflineEvaluations: (): string => '/ai-evals/evaluations/offline/experiments',
     aiObservabilityOfflineEvaluationExperiment: (experimentId: string, encode: boolean = true): string =>
         `/ai-evals/evaluations/offline/experiments/${encode ? encodeURIComponent(experimentId) : experimentId}`,
@@ -1241,11 +1319,17 @@ export const productUrls = {
     precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
+    autoresearch: (): string => '/autoresearch',
+    autoresearchNew: (): string => '/autoresearch/new',
+    autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     businessKnowledgePlayground: (chatId?: string): string =>
         chatId ? `/business-knowledge/playground/${chatId}` : '/business-knowledge/playground',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
+    canvasNew: (spaceId?: string | null): string =>
+        spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
+    canvasDetail: (id: string): string => `/canvases/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
     cohort: (id: string | number): string => `/cohorts/${id}`,
@@ -1263,9 +1347,9 @@ export const productUrls = {
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
-        `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+        `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
     customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
-        `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
+        `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
     customerAnalyticsNotes: (): string => '/customer_analytics/notes',
     customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
     customerAnalyticsFeed: (): string => '/customer_analytics/feed',
@@ -1273,8 +1357,9 @@ export const productUrls = {
     customerAnalyticsFeatureRequests: (requestId?: string): string =>
         `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
     customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-    customerAnalyticsConfiguration: (tab?: string): string =>
-        `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
+    customerAnalyticsConfiguration: (tab?: string, returnTo?: string): string =>
+        combineUrl('/customer_analytics/configuration', { ...(tab ? { tab } : {}), ...(returnTo ? { returnTo } : {}) })
+            .url,
     customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
     customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
@@ -1290,7 +1375,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
@@ -1395,8 +1480,13 @@ export const productUrls = {
         `/engineering-analytics/teams/${encodeURIComponent(ownerTeam)}`,
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull-requests/${number}`,
-    engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
-        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+    engineeringAnalyticsWorkflowRun: (
+        repoOwner: string,
+        repoName: string,
+        runId: number | string,
+        ciEngine?: string | null
+    ): string =>
+        `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}${ciEngine ? `?ci_engine=${encodeURIComponent(ciEngine)}` : ''}`,
     engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
         `/engineering-analytics/repos/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
     engineeringAnalyticsAuthor: (handle: string): string =>
@@ -1439,6 +1529,7 @@ export const productUrls = {
         return params ? `${baseUrl}?${params}` : baseUrl
     },
     experiments: (): string => '/experiments',
+    experimentsStaffTools: (): string => '/experiments/staff',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
@@ -1667,6 +1758,12 @@ export const productUrls = {
     surveyWizard: (id: string = 'new', template?: string): string =>
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     slackTaskContext: (): string => '/slack-task-context',
+    taskSpaces: (): string => '/spaces',
+    taskNewSession: (): string => '/spaces/new',
+    taskSpace: (id: string): string => `/spaces/${id}`,
+    taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
+    taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,
+    taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
     tracingOperation: (
@@ -2044,6 +2141,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 export type ProductTreePath =
     | 'AI gateway'
     | 'Apps'
+    | 'Autoresearch'
     | 'Broadcasts'
     | 'Business knowledge'
     | 'Clusters'
@@ -2092,7 +2190,6 @@ export type ProductTreePath =
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
-    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -2123,6 +2220,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['StreamlitApps', 'StreamlitApp', 'StreamlitAppEdit'],
     },
     {
+        path: 'Autoresearch',
+        intents: [ProductKey.AUTORESEARCH],
+        category: ProductItemCategory.TOOLS,
+        type: 'autoresearch',
+        href: urls.autoresearch(),
+        flag: FEATURE_FLAGS.AUTORESEARCH,
+        iconType: 'experiment',
+        tags: ['alpha'],
+        sceneKey: 'Autoresearch',
+        sceneKeys: ['Autoresearch', 'AutoresearchNew', 'AutoresearchPipeline'],
+    },
+    {
         path: 'Broadcasts',
         intents: [ProductKey.WORKFLOWS],
         href: urls.broadcasts(),
@@ -2135,10 +2244,10 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Business knowledge',
-        intents: [ProductKey.CONVERSATIONS],
+        intents: [ProductKey.BUSINESS_KNOWLEDGE],
         category: ProductItemCategory.DATA,
         href: urls.businessKnowledge(),
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'business_knowledge',
         iconColor: ['var(--color-product-business-knowledge-light)', 'var(--color-product-business-knowledge-dark)'],
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
@@ -2168,6 +2277,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2275,6 +2389,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2379,6 +2498,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2440,6 +2564,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+        tags: ['beta'],
         sceneKey: 'Inbox',
         sceneKeys: ['Inbox'],
     },
@@ -2469,6 +2594,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2598,6 +2728,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2652,6 +2787,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2763,6 +2903,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityDatasets',
             'AIObservabilityDataset',
             'AIObservabilityEvaluations',
+            'AIObservabilityScorers',
+            'AIObservabilityScorer',
+            'AIObservabilityOfflineExperiments',
+            'AIObservabilityOfflineExperiment',
+            'AIObservabilityOfflineScorerHistory',
             'AIObservabilityEvaluation',
             'AIObservabilityEvaluationTemplates',
             'AIObservabilityTags',
@@ -2866,18 +3011,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.webScripts(),
         sceneKey: 'WebScripts',
         sceneKeys: ['WebScripts'],
-    },
-    {
-        path: 'Wizard',
-        intents: [],
-        category: ProductItemCategory.TOOLS,
-        type: 'wizard',
-        iconType: 'wizard',
-        iconColor: ['var(--color-product-wizard-light)', 'var(--color-product-wizard-dark)'],
-        href: '/wizard/runs',
-        flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
-        sceneKey: 'WizardRuns',
-        sceneKeys: ['WizardRuns'],
     },
     {
         path: 'Workflows',

@@ -730,6 +730,9 @@ def get_pull_request_number() -> int | None:
 
 
 def get_run_url() -> str:
+    if depot_url := os.environ.get("DEPOT_JOB_URL"):
+        match = re.match(r"^(https://depot\.dev/orgs/[^/?]+/workflows/[a-z0-9]+)(?=/|[?#]|$)", depot_url)
+        return match[1] if match else ""
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
     if not repo or not run_id:
@@ -742,6 +745,13 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     """Resource attributes attached to every span — pre-aggregation context for the run."""
     keys = ("WORKFLOW", "RUN_ID", "RUN_NUMBER", "RUN_ATTEMPT", "REF", "SHA", "ACTOR", "REPOSITORY")
     attrs: dict[str, str | int] = {f"ci.{k.lower()}": os.environ.get(f"GITHUB_{k}", "") for k in keys}
+    run_url = get_run_url()
+    attrs["ci.engine"] = "depot_ci" if os.environ.get("DEPOT_JOB_URL") else "github_actions"
+    if attrs["ci.engine"] == "depot_ci":
+        if run_url:
+            attrs["ci.native_workflow_run_id"] = run_url.rsplit("/", 1)[1]
+    else:
+        attrs["ci.native_workflow_run_id"] = os.environ.get("GITHUB_RUN_ID", "")
     attrs["ci.event_name"] = os.environ.get("GITHUB_EVENT_NAME", "")
     attrs["ci.head_ref"] = os.environ.get("GITHUB_HEAD_REF", "")
     attrs["ci.base_ref"] = os.environ.get("GITHUB_BASE_REF", "")
@@ -751,16 +761,17 @@ def workflow_resource_attributes() -> dict[str, str | int]:
     pr_number = get_pull_request_number()
     if pr_number is not None:
         attrs["ci.pr_number"] = pr_number
-    attrs["ci.run_url"] = get_run_url()
+    attrs["ci.run_url"] = run_url
     return {k: v for k, v in attrs.items() if v != ""}
 
 
 # ---------- OTLP export ----------
 
 
-def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str) -> int:
-    """One trace ID per (run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
-    digest = hashlib.sha256(f"{run_id}:{run_attempt}:{job_key}".encode()).digest()
+def deterministic_trace_id(run_id: str, run_attempt: str, job_key: str, *, ci_engine: str = "github_actions") -> int:
+    """One trace ID per (engine, run_id, run_attempt, job). Reruns of the same attempt collide intentionally."""
+    namespace = "" if ci_engine == "github_actions" else f"{ci_engine}:"
+    digest = hashlib.sha256(f"{namespace}{run_id}:{run_attempt}:{job_key}".encode()).digest()
     return int.from_bytes(digest[:16], "big")  # OTLP trace IDs are 128-bit (16 bytes).
 
 
@@ -858,7 +869,12 @@ def emit_traces(shards: list[Shard], endpoint: str, token: str, runner: Runner =
     for shard in shards:
         # Mutate the shared generator before each job so its root span (and the test
         # children that inherit the active parent's trace ID) form a distinct trace.
-        id_generator.trace_id = deterministic_trace_id(run_id, run_attempt, job_trace_key(shard.info))
+        id_generator.trace_id = deterministic_trace_id(
+            str(resource.attributes.get("ci.native_workflow_run_id") or run_id),
+            run_attempt,
+            job_trace_key(shard.info),
+            ci_engine=str(resource.attributes["ci.engine"]),
+        )
         _emit_shard_span(tracer, shard, job_trace_name(workflow, shard.info), owner_of, runner)
 
     provider.shutdown()

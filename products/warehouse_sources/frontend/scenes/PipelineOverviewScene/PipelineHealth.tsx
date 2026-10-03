@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -26,8 +26,6 @@ const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
 const TYPE_LABELS: Record<string, string> = {
     external_data_sync: 'Sync',
     source: 'Source',
-    destination: 'Destination',
-    transformation: 'Transformation',
 }
 
 export function PipelineHealth(): JSX.Element {
@@ -94,11 +92,28 @@ export function PipelineHealth(): JSX.Element {
                         ),
                 },
                 {
-                    title: 'Since',
+                    // The endpoint sends the last *successful* sync here, not the moment the
+                    // failure started, so "Never" is the honest reading of a null.
+                    title: 'Last synced',
                     key: 'failed_at',
                     width: 140,
                     render: (_, issue) =>
-                        issue.failed_at ? <TZLabel time={issue.failed_at} /> : <span className="text-muted">—</span>,
+                        issue.failed_at ? (
+                            <TZLabel time={issue.failed_at} />
+                        ) : (
+                            <span className="text-muted">Never</span>
+                        ),
+                },
+                {
+                    title: '',
+                    key: 'actions',
+                    width: 80,
+                    render: (_, issue) =>
+                        issue.url ? (
+                            <LemonButton type="tertiary" size="xsmall" to={issue.url}>
+                                View
+                            </LemonButton>
+                        ) : null,
                 },
             ]}
         />

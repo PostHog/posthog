@@ -1,11 +1,13 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from tenacity import wait_none
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel import vercel
 from products.warehouse_sources.backend.temporal.data_imports.sources.vercel.settings import VERCEL_ENDPOINTS
@@ -232,6 +234,65 @@ class TestValidateCredentials:
         assert "418" not in error
         # The status has to reach error tracking, or a later triage has only the generic message.
         assert "418" in str(capture.call_args.args[0])
+
+
+def _status_response(status_code: int, body: dict[str, Any] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.ok = status_code < 400
+    response.text = f"{status_code} body"
+    response.json.return_value = body or {}
+    if not response.ok:
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=response)
+    return response
+
+
+class TestFetchPageRetry:
+    @pytest.fixture(autouse=True)
+    def _instant_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cast(Any, vercel._fetch_page).retry, "wait", wait_none())
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [_status_response(408), _status_response(200, {"deployments": []})]
+
+        result = vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
+
+        assert result == {"deployments": []}
+        assert session.get.call_count == 2
+
+    def test_persistent_408_exhausts_retries(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [_status_response(408) for _ in range(5)]
+
+        with pytest.raises(vercel.VercelRetryableError):
+            vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
+
+    def test_400_is_not_retried(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _status_response(400)
+
+        with pytest.raises(requests.HTTPError):
+            vercel._fetch_page(session, "https://api.vercel.com/v6/deployments", {}, MagicMock())
+        assert session.get.call_count == 1
+
+
+class TestOpenBillingStreamRetry:
+    @pytest.fixture(autouse=True)
+    def _instant_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(cast(Any, vercel._open_billing_stream).retry, "wait", wait_none())
+
+    def test_408_is_retried_then_succeeds(self) -> None:
+        session = MagicMock()
+        timeout_response = _status_response(408)
+        ok_response = _status_response(200)
+        session.get.side_effect = [timeout_response, ok_response]
+
+        result = vercel._open_billing_stream(session, "https://api.vercel.com/v1/billing/charges", {}, MagicMock())
+
+        assert result is ok_response
+        assert session.get.call_count == 2
+        timeout_response.close.assert_called_once()
 
 
 class TestGetRows:

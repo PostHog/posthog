@@ -103,7 +103,7 @@ import {
     getTreeItemsNew,
     getTreeItemsProducts,
 } from '~/products'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
@@ -539,6 +539,16 @@ export const ProductIconWrapper = ({ type, children, colorOverride }: ProductIco
     )
 }
 
+export function getFileSystemIconType(item: Pick<FileSystemEntry, 'type' | 'meta'>): FileSystemIconType | undefined {
+    if (item.type === 'insight' && typeof item.meta?.insight_type === 'string') {
+        const insightIconType = `insight/${item.meta.insight_type}` as FileSystemIconType
+        if (insightIconType in iconTypes) {
+            return insightIconType
+        }
+    }
+    return item.type as FileSystemIconType
+}
+
 export function iconForType(type?: FileSystemIconType, colorOverride?: FileSystemIconColor): JSX.Element {
     if (!type) {
         return (
@@ -622,6 +632,26 @@ export function getSidebarProduct(href: string | undefined): FileSystemImport | 
         }
     }
     return sidebarProductsByHref.get(href)
+}
+
+let sidebarProductHrefsByName: Map<string, string> | undefined
+
+// Stars created by the backend carry no href, because product URLs exist only in the frontend.
+export function withProductShortcutHref(entry: FileSystemEntry): FileSystemEntry {
+    if (entry.href || entry.ref || entry.type === 'folder') {
+        return entry
+    }
+    if (!sidebarProductHrefsByName) {
+        sidebarProductHrefsByName = new Map()
+        for (const item of [...getDefaultTreeProducts(), ...getDefaultTreeData()]) {
+            const name = item.path.split('/').pop()
+            if (item.href && name && !sidebarProductHrefsByName.has(name)) {
+                sidebarProductHrefsByName.set(name, item.href)
+            }
+        }
+    }
+    const href = sidebarProductHrefsByName.get(entry.path)
+    return href ? { ...entry, href } : entry
 }
 
 export const getDefaultTreeGames = (): FileSystemImport[] =>
