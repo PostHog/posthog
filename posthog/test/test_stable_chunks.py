@@ -15,6 +15,7 @@ from prometheus_client import REGISTRY
 
 from posthog.models import User
 from posthog.stable_chunks import (
+    LOGGED_OUT_STABLE_CHUNKS_FLAG,
     STABLE_CHUNKS_COOKIE,
     STABLE_CHUNKS_FLAG,
     StableChunks,
@@ -31,6 +32,8 @@ VALID_MANIFEST = {
 }
 FLAG_ON = {STABLE_CHUNKS_FLAG: True}
 FLAG_OFF = {STABLE_CHUNKS_FLAG: False}
+LOGGED_OUT_FLAG_ON = {LOGGED_OUT_STABLE_CHUNKS_FLAG: True}
+LOGGED_OUT_FLAG_OFF = {LOGGED_OUT_STABLE_CHUNKS_FLAG: False}
 
 
 class TestStableChunks(SimpleTestCase):
@@ -82,9 +85,11 @@ class TestStableChunks(SimpleTestCase):
             ("flag off", "", None, FLAG_OFF, True, False),
             ("flag without a local definition", "", None, {}, True, False),
             ("flags not evaluated", "", None, None, True, False),
-            ("anonymous with the flag on", "", None, FLAG_ON, False, True),
-            ("anonymous with the flag off", "", None, FLAG_OFF, False, False),
+            ("anonymous with the logged-out flag on", "", None, LOGGED_OUT_FLAG_ON, False, True),
+            ("anonymous with the logged-out flag off", "", None, LOGGED_OUT_FLAG_OFF, False, False),
+            ("anonymous ignores the logged-in flag", "", None, FLAG_ON, False, False),
             ("anonymous without a local definition", "", None, {}, False, False),
+            ("logged in ignores the logged-out flag", "", None, LOGGED_OUT_FLAG_ON, True, False),
         ]
     )
     def test_choice_precedence(
@@ -101,11 +106,14 @@ class TestStableChunks(SimpleTestCase):
         if cookie:
             request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
         bootstrapped_flags = feature_flags if authenticated else None
-        locally_evaluated_flag = None if authenticated else (feature_flags or {}).get(STABLE_CHUNKS_FLAG)
+        locally_evaluated_flags = {} if authenticated else (feature_flags or {})
         fallback_labels = {"authenticated": str(authenticated).lower()}
         fallbacks_before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
 
-        with patch("posthoganalytics.feature_enabled", return_value=locally_evaluated_flag) as feature_enabled:
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *_args, **_kwargs: locally_evaluated_flags.get(key),
+        ) as feature_enabled:
             assert stable_chunks_choice(request, bootstrapped_flags) == expected
 
         for call in feature_enabled.call_args_list:
