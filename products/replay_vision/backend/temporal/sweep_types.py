@@ -56,6 +56,10 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     # the workflow falls back to deriving the position from `candidates`/`swept_through`.
     keyset_end: dt.datetime | None = None
     keyset_session_id: str = ""
+    # The balanced per-variant rates this tick's candidates were sampled at (experiment scanners
+    # with balancing on; None otherwise and on pre-deploy histories). Recorded onto each
+    # observation's snapshot, so even per-variant counts don't read as even traffic.
+    variant_sampling_rates: dict[str, float] | None = None
 
 
 class RefreshPromptSuggestionInputs(BaseModel, frozen=True):

@@ -503,6 +503,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1273,7 +1279,9 @@ export const VisionScannersBackfillsCreateBody = () => zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
     max_total_credits: zod
         .number()
         .min(visionScannersBackfillsCreateBodyMaxTotalCreditsMin)
@@ -1343,7 +1351,9 @@ export const VisionScannersBackfillsEstimateCreateBody = () => zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
 })
 
 /**
@@ -1418,6 +1428,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
         ),
     verdict: zod
         .string()
@@ -1497,6 +1513,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1573,6 +1595,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .optional()
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
         ),
     verdict: zod
         .string()

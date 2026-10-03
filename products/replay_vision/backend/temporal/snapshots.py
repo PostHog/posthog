@@ -35,6 +35,10 @@ class ScannerSnapshot(BaseModel, frozen=True):
     experiment_targeting: dict[str, Any] | None = None
     sampling_rate: float | None = None
     sampling_mode: str | None = None
+    # The balanced per-variant rates the dispatching tick sampled at, so even per-variant counts
+    # don't read as even traffic ("control sampled at 1.1%, test at 100%"). Set by the tick, not
+    # `from_scanner`: the rates depend on live rollout shares the scanner row doesn't carry.
+    variant_sampling_rates: dict[str, float] | None = None
     # How a monitor `yes` verdict is re-checked: `off` (one pass), `shadow` (draw again, record the result, serve the
     # first pass), or `enforce` (serve the `yes` only when the second draw agrees, else the dissent). A plain string
     # so a retired mode never breaks old-row loads.

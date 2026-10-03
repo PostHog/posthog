@@ -16,7 +16,6 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
-from products.experiments.backend.recalculation import get_active_recalculation
 
 logger = structlog.get_logger(__name__)
 
@@ -80,6 +79,8 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
 
     Deliberately applies no metrics filter: an experiment with no metrics gets a run, and the
     recalculation workflow completes it immediately.
+
+    An exposure-frozen experiment stays eligible, because its metric events keep arriving.
     """
     # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
     # activities.py, which imports back into products.experiments.backend.facade.timeseries.
@@ -95,6 +96,9 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationDiscovery
             time_filter,
             deleted=False,
             status=Experiment.Status.RUNNING,
+            # A paused experiment keeps status RUNNING and only deactivates its flag, so the stored
+            # status alone would select one that collects no new data.
+            feature_flag__active=True,
             start_date__gte=now - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
             start_date__lte=now - MIN_EXPERIMENT_AGE,
         )
@@ -134,6 +138,10 @@ def recent_recalculation_skip(experiment: Experiment, team_id: int) -> SkipDecis
     reaps an abandoned row in the background, so an unbounded check would lock the experiment out
     of every later scheduled run.
     """
+    # Deferred: recalculation.py imports temporal.recalculation_logic at module level, so a
+    # module-level import here closes a cycle back into a partially initialized module.
+    from products.experiments.backend.recalculation import get_active_recalculation  # noqa: PLC0415 — breaks that cycle
+
     scoped = ExperimentMetricsRecalculation.objects.for_team(team_id)
 
     active = get_active_recalculation(experiment)

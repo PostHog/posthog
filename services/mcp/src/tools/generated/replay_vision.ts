@@ -389,6 +389,7 @@ const visionObservationsGet = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
@@ -550,6 +551,7 @@ const visionObservationsRetrieve = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
@@ -1352,6 +1354,7 @@ const visionScannersObservationsGet = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })
@@ -1397,6 +1400,7 @@ const visionScannersObservationsList = (): ToolBase<
                     status: params.status,
                     tags: params.tags,
                     triggered_by: params.triggered_by,
+                    variant: params.variant,
                     verdict: params.verdict,
                 },
             })
@@ -1454,6 +1458,7 @@ const visionScannersObservationsStats = (): ToolBase<
                 status: params.status,
                 tags: params.tags,
                 triggered_by: params.triggered_by,
+                variant: params.variant,
                 verdict: params.verdict,
             },
         })

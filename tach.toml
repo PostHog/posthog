@@ -83,6 +83,7 @@ layer = "modules"
 [[modules]]
 path = "posthog"
 depends_on = [
+    "products.alerts_platform",
     "products.ai_training",
     "products.autoresearch",
     "products.cohorts",
@@ -188,6 +189,7 @@ layer = "modules"
 [[modules]]
 path = "products.alerts"
 depends_on = [
+    "products.alerts_platform",
     "ee",
     "posthog",
     "products.cdp",
@@ -554,6 +556,7 @@ layer = "modules"
 [[modules]]
 path = "products.logs"
 depends_on = [
+    "products.alerts_platform",
     "posthog",
     "products.alerts",
     "products.apm",
@@ -566,6 +569,7 @@ layer = "modules"
 [[modules]]
 path = "products.billing_alerts"
 depends_on = [
+    "products.alerts_platform",
     "ee",
     "posthog",
     "products.alerts",
@@ -791,6 +795,7 @@ layer = "modules"
 [[modules]]
 path = "products.replay_vision"
 depends_on = [
+    "products.alerts_platform",
     "ee",
     "posthog",
     "products.actions",
@@ -1168,10 +1173,13 @@ expose = [
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
+    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
+    "backend\\.temporal\\.EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_enrollment_census_schedule",
+    "backend\\.temporal\\.schedule\\.create_experiment_scheduled_recalculation_schedules",
 ]
 from = [
     "products.experiments",
@@ -1641,12 +1649,18 @@ depends_on = [
 ]
 layer = "modules"
 
+[[modules]]
+path = "products.alerts_platform"
+depends_on = ["posthog", "products.access_control"]
+layer = "modules"
+
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
 ]
 from = [
+    "products.alerts_platform",
     "products.today",
 ]
 

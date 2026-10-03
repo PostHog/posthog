@@ -629,6 +629,12 @@ export const ScannerTypeEnumApi = {
 } as const
 
 /**
+ * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+ * @nullable
+ */
+export type ScannerSnapshotApiVariantSamplingRates = { [key: string]: number } | null
+
+/**
  * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
 export interface ScannerSnapshotApi {
@@ -654,6 +660,11 @@ export interface ScannerSnapshotApi {
     scanner_config: unknown
     /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
     verify_positives: string
+    /**
+     * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+     * @nullable
+     */
+    variant_sampling_rates?: ScannerSnapshotApiVariantSamplingRates
 }
 
 /**
@@ -688,6 +699,16 @@ export interface ScannerResultApi {
     signals_count: number
     /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
     verification: VerificationRecordApi | null
+    /**
+     * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+     * @nullable
+     */
+    experiment_variant?: string | null
+    /**
+     * Experiment scanners only: the scanned session's duration in seconds.
+     * @nullable
+     */
+    session_duration_s?: number | null
 }
 
 /**
@@ -781,7 +802,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -1584,7 +1605,7 @@ export interface PaginatedReplayScannerBackfillListApi {
 export interface BackfillCreateApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
     /**
      * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
@@ -1596,7 +1617,7 @@ export interface BackfillCreateApi {
 export interface BackfillWindowApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
 }
 
@@ -1614,7 +1635,7 @@ export interface BackfillEstimateResponseApi {
     credits_remaining: number | null
     /** The window lower bound the estimate covered. */
     window_start: string
-    /** The window upper bound after clamping to now. */
+    /** The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date. */
     window_end: string
 }
 
@@ -2388,6 +2409,82 @@ export interface ScannerScoutCreateResponseApi {
     config: SignalScoutConfigApi
 }
 
+export interface VariantsExperimentApi {
+    /** The experiment's id. */
+    id: number
+    /** The experiment's name. */
+    name: string
+    /** draft, running, paused, exposure_frozen, or stopped. */
+    status: string
+    /**
+     * When the experiment launched.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When the experiment ended; null while it runs.
+     * @nullable
+     */
+    end_date: string | null
+    /**
+     * The experiment's recommended running time in days, when one was set.
+     * @nullable
+     */
+    planned_duration_days: number | null
+    /**
+     * The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.
+     * @nullable
+     */
+    current_day: number | null
+}
+
+export interface VariantsWindowApi {
+    /** Succeeded observations of this scanner, attributed to a variant or not. */
+    total_observations: number
+    /**
+     * When the earliest of those observations completed.
+     * @nullable
+     */
+    first_observation_at: string | null
+    /**
+     * When the latest of those observations completed.
+     * @nullable
+     */
+    last_observation_at: string | null
+}
+
+export interface VariantReadoutApi {
+    /** The variant key. */
+    key: string
+    /** Succeeded observations attributed to this variant. */
+    observations: number
+    /** Distinct people (by distinct id) behind those observations. */
+    distinct_people: number
+    /**
+     * Median scanned session length in seconds; null with no observations.
+     * @nullable
+     */
+    median_session_duration_s: number | null
+    /**
+     * The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /** This variant's most recent observations, newest first. */
+    latest_observations: ReplayObservationApi[]
+}
+
+export interface ExperimentVariantsReadoutApi {
+    /** The watched experiment; null if it was deleted. */
+    experiment: VariantsExperimentApi | null
+    /** The span of observations the counts cover. */
+    window: VariantsWindowApi
+    /** One entry per watched variant, plus any variant still holding observations. */
+    variants: VariantReadoutApi[]
+    /** Succeeded observations with no attributed variant. */
+    unattributed_count: number
+}
+
 /**
  * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
  */
@@ -2907,6 +3004,10 @@ export type VisionObservationsRetrieveParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3130,6 +3231,10 @@ export type VisionScannersObservationsListParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3185,6 +3290,10 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3239,6 +3348,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -3302,6 +3415,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */

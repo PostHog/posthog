@@ -79,7 +79,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
@@ -112,6 +112,7 @@ from products.error_tracking.backend.facade.temporal import (
 from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.growth.backend.temporal.signup_enrichment.schedule import (
@@ -661,6 +662,7 @@ async def create_replay_count_metrics_schedule(client: Client) -> None:
             ),
         ),
         spec=ScheduleSpec(
+            # nosemgrep: schedule-must-avoid-minute-zero -- the metric query reads a rolling hour with no cursor, so shifting the schedule skips data
             intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))],
         ),
     )
@@ -950,6 +952,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
     cleanup_cohort_calculation_schedules,
     cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
