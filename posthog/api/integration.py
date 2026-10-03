@@ -74,7 +74,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import OrganizationMembership, ProxyRecord, Team, User
+from posthog.models import OrganizationMembership, ProxyRecord, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -127,6 +127,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
+from posthog.models.integration.email import email_domain_agent_setup_enabled
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
@@ -139,7 +140,6 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     get_authenticator_scopes,
 )
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
@@ -165,8 +165,6 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-EMAIL_DOMAIN_AGENT_SETUP_FLAG = "workflows-email-domain-agent-setup"
 
 
 class SlackIntegrationInactiveError(APIException):
@@ -1466,16 +1464,6 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
-def email_domain_agent_setup_enabled(team: Team, user: User) -> bool:
-    return feature_enabled_or_false(
-        EMAIL_DOMAIN_AGENT_SETUP_FLAG,
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.uuid)}},
-        send_feature_flag_events=False,
-    )
-
-
 class EmailDomainAgentSetupPermission(BasePermission):
     message = "This action does not support personal API key access"
     token_actions = frozenset({"domain_connect_check", "domain_connect_apply_url", "email_update", "email_verify"})
@@ -2717,7 +2705,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("This endpoint is only supported for email integrations")
-        return EmailIntegration(instance)
+        return EmailIntegration(instance, acting_user=cast(User, self.request.user))
 
     @validated_request(
         query_serializer=DomainConnectCheckQuerySerializer,
@@ -2760,7 +2748,7 @@ class IntegrationViewSet(
         if context == "email":
             integration_id = data["integration_id"]
             try:
-                resolved = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(integration_id, self.team_id, acting_user=cast(User, request.user))
             except Integration.DoesNotExist:
                 raise NotFound("No email sender with this integration_id exists in this project.")
             except ValueError as e:

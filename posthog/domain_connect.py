@@ -9,6 +9,7 @@ See https://www.domainconnect.org/ for the protocol specification.
 
 import base64
 import logging
+from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -25,6 +26,9 @@ from dns.rdtypes.txtbase import TXTBase
 from posthog.schema import DomainConnectProviderName
 
 from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +238,7 @@ class DomainConnectContext:
 EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC: tuple[str, ...] = ("verification", "dkim", "spf", "mailfrom")
 
 
-def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectContext:
+def resolve_email_context(integration_id: int, team_id: int, acting_user: "User | None" = None) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
     Triggers SES verification to get current tokens, then extracts the
@@ -244,12 +248,12 @@ def resolve_email_context(integration_id: int, team_id: int) -> DomainConnectCon
 
     instance = Integration.objects.get(id=integration_id, team_id=team_id, kind="email")
 
-    email_integration = EmailIntegration(instance)
+    email_integration = EmailIntegration(instance, acting_user=acting_user)
     verification_result = email_integration.verify()
 
     dns_records = verification_result.get("dnsRecords", [])
     domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))
-    mail_from_subdomain = instance.config.get("mail_from_subdomain", "feedback")
+    mail_from_subdomain = email_integration.mail_from_subdomain
 
     verify_token = ""
     dkim_tokens: list[str] = []

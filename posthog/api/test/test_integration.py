@@ -45,7 +45,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import EMAIL_DOMAIN_AGENT_SETUP_FLAG, IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
@@ -69,6 +69,7 @@ from posthog.models.integration import (
     StripeIntegration,
     github_account_type,
 )
+from posthog.models.integration.email import EMAIL_DOMAIN_AGENT_SETUP_FLAG
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -645,7 +646,12 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_integration_from_domain(
-        self, mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
+        self,
+        mock_create_email_domain,
+        mock_verify_email_domain,
+        _mock_update,
+        mock_reload,
+        django_capture_on_commit_callbacks,
     ):
 
         integration = EmailIntegration.create_native_integration(
@@ -684,7 +690,8 @@ class TestEmailIntegration:
         EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
         assert integration.config["reply_to"] == "support@posthog.com"
 
-        EmailIntegration(integration).update_native_integration({"reply_to": ""}, self.team.id)
+        with django_capture_on_commit_callbacks(execute=True):
+            EmailIntegration(integration).update_native_integration({"reply_to": ""}, self.team.id)
         assert integration.config["reply_to"] == ""
         mock_reload.assert_called_with(self.team.id, [integration.id])
 
@@ -838,6 +845,47 @@ class TestEmailIntegration:
         assert integration1.config["verified"]
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
+
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_editing_the_label_shares_it_when_the_flag_is_on_for_the_requesting_user(
+        self, _mock_update_mail_from_subdomain, client: HttpClient
+    ):
+        admin = User.objects.create_and_join(
+            self.organization, "admin@example.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        edited, sibling = (
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": "example.com", "mail_from_subdomain": "feedback", "provider": "ses"},
+            )
+            for email in ["edited@example.com", "sibling@example.com"]
+        )
+        client.force_login(admin)
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, **_kwargs: (
+                key == "workflows-email-domain-agent-setup" and distinct_id == admin.distinct_id
+            ),
+        ):
+            response = client.patch(
+                f"/api/environments/{self.team.pk}/integrations/{edited.pk}/email",
+                {
+                    "config": {
+                        "email": "edited@example.com",
+                        "name": "Edited",
+                        "provider": "ses",
+                        "mail_from_subdomain": "bounce",
+                    }
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sibling.refresh_from_db()
+        assert sibling.config["mail_from_subdomain"] == "bounce"
 
 
 class TestDatabricksIntegration:
