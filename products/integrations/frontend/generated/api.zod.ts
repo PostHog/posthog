@@ -163,7 +163,7 @@ export const IntegrationsDomainConnectApplyUrlCreateBody = /* @__PURE__ */ zod.o
         .nullish()
         .describe('ID of the email integration (sender). Required when `context` is `email`.'),
     proxy_record_id: zod
-        .string()
+        .uuid()
         .nullish()
         .describe('ID of the reverse proxy record. Required when `context` is `proxy`.'),
     redirect_uri: zod
