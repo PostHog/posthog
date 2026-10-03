@@ -1,10 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
+import { ApiConfig } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import type { MessageTemplateApi as MessageTemplateListApi } from 'products/messaging/frontend/generated/api.schemas'
+import * as messagingApi from 'products/messaging/frontend/generated/api'
+import type {
+    MessageTemplateApi,
+    MessageTemplateApi as MessageTemplateListApi,
+} from 'products/messaging/frontend/generated/api.schemas'
 
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import type { MessageTemplate } from './types'
@@ -30,14 +34,18 @@ describe('messageTemplatesLogic', () => {
                 email: { ...listEmail, design: { body: { rows: [] } } },
             },
         } as MessageTemplate
-        jest.spyOn(api.messaging, 'getTemplates').mockResolvedValue({ results: [listTemplate], count: 1 } as Awaited<
-            ReturnType<typeof api.messaging.getTemplates>
-        >)
-        jest.spyOn(api.messaging, 'getTemplate').mockResolvedValue(fullTemplate)
-        const createTemplate = jest.spyOn(api.messaging, 'createTemplate').mockResolvedValue({
-            ...fullTemplate,
+        jest.spyOn(messagingApi, 'messagingTemplatesList').mockResolvedValue({
+            results: [listTemplate],
+            count: 1,
+        } as Awaited<ReturnType<typeof messagingApi.messagingTemplatesList>>)
+        const retrieve = jest
+            .spyOn(messagingApi, 'messagingTemplatesRetrieve')
+            .mockResolvedValue(fullTemplate as MessageTemplateApi)
+        const createTemplate = jest.spyOn(messagingApi, 'messagingTemplatesCreate').mockResolvedValue({
+            ...listTemplate,
             id: 'copy-id',
-        })
+            content: fullTemplate.content,
+        } as MessageTemplateApi)
 
         initKeaTests()
         const logic = messageTemplatesLogic()
@@ -47,8 +55,9 @@ describe('messageTemplatesLogic', () => {
         await expectLogic(logic, () => logic.actions.duplicateTemplate(logic.values.templates[0])).toDispatchActions([
             'duplicateTemplateSuccess',
         ])
-        expect(api.messaging.getTemplate).toHaveBeenCalledWith(listTemplate.id)
+        expect(retrieve).toHaveBeenCalledWith(String(ApiConfig.getCurrentTeamId()), listTemplate.id)
         expect(createTemplate).toHaveBeenCalledWith(
+            String(ApiConfig.getCurrentTeamId()),
             expect.objectContaining({ name: 'Welcome (copy)', content: fullTemplate.content })
         )
 

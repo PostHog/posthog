@@ -6,6 +6,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
+import {
+    messagingTemplatesCreate,
+    messagingTemplatesList,
+    messagingTemplatesRetrieve,
+} from 'products/messaging/frontend/generated/api'
+
+import type { MessageTemplateApi } from '../../../messaging/frontend/generated/api.schemas'
 import { MessageTemplate, MessageTemplateListItem } from './types'
 
 export type { MessageTemplate }
@@ -82,10 +89,10 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplateListItem[],
+        templates: MessageTemplateApi[],
         payload?: any
     ) => {
-        templates: MessageTemplateListItem[]
+        templates: MessageTemplateApi[]
         payload?: any
     }
     setCreatedByFilter: (createdBy: number | null) => {
@@ -106,13 +113,13 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     updateTemplateSuccess: (
-        templates: MessageTemplate[],
+        templates: MessageTemplateListItem[],
         payload?: {
             templateId: string
             template: Partial<MessageTemplate>
         }
     ) => {
-        templates: MessageTemplate[]
+        templates: MessageTemplateListItem[]
         payload?: {
             templateId: string
             template: Partial<MessageTemplate>
@@ -156,7 +163,9 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
             [] as MessageTemplateListItem[],
             {
                 loadTemplates: async () => {
-                    const response = await api.messaging.getTemplates({ include_design: false })
+                    const response = await messagingTemplatesList(String(values.currentTeamIdStrict), {
+                        include_design: false,
+                    })
                     return response.results
                 },
                 deleteTemplate: async (template: MessageTemplateListItem) => {
@@ -204,8 +213,11 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplateListItem) => {
                     try {
-                        const fullTemplate = await api.messaging.getTemplate(template.id)
-                        const duplicatedTemplate = await api.messaging.createTemplate({
+                        const fullTemplate = await messagingTemplatesRetrieve(
+                            String(values.currentTeamIdStrict),
+                            template.id
+                        )
+                        const duplicatedTemplate = await messagingTemplatesCreate(String(values.currentTeamIdStrict), {
                             name: `${fullTemplate.name} (copy)`,
                             description: fullTemplate.description,
                             content: fullTemplate.content,

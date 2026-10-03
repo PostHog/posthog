@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -73,6 +75,41 @@ class TestMessageTemplatesAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/messaging_templates/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["content"]["email"]["design"] == MINIMAL_DESIGN
+
+    def test_list_message_templates_pages_stably_with_and_without_design(self):
+        self.message_template.content = {"email": {"subject": "Hello", "design": MINIMAL_DESIGN}}
+        self.message_template.save(update_fields=["content"])
+        templates = [self.message_template]
+        for index in range(2):
+            templates.append(
+                MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"Page template {index}",
+                    content={"email": {"subject": "Hello", "design": MINIMAL_DESIGN}},
+                    type="email",
+                )
+            )
+        MessageTemplate.objects.filter(id__in=[template.id for template in templates]).update(created_at=timezone.now())
+
+        for include_design in ("true", "false"):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/messaging_templates/?include_design={include_design}&limit=1"
+            )
+            ids = []
+            while True:
+                assert response.status_code == status.HTTP_200_OK
+                page = response.json()
+                assert page["count"] == 3
+                assert len(page["results"]) == 1
+                email = page["results"][0]["content"]["email"]
+                assert ("design" in email) is (include_design == "true")
+                ids.append(page["results"][0]["id"])
+                if not page["next"]:
+                    break
+                assert f"include_design={include_design}" in page["next"]
+                response = self.client.get(page["next"])
+
+            assert ids == sorted([str(template.id) for template in templates], reverse=True)
 
     def test_retrieve_message_template(self):
         self.message_template.content = {
