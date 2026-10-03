@@ -8,12 +8,15 @@ import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinne
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -185,6 +188,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         ) ?? undefined
 
     const chatPanelRef = useRef<HTMLDivElement>(null)
+    const sidebarRef = useRef<HTMLDivElement>(null)
 
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: chatPanelRef,
@@ -202,6 +206,48 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         () => [...reportTimelineExtras(linkedReports), ...discussionExtras],
         [discussionExtras, linkedReports]
     )
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const shortcutsDisabled = !ticket || !featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_KEYBOARD_SHORTCUTS]
+    useShortcut({
+        name: 'support-ticket-reply',
+        keybind: [['r']],
+        intent: 'Reply',
+        interaction: 'function',
+        scope: Scene.SupportTicketDetail,
+        callback: () => {
+            const panel = chatPanelRef.current
+            // The composer is a one-line field until focused, then a rich text editor
+            const replyField =
+                panel?.querySelector<HTMLElement>('input[data-attr="message-input-collapsed"]') ??
+                panel?.querySelector<HTMLElement>('[contenteditable="true"]')
+            replyField?.focus()
+        },
+        disabled: shortcutsDisabled,
+        priority: 3,
+    })
+    useShortcut({
+        name: 'support-ticket-assign',
+        keybind: [['a']],
+        intent: 'Change assignee',
+        interaction: 'function',
+        scope: Scene.SupportTicketDetail,
+        callback: () =>
+            sidebarRef.current?.querySelector<HTMLElement>('[data-attr="support-ticket-assignee-select"]')?.click(),
+        disabled: shortcutsDisabled,
+        priority: 2,
+    })
+    useShortcut({
+        name: 'support-ticket-status',
+        keybind: [['e']],
+        intent: 'Change status',
+        interaction: 'function',
+        scope: Scene.SupportTicketDetail,
+        callback: () =>
+            sidebarRef.current?.querySelector<HTMLElement>('[data-attr="support-ticket-status-select"]')?.click(),
+        disabled: shortcutsDisabled,
+        priority: 1,
+    })
 
     if (ticketLoading) {
         return (
@@ -315,7 +361,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4 flex-1 min-w-[300px] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:pl-2 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-y-auto">
+                <div
+                    ref={sidebarRef}
+                    className="space-y-4 flex-1 min-w-[300px] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:pl-2 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-y-auto"
+                >
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
@@ -477,6 +526,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <span className="text-muted-alt">Status</span>
                                 <LemonSelect
                                     size="small"
+                                    data-attr="support-ticket-status-select"
                                     value={status}
                                     options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
@@ -518,6 +568,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                             <LemonButton
                                                 size="small"
                                                 type="secondary"
+                                                data-attr="support-ticket-assignee-select"
                                                 active={isOpen}
                                                 sideIcon={<IconChevronDown />}
                                                 disabledReason={sendDisabledReason}

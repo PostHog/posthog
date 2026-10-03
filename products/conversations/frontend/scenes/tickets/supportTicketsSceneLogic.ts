@@ -11,7 +11,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -21,6 +21,7 @@ import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
 
@@ -215,6 +216,8 @@ export interface supportTicketsSceneLogicValues {
     dateTo: string | null
     editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
+    keyboardFocusedIndex: number | null
+    keyboardFocusedTicket: Ticket | null
     orderBy: string
     priorityFilter: TicketPriority[]
     searchQuery: string
@@ -326,6 +329,15 @@ export interface supportTicketsSceneLogicActions {
     setTagsMatch: (match: TicketTagsMatch) => {
         match: TicketTagsMatch
     }
+    setKeyboardFocusedIndex: (index: number | null) => {
+        index: number | null
+    }
+    moveKeyboardFocus: (delta: number) => {
+        delta: number
+    }
+    openKeyboardFocusedTicket: () => {
+        value: true
+    }
     setTickets: (tickets: Ticket[]) => {
         tickets: Ticket[]
     }
@@ -346,6 +358,7 @@ export interface supportTicketsSceneLogicMeta {
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
+        keyboardFocusedTicket: (tickets: Ticket[], keyboardFocusedIndex: number | null) => Ticket | null
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -419,6 +432,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
+        setKeyboardFocusedIndex: (index: number | null) => ({ index }),
+        moveKeyboardFocus: (delta: number) => ({ delta }),
+        openKeyboardFocusedTicket: true,
     }),
     reducers({
         tickets: [
@@ -582,6 +598,13 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 loadTickets: () => [],
             },
         ],
+        keyboardFocusedIndex: [
+            null as number | null,
+            {
+                setKeyboardFocusedIndex: (_, { index }) => index,
+                setCurrentPage: () => null,
+            },
+        ],
     }),
     selectors({
         breadcrumbs: [
@@ -610,6 +633,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 const idSet = new Set(selectedIds)
                 return tickets.filter((t) => idSet.has(t.id))
             },
+        ],
+        keyboardFocusedTicket: [
+            (s) => [s.tickets, s.keyboardFocusedIndex],
+            (tickets: Ticket[], keyboardFocusedIndex: number | null): Ticket | null =>
+                keyboardFocusedIndex === null ? null : (tickets[keyboardFocusedIndex] ?? null),
         ],
         editableSelectedTicketIds: [
             (s) => [s.selectedTickets],
@@ -773,6 +801,24 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 lemonToast.error('Failed to load tickets')
                 actions.setTicketsLoading(false)
             }
+        },
+        moveKeyboardFocus: ({ delta }) => {
+            if (values.tickets.length === 0) {
+                return
+            }
+            const current = values.keyboardFocusedIndex
+            const next = current === null ? 0 : Math.min(Math.max(current + delta, 0), values.tickets.length - 1)
+            actions.setKeyboardFocusedIndex(next)
+        },
+        openKeyboardFocusedTicket: () => {
+            const ticket = values.keyboardFocusedTicket
+            if (!ticket) {
+                return
+            }
+            // Carry the list's query string so the ticket's back arrow returns to this view
+            router.actions.push(
+                combineUrl(urls.supportTicketDetail(ticket.ticket_number), router.values.searchParams).url
+            )
         },
         applyViewFilters: () => {
             actions.setCurrentPage(1)

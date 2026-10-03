@@ -105,6 +105,60 @@ describe('supportTicketsSceneLogic', () => {
         })
     })
 
+    describe('keyboard focus', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+        const tickets = [makeTicket('a'), makeTicket('b'), makeTicket('c')].map((ticket, index) => ({
+            ...ticket,
+            ticket_number: index + 1,
+        }))
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            logic.actions.setTickets(tickets)
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it.each([
+            { name: 'first move from no focus lands on the first row', moves: [1], expected: 0 },
+            { name: 'moving up from no focus lands on the first row', moves: [-1], expected: 0 },
+            { name: 'moves down one row at a time', moves: [1, 1], expected: 1 },
+            { name: 'stops at the last row', moves: [1, 1, 1, 1, 1], expected: 2 },
+            { name: 'stops at the first row', moves: [1, 1, -1, -1], expected: 0 },
+        ])('$name', ({ moves, expected }) => {
+            for (const delta of moves) {
+                logic.actions.moveKeyboardFocus(delta)
+            }
+            expect(logic.values.keyboardFocusedIndex).toEqual(expected)
+        })
+
+        it('opens the focused ticket and keeps the list filters in the URL', () => {
+            router.actions.push(urls.supportTickets(), { status: 'open' })
+            logic.actions.moveKeyboardFocus(1)
+            logic.actions.moveKeyboardFocus(1)
+
+            logic.actions.openKeyboardFocusedTicket()
+
+            expect(router.values.location.pathname).toContain(urls.supportTicketDetail(2))
+            expect(router.values.searchParams).toHaveProperty('status')
+        })
+
+        it('drops the focus when the page changes', () => {
+            logic.actions.moveKeyboardFocus(1)
+            logic.actions.setCurrentPage(2)
+            expect(logic.values.keyboardFocusedTicket).toBeNull()
+        })
+    })
+
     describe('normalizeAssigneeFilter', () => {
         it.each([
             ['legacy "all"', 'all', []],
