@@ -447,6 +447,20 @@ export const facetSearchBarLogic: LogicWrapper<facetSearchBarLogicType> = kea<fa
                 actions.loadValues()
             }
         }
+        const readTokens = (input: string): void => {
+            // Typed or pasted `facet:value` tokens become pills as soon as they are complete.
+            const { filters, remaining } = extractFacetFilters(input, props.facets, { untilEnd: false })
+            const addedFilters = newPills(props.value.filters, filters, pillIdentity(props.data))
+            const nextInput = filters.length ? remaining : input
+            const text = textOf(nextInput, parseFacetDraft(nextInput, props.facets))
+            if (filters.length) {
+                actions.syncInput(nextInput)
+            }
+            if (addedFilters.length || text !== props.value.text) {
+                emit({ filters: [...props.value.filters, ...addedFilters], text })
+            }
+            loadPendingValues()
+        }
         const newestLoadByKey = new Map<string, symbol>()
         // A bar mounted later with the same key shares this logic's actions, so a finished load must check its own bar.
         const isStillCurrent = ({ facet }: FacetValueRequest, loadKey: string, load: symbol): boolean => {
@@ -483,25 +497,14 @@ export const facetSearchBarLogic: LogicWrapper<facetSearchBarLogicType> = kea<fa
         return {
             setInput: ({ input }) => {
                 // An IME can hold spaces in text it has not confirmed, so tokens wait until composition ends.
-                if (values.composing) {
-                    return
+                if (!values.composing) {
+                    readTokens(input)
                 }
-                // Typed or pasted `facet:value` tokens become pills as soon as they are complete.
-                const { filters, remaining } = extractFacetFilters(input, props.facets, { untilEnd: false })
-                const addedFilters = newPills(props.value.filters, filters, pillIdentity(props.data))
-                const nextInput = filters.length ? remaining : input
-                const text = textOf(nextInput, parseFacetDraft(nextInput, props.facets))
-                if (filters.length) {
-                    actions.syncInput(nextInput)
-                }
-                if (addedFilters.length || text !== props.value.text) {
-                    emit({ filters: [...props.value.filters, ...addedFilters], text })
-                }
-                loadPendingValues()
             },
+            // Composition can end after the input lost focus, so this reads the tokens without reopening the bar.
             setComposing: ({ composing }) => {
                 if (!composing) {
-                    actions.setInput(values.input)
+                    readTokens(values.input)
                 }
             },
             setOpen: ({ open }) => {

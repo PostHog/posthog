@@ -3,7 +3,7 @@
 A search input for lists that turns `facet:value` into removable pills.
 People type `status:open`, pick from suggestions, or paste a whole query.
 A space ends a value, so `owner:"Jo Doe"` quotes one with spaces. `-status:closed` excludes a value.
-A quoted phrase such as `"status:open notes"` stays search text.
+A quoted phrase such as `"status:open notes"` stays search text. `matchesText` and `toFacetQuery` get it without the quotes.
 Pills on one facet are OR, pills on different facets are AND, and the free text is AND with the pills.
 
 You give it three things: the facets, the search state, and the data.
@@ -44,7 +44,7 @@ const facets: ServerFacet[] = [
 ```
 
 Loads are debounced and cached per facet and search text.
-The bar shows what `loadValues` returns as is, so it can match on fields the label leaves out, such as an email.
+The bar shows everything `loadValues` returns, so it can match on fields the label leaves out, such as an email. Values that equal or start with the typed text come first.
 A failed load shows the error message and runs again on the next keystroke. An error with an HTTP `status` of 401, 403 or 404 shows no "Type again to retry", because typing cannot fix it.
 Keep `loadValues` stable between renders: a new function drops the values the old one loaded.
 A pill restored from a URL takes its label from `loadValues('')`. If that list can miss the value, give `formatValue` too.

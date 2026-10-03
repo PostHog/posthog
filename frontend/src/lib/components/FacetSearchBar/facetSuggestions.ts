@@ -15,6 +15,7 @@ import {
     facetFilterKey,
     findFacet,
     formatFacetValue,
+    typedWord,
 } from './facetSearch'
 
 const MAX_VALUE_SUGGESTIONS = 50
@@ -104,21 +105,37 @@ export function optionLabel(facet: AnyFacet, option: FacetValueOption): string {
     return valueLabelOf(facet, option.value, option.label)
 }
 
-function matchesPartial(facet: AnyFacet, option: FacetValueOption, partial: string): boolean {
-    return (
-        isLoadedFacet(facet) ||
-        !partial ||
-        optionLabel(facet, option).toLowerCase().includes(partial) ||
-        option.value.toLowerCase().includes(partial)
+const EXACT_MATCH = 0
+const PREFIX_MATCH = 1
+const CONTAINED_MATCH = 2
+
+/**
+ * How well an option matches the typed partial, lower first, or null when it does not match.
+ * A loader already matched its options, so they always match, ranked after an exact or prefix match.
+ */
+function matchRank(facet: AnyFacet, option: FacetValueOption, partial: string): number | null {
+    if (!partial) {
+        return EXACT_MATCH
+    }
+    const texts = [option.label ?? formatFacetValue(facet, option.value), option.value].map((text) =>
+        text.toLowerCase()
     )
+    if (texts.includes(partial)) {
+        return EXACT_MATCH
+    }
+    if (texts.some((text) => text.startsWith(partial))) {
+        return PREFIX_MATCH
+    }
+    return texts.some((text) => text.includes(partial)) || isLoadedFacet(facet) ? CONTAINED_MATCH : null
 }
 
-function splitLastToken(input: string): { rest: string; token: string } {
-    let start = input.length
-    while (start > 0 && !/\s/.test(input[start - 1])) {
-        start--
-    }
-    return { rest: input.slice(0, start), token: input.slice(start) }
+/** The options that match the partial, best match first. Options that match equally keep their order. */
+function rankByMatch<T>(items: T[], rankOf: (item: T) => number | null): T[] {
+    return items
+        .map((item) => ({ item, rank: rankOf(item) }))
+        .filter((ranked): ranked is { item: T; rank: number } => ranked.rank !== null)
+        .sort((a, b) => a.rank - b.rank)
+        .map(({ item }) => item)
 }
 
 function message(id: string, label: string): FacetSuggestion[] {
@@ -177,9 +194,9 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
         value: option.value,
         negated: draft.negated,
     })
-    const unchosen = state.options.filter((option) => !isChosen(filterOf(option)))
-    const rows = unchosen
-        .filter((option) => matchesPartial(facet, option, partial))
+    const matching = rankByMatch(state.options, (option) => matchRank(facet, option, partial))
+    const rows = matching
+        .filter((option) => !isChosen(filterOf(option)))
         .slice(0, MAX_VALUE_SUGGESTIONS)
         .map(
             (option): FacetSuggestion => ({
@@ -194,8 +211,7 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
     if (rows.length) {
         return rows
     }
-    const matching = state.options.filter((option) => matchesPartial(facet, option, partial))
-    if (matching.length && matching.every((option) => isChosen(filterOf(option)))) {
+    if (matching.length) {
         return message('none', partial ? 'Every matching value is already a filter' : 'Every value is already a filter')
     }
     const hasOtherFilters = context.filters.some((filter) => filter.facet !== facet.key) || !!draft.rest.trim()
@@ -215,7 +231,7 @@ function crossFacetValueSuggestions(
     isChosen: IsChosen
 ): FacetSuggestion[] {
     const listValues = createValueLister(context)
-    const matches: FacetSuggestion[] = []
+    const matches: { suggestion: FacetSuggestion; rank: number }[] = []
     const unfinished: UnfinishedLoad[] = []
     for (const facet of sortFacets(context.facets)) {
         const state = listValues(facet, { text: token.rest, search: token.search, negated: token.negated })
@@ -225,20 +241,25 @@ function crossFacetValueSuggestions(
         }
         for (const option of state.options) {
             const filter = { facet: facet.key, value: option.value, negated: token.negated }
-            if (!matchesPartial(facet, option, token.bare) || isChosen(filter)) {
+            const rank = matchRank(facet, option, token.bare)
+            if (rank === null || isChosen(filter)) {
                 continue
             }
             matches.push({
-                id: `value-${facetFilterKey(filter)}`,
-                kind: 'value',
-                label: `${token.negated ? 'Not ' : ''}${facet.label}: ${optionLabel(facet, option)}`,
-                ...countOrHidden(option, token.negated, context.data),
-                filter,
-                rest: token.rest,
+                rank,
+                suggestion: {
+                    id: `value-${facetFilterKey(filter)}`,
+                    kind: 'value',
+                    label: `${token.negated ? 'Not ' : ''}${facet.label}: ${optionLabel(facet, option)}`,
+                    ...countOrHidden(option, token.negated, context.data),
+                    filter,
+                    rest: token.rest,
+                },
             })
         }
     }
-    return [...matches.slice(0, MAX_CROSS_FACET_SUGGESTIONS), ...unfinishedLoadMessage(unfinished)]
+    const best = rankByMatch(matches, ({ rank }) => rank).map(({ suggestion }) => suggestion)
+    return [...best.slice(0, MAX_CROSS_FACET_SUGGESTIONS), ...unfinishedLoadMessage(unfinished)]
 }
 
 interface UnfinishedLoad {
@@ -265,17 +286,24 @@ export function buildSuggestions(
     }
 
     const ordered = sortFacets(context.facets)
-    const { rest, token } = splitLastToken(input)
+    const searchRow: FacetSuggestion = { id: 'search', kind: 'search', label: `Search for "${input.trim()}"` }
+    const { rest, word: token, inPhrase } = typedWord(input)
+    if (inPhrase) {
+        return [searchRow]
+    }
     if (!token) {
-        return ordered
+        const onFocus = ordered
             .filter((facet) => facet.showOnFocus)
-            .map((facet) => ({
-                id: `facet-${facet.key}`,
-                kind: 'facet',
-                label: `${facet.key}:`,
-                detail: facet.description,
-                nextInput: `${input}${facet.key}:`,
-            }))
+            .map(
+                (facet): FacetSuggestion => ({
+                    id: `facet-${facet.key}`,
+                    kind: 'facet',
+                    label: `${facet.key}:`,
+                    detail: facet.description,
+                    nextInput: `${input}${facet.key}:`,
+                })
+            )
+        return input.trim() ? [...onFocus, searchRow] : onFocus
     }
 
     const negated = token.startsWith('-')
@@ -292,7 +320,7 @@ export function buildSuggestions(
         detail: facet.description,
         nextInput: `${rest}${negated ? '-' : ''}${facet.key}:`,
     }))
-    result.push({ id: 'search', kind: 'search', label: `Search for "${input.trim()}"` })
+    result.push(searchRow)
     if (bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
         result.push(...crossFacetValueSuggestions({ rest, search, bare, negated }, context, isChosen))
     }
@@ -314,7 +342,7 @@ function inputValueRequests(input: string, draft: FacetDraft | null, loaded: Loa
         const facet = loaded.find(({ key }) => key === draft.facetKey)
         return facet ? [{ facet, search: draft.partial }] : []
     }
-    const token = splitLastToken(input).token.replace(/^-/, '')
+    const token = typedWord(input).word.replace(/^-/, '')
     return token.length >= MIN_CROSS_FACET_TOKEN_LENGTH ? loaded.map((facet) => ({ facet, search: token })) : []
 }
 

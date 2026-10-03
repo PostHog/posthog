@@ -56,6 +56,7 @@ export interface FacetSearchRows<TRow> {
 
 /** Server mode: what to send to an API. Values on one facet are OR, facets are AND, `exclude` negates. */
 export interface FacetQuery {
+    /** The free text, with quoted phrases unquoted. */
     text: string
     facets: Record<string, { include: string[]; exclude: string[] }>
 }
@@ -84,8 +85,11 @@ interface FacetToken {
 interface InputToken {
     start: number
     end: number
+    kind: 'word' | 'phrase' | 'facet'
     /** A quote that the input ends inside. */
     open: boolean
+    /** `phrase` tokens: the text inside the quotes. */
+    phrase?: string
     facet?: FacetToken
 }
 
@@ -119,25 +123,32 @@ function wordEnd(input: string, start: number): number {
     return index
 }
 
-function scanQuoted(input: string, start: number, contentStart: number, facet?: Omit<FacetToken, 'value'>): InputToken {
-    const end = closingQuoteEnd(input, contentStart)
-    const open = end < 0
-    const contentEnd = open ? input.length : end - 1
-    return {
-        start,
-        end: open ? input.length : end,
-        open,
-        facet: facet && { ...facet, value: unescapeFacetValue(input.slice(contentStart, contentEnd)) },
+function readQuote(input: string, contentStart: number): { end: number; open: boolean; content: string } {
+    const close = closingQuoteEnd(input, contentStart)
+    const open = close < 0
+    const end = open ? input.length : close
+    return { end, open, content: unescapeFacetValue(input.slice(contentStart, open ? end : end - 1)) }
+}
+
+type QuotedKind = Pick<InputToken, 'kind' | 'phrase' | 'facet'>
+
+/** A closing quote with more text glued to it makes the whole run one word, so it reads back the same from a URL. */
+function scanQuoted(
+    input: string,
+    start: number,
+    contentStart: number,
+    kindOf: (content: string) => QuotedKind
+): InputToken {
+    const quote = readQuote(input, contentStart)
+    if (!quote.open && quote.end < input.length && !isSpace(input[quote.end])) {
+        return { start, end: wordEnd(input, quote.end), kind: 'word', open: false }
     }
+    return { ...kindOf(quote.content), start, end: quote.end, open: quote.open }
 }
 
 function scanToken(input: string, start: number): InputToken {
-    const atBoundary = start === 0 || isSpace(input[start - 1])
-    if (!atBoundary) {
-        return { start, end: wordEnd(input, start), open: false }
-    }
     if (input[start] === '"') {
-        return scanQuoted(input, start, start + 1)
+        return scanQuoted(input, start, start + 1, (phrase) => ({ kind: 'phrase', phrase }))
     }
     FACET_PREFIX.lastIndex = start
     const prefix = FACET_PREFIX.exec(input)
@@ -145,15 +156,18 @@ function scanToken(input: string, start: number): InputToken {
         const valueStart = FACET_PREFIX.lastIndex
         const facet = { negated: prefix[1] === '-', key: prefix[2] }
         if (input[valueStart] === '"') {
-            return scanQuoted(input, start, valueStart + 1, { ...facet, quoted: true })
+            return scanQuoted(input, start, valueStart + 1, (value) => ({
+                kind: 'facet',
+                facet: { ...facet, value, quoted: true },
+            }))
         }
         const end = wordEnd(input, valueStart)
         const value = input.slice(valueStart, end)
         if (!value.includes('"')) {
-            return { start, end, open: false, facet: { ...facet, value, quoted: false } }
+            return { start, end, kind: 'facet', open: false, facet: { ...facet, value, quoted: false } }
         }
     }
-    return { start, end: wordEnd(input, start), open: false }
+    return { start, end: wordEnd(input, start), kind: 'word', open: false }
 }
 
 function scanTokens(input: string): InputToken[] {
@@ -171,9 +185,37 @@ function scanTokens(input: string): InputToken[] {
     return tokens
 }
 
+export interface TypedWord {
+    /** The input before the word. */
+    rest: string
+    word: string
+    /** The input ends in a quoted phrase, so there is no word to complete. */
+    inPhrase: boolean
+}
+
+/** The word the person is typing: the last token, when no space follows it. */
+export function typedWord(input: string): TypedWord {
+    const last = scanTokens(input).at(-1)
+    if (!last || last.end < input.length) {
+        return { rest: input, word: '', inPhrase: false }
+    }
+    if (last.kind === 'phrase') {
+        return { rest: input, word: '', inPhrase: true }
+    }
+    return { rest: input.slice(0, last.start), word: input.slice(last.start), inPhrase: false }
+}
+
+/** The text to match rows with or send to an API: quoted phrases lose their quotes. */
+function searchText(text: string): string {
+    return scanTokens(text)
+        .map((token) => (token.kind === 'phrase' ? token.phrase : text.slice(token.start, token.end)))
+        .filter(Boolean)
+        .join(' ')
+}
+
 /** A quoted value is complete at its closing quote; a bare value once a space follows it, or at the end with `untilEnd`. */
 function isComplete(token: InputToken, inputLength: number, untilEnd: boolean): boolean {
-    if (!token.facet || token.open) {
+    if (token.kind !== 'facet' || !token.facet || token.open) {
         return false
     }
     return token.facet.quoted || (!!token.facet.value && (token.end < inputLength || untilEnd))
@@ -260,7 +302,7 @@ export function toFacetQuery(value: FacetSearchValue): FacetQuery {
             values.push(filter.value)
         }
     }
-    return { text: value.text.trim(), facets }
+    return { text: searchText(value.text), facets }
 }
 
 interface FacetFilterGroup<TRow> {
@@ -304,7 +346,7 @@ export function filterFacetRows<TRow>(
     facets: ClientFacet<TRow>[]
 ): TRow[] {
     const groups = groupFilters(value.filters, facets)
-    const text = value.text.trim()
+    const text = searchText(value.text)
     return rows.filter((row) => passesGroups(row, groups) && (!text || matchesText(row, text)))
 }
 
@@ -321,7 +363,7 @@ export function createFacetCounter<TRow>(
     value: FacetSearchValue,
     facets: ClientFacet<TRow>[]
 ): FacetValueCounter {
-    const text = value.text.trim()
+    const text = searchText(value.text)
     const textMatches = text ? rows.filter((row) => matchesText(row, text)) : rows
     const groups = groupFilters(value.filters, facets)
     return (facetKey, { negated }) => {

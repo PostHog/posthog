@@ -387,16 +387,47 @@ describe('FacetSearchBar', () => {
         })
 
         it.each([
-            ['no facet name', 'renew', 'Renewal'],
-            ['the start of a facet name', 'sta', ''],
-        ])('Enter runs the search for a word that is %s and keeps the text', async (_, typed, rows) => {
+            ['a word that is no facet name', 'renew', 'Renewal'],
+            ['a word that starts a facet name', 'sta', ''],
+            ['a word followed by a space', 'renew ', 'Renewal'],
+        ])('Enter runs the search for %s and keeps the text', async (_, typed, rows) => {
             const user = setup()
             await user.click(input())
             await user.keyboard(`${typed}{Enter}`)
             expect(listbox()).toBeNull()
             expect(input()).toHaveValue(typed)
-            expect(shown('url')).toEqual(typed)
+            expect(shown('url')).toEqual(typed.trim())
             expect(shown('rows')).toEqual(rows)
+        })
+
+        it('offers only the search inside an open quoted phrase', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('"See sta')
+            expect(suggestions()).toEqual(['Search for ""See sta"'])
+
+            await user.keyboard('{Tab}')
+            expect(input()).toHaveValue('"See sta')
+            expect(shown('url')).toEqual('"See sta')
+        })
+
+        it('puts a value that equals the typed text before values that only contain it', async () => {
+            const withInactive = {
+                ...DATA,
+                rows: [
+                    ...DATA.rows,
+                    { name: 'Old', status: 'inactive', subjects: [] },
+                    { name: 'Older', status: 'inactive', subjects: [] },
+                ],
+            }
+            render(<ClientConsumer url="" data={withInactive} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('status:active')
+            expect(suggestions()).toEqual(['Active (1)', 'Inactive (2)'])
+
+            await user.keyboard('{Enter}')
+            expect(pills()).toEqual(['Status: Active'])
         })
 
         it('lists the on-focus facets as exclusions when the person types a minus', async () => {
@@ -593,6 +624,7 @@ describe('FacetSearchBar', () => {
             ['a facet value glued to a closing quote', '"See status:open"', '"See status:open"', [], ''],
             ['a quoted phrase that holds a facet token', '"See status:open now" ', '"See status:open now"', [], ''],
             ['an open quoted phrase that holds a facet token', '"See status:op', '"See status:op', [], ''],
+            ['a quoted phrase, matched without its quotes', '"renew"', '"renew"', [], 'Renewal'],
         ])('turns %s into pills and text', async (_, typed, url, expectedPills, expectedRows) => {
             const user = setup()
             await user.click(input())
@@ -626,8 +658,15 @@ describe('FacetSearchBar', () => {
                     text: '"See status:open now"',
                 },
             ],
+            [
+                'a quoted value it is glued to',
+                'status:"open"status:closed',
+                { filters: [], text: 'status:"open"status:closed' },
+            ],
         ])('keeps a facet token after %s in a URL as part of it', (_, url, expected) => {
-            expect(parseFacetSearch(url, CLIENT_FACETS)).toEqual(expected)
+            const parsed = parseFacetSearch(url, CLIENT_FACETS)
+            expect(parsed).toEqual(expected)
+            expect(parseFacetSearch(serializeFacetSearch(parsed), CLIENT_FACETS)).toEqual(parsed)
         })
 
         it('turns a pasted query into pills, each once', async () => {
@@ -675,6 +714,17 @@ describe('FacetSearchBar', () => {
             fireEvent.compositionEnd(input())
             expect(pills()).toEqual(['Sends: Deals'])
             expect(input()).toHaveValue('')
+        })
+
+        it('keeps the suggestions closed when composition ends after the input lost focus', async () => {
+            const user = setup()
+            await user.click(input())
+            fireEvent.compositionStart(input())
+            fireEvent.change(input(), { target: { value: 'renew' } })
+            fireEvent.blur(input())
+            fireEvent.compositionEnd(input())
+            expect(document.querySelector('[data-attr="client-search-hints"]')).toBeNull()
+            expect(shown('url')).toEqual('renew')
         })
 
         it('keeps focus in the input when the popover chrome is pressed', async () => {
@@ -731,9 +781,11 @@ describe('FacetSearchBar', () => {
             render(<ClientConsumer url="" data={withEmptySubject} />)
             const user = userEvent.setup()
             await user.click(input())
-            await user.keyboard('sends:empty')
-            expect(suggestions()).toEqual(['(empty string) (1)'])
+            await user.keyboard('sends:st')
+            expect(suggestions()).toEqual(['Start here (1)', 'Status update (1)'])
 
+            await user.keyboard('{Backspace}{Backspace}')
+            expect(suggestions()[0]).toEqual('(empty string) (1)')
             await user.keyboard('{Enter}')
             expect(pills()).toEqual(['Sends: (empty string)'])
             expect(shown('url')).toEqual('sends:""')
@@ -761,12 +813,12 @@ describe('FacetSearchBar', () => {
         })
 
         it('builds one query group per facet with every included and excluded value', () => {
-            const search = parseFacetSearch('plan:free plan:paid -team:t-1 team:t-2 -team:t-3 acme', [
+            const search = parseFacetSearch('plan:free plan:paid -team:t-1 team:t-2 -team:t-3 "acme corp"', [
                 PLAN,
                 { key: 'team', label: 'Team', description: 'Owner', values: [] },
             ])
             expect(toFacetQuery(search)).toEqual({
-                text: 'acme',
+                text: 'acme corp',
                 facets: {
                     plan: { include: ['free', 'paid'], exclude: [] },
                     team: { include: ['t-2'], exclude: ['t-1', 't-3'] },
