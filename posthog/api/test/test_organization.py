@@ -185,7 +185,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
 
-    def test_admin_can_set_and_clear_member_notice(self):
+    def test_admin_can_set_and_clear_member_notice(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         notice = {
@@ -1636,3 +1636,19 @@ class TestOrganizationMemberNoticeValidation(SimpleTestCase):
         serializer = OrganizationMemberNoticeSerializer(data={"message": message})
         self.assertTrue(serializer.is_valid(), serializer.errors)
         self.assertEqual(serializer.validated_data["message"], expected)
+
+    @parameterized.expand(
+        [
+            ("fits_after_sanitizing", 950, True),
+            ("too_long_after_sanitizing", 980, False),
+        ]
+    )
+    def test_member_notice_length_counts_sanitized_links(self, _name: str, raw_length: int, is_valid: bool) -> None:
+        link = '<a href="https://example.com">policy</a>'
+        message = "a" * (raw_length - len(link)) + link
+        serializer = OrganizationMemberNoticeSerializer(data={"message": message})
+        self.assertEqual(serializer.is_valid(), is_valid, serializer.errors)
+        if is_valid:
+            resaved = OrganizationMemberNoticeSerializer(data={"message": serializer.validated_data["message"]})
+            self.assertTrue(resaved.is_valid(), resaved.errors)
+            self.assertEqual(resaved.validated_data["message"], serializer.validated_data["message"])

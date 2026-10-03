@@ -165,6 +165,7 @@ class OrganizationMemberNoticeActionSerializer(serializers.Serializer):
 # Formatting and links only: no <link>, <style> or style attributes, since the notice renders inside the app shell.
 MEMBER_NOTICE_ALLOWED_TAGS = {"a", "b", "br", "code", "em", "i", "li", "ol", "p", "s", "span", "strong", "u", "ul"}
 MEMBER_NOTICE_ALLOWED_ATTRIBUTES = {"a": {"href", "title"}}
+MEMBER_NOTICE_MAX_LENGTH = 1000
 
 
 def sanitize_member_notice_html(message: str) -> str:
@@ -179,7 +180,7 @@ def sanitize_member_notice_html(message: str) -> str:
 
 class OrganizationMemberNoticeSerializer(serializers.Serializer):
     message = serializers.CharField(
-        max_length=1000,
+        max_length=MEMBER_NOTICE_MAX_LENGTH,
         help_text="HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.",
     )
     action = OrganizationMemberNoticeActionSerializer(
@@ -192,6 +193,11 @@ class OrganizationMemberNoticeSerializer(serializers.Serializer):
         sanitized = sanitize_member_notice_html(value)
         if not nh3.clean(sanitized, tags=set()).strip():
             raise serializers.ValidationError("The message has no text left after removing unsupported HTML.")
+        # Sanitizing adds target and rel to links. Check the stored length too, so a saved notice always fits on resave.
+        if len(sanitized) > MEMBER_NOTICE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"The message is {len(sanitized) - MEMBER_NOTICE_MAX_LENGTH} characters too long once its links are formatted. Shorten it and save again."
+            )
         return sanitized
 
 
