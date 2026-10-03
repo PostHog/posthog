@@ -23,9 +23,9 @@ use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
 use personhog_identity::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, STEP_COMPLETED,
+    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_COMPLETED,
 };
-use personhog_identity::pools::IdentityPools;
+use personhog_identity::pools::{IdentityPools, Lane};
 
 /// Two-step dummy op: `started → half → completed`. Counts step executions
 /// so tests can prove what did (or did not) re-run.
@@ -1049,5 +1049,105 @@ async fn a_claim_skips_a_row_a_concurrent_writer_holds_instead_of_queueing() {
     assert_eq!(driver.steps_run.load(Ordering::SeqCst), 0);
 
     tx.rollback().await.expect("rollback");
+    ctx.cleanup().await.expect("cleanup");
+}
+
+/// Runs `started → half` inside the create transaction, failing it when
+/// `fail` is set; `half → completed` runs as an ordinary step.
+struct InCreateDriver {
+    inner: DummyDriver,
+    in_create: AtomicUsize,
+    fail: bool,
+}
+
+#[async_trait]
+impl OpDriver for InCreateDriver {
+    fn op_type(&self) -> &'static str {
+        "merge"
+    }
+
+    fn initial_step(&self) -> &'static str {
+        "started"
+    }
+
+    async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+        self.inner.run_step(pools, op).await
+    }
+
+    fn initial_step_lane(&self) -> Option<Lane> {
+        Some(Lane::Heavy)
+    }
+
+    async fn run_initial_step(&self, mut tx: Tx<'_>, op: &OpRow) -> Result<(), SagaError> {
+        self.in_create.fetch_add(1, Ordering::SeqCst);
+        if self.fail {
+            return Err(db_error("23505"));
+        }
+        advance_step_in_tx(
+            &mut tx,
+            &common::default_tables(),
+            op.op_id,
+            "started",
+            "half",
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_new_op_runs_its_initial_step_in_the_create_and_drives_on_that_claim() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = InCreateDriver {
+        inner: DummyDriver::new(),
+        in_create: AtomicUsize::new(0),
+        fail: false,
+    };
+    let op_id = Uuid::now_v7();
+
+    let row = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
+        .await
+        .expect("execute");
+
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(driver.in_create.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        driver.inner.steps_run.load(Ordering::SeqCst),
+        1,
+        "only the step after the initial one ran separately"
+    );
+    let (_, attempt, _, _) = op_row(&ctx, op_id).await;
+    assert_eq!(attempt, 1, "the create's claim drove the op to the end");
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failed_initial_step_falls_back_to_a_durable_op_and_ordinary_steps() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = InCreateDriver {
+        inner: DummyDriver::new(),
+        in_create: AtomicUsize::new(0),
+        fail: true,
+    };
+    let op_id = Uuid::now_v7();
+
+    let row = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
+        .await
+        .expect("the ordinary steps finish the op");
+
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(driver.in_create.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        driver.inner.steps_run.load(Ordering::SeqCst),
+        2,
+        "both steps ran on their own after the fallback"
+    );
+
     ctx.cleanup().await.expect("cleanup");
 }

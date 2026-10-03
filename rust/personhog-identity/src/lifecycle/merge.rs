@@ -488,6 +488,15 @@ impl OpDriver for MergeDriver {
         MergeStep::Started.as_str()
     }
 
+    // The claim makes no leader call, so it can share the create's commit.
+    fn initial_step_lane(&self) -> Option<Lane> {
+        Some(Lane::Heavy)
+    }
+
+    async fn run_initial_step(&self, tx: Tx<'_>, op: &OpRow) -> Result<(), SagaError> {
+        self.claim_in_tx(tx, op).await
+    }
+
     async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         let step = MergeStep::parse(&op.step).ok_or_else(|| {
             SagaError::CorruptState(format!(
@@ -618,11 +627,15 @@ impl MergeDriver {
     /// transaction. Nothing outside this op's own rows is mutated, so the
     /// abort branch can end the op in the same commit.
     async fn claim(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
+        let tx = pools.begin(Lane::Heavy).await?;
+        self.claim_in_tx(tx, op).await
+    }
+
+    async fn claim_in_tx(&self, mut tx: Tx<'_>, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
         let team_id = op.team_id as i32;
         // Conflict reasons emit only after a commit (see record_conflicts).
         let mut conflicts: Vec<(&'static str, u64)> = Vec::new();
-        let mut tx = pools.begin(Lane::Heavy).await?;
 
         // Authoritative resolution: the handler's classification aged while
         // the op row traveled here.
@@ -1365,14 +1378,15 @@ async fn settle_drops(
 }
 
 impl MergeDriver {
-    /// `sources_sealed → document_folded`: one FoldPersonDocument call to
+    /// `sources_sealed → flipped`: one FoldPersonDocument call to
     /// the target's leader with the sealed snapshots in precedence order.
     /// A re-driven fold on unchanged target state changes no content and
     /// only bumps the version, so a crash between the fold and the CAS is
     /// absorbed — up to the accepted re-appliable-merge residual: the
     /// target is never fenced, so a re-fold recomputes over writes that
     /// landed in between (see FoldPersonDocumentRequest.op_id in the
-    /// proto). The folded document persists on the target row: the
+    /// proto). That window includes the flip, so a slow flip can let a
+    /// lease stealer re-fold. The folded document persists on the target row: the
     /// terminal outcome's survivor, durable without ever re-folding.
     async fn fold(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError> {
         let request = parse_request(op)?;
@@ -1481,22 +1495,29 @@ impl MergeDriver {
             "version": folded.version,
         });
 
+        // On a flip error the fold commits alone, so its retry never re-folds.
+        // Recorded after the flip's locks, in the standalone flip's order.
         let mut tx = pools.begin(Lane::Heavy).await?;
-        mirrored_query!(
-            self.tables.is_validation(),
-            op = "merge_fold_record_target",
-            "UPDATE {lifecycle_op_person} SET sealed = $2 WHERE op_id = $1 AND role = $3",
-            op.op_id,
-            survivor,
-            ROLE_TARGET
-            => execute(&mut *tx)
-        )?;
+        let to = match flip_in_tx(&mut tx, &self.tables, op).await {
+            Ok(()) => {
+                record_fold(&mut tx, &self.tables, op, &survivor).await?;
+                MergeStep::Flipped
+            }
+            Err(err) => {
+                tracing::warn!(op_id = %op.op_id, error = %err,
+                    "flip failed in the fold's transaction; committing the fold alone");
+                tx.rollback().await.ok();
+                tx = pools.begin(Lane::Heavy).await?;
+                record_fold(&mut tx, &self.tables, op, &survivor).await?;
+                MergeStep::DocumentFolded
+            }
+        };
         if !advance_step_in_tx(
             &mut tx,
             &self.tables,
             op.op_id,
             MergeStep::SourcesSealed.as_str(),
-            MergeStep::DocumentFolded.as_str(),
+            to.as_str(),
         )
         .await?
         {
@@ -1504,12 +1525,27 @@ impl MergeDriver {
             return Ok(());
         }
         tx.commit().await?;
-        record_transition(
-            MergeStep::SourcesSealed.as_str(),
-            MergeStep::DocumentFolded.as_str(),
-        );
+        record_transition(MergeStep::SourcesSealed.as_str(), to.as_str());
         Ok(())
     }
+}
+
+async fn record_fold(
+    tx: &mut Tx<'_>,
+    tables: &IdentityTables,
+    op: &OpRow,
+    survivor: &Value,
+) -> Result<(), SagaError> {
+    mirrored_query!(
+        tables.is_validation(),
+        op = "merge_fold_record_target",
+        "UPDATE {lifecycle_op_person} SET sealed = $2 WHERE op_id = $1 AND role = $3",
+        op.op_id,
+        survivor,
+        ROLE_TARGET
+        => execute(&mut **tx)
+    )?;
+    Ok(())
 }
 
 async fn target_row(
@@ -1565,63 +1601,8 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
 /// rows at their exact death versions, and clear the target's mark. The
 /// source marks stay: they are the fences' durable record until release.
 async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
-    let team_id = op.team_id as i32;
     let mut tx = pools.begin(Lane::Heavy).await?;
-
-    let target: i64 = mirrored_query_scalar!(
-        tables.is_validation(),
-        op = "merge_flip_target",
-        "SELECT person_id FROM {lifecycle_op_person} WHERE op_id = $1 AND role = $2",
-        op.op_id,
-        ROLE_TARGET
-        => fetch_one(&mut *tx)
-    )?;
-    let mut sources: Vec<i64> = mirrored_query_scalar!(
-        tables.is_validation(),
-        op = "merge_flip_sources",
-        r#"
-        SELECT person_id FROM {lifecycle_op_person}
-        WHERE op_id = $1 AND role = $2 AND status = $3
-        "#,
-        op.op_id,
-        ROLE_SOURCE,
-        STATUS_SEALED
-        => fetch_all(&mut *tx)
-    )?;
-    sources.sort_unstable();
-
-    // Lock every row up front in id order; the writer's flush does the
-    // same, so a deadlock cycle is impossible. Including the target keeps
-    // the lock set a superset of any partner's.
-    let mut lock_ids = sources.clone();
-    lock_ids.push(target);
-    lock_ids.sort_unstable();
-    let lock_persons_sql = format!(
-        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
-        person_table = tables.person,
-    );
-    sqlx::query(&query_tag!("merge_flip_lock_persons", lock_persons_sql))
-        .bind(team_id)
-        .bind(&lock_ids)
-        .execute(&mut *tx)
-        .await?;
-    let lock_pdi_sql = format!(
-        "SELECT id FROM {pdi_table} WHERE team_id = $1 AND person_id = ANY($2) ORDER BY id FOR UPDATE",
-        pdi_table = tables.person_distinct_id,
-    );
-    sqlx::query(&query_tag!("merge_flip_lock_distinct_ids", lock_pdi_sql))
-        .bind(team_id)
-        .bind(&sources)
-        .execute(&mut *tx)
-        .await?;
-
-    let repointed = repoint_distinct_ids(&mut tx, tables, team_id, &sources, target).await?;
-    record_moved_mappings(&mut tx, tables, op, &sources, &repointed).await?;
-    move_cohort_membership(&mut tx, tables, &sources, target).await?;
-    move_hash_key_overrides(&mut tx, tables, team_id, &sources, target).await?;
-    tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
-    clear_target_mark(&mut tx, tables, op).await?;
-
+    flip_in_tx(&mut tx, tables, op).await?;
     if !advance_step_in_tx(
         &mut tx,
         tables,
@@ -1639,6 +1620,66 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         MergeStep::DocumentFolded.as_str(),
         MergeStep::Flipped.as_str(),
     );
+    Ok(())
+}
+
+/// The flip's work, without its step advance.
+async fn flip_in_tx(tx: &mut Tx<'_>, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
+    let team_id = op.team_id as i32;
+
+    let target: i64 = mirrored_query_scalar!(
+        tables.is_validation(),
+        op = "merge_flip_target",
+        "SELECT person_id FROM {lifecycle_op_person} WHERE op_id = $1 AND role = $2",
+        op.op_id,
+        ROLE_TARGET
+        => fetch_one(&mut **tx)
+    )?;
+    let mut sources: Vec<i64> = mirrored_query_scalar!(
+        tables.is_validation(),
+        op = "merge_flip_sources",
+        r#"
+        SELECT person_id FROM {lifecycle_op_person}
+        WHERE op_id = $1 AND role = $2 AND status = $3
+        "#,
+        op.op_id,
+        ROLE_SOURCE,
+        STATUS_SEALED
+        => fetch_all(&mut **tx)
+    )?;
+    sources.sort_unstable();
+
+    // Lock every row up front in id order; the writer's flush does the
+    // same, so a deadlock cycle is impossible. Including the target keeps
+    // the lock set a superset of any partner's.
+    let mut lock_ids = sources.clone();
+    lock_ids.push(target);
+    lock_ids.sort_unstable();
+    let lock_persons_sql = format!(
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        person_table = tables.person,
+    );
+    sqlx::query(&query_tag!("merge_flip_lock_persons", lock_persons_sql))
+        .bind(team_id)
+        .bind(&lock_ids)
+        .execute(&mut **tx)
+        .await?;
+    let lock_pdi_sql = format!(
+        "SELECT id FROM {pdi_table} WHERE team_id = $1 AND person_id = ANY($2) ORDER BY id FOR UPDATE",
+        pdi_table = tables.person_distinct_id,
+    );
+    sqlx::query(&query_tag!("merge_flip_lock_distinct_ids", lock_pdi_sql))
+        .bind(team_id)
+        .bind(&sources)
+        .execute(&mut **tx)
+        .await?;
+
+    let repointed = repoint_distinct_ids(tx, tables, team_id, &sources, target).await?;
+    record_moved_mappings(tx, tables, op, &sources, &repointed).await?;
+    move_cohort_membership(tx, tables, &sources, target).await?;
+    move_hash_key_overrides(tx, tables, team_id, &sources, target).await?;
+    tombstone_sealed_sources(tx, tables, op, team_id).await?;
+    clear_target_mark(tx, tables, op).await?;
     Ok(())
 }
 

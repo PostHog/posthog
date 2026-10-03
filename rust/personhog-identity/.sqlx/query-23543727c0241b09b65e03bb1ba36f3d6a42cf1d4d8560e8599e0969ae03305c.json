@@ -1,0 +1,81 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='op_create_claimed' */ \n            INSERT INTO lifecycle_op_tmp (op_id, op_type, team_id, step, request, lease_expires_at, attempt)\n            VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6), 1)\n            ON CONFLICT (op_id) DO NOTHING\n            RETURNING op_id, op_type, team_id::bigint as \"team_id!\", step, attempt,\n                      request as \"request: Value\", outcome as \"outcome: Value\",\n                      created_at, completed_at, true as \"lease_live!\"\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "op_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "op_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "step",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "attempt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "request: Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "outcome: Value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "lease_live!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Text",
+        "Jsonb",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "23543727c0241b09b65e03bb1ba36f3d6a42cf1d4d8560e8599e0969ae03305c"
+}

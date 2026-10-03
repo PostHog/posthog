@@ -213,6 +213,19 @@ pub trait OpDriver: Send + Sync {
     /// The step a freshly created op row starts on.
     fn initial_step(&self) -> &'static str;
     async fn run_step(&self, pools: &IdentityPools, op: &OpRow) -> Result<(), SagaError>;
+
+    /// Set when the initial step can run in the op's create transaction.
+    fn initial_step_lane(&self) -> Option<Lane> {
+        None
+    }
+
+    /// `run_step` for the initial step, inside the create transaction it commits.
+    async fn run_initial_step(&self, _tx: Tx<'_>, op: &OpRow) -> Result<(), SagaError> {
+        Err(SagaError::CorruptState(format!(
+            "{} has no in-create initial step",
+            op.op_type
+        )))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -257,6 +270,31 @@ fn lease_lost(row: &OpRow) {
     );
 }
 
+/// Attributable escalation: a persistently failing op (a corrupt row, a
+/// wedged leader call) shows up as this counter climbing for one
+/// op_type/kind, not as generic retry noise. Alert on it — a wedged op can
+/// hold fences.
+fn record_step_failure(row: &OpRow, err: &SagaError) {
+    let kind = match err {
+        SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
+        SagaError::Db(_) if err.is_db_connection_lost() => "db_connection",
+        SagaError::Db(_) => "db",
+        SagaError::Leader(_) => "leader",
+        SagaError::LeaderRefused(_) => "leader_refused",
+        SagaError::CorruptState(_) => "corrupt_state",
+        // Collapsed: these carry no attribution worth a label.
+        SagaError::RequestMismatch(_) | SagaError::Busy | SagaError::DeadlineElapsed => "other",
+    };
+    common_metrics::inc(
+        STEP_FAILURES_TOTAL,
+        &[
+            ("op_type".to_string(), row.op_type.clone()),
+            ("kind".to_string(), kind.to_string()),
+        ],
+        1,
+    );
+}
+
 impl Engine {
     pub fn new(pools: IdentityPools, config: EngineConfig, tables: IdentityTables) -> Self {
         tables.validate().expect("invalid identity table set");
@@ -287,9 +325,71 @@ impl Engine {
         team_id: i64,
         request: &Value,
     ) -> Result<OpRow, SagaError> {
-        self.create_or_attach(driver, op_id, team_id, request)
-            .await?;
-        self.drive(driver, op_id, true).await
+        let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
+        let claim = self.create_claimed(driver, op_id, team_id, request).await?;
+        self.drive(driver, op_id, true, deadline, claim).await
+    }
+
+    /// Create the op claimed, with its initial step when the driver allows.
+    /// Returns None when the op already existed.
+    async fn create_claimed(
+        &self,
+        driver: &dyn OpDriver,
+        op_id: Uuid,
+        team_id: i64,
+        request: &Value,
+    ) -> Result<Option<(i32, tokio::time::Instant)>, SagaError> {
+        let lane = driver.initial_step_lane();
+        let sent = tokio::time::Instant::now();
+        let mut tx = self.pools.begin(lane.unwrap_or(Lane::Fast)).await?;
+        let created = mirrored_query_as!(
+            OpRow,
+            self.tables.is_validation(),
+            op = "op_create_claimed",
+            r#"
+            INSERT INTO {lifecycle_op} (op_id, op_type, team_id, step, request, lease_expires_at, attempt)
+            VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6), 1)
+            ON CONFLICT (op_id) DO NOTHING
+            RETURNING op_id, op_type, team_id::bigint as "team_id!", step, attempt,
+                      request as "request: Value", outcome as "outcome: Value",
+                      created_at, completed_at, true as "lease_live!"
+            "#,
+            op_id,
+            driver.op_type(),
+            team_id as i32,
+            driver.initial_step(),
+            request,
+            self.config.lease.as_secs_f64()
+            => fetch_optional(&mut *tx)
+        )?;
+        let Some(row) = created else {
+            tx.rollback().await?;
+            self.create_or_attach(driver, op_id, team_id, request)
+                .await?;
+            return Ok(None);
+        };
+        common_metrics::histogram(
+            CLAIM_WAIT_MS,
+            &[("op_type".to_string(), row.op_type.clone())],
+            sent.elapsed().as_secs_f64() * 1000.0,
+        );
+        if lane.is_some() {
+            let step_start = Instant::now();
+            let stepped = driver.run_initial_step(tx, &row).await;
+            record_step_duration(&row, step_start);
+            if let Err(err) = stepped {
+                // Fall back to a durable unclaimed op, so a failure behaves as it did before.
+                record_step_failure(&row, &err);
+                tracing::warn!(op_id = %op_id, error = %err,
+                    "initial step failed in the create; creating the op on its own");
+                self.create_or_attach(driver, op_id, team_id, request)
+                    .await?;
+                return Ok(None);
+            }
+        } else {
+            tx.commit().await?;
+        }
+        Ok(Some((row.attempt, sent)))
     }
 
     /// The create-or-attach half of [`execute`], without driving: create
@@ -383,7 +483,8 @@ impl Engine {
     /// sweeper a live lease means "not abandoned", so this bails with `Busy`
     /// instead of polling out the execute timeout.
     pub async fn resume(&self, driver: &dyn OpDriver, op_id: Uuid) -> Result<OpRow, SagaError> {
-        self.drive(driver, op_id, false).await
+        let deadline = tokio::time::Instant::now() + self.config.execute_timeout;
+        self.drive(driver, op_id, false, deadline, None).await
     }
 
     async fn drive(
@@ -391,16 +492,17 @@ impl Engine {
         driver: &dyn OpDriver,
         op_id: Uuid,
         wait_for_lease: bool,
+        deadline: tokio::time::Instant,
+        claimed: Option<(i32, tokio::time::Instant)>,
     ) -> Result<OpRow, SagaError> {
         let drive_start = tokio::time::Instant::now();
-        let deadline = drive_start + self.config.execute_timeout;
         // The attempt number returned by our claim, used as a fencing token:
         // renew/release only touch the lease while `attempt` still matches,
         // so a driver whose lease was stolen (the stealer bumped `attempt`)
         // cannot extend or clear the stealer's lease.
-        let mut claim_attempt: Option<i32> = None;
+        let mut claim_attempt: Option<i32> = claimed.map(|(attempt, _)| attempt);
         // When our lease was last set, taken before the statement that set it so it errs early.
-        let mut lease_set_at = tokio::time::Instant::now();
+        let mut lease_set_at = claimed.map_or_else(tokio::time::Instant::now, |(_, at)| at);
 
         loop {
             let Some(row) = self.load(op_id).await? else {
@@ -517,30 +619,7 @@ impl Engine {
             let stepped = driver.run_step(&self.pools, &row).await;
             record_step_duration(&row, step_start);
             if let Err(err) = stepped {
-                // Attributable escalation: a persistently failing op (a
-                // corrupt row, a wedged leader call) shows up as this
-                // counter climbing for one op_type/kind, not as generic
-                // retry noise. Alert on it — a wedged op can hold fences.
-                let kind = match &err {
-                    SagaError::Db(_) if err.is_db_conflict() => "db_conflict",
-                    SagaError::Db(_) if err.is_db_connection_lost() => "db_connection",
-                    SagaError::Db(_) => "db",
-                    SagaError::Leader(_) => "leader",
-                    SagaError::LeaderRefused(_) => "leader_refused",
-                    SagaError::CorruptState(_) => "corrupt_state",
-                    // Collapsed: these carry no attribution worth a label.
-                    SagaError::RequestMismatch(_)
-                    | SagaError::Busy
-                    | SagaError::DeadlineElapsed => "other",
-                };
-                common_metrics::inc(
-                    STEP_FAILURES_TOTAL,
-                    &[
-                        ("op_type".to_string(), row.op_type.clone()),
-                        ("kind".to_string(), kind.to_string()),
-                    ],
-                    1,
-                );
+                record_step_failure(&row, &err);
                 if err.is_db_conflict() {
                     // Concurrent multi-row writers (a writer flush, another
                     // saga) can deadlock or time out against a step's
