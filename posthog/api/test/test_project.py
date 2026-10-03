@@ -993,7 +993,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         with (
             capture_db_queries() as queries,
-            patch("posthog.api.team.report_user_action") as mock_report,
+            patch("posthog.api.team.conversations_settings.report_user_action") as mock_report,
         ):
             with (
                 patch.object(Team.objects, "select_for_update", simulate_integration_update),
