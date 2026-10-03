@@ -391,8 +391,8 @@ export function BroadcastSummary(): JSX.Element {
                             'data-attr': 'broadcast-draft-open-in-workflow-editor',
                         }}
                     >
-                        This draft has steps or recipients the broadcast editor can't show, so it opens here read-only.
-                        Edit it in the workflow editor.
+                        This draft has steps the broadcast editor can't show, so it opens here read-only. Edit it in the
+                        workflow editor.
                     </LemonBanner>
                 ) : null}
                 {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
