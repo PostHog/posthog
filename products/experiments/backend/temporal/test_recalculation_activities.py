@@ -17,7 +17,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.temporal.common.errors import NonReportableError
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -848,6 +853,7 @@ class TestCalculateActivity(BaseTest):
         [
             ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
             ("cluster_at_capacity", ClickHouseAtCapacity()),
+            ("cluster_memory_limit", ClickHouseClusterMemoryLimitExceeded()),
         ]
     )
     def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
@@ -888,6 +894,7 @@ class TestCalculateActivity(BaseTest):
             ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
             ("byte_limit", ServerException("too many bytes", code=307), "byte_limit"),
             ("validation_error", ValidationError("bad metric config"), "validation_error"),
+            ("decimal_overflow", ServerException("decimal overflow", code=407), "validation_error"),
             ("config_value_error", ValueError("Multiple control variants found"), "server_error"),
         ]
     )

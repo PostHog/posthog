@@ -23,6 +23,7 @@ from posthog.errors import (
 from posthog.event_usage import groups
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -102,16 +103,21 @@ def classify_experiment_query_error(error: Exception) -> str:
         return "validation_error"
     if isinstance(error, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
         return "timeout"
+    # Check cluster memory pressure before the per-query OOM branch, because it subclasses
+    # ClickHouseQueryMemoryLimitExceeded but is transient.
+    if isinstance(error, (ClickHouseAtCapacity, ConcurrencyLimitExceeded, ClickHouseClusterMemoryLimitExceeded)):
+        return "rate_limited"
     if isinstance(error, ClickHouseQueryMemoryLimitExceeded):
         return "out_of_memory"
-    if isinstance(error, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
-        return "rate_limited"
     if isinstance(error, ServerException):
         meta = look_up_clickhouse_error_code_meta(error)
         if meta.name == "NOT_AN_AGGREGATE":
             # In experiment queries, only user-authored HogQL is known to produce this error, by
             # referencing a row-level column outside an aggregate. This is a metric configuration
             # error, not a platform error.
+            return "validation_error"
+        if meta.name == "DECIMAL_OVERFLOW":
+            # The metric value overflows its decimal type for this data, so every retry fails the same way.
             return "validation_error"
         if meta.name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
             return "timeout"

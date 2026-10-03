@@ -14,7 +14,12 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.errors import CHQueryErrorNotAnAggregate
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 
 from products.experiments.backend.hogql_queries.error_handling import (
     ERROR_TYPE_TO_CODE,
@@ -203,6 +208,7 @@ class TestExperimentErrorHandling(BaseTest):
             ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout"),
             ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
             ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
+            ("wrapped_cluster_memory_limit", ClickHouseClusterMemoryLimitExceeded(), "rate_limited"),
             ("ch_memory_limit_code", ServerException("memory limit", code=241), "out_of_memory"),
             ("ch_too_many_bytes_code", ServerException("too many bytes", code=307), "byte_limit"),
             ("wrapped_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
