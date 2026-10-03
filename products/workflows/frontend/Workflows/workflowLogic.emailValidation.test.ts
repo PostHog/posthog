@@ -37,7 +37,7 @@ const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'functi
     },
 })
 
-const makeWorkflow = (fromValue: any): HogFlow => ({
+const makeWorkflow = (fromValue: any, status: HogFlow['status'] = 'draft'): HogFlow => ({
     id: WORKFLOW_ID,
     name: 'Email validation test',
     actions: [
@@ -68,7 +68,7 @@ const makeWorkflow = (fromValue: any): HogFlow => ({
     conversion: { filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
-    status: 'draft',
+    status,
     team_id: 1,
     trigger: { type: 'event', filters: {} } as HogFlow['trigger'],
     created_at: '2026-05-01T00:00:00.000Z',
@@ -103,7 +103,7 @@ const loadedTemplatesResponse = {
 }
 
 const SENDER_ERROR = 'Choose an email sender, or connect a new one'
-const UNVERIFIED_SENDER_ERROR = "Verify the sender's domain before enabling"
+const UNVERIFIED_SENDER_ERROR = "Verify this sender's domain under Channels, or choose a verified sender"
 
 const emailSender = (id: number, verified: boolean): IntegrationType =>
     ({ id, kind: 'email', display_name: `sender-${id}`, config: { verified } }) as IntegrationType
@@ -279,24 +279,66 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.errors.email).toBeUndefined()
     })
 
+    const ROTATION = { integrationId: 42, integrationIds: [42, 43] }
+
     it.each([
-        ['the sender is unverified', [emailSender(42, false)], false, UNVERIFIED_SENDER_ERROR],
+        ['the sender is unverified', ROTATION, 'draft', [emailSender(42, false)], false, UNVERIFIED_SENDER_ERROR],
         [
             'one rotation sender is unverified',
+            ROTATION,
+            'draft',
             [emailSender(42, true), emailSender(43, false)],
             false,
             UNVERIFIED_SENDER_ERROR,
         ],
-        ['every sender is verified', [emailSender(42, true), emailSender(43, true)], true, undefined],
-    ])('marks the email step with a field message when %s', async (_name, senders, valid, expectedError) => {
+        [
+            'only the unused fallback sender is unverified',
+            { integrationId: 42, integrationIds: [43] },
+            'draft',
+            [emailSender(42, false), emailSender(43, true)],
+            true,
+            undefined,
+        ],
+        ['the workflow is already live', ROTATION, 'active', [emailSender(42, false)], true, undefined],
+        [
+            'every sender is verified',
+            ROTATION,
+            'draft',
+            [emailSender(42, true), emailSender(43, true)],
+            true,
+            undefined,
+        ],
+    ] as const)(
+        'marks the email step with a field message when %s',
+        async (_name, from, status, senders, valid, expectedError) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(from, status),
+                    '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+                    '/api/environments/:team_id/integrations': { results: senders },
+                },
+            })
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+            await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+            logic.actions.saveWorkflowPartial({ status: 'active' })
+
+            const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+            expect(result?.valid).toBe(valid)
+            expect(result?.emailErrors?.from).toBe(expectedError)
+        }
+    )
+
+    it('clears the sender message on the next enable attempt after the domain is verified elsewhere', async () => {
+        let senderVerified = false
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
-                    integrationId: 42,
-                    integrationIds: [42, 43],
-                }),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({ integrationId: 42 }),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
-                '/api/environments/:team_id/integrations': { results: senders },
+                '/api/environments/:team_id/integrations': () => [200, { results: [emailSender(42, senderVerified)] }],
             },
         })
         initKeaTests()
@@ -304,13 +346,12 @@ describe('workflowLogic email step "from" validation', () => {
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
         await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        senderVerified = true
 
-        // An unverified sender fails every send, so the step is invalid and the reason sits on the field.
         logic.actions.saveWorkflowPartial({ status: 'active' })
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
 
-        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        expect(result?.valid).toBe(valid)
-        expect(result?.emailErrors?.from).toBe(expectedError)
+        expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toBeUndefined()
     })
 
     it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {

@@ -856,14 +856,27 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
     result: dict[str, list[dict]] = {}
     draft = instance.draft if isinstance(instance.draft, dict) else {}
     for actions in (instance.actions, draft.get("actions")):
-        for stored_action in actions or []:
-            if not isinstance(stored_action, dict) or not stored_action.get("id"):
-                continue
-            email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
-            value = email_input.get("value") if isinstance(email_input, dict) else None
-            from_value = value.get("from") if isinstance(value, dict) else None
-            if isinstance(from_value, dict):
-                result.setdefault(stored_action["id"], []).append(from_value)
+        for action_id, from_value in _email_from_by_action(actions).items():
+            result.setdefault(action_id, []).append(from_value)
+    return result
+
+
+def _live_email_from_by_action(instance: "HogFlow") -> dict[str, dict]:
+    if instance.status != HogFlow.State.ACTIVE:
+        return {}
+    return _email_from_by_action(instance.actions)
+
+
+def _email_from_by_action(actions: list | None) -> dict[str, dict]:
+    result: dict[str, dict] = {}
+    for stored_action in actions or []:
+        if not isinstance(stored_action, dict) or not stored_action.get("id"):
+            continue
+        email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
+        value = email_input.get("value") if isinstance(email_input, dict) else None
+        from_value = value.get("from") if isinstance(value, dict) else None
+        if isinstance(from_value, dict):
+            result[stored_action["id"]] = from_value
     return result
 
 
@@ -1624,12 +1637,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                         ),
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
-                        # A draft keeps saving while the sender's DNS propagates; going live
-                        # (activation, publish, a live save) is where an unverified sender fails.
+                        "email_sender_cache": self.context.setdefault("_email_sender_cache", {}),
                         "require_verified_email_sender": not is_draft,
+                        "live_email_from": (self.context.get("live_action_email_from") or {}).get(data.get("id")),
                     },
                 )
 
@@ -2949,6 +2959,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
+        if self.context.get("publishes_draft"):
+            return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
@@ -3031,6 +3043,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["live_action_email_from"] = _live_email_from_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -5860,7 +5873,12 @@ class HogFlowViewSet(
             before_update = HogFlow.objects.get(pk=instance.pk)
             # The draft goes back through the normal serializer so publish revalidates strictly and
             # recompiles bytecode — a stored blob is never trusted to be execution-ready.
-            serializer = self.get_serializer(locked, data=dict(locked.draft), partial=True)
+            serializer = self.get_serializer(
+                locked,
+                data=dict(locked.draft),
+                partial=True,
+                context={**self.get_serializer_context(), "publishes_draft": True},
+            )
             serializer.is_valid(raise_exception=True)
             self._refresh_action_redirects(locked, before_update, serializer.validated_data.get("actions"))
             bump = self._stage_revision_bump(locked, before_update, serializer.validated_data)

@@ -740,8 +740,6 @@ class TestHogFlowAPI(APIBaseTest):
         assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
 
     def test_unverified_sender_saves_as_a_draft_but_blocks_enabling(self):
-        # The sender's verified flag was only read at send time, so a workflow went live with a
-        # pending domain and every send failed. The draft must still save while DNS propagates.
         sync_template_to_db(_email_function_template())
         integration = Integration.objects.create(
             team=self.team,
@@ -765,6 +763,29 @@ class TestHogFlowAPI(APIBaseTest):
         detail = enabled.json()["detail"]
         assert "step 'Welcome email'" in detail
         assert 'The email sender "hello@example.dev" is not verified yet' in detail
+
+    def test_live_workflow_keeps_saving_after_its_sender_loses_verification(self):
+        sync_template_to_db(_email_function_template())
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id}
+        hog_flow, action = self._create_hog_flow_with_action({"inputs": inputs})
+        action["type"] = "function_email"
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert created.status_code == 201, created.json()
+        flow_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}"
+        assert self.client.patch(flow_url, {"status": "active"}).status_code == 200
+        integration.config = {**integration.config, "verified": False}
+        integration.save()
+
+        live_actions = self.client.get(flow_url).json()["actions"]
+        renamed = self.client.patch(flow_url, {"name": "Renamed", "actions": live_actions})
+
+        assert renamed.status_code == 200, renamed.json()
 
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.

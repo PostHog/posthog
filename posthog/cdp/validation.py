@@ -97,14 +97,16 @@ class _EmailSender(NamedTuple):
     verified: bool
 
 
-# An id that resolves to no email integration for this team gets an empty sender; the save is not
-# blocked on it (there is nothing to compare), matching the uncached behavior.
-_UNKNOWN_EMAIL_SENDER = _EmailSender(email="", domain="", verified=True)
+_UNKNOWN_EMAIL_SENDER = _EmailSender(email="", domain="", verified=False)
+
+
+def _sending_integration_ids(from_value: dict) -> set[int]:
+    rotation = _sender_integration_ids({"integrationIds": from_value.get("integrationIds")})
+    return rotation or _sender_integration_ids({"integrationId": from_value.get("integrationId")})
 
 
 def _email_senders(integration_ids: set[int], team_id: int, context: dict) -> dict[int, _EmailSender]:
-    # Request-scoped: a drip sequence's steps share senders and validate one action at a time.
-    shared_cache = context.get("email_integration_domain_cache")
+    shared_cache = context.get("email_sender_cache")
     cache: dict[int, _EmailSender] = shared_cache if isinstance(shared_cache, dict) else {}
     missing_ids = [integration_id for integration_id in integration_ids if integration_id not in cache]
     if missing_ids:
@@ -122,21 +124,21 @@ def _email_senders(integration_ids: set[int], team_id: int, context: dict) -> di
 
 
 def _validate_email_sender_verified(from_value: dict, context: dict) -> None:
-    """Reject a sender whose domain is not verified once the workflow goes live.
-
-    The send path refuses an unverified sender, so a live workflow with one fails every send and
-    only a failed-count metric shows it. A draft keeps saving while DNS propagates; the check runs
-    when the caller marks the save as going live.
-    """
     get_team = context.get("get_team")
     if not context.get("require_verified_email_sender") or get_team is None:
         return
-    integration_ids = _sender_integration_ids(from_value)
-    if not integration_ids:
+    new_sender_ids = _sending_integration_ids(from_value) - _sending_integration_ids(
+        context.get("live_email_from") or {}
+    )
+    if not new_sender_ids:
         return
-    senders = _email_senders(integration_ids, get_team().id, context)
-    for integration_id in sorted(integration_ids):
+    senders = _email_senders(new_sender_ids, get_team().id, context)
+    for integration_id in sorted(new_sender_ids):
         sender = senders[integration_id]
+        if sender == _UNKNOWN_EMAIL_SENDER:
+            raise serializers.ValidationError(
+                {"input": "The email sender no longer exists. Choose a different sender under Channels."}
+            )
         if not sender.verified:
             raise serializers.ValidationError(
                 {

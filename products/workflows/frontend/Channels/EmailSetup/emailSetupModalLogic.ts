@@ -289,8 +289,6 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                 actions.loadIntegrations()
             }
         },
-        // Only a verified sender counts as a set up channel; a pending domain keeps the sender but
-        // leaves the setup unfinished.
         finishSetup: () => {
             const integrationId = values.savedIntegration?.id
             if (values.isDomainVerified) {

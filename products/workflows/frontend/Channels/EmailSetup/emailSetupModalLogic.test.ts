@@ -34,8 +34,6 @@ describe('emailSetupModalLogic', () => {
         })
     })
 
-    // "Save & finish later" used to report the channel as set up, so the setup checklist ticked the
-    // email channel while its domain still could not send.
     it.each([
         ['pending', 'onClose'],
         ['success', 'onComplete'],

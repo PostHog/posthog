@@ -183,7 +183,8 @@ class TestHogFlowDraftPublish(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-    def test_publish_of_incomplete_draft_is_rejected(self):
+    @parameterized.expand([("plain_publish", {}), ("publish_claiming_a_draft_save", {"stage_draft": True})])
+    def test_publish_of_incomplete_draft_is_rejected(self, _name: str, extra_publish_body: dict):
         flow_id = self._create_active_flow()
         incomplete = _webhook_action()
         incomplete["config"]["inputs"] = {}
@@ -197,7 +198,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert preview.status_code == 200, preview.json()
         confirm = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
-            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"], **extra_publish_body},
         )
         assert confirm.status_code == 400, confirm.json()
         # The failed publish must leave both the live config and the draft untouched.
