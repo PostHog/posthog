@@ -121,7 +121,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     #   These ultimately extend clickhouse_driver.errors.ServerException and are sent to error reporting.
 
     # infrastructure errors - custom messages to hide internals
-    if name in ("TOO_MANY_SIMULTANEOUS_QUERIES", "CANNOT_SCHEDULE_TASK"):
+    if name in ("TOO_MANY_SIMULTANEOUS_QUERIES", "CANNOT_SCHEDULE_TASK", "SERVER_OVERLOADED"):
         return ClickHouseAtCapacity()
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
