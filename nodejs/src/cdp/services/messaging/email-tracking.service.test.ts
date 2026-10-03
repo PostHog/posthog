@@ -22,6 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -463,6 +464,49 @@ describe('EmailTrackingService', () => {
                         metrics.filter((m) => m.value.app_source === 'hog_flow').map((m) => m.value.metric_name)
                     ).toEqual(['email_bounced', 'email_bounced_hard'])
                 })
+            })
+
+            it('reports a delivered message as a workflows activation step', async () => {
+                const reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const trackingCode = signer.generate({ functionId: hogFlow.id, id: invocationId, teamId: team.id })
+                const sesRecord = {
+                    eventType: 'Delivery',
+                    mail: {
+                        timestamp: '2024-01-01T00:00:00.000Z',
+                        source: 'sender@posthog.com',
+                        messageId: 'ses-message-id',
+                        destination: ['user@example.com'],
+                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
+                    },
+                    delivery: { timestamp: '2024-01-01T00:00:01.000Z', recipients: ['user@example.com'] },
+                }
+
+                const res = await supertest(app)
+                    .post('/public/m/ses_webhook')
+                    .set('Content-Type', 'text/plain')
+                    .send(
+                        JSON.stringify({
+                            Type: 'Notification',
+                            MessageId: 'sns-message-id',
+                            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
+                            Message: JSON.stringify(sesRecord),
+                            Timestamp: '2024-01-01T00:00:01.000Z',
+                            SignatureVersion: '1',
+                            Signature: 'stubbed',
+                            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+                        })
+                    )
+
+                expect(res.status).toBe(200)
+                expect(reportSpy).toHaveBeenCalledWith(team.id, 'workflows message delivered', {
+                    channel: 'email',
+                    workflow_id: hogFlow.id,
+                })
+                reportSpy.mockRestore()
             })
 
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {

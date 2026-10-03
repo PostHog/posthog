@@ -167,6 +167,7 @@ describe('HogFlow Quota Limiting', () => {
 
     describe('shouldBlockHogFlowDueToQuota', () => {
         let mockHogFunctionMonitoringService: jest.Mocked<HogFunctionMonitoringService>
+        let mockWorkflowsActivationReporter: { report: jest.Mock }
         const teamId = 123
         const baseItem: CyclotronJobInvocationHogFlow = {
             teamId,
@@ -189,6 +190,7 @@ describe('HogFlow Quota Limiting', () => {
             mockHogFunctionMonitoringService = {
                 queueAppMetric: jest.fn(),
             } as any
+            mockWorkflowsActivationReporter = { report: jest.fn() }
             // Reset the counter spy
             jest.spyOn(counterHogFlowQuotaLimited, 'labels').mockReturnValue({
                 inc: jest.fn(),
@@ -209,11 +211,13 @@ describe('HogFlow Quota Limiting', () => {
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
             })
 
             expect(result).toBe(false)
             expect(mockHogFunctionMonitoringService.queueAppMetric).not.toHaveBeenCalled()
             expect(counterHogFlowQuotaLimited.labels).not.toHaveBeenCalled()
+            expect(mockWorkflowsActivationReporter.report).not.toHaveBeenCalled()
         })
 
         it('should block invocation and emit metrics when quota limited', async () => {
@@ -232,6 +236,7 @@ describe('HogFlow Quota Limiting', () => {
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
             })
 
             expect(result).toBe(true)
@@ -247,6 +252,10 @@ describe('HogFlow Quota Limiting', () => {
                 },
                 'hog_flow'
             )
+            expect(mockWorkflowsActivationReporter.report).toHaveBeenCalledWith(teamId, 'workflows send blocked', {
+                reason: 'quota_limited',
+                workflow_id: 'test-flow-id',
+            })
         })
 
         it('should handle workflow with no billable actions', async () => {
@@ -263,6 +272,7 @@ describe('HogFlow Quota Limiting', () => {
             const result = await shouldBlockHogFlowDueToQuota(item, {
                 quotaLimiting: mockQuotaLimiting,
                 hogFunctionMonitoringService: mockHogFunctionMonitoringService,
+                workflowsActivationReporter: mockWorkflowsActivationReporter,
             })
 
             expect(result).toBe(false)
