@@ -57,7 +57,7 @@ export const OBJECTS: readonly WorldObject[] = [
         id: 'replay',
         name: 'Replay cinema',
         product: 'Session replay',
-        hint: 'Start the next session replay on the big screen',
+        hint: 'Put a session replay on the big screen, like PostHog replays what a user did',
         glyph: 'R',
         color: '#1D4AFF',
         footprint: { x: 8.5, y: 0.5, w: 10, h: 4 },
@@ -205,9 +205,12 @@ export const PHRASES: readonly Phrase[] = [
     { id: 'refactor', text: 'My agent is refactoring everything 😬' },
     { id: 'ship', text: 'Ship it! 🚀' },
     { id: 'flag', text: 'Have you tried a feature flag?' },
-    { id: 'quills', text: 'Nice quills!' },
-    { id: 'review', text: 'brb, reviewing a PR' },
+    { id: 'significant', text: 'Is it significant yet?' },
+    { id: 'replay', text: 'brb, watching the replay 🎬' },
     { id: 'done', text: 'gg, my agent is done 🎉' },
+    { id: 'machine', text: 'It works on my machine 🦔' },
+    { id: 'master', text: 'Who broke master?' },
+    { id: 'quills', text: 'Nice quills!' },
 ]
 
 export interface Emote {
@@ -223,47 +226,86 @@ export const EMOTES: readonly Emote[] = [
     { id: 'party', emoji: '🎉', label: 'Party' },
     { id: 'coffee', emoji: '☕', label: 'Coffee' },
     { id: 'think', emoji: '🤔', label: 'Thinking' },
+    { id: 'hibernate', emoji: '😴', label: 'Hibernate' },
+    { id: 'salute', emoji: '🫡', label: 'Salute' },
+    // This one also turns the snow into a rainbow for everyone for a few seconds.
+    { id: 'rainbow', emoji: '🏳️‍🌈', label: 'Rainbow' },
 ]
 
 export const SKINS = ['default', 'spiderhog', 'robohog', 'hogzilla'] as const
 export type Skin = (typeof SKINS)[number]
 
+// Accessories from the sprite sheet that fit the default hedgehog. The other skins have their own shape.
+export const HATS = [
+    'beret',
+    'cap',
+    'chef',
+    'cowboy',
+    'eyepatch',
+    'graduation',
+    'party',
+    'pineapple',
+    'sunglasses',
+    'tophat',
+    'xmas-hat',
+    'parrot',
+] as const
+export type Hat = (typeof HATS)[number]
+
+// The hedgehogs a player can pick from: the default hedgehog with each hat, and the other skins.
+export const LOOKS: ReadonlyArray<{ skin: Skin; hat: Hat | null }> = [
+    { skin: 'default', hat: null },
+    ...HATS.map((hat) => ({ skin: 'default' as const, hat })),
+    { skin: 'spiderhog', hat: null },
+    { skin: 'robohog', hat: null },
+    { skin: 'hogzilla', hat: null },
+]
+
 export const NAME_ADJECTIVES: readonly string[] = [
     'Spiky',
-    'Curious',
-    'Sleepy',
-    'Speedy',
-    'Funky',
+    'Prickly',
     'Cozy',
-    'Brave',
-    'Sneaky',
-    'Chill',
+    'Snug',
+    'Sleepy',
+    'Nocturnal',
+    'Curious',
+    'Zesty',
+    'Plucky',
+    'Nimble',
     'Bouncy',
     'Dapper',
-    'Zesty',
     'Fuzzy',
     'Jolly',
     'Mellow',
-    'Nimble',
-    'Plucky',
-    'Snug',
-    'Sunny',
     'Witty',
+    'Brave',
+    'Sneaky',
+    'Hungry',
+    'Grumpy',
+    'Shiny',
+    'Turbo',
+    'Tiny',
+    'Mighty',
 ]
 
+// Half hedgehog, half PostHog, so a name reads like "Grumpy Webhook" or "Turbo Hoglet".
 export const NAME_NOUNS: readonly string[] = [
     'Hog',
     'Hoglet',
     'Quill',
-    'Hedgineer',
-    'Spike',
-    'Prickle',
     'Snout',
     'Burrow',
+    'Acorn',
     'Bramble',
     'Thistle',
-    'Nettle',
-    'Acorn',
+    'Funnel',
+    'Cohort',
+    'Flag',
+    'Replay',
+    'Insight',
+    'Pipeline',
+    'Webhook',
+    'Deploy',
 ]
 
 // One name per adjective and noun pair. A full club needs at least LIMITS.maxPlayers of them.
@@ -272,11 +314,14 @@ export const NAMES: readonly string[] = NAME_ADJECTIVES.flatMap((adjective) =>
 )
 
 export const REPLAY_REELS: readonly string[] = [
-    'A user rage-clicks a disabled button for a whole minute',
+    'A hedgehog rage-clicks a disabled button for a whole minute',
     'Someone reads the pricing page very, very slowly',
     'A checkout flow with seven "are you sure?" modals',
     'A hedgehog tries to close a cookie banner',
     'Someone opens 40 tabs and closes the wrong one',
+    'A user types their password into the search box',
+    'Twelve minutes of scrolling and zero clicks',
+    'A hedgehog finds the dark mode toggle and never looks back',
 ]
 
 export const BUG_SPECIES: readonly string[] = [
@@ -284,6 +329,10 @@ export const BUG_SPECIES: readonly string[] = [
     'RangeError: Maximum hedgehog depth exceeded',
     'ReferenceError: coffee is not defined',
     'SyntaxError: Unexpected token 🦔',
+    'HogQLError: unexpected quill in expression',
+    'OffByOneError: 367 hedgehogs',
+    'TimeoutError: the hedgehog is still hibernating',
+    'FlakyTestError: passed on the third try',
 ]
 
 export const MAX_JOKES: readonly string[] = [
@@ -292,6 +341,10 @@ export const MAX_JOKES: readonly string[] = [
     'Correlation is not causation. Unless it is an A/B test. Then it is science.',
     'I would tell you a joke about a retention curve, but you would not come back for it.',
     'My favorite cohort? Hedgehogs who clicked on me.',
+    'Rage clicks are just enthusiasm with bad UX.',
+    'I put a feature flag on my hibernation and rolled it out to 100% of winter.',
+    'I have ten thousand replays of hedgehogs closing cookie banners. Cinema.',
+    'A funnel with one step is just a door.',
 ]
 
 export const EXPERIMENT_SIGNIFICANCE_VOTES = 30

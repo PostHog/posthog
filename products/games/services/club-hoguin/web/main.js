@@ -3,12 +3,11 @@ import { createHogs, loadSprites } from '/hogs.js'
 import { THREE } from '/kit.js'
 import { createTown } from '/town.js'
 
-const POLL_MOVING_MS = 100
-const POLL_QUIET_MS = 350
+const RECONNECT_MS = 2000
 const KEY_WALK_MS = 120
 const KEY_WALK_REACH = 2.5
 const MAX_ID = 'npc-max'
-const SKIN_KEY = 'club-hoguin-skin'
+const LOOK_KEY = 'club-hoguin-look'
 
 const ERROR_MESSAGES = {
     too_far: 'Walk closer to something to use it.',
@@ -46,12 +45,19 @@ let hogs
 let sprites
 /** @type {string | null} */
 let token = null
+/** @type {{ skin: string, hat: string | null } | null} */
+let look = null
 /** @type {string | null} */
-let skin = null
+let youId = null
 /** @type {any} */
-let snapshot = null
-/** @type {number | null} */
-let lastFeedId = null
+let objects = null
+/** @type {string[]} */
+let feed = []
+// The server clock minus the browser clock. Every hedgehog's position follows the server clock.
+let clockOffset = 0
+/** @type {EventSource | null} */
+let stream = null
+let seenSeq = 0
 let stageWidth = 1
 let stageHeight = 1
 let hasWalked = false
@@ -92,49 +98,67 @@ function showNotice(text) {
     noticeUntil = performance.now() + 3200
 }
 
-// ---- Talking to the server -----------------------------------------------------------------------------------------
+// ---- Talking to the server -----------------------------------------------------------------------------
 
-let pollTimer = 0
-let isPolling = false
-let pollAgain = false
+const serverNow = () => Date.now() + clockOffset
 
-async function poll() {
-    if (isPolling) {
-        pollAgain = true
+async function join() {
+    const joined = await api('POST', '/api/join', { client: clientKind, skin: look?.skin, hat: look?.hat ?? null })
+    if (!joined.ok) {
+        throw new Error(joined.data?.error ?? 'join_failed')
+    }
+    token = joined.data.token
+    youId = joined.data.id
+}
+
+// The stream sends a snapshot, then every event as it happens. The browser reconnects by itself and sends
+// the number of the last event it saw, so the server continues from there or sends a new snapshot.
+function connect() {
+    if (stream) {
+        stream.close()
+    }
+    const source = new EventSource(`/api/stream?token=${encodeURIComponent(token ?? '')}`)
+    stream = source
+    source.addEventListener('snapshot', (message) => applySnapshot(JSON.parse(message.data)))
+    source.addEventListener('event', (message) => applyEvent(JSON.parse(message.data)))
+    source.addEventListener('sync', (message) => {
+        const sync = JSON.parse(message.data)
+        clockOffset = sync.at - Date.now()
+    })
+    source.addEventListener('error', () => {
+        // The browser retries on its own. A token the server no longer knows needs a new join first.
+        if (!token) {
+            return
+        }
+        void api('GET', '/api/state').then((result) => {
+            if (result.status === 401) {
+                token = null
+                source.close()
+                void start_()
+            }
+        })
+    })
+}
+
+let isStarting = false
+
+async function start_() {
+    if (isStarting || !look) {
         return
     }
-    isPolling = true
-    window.clearTimeout(pollTimer)
-    let delay = POLL_QUIET_MS
+    isStarting = true
     try {
-        if (!token && skin) {
-            const joined = await api('POST', '/api/join', { client: clientKind, skin })
-            if (!joined.ok) {
-                throw new Error(joined.data?.error ?? 'join_failed')
-            }
-            token = joined.data.token
+        if (!token) {
+            await join()
         }
-        const result = await api('GET', '/api/state')
-        if (result.status === 401) {
-            token = null
-            delay = 0
-        } else if (result.ok) {
-            applySnapshot(result.data)
-            if (result.data.players.some((/** @type {any} */ player) => player.moving)) {
-                delay = POLL_MOVING_MS
-            }
-        }
+        connect()
     } catch (error) {
         const code = error instanceof Error ? error.message : ''
         showNotice(ERROR_MESSAGES[code] ?? "Can't reach the club. Trying again…")
-        delay = 2000
+        window.setTimeout(() => void start_(), code in ERROR_MESSAGES ? 5000 : RECONNECT_MS)
+    } finally {
+        isStarting = false
     }
-    isPolling = false
-    if (pollAgain) {
-        pollAgain = false
-        delay = 0
-    }
-    pollTimer = window.setTimeout(poll, delay)
 }
 
 /** @param {string} path @param {object} body */
@@ -144,59 +168,111 @@ async function act(path, body) {
     }
     try {
         const result = await api('POST', path, body)
-        if (!result.ok && result.data?.error) {
+        if (result.status === 401) {
+            token = null
+            void start_()
+        } else if (!result.ok && result.data?.error) {
             showNotice(ERROR_MESSAGES[result.data.error] ?? 'That did not work. Try again.')
         }
     } catch {
         showNotice("Can't reach the club. Trying again…")
     }
-    void poll()
+}
+
+function renderOnline() {
+    const count = [...hogs.hogs.values()].filter((hog) => !hog.view.npc).length
+    const you = youId ? hogs.hogs.get(youId) : null
+    const others = count - (you ? 1 : 0)
+    $('online').textContent = you
+        ? `You are ${you.view.name} · ${others === 1 ? '1 other hog' : `${others} other hogs`} here`
+        : `${count} ${count === 1 ? 'hog' : 'hogs'} here`
+}
+
+function renderFeed() {
+    $('feed').replaceChildren(
+        ...feed
+            .slice(-6)
+            .reverse()
+            .map((text) => {
+                const item = document.createElement('li')
+                item.textContent = text
+                return item
+            })
+    )
 }
 
 /** @param {any} next */
 function applySnapshot(next) {
-    const isFirst = snapshot === null
-    snapshot = next
-    hogs.sync(next.players)
-    town.setObjects(next.objects, isFirst)
+    // A server that started again has new phrases, objects, and ids. The page starts over with them.
+    if (next.serverId !== world.serverId) {
+        window.location.reload()
+        return
+    }
+    const isFirst = objects === null
+    clockOffset = next.at - Date.now()
+    seenSeq = next.seq
+    hogs.sync(next.players, next.at)
+    objects = next.objects
+    town.setObjects(objects, isFirst)
+    feed = next.feed.map((/** @type {{ text: string }} */ entry) => entry.text)
     $('loading').hidden = true
-    if (next.you) {
-        const others = next.online - 1
-        $('online').textContent =
-            `You are ${next.you.name} · ${others === 1 ? '1 other hog' : `${others} other hogs`} here`
-    } else {
-        $('online').textContent = `${next.online} ${next.online === 1 ? 'hog' : 'hogs'} here`
-    }
+    renderOnline()
+    renderFeed()
+}
 
-    const newest = next.feed.length > 0 ? next.feed[next.feed.length - 1].id : 0
-    if (lastFeedId !== null) {
-        for (const entry of next.feed) {
-            if (entry.id > lastFeedId && entry.kind === 'poke') {
-                playPoke(entry)
-            }
-        }
+/** @param {any} event */
+function applyEvent(event) {
+    if (event.seq <= seenSeq) {
+        return
     }
-    if (newest !== lastFeedId) {
-        lastFeedId = newest
-        $('feed').replaceChildren(
-            ...next.feed
-                .slice(-6)
-                .reverse()
-                .map((/** @type {{ text: string }} */ entry) => {
-                    const item = document.createElement('li')
-                    item.textContent = entry.text
-                    return item
-                })
-        )
+    seenSeq = event.seq
+    switch (event.kind) {
+        case 'join':
+            hogs.join({ ...event.player, at: event.at })
+            renderOnline()
+            break
+        case 'leave':
+            hogs.remove(event.id)
+            renderOnline()
+            break
+        case 'walk':
+            hogs.walk(event.id, { from: event.from, path: event.path, at: event.at })
+            break
+        case 'say':
+            hogs.say(event.id, event.phrase, event.at)
+            break
+        case 'emote':
+            showEmote(event.id, event.emoji)
+            if (event.emoji === '🏳️‍🌈') {
+                town.rainbow(10)
+            }
+            break
+        case 'poke':
+            objects = event.objects
+            town.setObjects(objects)
+            playPoke(event)
+            break
+    }
+    if (event.text) {
+        feed = [...feed, event.text].slice(-20)
+        renderFeed()
     }
 }
 
-/** @param {{ objectId: string, playerId: string }} entry */
+/** @param {{ objectId: string, id: string }} entry */
 function playPoke(entry) {
     town.playPoke(entry.objectId)
-    hogs.playOnce(entry.playerId, 'jump')
+    hogs.playOnce(entry.id, 'jump')
+    if (entry.objectId === 'ship') {
+        const launcher = hogs.hogs.get(entry.id)
+        const callout = label('callout')
+        callout.textContent = `🚀 ${launcher ? launcher.view.name : 'Someone'} shipped!`
+        callout.style.zIndex = '2500'
+        pin(callout, town.at(34, 15.1, 5.5), 'translate(-50%, -100%)')
+        callout.addEventListener('animationend', () => callout.remove())
+    }
     if (entry.objectId === 'door-a' || entry.objectId === 'door-b') {
-        hogs.hide(entry.playerId, 0.9)
+        hogs.hide(entry.id, 0.9)
     }
     if (entry.objectId === 'max') {
         maxSpeaksUntil = performance.now() + 9000
@@ -226,15 +302,28 @@ function label(className) {
     return element
 }
 
-/** @type {Map<string, { tag: HTMLElement, bubble: HTMLElement, emoteSeq: number }>} */
+/** @type {Map<string, { tag: HTMLElement, bubble: HTMLElement }>} */
 const hogLabels = new Map()
 const tip = label('tip')
 const maxBubble = label('bubble bubble-max')
 tip.hidden = true
 maxBubble.hidden = true
 
+/** @param {string} id @param {string} emoji */
+function showEmote(id, emoji) {
+    const hog = hogs.hogs.get(id)
+    if (!hog) {
+        return
+    }
+    const floating = label('emote')
+    floating.textContent = emoji
+    floating.style.zIndex = '2000'
+    pin(floating, town.at(hog.x, hog.y, 3.1), 'translate(-50%, -100%)')
+    floating.addEventListener('animationend', () => floating.remove())
+    hogs.playOnce(id, 'wave', 14)
+}
+
 function updateLabels() {
-    const youId = snapshot?.you?.id
     for (const [id, entry] of hogLabels) {
         if (!hogs.hogs.has(id)) {
             entry.tag.remove()
@@ -248,7 +337,7 @@ function updateLabels() {
         }
         let entry = hogLabels.get(id)
         if (!entry) {
-            entry = { tag: label('tag'), bubble: label('bubble'), emoteSeq: 0 }
+            entry = { tag: label('tag'), bubble: label('bubble') }
             hogLabels.set(id, entry)
         }
         const depth = String(Math.round(hog.y * 10))
@@ -256,26 +345,16 @@ function updateLabels() {
         entry.tag.classList.toggle('tag-you', id === youId)
         entry.tag.style.zIndex = depth
         pin(entry.tag, town.at(hog.x, hog.y, 0), 'translate(-50%, 0.15em)')
-        entry.bubble.hidden = !hog.view.bubble
-        if (hog.view.bubble) {
-            entry.bubble.textContent = hog.view.bubble
+        entry.bubble.hidden = !hog.bubble
+        if (hog.bubble) {
+            entry.bubble.textContent = hog.bubble
             entry.bubble.style.zIndex = String(1000 + Math.round(hog.y * 10))
             pin(entry.bubble, town.at(hog.x, hog.y, 2.9), 'translate(-50%, -100%) translateY(-0.7em)')
-        }
-        const emote = hog.view.emote
-        if (emote && emote.seq !== entry.emoteSeq) {
-            entry.emoteSeq = emote.seq
-            const floating = label('emote')
-            floating.textContent = emote.emoji
-            floating.style.zIndex = '2000'
-            pin(floating, town.at(hog.x, hog.y, 3.1), 'translate(-50%, -100%)')
-            floating.addEventListener('animationend', () => floating.remove())
-            hogs.playOnce(id, 'wave', 14)
         }
     }
 
     const max = hogs.hogs.get(MAX_ID)
-    const maxSays = snapshot?.objects.maxSays
+    const maxSays = objects?.maxSays
     maxBubble.hidden = !(max && maxSays && performance.now() < maxSpeaksUntil)
     if (!maxBubble.hidden) {
         maxBubble.textContent = maxSays
@@ -291,7 +370,10 @@ function updateLabels() {
                   (/** @type {any} */ object) => distanceToFootprint(you.x, you.y, object.footprint) <= world.pokeReach
               )
             : null
-    const shownId = hoveredObject ?? near?.id ?? null
+    // While Max tells a joke, the joke is the thing to read; the tip for the desk waits.
+    const maxIsSpeaking = Boolean(objects?.maxSays) && performance.now() < maxSpeaksUntil
+    const wanted = hoveredObject ?? near?.id ?? null
+    const shownId = wanted === 'max' && maxIsSpeaking ? null : wanted
     tip.hidden = !shownId
     if (shownId) {
         const object = world.objects.find((/** @type {any} */ candidate) => candidate.id === shownId)
@@ -355,7 +437,7 @@ canvas.addEventListener('click', (event) => {
 })
 
 function keyWalk() {
-    const you = snapshot?.you ? hogs.hogs.get(snapshot.you.id) : null
+    const you = youId ? hogs.hogs.get(youId) : null
     let dx = 0
     let dy = 0
     for (const key of heldKeys) {
@@ -391,6 +473,9 @@ window.addEventListener('keydown', (event) => {
         }
     } else if (key === 'Escape') {
         closePopovers()
+        if (look) {
+            $('card').hidden = true
+        }
     }
 })
 
@@ -398,8 +483,8 @@ window.addEventListener('keyup', (event) => {
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key
     if (heldKeys.delete(key) && heldKeys.size === 0) {
         // The hedgehog stops a short step ahead, not at the end of the last long step.
-        const you = snapshot?.you ? hogs.hogs.get(snapshot.you.id) : null
-        const next = you?.path[0]
+        const you = youId ? hogs.hogs.get(youId) : null
+        const next = you?.walk.path.find((point) => Math.hypot(point.x - you.x, point.y - you.y) > 0.05)
         if (you && next) {
             const distance = Math.hypot(next.x - you.x, next.y - you.y) || 1
             void act('/api/move', {
@@ -464,23 +549,36 @@ function buildToolbar() {
     })
     $('me-toggle').addEventListener('click', () => {
         closePopovers()
+        $('card-close').hidden = false
         $('card').hidden = false
     })
+    $('card-close').addEventListener('click', () => {
+        $('card').hidden = true
+    })
 
-    let picked = skin ?? world.skins[0]
-    const buttons = world.skins.map((/** @type {string} */ name) => {
+    const sameLook = (/** @type {any} */ a, /** @type {any} */ b) =>
+        Boolean(a && b) && a.skin === b.skin && (a.hat ?? null) === (b.hat ?? null)
+    let picked = world.looks.find((/** @type {any} */ candidate) => sameLook(candidate, look)) ?? world.looks[0]
+    const buttons = world.looks.map((/** @type {{ skin: string, hat: string | null }} */ candidate) => {
         const button = document.createElement('button')
         button.type = 'button'
         button.className = 'skin'
-        button.setAttribute('aria-label', name)
-        button.setAttribute('aria-pressed', String(name === picked))
+        button.setAttribute('aria-label', candidate.hat ? `${candidate.skin} with ${candidate.hat}` : candidate.skin)
+        button.setAttribute('aria-pressed', String(candidate === picked))
         const art = document.createElement('span')
         art.className = 'skin-art'
-        const frame = /** @type {any} */ (sprites.animations.get(`skins/${name}/idle`))[0]
+        const frame = /** @type {any} */ (sprites.animations.get(`skins/${candidate.skin}/idle`))[0]
         art.style.backgroundPosition = `-${frame.x}px -${frame.y}px`
         button.append(art)
+        if (candidate.hat) {
+            const hat = document.createElement('span')
+            hat.className = 'skin-art skin-hat'
+            const hatFrame = /** @type {any} */ (sprites.animations.get(`accessories/${candidate.hat}`))[0]
+            hat.style.backgroundPosition = `-${hatFrame.x}px -${hatFrame.y}px`
+            button.append(hat)
+        }
         button.addEventListener('click', () => {
-            picked = name
+            picked = candidate
             buttons.forEach((/** @type {HTMLElement} */ other) =>
                 other.setAttribute('aria-pressed', String(other === button))
             )
@@ -490,17 +588,17 @@ function buildToolbar() {
     })
     $('enter').addEventListener('click', async () => {
         $('card').hidden = true
-        if (token && picked !== skin) {
+        if (token && !sameLook(picked, look)) {
             await api('POST', '/api/leave', {}).catch(() => undefined)
             token = null
         }
-        skin = picked
+        look = { skin: picked.skin, hat: picked.hat ?? null }
         try {
-            window.localStorage.setItem(SKIN_KEY, picked)
+            window.localStorage.setItem(LOOK_KEY, JSON.stringify(look))
         } catch {
             // The choice is kept for this visit only.
         }
-        void poll()
+        void start_()
     })
 }
 
@@ -544,7 +642,7 @@ async function start() {
         return
     }
     sprites = await loadSprites()
-    hogs = createHogs(town, sprites, world)
+    hogs = createHogs(town, sprites, world, serverNow)
     hogs.add({ id: MAX_ID, npc: true, skin: 'default', hat: 'graduation', x: 35, y: 3.25, facing: 'left', path: [] })
 
     new ResizeObserver(() => {
@@ -554,16 +652,26 @@ async function start() {
     }).observe(stage)
 
     try {
-        const saved = window.localStorage.getItem(SKIN_KEY)
-        skin = world.skins.includes(saved) ? saved : null
+        const saved = JSON.parse(window.localStorage.getItem(LOOK_KEY) ?? 'null')
+        look = world.looks.some(
+            (/** @type {any} */ candidate) =>
+                candidate.skin === saved?.skin && (candidate.hat ?? null) === (saved?.hat ?? null)
+        )
+            ? saved
+            : null
     } catch {
-        skin = null
+        look = null
     }
     buildToolbar()
     town.applyNight()
     window.requestAnimationFrame(frame)
-    $('card').hidden = skin !== null
-    void poll()
+    $('card').hidden = look !== null
+    if (look) {
+        void start_()
+    } else {
+        // Watching the town while the card is up: a stream without a token.
+        connect()
+    }
 }
 
 void start()

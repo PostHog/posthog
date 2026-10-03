@@ -7,6 +7,8 @@ const WORLD = {
     objects: [{ id: 'ship', name: 'Ship it button', glyph: 'S', color: '#2BA84A' }],
     phrases: [{ id: 'hi', text: 'Hi hogs! 👋' }],
     skins: ['default'],
+    walkSpeed: 7,
+    limits: { bubbleMs: 6000 },
 }
 
 const YOU = {
@@ -28,7 +30,12 @@ const STATE = {
     feed: [{ id: 1, at: 0, text: 'Test Hog waddled in' }],
     objects: { lightsOn: true, doorA: 0, doorB: 0, bugsCaught: 0, deploys: 0 },
     online: 2,
+    seq: 1,
+    at: 0,
 }
+
+// A 1 by 1 pixel PNG, base64. The test engine never paints it.
+const FAKE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 
 const PANE = {
     plugin: 'club-hoguin',
@@ -77,8 +84,11 @@ function setUp(
                   ? { id: 'p1', token: 'secret', name: 'Test Hog', skin: 'default' }
                   : path === '/api/state'
                     ? STATE
-                    : { ok: true }
-        return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(data) } }
+                    : path === '/api/events'
+                      ? { seq: 1, at: 0, events: [] }
+                      : { ok: true }
+        const text = path === '/api/frame.b64' ? FAKE_PNG : JSON.stringify(data)
+        return { value: { status: 200, ok: true, headers: {}, text } }
     })
     on('ui.open', async ($: unknown, e: any) => {
         await openGate
@@ -126,10 +136,16 @@ test('/hoguin joins the club, draws the room, and sends preset phrases and moves
         const ui = await $.ui.mount({ ...PANE, surface })
         expect(await ui.find({ type: 'Text', text: /2 here · you are Test Hog/ })).toBeDefined()
         expect(
-            await ui.find(surface === 'terminal' ? { type: 'Raster' } : { type: 'Text', text: '█S..@█' })
+            await ui.find(surface === 'terminal' ? { type: 'Image' } : { type: 'Text', text: '█S..@█' })
         ).toBeDefined()
         await ui.unmount()
     }
+    // The text map is there for a terminal that cannot draw pictures.
+    await $.command.run({ command: 'hoguin', args: 'map' })
+    const textMap = await $.ui.mount({ ...PANE, surface: 'terminal' })
+    expect(await textMap.find({ type: 'Raster' })).toBeDefined()
+    await textMap.unmount()
+    await $.command.run({ command: 'hoguin', args: 'picture' })
 
     const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
     await ui.press({ key: 'say-hi' })

@@ -384,6 +384,7 @@ body {
 }
 
 .card-body {
+    position: relative;
     width: min(86cqw, 560px);
     padding: 2cqw 2.4cqw;
     color: var(--hog-ink);
@@ -407,19 +408,54 @@ body {
     color: #55596a;
 }
 
+.card-close {
+    position: absolute;
+    top: 0.8cqw;
+    right: 0.8cqw;
+    width: 2.2em;
+    height: 2.2em;
+    font-family: inherit;
+    font-size: clamp(12px, 1.5cqw, 17px);
+    color: var(--hog-ink);
+    cursor: pointer;
+    background: var(--hog-cream);
+    border: 2px solid var(--hog-ink);
+    border-radius: 999px;
+    box-shadow: 0 2px 0 var(--hog-ink);
+}
+
+.callout {
+    padding: 0.3em 0.8em;
+    font-size: clamp(12px, 1.7cqw, 20px);
+    color: #fff;
+    background: var(--hog-orange);
+    border: 2px solid var(--hog-ink);
+    border-radius: 999px;
+    box-shadow: 0 3px 0 var(--hog-ink);
+    animation: ClubHoguin__FloatUp 3.2s ease-out forwards;
+}
+
 .skins {
-    display: flex;
-    gap: 1cqw;
-    justify-content: center;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.8cqw;
+    justify-items: center;
     margin-bottom: 1.4cqw;
 }
 
 .skin {
+    position: relative;
     padding: 0.4cqw;
     cursor: pointer;
     background: #eef3ff;
     border: 3px solid transparent;
     border-radius: 1em;
+}
+
+.skin-hat {
+    position: absolute;
+    top: 0.4cqw;
+    left: 0.4cqw;
 }
 
 .skin[aria-pressed='true'] {

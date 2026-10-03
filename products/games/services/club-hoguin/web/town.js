@@ -579,8 +579,8 @@ export function createTown(world, canvas) {
                     fitText(g, 'NOW PLAYING', w / 2, h * 0.2, w * 0.9, 32, '#f9bd2b')
                     fitText(g, state.nowPlaying, w / 2, h * 0.63, w * 0.92, 48, '#ffffff', 2)
                 } else {
-                    fitText(g, 'Session replays, all day', w / 2, h * 0.38, w * 0.9, 56, '#ffffff')
-                    fitText(g, 'Click the cinema to start one', w / 2, h * 0.76, w * 0.9, 36, '#9fb0ff', 1, 'normal')
+                    fitText(g, 'Now showing: session replays', w / 2, h * 0.38, w * 0.9, 50, '#ffffff')
+                    fitText(g, 'Click to put the next one on', w / 2, h * 0.76, w * 0.9, 36, '#9fb0ff', 1, 'normal')
                 }
             })
         }
@@ -811,7 +811,7 @@ export function createTown(world, canvas) {
         })
         place(jar, 5.3, 15.6)
         const counter = sign(3.2, 1.3, 100, () => undefined)
-        counter.board.position.copy(at(5.3, 16.8, 0.9))
+        counter.board.position.copy(at(5.3, 15.6, 3.6))
         scene.add(counter.board)
         objectViews.bugs = (/** @type {any} */ state) => {
             bugs.forEach((bug, index) => (bug.visible = index < state.bugsCaught + 3))
@@ -820,12 +820,16 @@ export function createTown(world, canvas) {
                 fitText(g, `🐛 ${state.bugsCaught} caught`, w / 2, h / 2 + 2, w * 0.84, 70, '#151515')
             })
         }
-        addHit('bugs', 5.3, 15.8, 2.8, 3.2, 2.6, 3.6)
+        addHit('bugs', 5.3, 15.8, 2.8, 3.2, 2.6, 5.2)
     }
 
     // Ship it: the launch pad, the rocket, and the big button.
     const rocket = new THREE.Group()
-    let launch = -1
+    // Rockets in the air. Each launch sends a copy of the rocket on the pad, so the pad is never empty.
+    /** @type {Array<{ group: THREE.Group, flame: THREE.Mesh, light: THREE.PointLight, age: number }>} */
+    const flights = []
+    let buttonPressedAt = -1
+    let launchRocket = () => undefined
     {
         const pad = new THREE.Group()
         pad.add(mesh(cylinder(1.9, 2.05, 0.3, 16), mat(0x4a5162), [0, 0.15, 0]))
@@ -880,36 +884,51 @@ export function createTown(world, canvas) {
         rocket.add(rocketLight)
         place(pad, 34, 15.1)
         animations.push((dt, time) => {
-            button.position.y +=
-                ((launch >= 0 && launch < 0.3 ? 0.98 : 1.06) - button.position.y) * Math.min(1, dt * 20)
-            if (launch < 0) {
-                rocket.position.set(0, 0.3, 0)
-                flame.visible = false
-                rocketLight.intensity = 0
-                return
-            }
-            launch += dt
-            flame.visible = true
-            flame.scale.set(1, 0.8 + Math.sin(time * 40) * 0.25, 1)
-            rocketLight.intensity = 50
-            if (launch < 0.8) {
-                // The rocket shakes before it lifts off.
-                rocket.position.set(Math.sin(time * 60) * 0.05, 0.3, Math.cos(time * 50) * 0.05)
-            } else if (launch < 4) {
-                const lift = launch - 0.8
-                rocket.position.set(0, 0.3 + lift * lift * 4.5, 0)
-                if (Math.random() < 0.6) {
-                    puff(at(34, 15.1, Math.max(0.6, rocket.position.y - 0.4)), 0xe8eef6, 1)
+            const pressed = time - buttonPressedAt < 0.3
+            button.position.y += ((pressed ? 0.98 : 1.06) - button.position.y) * Math.min(1, dt * 20)
+            for (let index = flights.length - 1; index >= 0; index--) {
+                const flight = flights[index]
+                flight.age += dt
+                flight.flame.scale.set(1, 0.8 + Math.sin(time * 40) * 0.25, 1)
+                if (flight.age < 0.5) {
+                    // The rocket shakes before it lifts off.
+                    flight.group.position.set(Math.sin(time * 60) * 0.05, 0.3, Math.cos(time * 50) * 0.05)
+                } else {
+                    const lift = flight.age - 0.5
+                    flight.group.position.set(0, 0.3 + lift * lift * 4.5, 0)
+                    if (Math.random() < 0.6) {
+                        puff(at(34, 15.1, Math.max(0.6, flight.group.position.y - 0.4)), 0xe8eef6, 1)
+                    }
                 }
-            } else if (launch < 5) {
-                // A new rocket rises out of the pad.
-                rocket.position.set(0, 0.3 - (5 - launch) * 3.6, 0)
-                flame.visible = false
-                rocketLight.intensity = 0
-            } else {
-                launch = -1
+                if (flight.age > 4) {
+                    pad.remove(flight.group)
+                    flights.splice(index, 1)
+                }
             }
+            rocket.visible = flights.every((flight) => flight.age > 0.5)
         })
+        launchRocket = () => {
+            buttonPressedAt = performance.now() / 1000
+            const group = rocket.clone()
+            group.visible = true
+            // The copy has its own flame and light, so each rocket burns on its own.
+            const ownFlame = mesh(
+                cone(0.42, 1.6, 8),
+                glow(0xffa51f, 2.4, 3, { transparent: true, opacity: 0.9 }),
+                [0, -0.2, 0],
+                {
+                    rotation: [Math.PI, 0, 0],
+                    cast: false,
+                }
+            )
+            group.add(ownFlame)
+            const light = lamp(0xffa51f, 50, 50, 16)
+            light.position.set(0, 1, 0)
+            group.add(light)
+            pad.add(group)
+            flights.push({ group, flame: ownFlame, light, age: 0 })
+            puff(at(34, 15.1, 0.5), 0xe8eef6, 14)
+        }
         const counter = sign(4, 1.4, 100, () => undefined)
         counter.board.position.copy(at(30.6, 16.3, 2.4))
         scene.add(counter.board)
@@ -1042,6 +1061,39 @@ export function createTown(world, canvas) {
                 prints.splice(index, 1)
             }
         }
+    })
+
+    // The rainbow: a sheet over the snow that ripples through every color while the emote lasts.
+    const rainbowMaterial = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: { uTime: { value: 0 }, uStrength: { value: 0 } },
+        vertexShader:
+            'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+        fragmentShader: `
+            uniform float uTime; uniform float uStrength; varying vec2 vUv;
+            vec3 hue(float h) { return clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0); }
+            void main() {
+                vec2 p = vUv * vec2(40.0, 22.0);
+                float d = length(p - vec2(20.0, 11.5));
+                float ripple = 0.5 + 0.5 * sin(d * 1.1 - uTime * 5.0);
+                float h = fract(d * 0.07 - uTime * 0.3 + 0.08 * sin(p.x * 0.35 + uTime * 1.7) + 0.08 * sin(p.y * 0.5 - uTime * 1.3));
+                gl_FragColor = vec4(hue(h), (0.5 + 0.4 * ripple) * uStrength);
+            }`,
+    })
+    const rainbow = new THREE.Mesh(new THREE.PlaneGeometry(world.width, world.depth), rainbowMaterial)
+    rainbow.rotation.x = -Math.PI / 2
+    rainbow.position.y = 0.06
+    rainbow.visible = false
+    scene.add(rainbow)
+    let rainbowUntil = 0
+    animations.push((dt, time) => {
+        const left = rainbowUntil - time
+        const target = left > 0 ? Math.min(1, left) : 0
+        rainbowMaterial.uniforms.uStrength.value +=
+            (target - rainbowMaterial.uniforms.uStrength.value) * Math.min(1, dt * 4)
+        rainbowMaterial.uniforms.uTime.value = time
+        rainbow.visible = rainbowMaterial.uniforms.uStrength.value > 0.01
     })
 
     // A ring on the ground where the player clicked.
@@ -1182,10 +1234,7 @@ export function createTown(world, canvas) {
             const object = objects[objectId]
             const spot = at(object.stand.x, object.stand.y, 1.2)
             if (objectId === 'ship') {
-                if (launch < 0) {
-                    launch = 0
-                }
-                puff(at(34, 15.1, 0.5), 0xe8eef6, 14)
+                launchRocket()
             } else if (objectId === 'door-a' || objectId === 'door-b') {
                 doors[objectId].open = 1.4
                 confetti(
@@ -1204,6 +1253,10 @@ export function createTown(world, canvas) {
         },
         puff,
         footprint,
+        /** Turns the snow into a rainbow for this many seconds. */
+        rainbow(/** @type {number} */ seconds) {
+            rainbowUntil = performance.now() / 1000 + seconds
+        },
         nightValue: () => night.value,
         update(/** @type {number} */ dt, /** @type {number} */ time) {
             if (night.value !== night.target) {

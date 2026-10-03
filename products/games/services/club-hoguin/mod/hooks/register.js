@@ -1,9 +1,14 @@
 // Club Hoguin for Claude Code: a pane where you hang out with other hedgehogs while Claude works.
-// A mod has no sockets, so the pane polls the Club Hoguin server over HTTP.
+// A mod has no sockets, so the pane polls the Club Hoguin server over HTTP for new events.
+import { positionAt } from './walk.js'
 
 const PANE = 'club-hoguin'
 const DEFAULT_URL = 'http://localhost:8642'
 const POLL_MS = 500
+// The picture of the town is drawn again this often while the pane shows it.
+const FRAME_MS = 100
+const PICTURE_COLUMNS = 40
+const PICTURE_ROWS = 11
 const AUTO_OPEN_AFTER_MS = 10_000
 const STEP = 3
 const FEED_LINES = 4
@@ -21,9 +26,15 @@ let baseUrl = DEFAULT_URL
 // Where the address came from: 'env' wins, then the PostHog MCP server, then the default.
 let baseUrlSource = 'default'
 let autoJoin = true
+// The pane shows a picture of the town where the terminal can draw one. `/hoguin map` switches to text.
+let showPicture = true
+let picture = null
+let frameTimer = null
 let world = null
 let session = null
 let snapshot = null
+// The town as the events describe it. `snapshot` is a view of it, taken whenever something is drawn.
+let model = null
 let problem = null
 let pollTimer = null
 let autoTimer = null
@@ -49,7 +60,7 @@ async function request($, method, path, body) {
     } catch {
         data = null
     }
-    return { status: response.status, ok: response.ok, data }
+    return { status: response.status, ok: response.ok, data, text: response.text }
 }
 
 // The PostHog MCP server knows where the club is hosted. The mod asks it once per session, so nobody
@@ -136,6 +147,87 @@ async function join($) {
     }
 }
 
+// Loads a snapshot of the town, or applies the events after the last one seen.
+function load($, data) {
+    if (world && data.serverId !== world.serverId) {
+        // The server started again, with new phrases and objects. The next join reads them.
+        world = null
+        session = null
+        model = null
+        return
+    }
+    model = {
+        seq: data.seq,
+        // The server clock minus the clock of this process. Every hedgehog's position follows the server clock.
+        offset: data.at - $.clock.now(),
+        objects: data.objects,
+        feed: data.feed.map((entry) => entry.text),
+        players: new Map(
+            data.players.map((player) => [
+                player.id,
+                { ...player, walk: { from: { x: player.x, y: player.y }, path: player.path, at: data.at } },
+            ])
+        ),
+    }
+}
+
+function applyEvent(event) {
+    if (!model || event.seq <= model.seq) {
+        return
+    }
+    model.seq = event.seq
+    if (event.kind === 'join') {
+        model.players.set(event.player.id, {
+            ...event.player,
+            walk: { from: { x: event.player.x, y: event.player.y }, path: [], at: event.at },
+        })
+    } else if (event.kind === 'leave') {
+        model.players.delete(event.id)
+    } else if (event.kind === 'walk') {
+        const player = model.players.get(event.id)
+        if (player) {
+            player.walk = { from: event.from, path: event.path, at: event.at }
+        }
+    } else if (event.kind === 'say') {
+        const player = model.players.get(event.id)
+        if (player) {
+            player.bubble = event.phrase
+            player.bubbleUntil = event.at + world.limits.bubbleMs
+        }
+    } else if (event.kind === 'poke') {
+        model.objects = event.objects
+    }
+    if (event.text) {
+        model.feed = [...model.feed, event.text].slice(-20)
+    }
+}
+
+// The town right now: every hedgehog where its walk puts it at this moment.
+function view($) {
+    if (!model) {
+        return null
+    }
+    const now = $.clock.now() + model.offset
+    const players = [...model.players.values()].map((player) => {
+        const position = positionAt(player.walk, world.walkSpeed, now)
+        return {
+            ...player,
+            x: position.x,
+            y: position.y,
+            facing: position.facing || player.facing,
+            moving: position.moving,
+            bubble: player.bubble && now < player.bubbleUntil ? player.bubble : null,
+        }
+    })
+    return {
+        you: session ? (players.find((player) => player.id === session.id) ?? null) : null,
+        players,
+        feed: model.feed.map((text) => ({ text })),
+        objects: model.objects,
+        online: players.length,
+    }
+}
+
 async function poll($) {
     if (isPolling) {
         return
@@ -143,14 +235,25 @@ async function poll($) {
     isPolling = true
     try {
         if (session || (await join($))) {
-            const state = await request($, 'GET', '/api/state')
-            if (state.status === 401) {
+            const response = model
+                ? await request($, 'GET', '/api/events?since=' + model.seq)
+                : await request($, 'GET', '/api/state')
+            if (response.status === 401) {
                 session = null
-            } else if (state.ok) {
-                snapshot = state.data
+                model = null
+            } else if (response.ok) {
+                if (response.data.resync) {
+                    load($, response.data.snapshot)
+                } else if (response.data.events) {
+                    model.offset = response.data.at - $.clock.now()
+                    response.data.events.forEach(applyEvent)
+                } else {
+                    load($, response.data)
+                }
+                snapshot = view($)
                 problem = null
             } else {
-                problem = 'Club Hoguin answered with status ' + state.status + '. Trying again…'
+                problem = 'Club Hoguin answered with status ' + response.status + '. Trying again…'
             }
         }
     } catch {
@@ -159,6 +262,22 @@ async function poll($) {
         isPolling = false
     }
     $.ui.invalidate('ui.render')
+}
+
+// Fetches the newest picture and repaints the pane when it changed.
+async function paint($) {
+    if (!session || !showPicture) {
+        return
+    }
+    try {
+        const response = await request($, 'GET', '/api/frame.b64')
+        if (response.ok && response.text && response.text !== picture) {
+            picture = response.text
+            $.ui.invalidate('ui.render')
+        }
+    } catch {
+        // The next poll reports the problem.
+    }
 }
 
 async function act($, path, body) {
@@ -182,6 +301,7 @@ async function act($, path, body) {
 }
 
 async function walk($, dx, dy) {
+    snapshot = view($)
     const you = snapshot && snapshot.you
     if (you) {
         await act($, '/api/move', { x: you.x + dx * STEP, y: you.y + dy * STEP })
@@ -228,7 +348,13 @@ async function showClub($, byTurn, number) {
             void poll($)
         })
     }
+    if (!frameTimer) {
+        frameTimer = $.clock.every(FRAME_MS, () => {
+            void paint($)
+        })
+    }
     await poll($)
+    await paint($)
 }
 
 async function leaveClub($, closePane) {
@@ -236,6 +362,11 @@ async function leaveClub($, closePane) {
         pollTimer.cancel()
         pollTimer = null
     }
+    if (frameTimer) {
+        frameTimer.cancel()
+        frameTimer = null
+    }
+    picture = null
     const wasOpen = isOpen
     isOpen = false
     openedByTurn = false
@@ -248,6 +379,7 @@ async function leaveClub($, closePane) {
     }
     session = null
     snapshot = null
+    model = null
     problem = null
     if (closePane && wasOpen) {
         await $.ui.close({ id: PANE })
@@ -316,10 +448,14 @@ export function register(on) {
         if (typeof savedAutoJoin === 'boolean') {
             autoJoin = savedAutoJoin
         }
+        const savedPicture = await $.store.get('showPicture')
+        if (typeof savedPicture === 'boolean') {
+            showPicture = savedPicture
+        }
         await $.command.register({
             name: 'hoguin',
             description: 'Open or close Club Hoguin, a place to hang out with other hedgehogs while Claude works',
-            argumentHint: '[web|auto on|auto off]',
+            argumentHint: '[web|map|picture|auto on|auto off]',
             immediate: true,
         })
         return next(e)
@@ -336,6 +472,16 @@ export function register(on) {
                     : 'Club Hoguin opens only when you run /hoguin.',
             }
         }
+        if (args === 'map' || args === 'picture') {
+            showPicture = args === 'picture'
+            await $.store.set('showPicture', showPicture)
+            $.ui.invalidate('ui.render')
+            return {
+                text: showPicture
+                    ? 'The pane shows a picture of the town. Run /hoguin map for the text map.'
+                    : 'The pane shows the text map. Run /hoguin picture for the picture.',
+            }
+        }
         if (args === 'web') {
             const url = (await resolveBaseUrl($)) + '/'
             const opened = await openInBrowser($, url)
@@ -347,7 +493,7 @@ export function register(on) {
         }
         if (args !== '') {
             return {
-                text: 'Run /hoguin to open or close the club, /hoguin web to open it in the browser, or /hoguin auto on|off to choose if it opens by itself.',
+                text: 'Run /hoguin to open or close the club, /hoguin web to open it in the browser, /hoguin map or picture to choose how the pane draws it, or /hoguin auto on|off to choose if it opens by itself.',
             }
         }
         await resolveBaseUrl($)
@@ -400,7 +546,8 @@ export function register(on) {
         if (e.requestId !== PANE) {
             return next(e)
         }
-        const { Box, Text, Button, Raster } = $.ui.resolve(e)
+        const { Box, Text, Button, Raster, Image } = $.ui.resolve(e)
+        snapshot = view($)
         const you = snapshot && snapshot.you
         const header = Text({
             bold: true,
@@ -418,17 +565,25 @@ export function register(on) {
         }
 
         const map =
-            e.surface === 'terminal'
-                ? Raster({
-                      key: 'map',
-                      columns: world.textMap.rows[0].length,
-                      rows: world.textMap.rows.length,
-                      cells: mapCells(world, snapshot),
+            e.surface === 'terminal' && showPicture && picture
+                ? Image({
+                      key: 'picture',
+                      source: { png: picture },
+                      columns: PICTURE_COLUMNS,
+                      rows: PICTURE_ROWS,
+                      alt: 'A picture of the town. If you see this line instead, run /hoguin map for the text map.',
                   })
-                : Box({
-                      flexDirection: 'column',
-                      children: mapLines(world, snapshot).map((line) => Text({ wrap: 'truncate', children: [line] })),
-                  })
+                : e.surface === 'terminal'
+                  ? Raster({
+                        key: 'map',
+                        columns: world.textMap.rows[0].length,
+                        rows: world.textMap.rows.length,
+                        cells: mapCells(world, snapshot),
+                    })
+                  : Box({
+                        flexDirection: 'column',
+                        children: mapLines(world, snapshot).map((line) => Text({ wrap: 'truncate', children: [line] })),
+                    })
         const legend = world.objects
             .filter((object, index, all) => all.findIndex((other) => other.glyph === object.glyph) === index)
             .map((object) => object.glyph + ' ' + object.name)

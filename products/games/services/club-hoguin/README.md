@@ -71,7 +71,7 @@ Load it for one session with:
 CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/services/club-hoguin/mod
 ```
 
-- `/hoguin` opens or closes the club in a pane. The pane draws the town as a map of text characters.
+- `/hoguin` opens or closes the club in a pane. In a terminal that can draw pictures (Ghostty, kitty, iTerm2, WezTerm) the pane shows a picture of the town. `/hoguin map` switches to a map of text characters, and `/hoguin picture` back.
 - `/hoguin web` opens the club in your browser.
 - When Claude works for more than 10 seconds, the pane opens by itself, and it closes when Claude is done.
   `/hoguin auto off` turns this off.
@@ -93,25 +93,31 @@ The server is one Node process that keeps the town in memory.
 A hedgehog walks at one speed along a path that goes around the pond, the campfire, and the objects.
 The server moves every hedgehog 20 times a second and removes a hedgehog after 20 seconds without a request.
 
-Clients poll `GET /api/state`, because a Claude Code mod can make HTTP requests but cannot hold a connection open.
-The server compresses the state with gzip.
-Each hedgehog in the state has its position and the rest of its path, so the web client moves it smoothly between polls.
+Every change in the town is an event with a number: a hedgehog joins, leaves, starts a walk, says a phrase, sends an emote, or uses an object.
+A client takes one snapshot and then only the events after the last number it saw, so the traffic grows with what people do, not with the number of players.
+The web client reads the events from `GET /api/stream`, a server-sent event stream.
+The Claude Code mod polls `GET /api/events?since=N`, because a mod cannot hold a connection open.
+A walk event carries the path and the start time, and every client works out where the hedgehog is from those, with the same calculation as the server (`src/walk.ts`, `web/walk.js`, `mod/hooks/walk.js`).
+The pane picture comes from `GET /api/frame.png`, which the server paints from the sprite sheet without an image library (`src/frame.ts`, `src/png.ts`).
 
 One network address can have 10 hedgehogs in the town at a time, so one client cannot take every place.
 One address can send 300 requests a second. After that the server answers `429` until the address slows down.
 Behind a proxy, every request comes from the address of the proxy.
 Set `TRUSTED_PROXY_HOPS` to the number of proxies, and the server reads the client address from `x-forwarded-for`.
 
-| Endpoint          | Body                         | What it does                                            |
-| ----------------- | ---------------------------- | ------------------------------------------------------- |
-| `GET /api/world`  |                              | The size of the town, the objects, the phrases, the map |
-| `POST /api/join`  | `{ client, skin? }`          | Joins the town and returns a token                      |
-| `GET /api/state`  |                              | The hedgehogs, the town log, and the object state       |
-| `POST /api/move`  | `{ x, y }` or `{ objectId }` | Walks to a point, or walks to an object and uses it     |
-| `POST /api/say`   | `{ phraseId }`               | Says a preset phrase                                    |
-| `POST /api/emote` | `{ emoteId }`                | Shows a preset emote                                    |
-| `POST /api/poke`  | `{ objectId? }`              | Uses an object in reach, or the closest one             |
-| `POST /api/leave` |                              | Leaves the town                                         |
+| Endpoint             | Body                         | What it does                                                               |
+| -------------------- | ---------------------------- | -------------------------------------------------------------------------- |
+| `GET /api/world`     |                              | The size of the town, the objects, the phrases, the map                    |
+| `POST /api/join`     | `{ client, skin? }`          | Joins the town and returns a token                                         |
+| `GET /api/state`     |                              | A snapshot: the hedgehogs, the town log, the objects, and the event number |
+| `GET /api/events`    | `?since=N`                   | The events after N, or a snapshot when they are gone                       |
+| `GET /api/stream`    | `?token=…&since=N`           | The same, as a server-sent event stream                                    |
+| `GET /api/frame.png` |                              | The town as a picture (`.b64` for the base64 text)                         |
+| `POST /api/move`     | `{ x, y }` or `{ objectId }` | Walks to a point, or walks to an object and uses it                        |
+| `POST /api/say`      | `{ phraseId }`               | Says a preset phrase                                                       |
+| `POST /api/emote`    | `{ emoteId }`                | Shows a preset emote                                                       |
+| `POST /api/poke`     | `{ objectId? }`              | Uses an object in reach, or the closest one                                |
+| `POST /api/leave`    |                              | Leaves the town                                                            |
 
 Send the token from `/api/join` in the `x-hoguin-token` header.
 

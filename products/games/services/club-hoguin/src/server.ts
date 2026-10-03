@@ -8,6 +8,7 @@ import {
     EMOTES,
     EXPERIMENT_SIGNIFICANCE_VOTES,
     LAB_FOOTPRINT,
+    LOOKS,
     OBJECTS,
     PHRASES,
     POND,
@@ -20,15 +21,18 @@ import {
     WORLD_DEPTH,
     WORLD_WIDTH,
 } from './content.ts'
+import type { FramePainter } from './frame.ts'
 import type { RateLimiter } from './rate-limiter.ts'
 import {
     type ClientKind,
     type DepartedPlayer,
     isClientKind,
+    isHat,
     isSkin,
     LIMITS,
     type PokeEvent,
     type World,
+    type WorldEvent,
 } from './world.ts'
 
 const MAX_BODY_BYTES = 2_048
@@ -67,6 +71,9 @@ export interface ServerDependencies {
     now: () => number
     trustedProxyHops: number
     rateLimiter: RateLimiter
+    painter: FramePainter
+    // Different on every start of the process. A client that sees it change knows the town began again.
+    serverId: string
 }
 
 class HttpError extends Error {
@@ -79,6 +86,8 @@ class HttpError extends Error {
 }
 
 const MIN_GZIP_BYTES = 1_024
+const STREAM_HEARTBEAT_MS = 10_000
+const STREAM_RETRY_MS = 2_000
 
 function acceptsGzip(request: IncomingMessage): boolean {
     return /\bgzip\b/.test(String(request.headers['accept-encoding'] ?? ''))
@@ -168,6 +177,8 @@ export function createClubHoguinServer({
     now,
     trustedProxyHops,
     rateLimiter,
+    painter,
+    serverId,
 }: ServerDependencies): Server {
     const worldDescription = JSON.stringify({
         width: WORLD_WIDTH,
@@ -183,7 +194,10 @@ export function createClubHoguinServer({
         phrases: PHRASES,
         emotes: EMOTES,
         skins: SKINS,
+        looks: LOOKS,
+        serverId,
         pokeReach: LIMITS.pokeReach,
+        limits: LIMITS,
         significanceVotes: EXPERIMENT_SIGNIFICANCE_VOTES,
         textMap: { rows: TEXT_MAP_ROWS, unitsPerRow: TEXT_MAP_UNITS_PER_ROW },
     })
@@ -203,7 +217,8 @@ export function createClubHoguinServer({
 
     const worldDescriptionGzip = gzipSync(worldDescription)
 
-    async function handleApi(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
+    async function handleApi(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
+        const pathname = url.pathname
         const method = request.method ?? 'GET'
         if (!rateLimiter.allow(clientAddress(request, trustedProxyHops), now())) {
             throw new HttpError(429, 'too_many_requests')
@@ -225,7 +240,38 @@ export function createClubHoguinServer({
             if (token && !world.touch(token, now())) {
                 fail('unknown_player')
             }
-            sendJson(request, response, 200, world.snapshot(token))
+            sendJson(request, response, 200, world.snapshot(token, now()))
+            return
+        }
+        if (pathname === '/api/events' && method === 'GET') {
+            const token = readToken(request)
+            if (token && !world.touch(token, now())) {
+                fail('unknown_player')
+            }
+            const since = Number(url.searchParams.get('since'))
+            const events = Number.isFinite(since) ? world.eventsSince(since, now()) : null
+            sendJson(request, response, 200, events ?? { resync: true, snapshot: world.snapshot(token, now()) })
+            return
+        }
+        if (pathname === '/api/stream' && method === 'GET') {
+            streamEvents(request, response, url)
+            return
+        }
+        // The town as a picture, for a pane. The base64 form is for a client that can only read text.
+        if ((pathname === '/api/frame.png' || pathname === '/api/frame.b64') && method === 'GET') {
+            const token = readToken(request)
+            const viewer = token ? world.touch(token, now()) : null
+            if (token && !viewer) {
+                fail('unknown_player')
+            }
+            const png = painter.paint(world.snapshot(null, now()), viewer?.id ?? null, now())
+            const isText = pathname.endsWith('.b64')
+            response.writeHead(200, {
+                ...SECURITY_HEADERS,
+                'content-type': isText ? 'text/plain; charset=utf-8' : 'image/png',
+                'cache-control': 'no-store',
+            })
+            response.end(isText ? png.toString('base64') : png)
             return
         }
         if (method !== 'POST') {
@@ -240,7 +286,16 @@ export function createClubHoguinServer({
                 if (body.skin !== undefined && !isSkin(body.skin)) {
                     fail('invalid_skin')
                 }
-                const joined = world.join(body.client, clientAddress(request, trustedProxyHops), now(), body.skin)
+                if (body.hat !== undefined && body.hat !== null && !isHat(body.hat)) {
+                    fail('invalid_hat')
+                }
+                const joined = world.join(
+                    body.client,
+                    clientAddress(request, trustedProxyHops),
+                    now(),
+                    body.skin,
+                    body.hat ?? null
+                )
                 if (!joined.ok) {
                     fail(joined.error)
                 }
@@ -253,8 +308,8 @@ export function createClubHoguinServer({
                 // A move to an object walks to it and uses it. A move to a point only walks.
                 const result =
                     body.objectId === undefined
-                        ? world.moveTo(player.token, body.x, body.y)
-                        : world.walkToUse(player.token, body.objectId)
+                        ? world.moveTo(player.token, body.x, body.y, now())
+                        : world.walkToUse(player.token, body.objectId, now())
                 if (!result.ok) {
                     fail(result.error)
                 }
@@ -310,6 +365,61 @@ export function createClubHoguinServer({
         throw new HttpError(404, 'not_found')
     }
 
+    // Server-sent events: the client gets every event as it happens. A browser cannot set a header on the
+    // stream, so the token rides in the query string. The open stream counts as the heartbeat of its player.
+    function streamEvents(request: IncomingMessage, response: ServerResponse, url: URL): void {
+        const token = readToken(request) ?? url.searchParams.get('token')
+        if (token && !world.touch(token, now())) {
+            fail('unknown_player')
+        }
+        response.writeHead(200, {
+            ...SECURITY_HEADERS,
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-store',
+            connection: 'keep-alive',
+            // Tells a reverse proxy not to hold the stream back.
+            'x-accel-buffering': 'no',
+        })
+        const send = (name: string, data: unknown, id?: number): void => {
+            response.write(`event: ${name}\n${id === undefined ? '' : `id: ${id}\n`}data: ${JSON.stringify(data)}\n\n`)
+        }
+        // Events that happen while the snapshot is being taken wait, so none is lost or sent twice.
+        let snapshotSeq: number | null = null
+        const pending: WorldEvent[] = []
+        const unsubscribe = world.subscribe((event) => {
+            if (snapshotSeq === null) {
+                pending.push(event)
+            } else if (event.seq > snapshotSeq) {
+                send('event', event, event.seq)
+            }
+        })
+        const since = Number(url.searchParams.get('since') ?? request.headers['last-event-id'])
+        const backlog = Number.isFinite(since) ? world.eventsSince(since, now()) : null
+        if (backlog) {
+            backlog.events.forEach((event) => send('event', event, event.seq))
+            send('sync', { seq: backlog.seq, at: backlog.at }, backlog.seq)
+            snapshotSeq = backlog.seq
+        } else {
+            const snapshot = world.snapshot(token, now())
+            send('snapshot', snapshot, snapshot.seq)
+            snapshotSeq = snapshot.seq
+        }
+        const settled = snapshotSeq
+        pending.filter((event) => event.seq > settled).forEach((event) => send('event', event, event.seq))
+        response.write(`retry: ${STREAM_RETRY_MS}\n\n`)
+        const heartbeat = setInterval(() => {
+            if (token && !world.touch(token, now())) {
+                response.end()
+                return
+            }
+            send('sync', { seq: world.snapshot(null, now()).seq, at: now() })
+        }, STREAM_HEARTBEAT_MS)
+        request.on('close', () => {
+            unsubscribe()
+            clearInterval(heartbeat)
+        })
+    }
+
     function handleStatic(request: IncomingMessage, response: ServerResponse, pathname: string): void {
         const file = request.method === 'GET' || request.method === 'HEAD' ? staticFiles.get(pathname) : undefined
         if (!file) {
@@ -333,12 +443,13 @@ export function createClubHoguinServer({
     }
 
     return createServer((request, response) => {
-        const pathname = new URL(request.url ?? '/', 'http://club-hoguin.invalid').pathname
+        const url = new URL(request.url ?? '/', 'http://club-hoguin.invalid')
+        const pathname = url.pathname
         const handle = async (): Promise<void> => {
             if (pathname === '/healthz') {
                 sendJson(request, response, 200, { ok: true })
             } else if (pathname.startsWith('/api/')) {
-                await handleApi(request, response, pathname)
+                await handleApi(request, response, url)
             } else {
                 handleStatic(request, response, pathname)
             }

@@ -3,6 +3,8 @@ import {
     COLLIDERS,
     EMOTES,
     EXPERIMENT_SIGNIFICANCE_VOTES,
+    type Hat,
+    HATS,
     isInsideEllipse,
     isInsideRect,
     MAX_JOKES,
@@ -26,12 +28,15 @@ export type ClientKind = (typeof CLIENT_KINDS)[number]
 export type Facing = 'left' | 'right'
 
 export const LIMITS = {
+    eventLog: 600,
     maxPlayers: 150,
     maxPlayersPerAddress: 10,
     idleTimeoutMs: 20_000,
     sayCooldownMs: 1_500,
     emoteCooldownMs: 800,
     pokeCooldownMs: 1_000,
+    // The ship it button is for pressing a lot. One rocket every half second, from anyone.
+    shipCooldownMs: 500,
     bubbleMs: 6_000,
     emoteMs: 2_500,
     feedSize: 20,
@@ -48,6 +53,7 @@ interface Player {
     token: string
     name: string
     skin: Skin
+    hat: Hat | null
     client: ClientKind
     address: string
     x: number
@@ -70,6 +76,7 @@ export interface PlayerView {
     id: string
     name: string
     skin: Skin
+    hat: Hat | null
     client: ClientKind
     x: number
     y: number
@@ -108,6 +115,28 @@ export interface Snapshot {
     feed: FeedEntry[]
     objects: ObjectState
     online: number
+    // The number of the last event in this snapshot. A client asks for events after it.
+    seq: number
+    // The server clock when the snapshot was taken, so a client can line up its own clock.
+    at: number
+    serverId: string
+}
+
+// Every change in the town is one event. A client that has the snapshot and every event after it
+// knows the town, and it walks every hedgehog by itself from the walk events.
+export type WorldEventBody =
+    | { kind: 'join'; player: PlayerView; text: string }
+    | { kind: 'leave'; id: string; reason: 'left' | 'idle'; text: string }
+    | { kind: 'walk'; id: string; from: Point; path: Point[] }
+    | { kind: 'say'; id: string; phrase: string; text: string }
+    | { kind: 'emote'; id: string; emoji: string }
+    | { kind: 'poke'; id: string; objectId: ObjectId; objects: ObjectState; text: string }
+export type WorldEvent = { seq: number; at: number } & WorldEventBody
+
+export interface EventsSince {
+    seq: number
+    at: number
+    events: WorldEvent[]
 }
 
 export interface JoinedPlayer {
@@ -115,6 +144,7 @@ export interface JoinedPlayer {
     token: string
     name: string
     skin: Skin
+    hat: Hat | null
 }
 
 export interface DepartedPlayer {
@@ -139,6 +169,7 @@ export type PokeResult = { ok: true; objectId: ObjectId } | { ok: false; error: 
 export interface WorldOptions {
     makeId: () => string
     random: () => number
+    serverId?: string
 }
 
 export function isClientKind(value: unknown): value is ClientKind {
@@ -147,6 +178,10 @@ export function isClientKind(value: unknown): value is ClientKind {
 
 export function isSkin(value: unknown): value is Skin {
     return typeof value === 'string' && (SKINS as readonly string[]).includes(value)
+}
+
+export function isHat(value: unknown): value is Hat {
+    return typeof value === 'string' && (HATS as readonly string[]).includes(value)
 }
 
 // A hedgehog is a circle of this radius. It keeps this far from a wall, the pond, and every object.
@@ -306,10 +341,15 @@ const round = (value: number): number => Math.round(value * 100) / 100
 export class World {
     private readonly makeId: () => string
     private readonly random: () => number
+    private readonly serverId: string
     private readonly players = new Map<string, Player>()
     private feed: FeedEntry[] = []
     private nextFeedId = 1
     private nextEmoteSeq = 1
+    private events: WorldEvent[] = []
+    private lastShipAt = -Infinity
+    private seq = 0
+    private readonly listeners = new Set<(event: WorldEvent) => void>()
     private objects: ObjectState = {
         lightsOn: true,
         doorA: 0,
@@ -323,10 +363,11 @@ export class World {
     constructor(options: WorldOptions) {
         this.makeId = options.makeId
         this.random = options.random
+        this.serverId = options.serverId ?? 'test'
     }
 
     // The address is the network address of the client. The cap per address stops one client from taking every place.
-    join(client: ClientKind, address: string, now: number, skin?: Skin): JoinResult {
+    join(client: ClientKind, address: string, now: number, skin?: Skin, hat: Hat | null = null): JoinResult {
         if (this.players.size >= LIMITS.maxPlayers) {
             return { ok: false, error: 'club_full' }
         }
@@ -340,6 +381,8 @@ export class World {
             token: this.makeId(),
             name: this.uniqueName(),
             skin: skin ?? this.pick(SKINS),
+            // Only the default hedgehog wears a hat; a hat is drawn for its shape. A player who picks none gets a random one.
+            hat: (skin ?? 'default') === 'default' ? (hat ?? (this.random() < 0.3 ? null : this.pick(HATS))) : null,
             client,
             address,
             x: spawn.x,
@@ -357,8 +400,12 @@ export class World {
             lastPokeAt: -Infinity,
         }
         this.players.set(player.token, player)
-        this.post(now, 'join', player, `${player.name} waddled in`)
-        return { ok: true, player: { id: player.id, token: player.token, name: player.name, skin: player.skin } }
+        const text = this.post(now, 'join', player, `${player.name} waddled in`)
+        this.emit(now, { kind: 'join', player: this.view(player), text })
+        return {
+            ok: true,
+            player: { id: player.id, token: player.token, name: player.name, skin: player.skin, hat: player.hat },
+        }
     }
 
     // Every authenticated request counts as a heartbeat, so a polling client never goes idle.
@@ -371,7 +418,7 @@ export class World {
         return { id: player.id, client: player.client }
     }
 
-    moveTo(token: string, x: unknown, y: unknown): ActionResult {
+    moveTo(token: string, x: unknown, y: unknown, now: number): ActionResult {
         const player = this.players.get(token)
         if (!player) {
             return { ok: false, error: 'unknown_player' }
@@ -379,13 +426,13 @@ export class World {
         if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
             return { ok: false, error: 'invalid_target' }
         }
-        player.path = findPath(player, { x, y })
+        this.startWalk(player, findPath(player, { x, y }), now)
         player.intent = null
         return { ok: true }
     }
 
     // Walks the hedgehog to the object. The hedgehog uses the object when it gets there.
-    walkToUse(token: string, objectId: unknown): ActionResult {
+    walkToUse(token: string, objectId: unknown, now: number): ActionResult {
         const player = this.players.get(token)
         if (!player) {
             return { ok: false, error: 'unknown_player' }
@@ -394,7 +441,7 @@ export class World {
         if (!object) {
             return { ok: false, error: 'unknown_object' }
         }
-        player.path = findPath(player, object.stand)
+        this.startWalk(player, findPath(player, object.stand), now)
         player.intent = object.id
         return { ok: true }
     }
@@ -413,7 +460,8 @@ export class World {
         }
         player.lastSayAt = now
         player.bubble = { text: phrase.text, until: now + LIMITS.bubbleMs }
-        this.post(now, 'say', player, `${player.name}: ${phrase.text}`)
+        const text = this.post(now, 'say', player, `${player.name}: ${phrase.text}`)
+        this.emit(now, { kind: 'say', id: player.id, phrase: phrase.text, text })
         return { ok: true }
     }
 
@@ -431,6 +479,7 @@ export class World {
         }
         player.lastEmoteAt = now
         player.emote = { emoji: emote.emoji, until: now + LIMITS.emoteMs, seq: this.nextEmoteSeq++ }
+        this.emit(now, { kind: 'emote', id: player.id, emoji: emote.emoji })
         return { ok: true }
     }
 
@@ -454,11 +503,19 @@ export class World {
         if (!object) {
             return { ok: false, error: 'too_far' }
         }
-        if (now - player.lastPokeAt < LIMITS.pokeCooldownMs) {
+        const cooldown = object.id === 'ship' ? LIMITS.shipCooldownMs : LIMITS.pokeCooldownMs
+        if (
+            now - player.lastPokeAt < cooldown ||
+            (object.id === 'ship' && now - this.lastShipAt < LIMITS.shipCooldownMs)
+        ) {
             return { ok: false, error: 'cooldown' }
         }
         player.lastPokeAt = now
-        this.post(now, 'poke', player, this.pokeObject(object.id, player.name), object.id)
+        if (object.id === 'ship') {
+            this.lastShipAt = now
+        }
+        const text = this.post(now, 'poke', player, this.pokeObject(object.id, player.name), object.id)
+        this.emit(now, { kind: 'poke', id: player.id, objectId: object.id, objects: { ...this.objects }, text })
         return { ok: true, objectId: object.id }
     }
 
@@ -468,7 +525,8 @@ export class World {
             return null
         }
         this.players.delete(token)
-        this.post(now, 'leave', player, `${player.name} waddled off`)
+        const text = this.post(now, 'leave', player, `${player.name} waddled off`)
+        this.emit(now, { kind: 'leave', id: player.id, reason: 'left', text })
         return { id: player.id, client: player.client, reason: 'left', durationMs: now - player.joinedAt }
     }
 
@@ -478,7 +536,8 @@ export class World {
         for (const player of this.players.values()) {
             if (now - player.lastSeenAt > LIMITS.idleTimeoutMs) {
                 this.players.delete(player.token)
-                this.post(now, 'leave', player, `${player.name} wandered off`)
+                const text = this.post(now, 'leave', player, `${player.name} wandered off`)
+                this.emit(now, { kind: 'leave', id: player.id, reason: 'idle', text })
                 departed.push({
                     id: player.id,
                     client: player.client,
@@ -505,7 +564,7 @@ export class World {
         return { departed, poked }
     }
 
-    snapshot(token: string | null): Snapshot {
+    snapshot(token: string | null, now: number): Snapshot {
         const views = [...this.players.values()].map((player) => this.view(player))
         const viewer = token ? this.players.get(token) : undefined
         return {
@@ -514,7 +573,46 @@ export class World {
             feed: this.feed.slice(-LIMITS.feedSize),
             objects: { ...this.objects },
             online: views.length,
+            seq: this.seq,
+            at: now,
+            serverId: this.serverId,
         }
+    }
+
+    // The events after `since`, or null when they are older than the log keeps, so the client takes a snapshot.
+    eventsSince(since: number, now: number): EventsSince | null {
+        const oldest = this.events[0]
+        if (since > this.seq || since < this.seq - this.events.length || (oldest && since < oldest.seq - 1)) {
+            return null
+        }
+        return { seq: this.seq, at: now, events: this.events.filter((event) => event.seq > since) }
+    }
+
+    // Calls the listener for every event from now on. Returns a function that stops the calls.
+    subscribe(listener: (event: WorldEvent) => void): () => void {
+        this.listeners.add(listener)
+        return () => this.listeners.delete(listener)
+    }
+
+    // The walk starts exactly now, so a client that replays the walk event lands where the server does.
+    private startWalk(player: Player, path: Point[], now: number): void {
+        this.step(player, now)
+        player.path = path
+        this.emit(now, {
+            kind: 'walk',
+            id: player.id,
+            from: { x: round(player.x), y: round(player.y) },
+            path: player.path.map((point) => ({ x: round(point.x), y: round(point.y) })),
+        })
+    }
+
+    private emit(now: number, event: WorldEventBody): void {
+        const full: WorldEvent = { ...event, seq: ++this.seq, at: now }
+        this.events.push(full)
+        if (this.events.length > LIMITS.eventLog) {
+            this.events = this.events.slice(-LIMITS.eventLog)
+        }
+        this.listeners.forEach((listener) => listener(full))
     }
 
     // Moves the hedgehog along its path by the distance it walks in the time since the last step.
@@ -582,6 +680,7 @@ export class World {
             id: player.id,
             name: player.name,
             skin: player.skin,
+            hat: player.hat,
             client: player.client,
             x: round(player.x),
             y: round(player.y),
@@ -593,11 +692,12 @@ export class World {
         }
     }
 
-    private post(now: number, kind: FeedKind, player: Player, text: string, objectId?: ObjectId): void {
+    private post(now: number, kind: FeedKind, player: Player, text: string, objectId?: ObjectId): string {
         this.feed.push({ id: this.nextFeedId++, at: now, text, kind, playerId: player.id, objectId })
         if (this.feed.length > LIMITS.feedSize) {
             this.feed = this.feed.slice(-LIMITS.feedSize)
         }
+        return text
     }
 
     private spawnPoint(): Point {
