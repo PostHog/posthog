@@ -15,7 +15,7 @@ An MCP session is one agent run: the set of `$mcp_tool_call` events sharing a
 `$session_id`, ordered by `timestamp`.
 
 Listing sessions, reading a session's tool calls, and summarising its goal each
-have a **typed tool** — reach for those first. Drop to HogQL only for the three
+have a **typed tool** — reach for those first. Drop to HogQL only for the
 things the typed tools genuinely can't do (see
 [When to drop to SQL](#when-to-drop-to-sql)). The full `$mcp_*` property schema
 and query recipes live in the shared reference:
@@ -23,12 +23,12 @@ and query recipes live in the shared reference:
 
 ## Tools
 
-| Tool                                             | Purpose                                                    |
-| ------------------------------------------------ | ---------------------------------------------------------- |
-| `posthog:mcp-analytics-sessions-list`            | List sessions — one row per session, newest first          |
-| `posthog:mcp-analytics-sessions-tool-calls`      | One session's tool calls, chronological                    |
-| `posthog:mcp-analytics-sessions-generate-intent` | LLM summary of a session's goal (cached after first call)  |
-| `posthog:execute-sql`                            | Errored sessions, effective tool names, cross-session cuts |
+| Tool                                             | Purpose                                                   |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `posthog:mcp-analytics-sessions-list`            | List sessions — one row per session, newest first         |
+| `posthog:mcp-analytics-sessions-tool-calls`      | One session's tool calls, chronological                   |
+| `posthog:mcp-analytics-sessions-generate-intent` | LLM summary of a session's goal (cached after first call) |
+| `posthog:execute-sql`                            | Effective tool names, cross-session cuts                  |
 
 The three `mcp-analytics-*` tools run the same code as the sessions UI, so results
 match the screen. If they aren't in your tool list, fall back to `posthog:execute-sql`.
@@ -55,12 +55,12 @@ posthog:mcp-analytics-sessions-list
 { "date_from": "-7d", "order_by": "-session_start", "limit": 100 }
 ```
 
-Each row: `session_id`, `tool_calls`, `session_start`, `session_end`,
-`tools_used`, `mcp_client_name`, `distinct_id` (+ resolved `person_email` /
+Each row: `session_id`, `tool_calls`, `error_calls`, `session_start`,
+`session_end`, `tools_used`, `mcp_client_name`, `distinct_id` (+ resolved `person_email` /
 `person_name`), and `intent` (empty until generated). Response is
 `{ results, has_next }` — page with `limit` / `offset`.
 
-Three sharp edges:
+Two sharp edges:
 
 - **`order_by` takes column names, not response field names.** Sort call volume
   as `tool_call_count` (not `tool_calls`). `duration_seconds` sorts fine even
@@ -68,14 +68,25 @@ Three sharp edges:
   newest-first — so verify the order you got is the order you asked for. Valid:
   `session_id`, `session_start`, `session_end`, `duration_seconds`,
   `tool_call_count`, `mcp_client_name`, `distinct_id`; prefix `-` to descend.
-- **There is no error filter and no error count on a session row.** "Which
-  sessions had errors?" is a SQL question — see below.
 - **`distinct_id_count` is always `0`.** The field is in the response but the
   backend never populates it, so don't read it as "one distinct id per session"
   — it says nothing. To count distinct ids in a session, use SQL.
 
 `search` does a case-insensitive substring match across `session_id`,
 `distinct_id`, `mcp_client_name`, and `tools_used`.
+
+## Workflow: find sessions with errors
+
+```json
+posthog:mcp-analytics-sessions-list
+{ "date_from": "-7d", "has_errors": true, "limit": 100 }
+```
+
+`has_errors: true` keeps sessions with at least one errored call. `has_errors: false`
+keeps sessions with no errors. Omit it to list both. `error_calls` on each row is
+the number of errored calls in the session. To read the errors, open the session
+with `posthog:mcp-analytics-sessions-tool-calls` and look at `is_error` and
+`error_message`.
 
 ## Workflow: read one session's tool calls
 
@@ -110,7 +121,7 @@ back to reading the raw `$mcp_intent` values from the tool-call list.
 
 ## When to drop to SQL
 
-Four cases, all via `posthog:execute-sql`.
+Three cases, all via `posthog:execute-sql`.
 
 **1. The typed tools aren't in your tool list.** Everything below still works;
 this query is the plain session listing:
@@ -133,10 +144,9 @@ ORDER BY session_start DESC
 LIMIT 50
 ```
 
-**2. Errored sessions.** The session list can't filter or count errors — add
-`HAVING errors > 0` to the query above and order by `errors DESC`.
+For errored sessions in this fallback, add `HAVING errors > 0`.
 
-**3. Effective tool names within a session** — the coalesce the typed tool-calls
+**2. Effective tool names within a session** — the coalesce the typed tool-calls
 endpoint doesn't apply:
 
 ```sql
@@ -152,7 +162,7 @@ WHERE event = '$mcp_tool_call'
 ORDER BY timestamp ASC
 ```
 
-**4. Cross-session aggregation** — "sessions per day", "sessions that used tool
+**3. Cross-session aggregation** — "sessions per day", "sessions that used tool
 X and then failed", custom breakdowns. Recipes in
 [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 
