@@ -7,11 +7,12 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 // pinned: URL path segments under /audience, renaming breaks bookmarks
-export const AUDIENCE_TABS = ['recipients', 'topics', 'suppression'] as const
+export const AUDIENCE_TABS = ['recipients', 'engagement', 'topics', 'suppression'] as const
 export type AudienceTab = (typeof AUDIENCE_TABS)[number]
 
 export const AUDIENCE_TAB_LABELS: Record<AudienceTab, string> = {
     recipients: 'Recipients',
+    engagement: 'Engagement',
     topics: 'Topics',
     suppression: 'Suppression list',
 }
