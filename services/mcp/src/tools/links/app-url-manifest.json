@@ -1729,6 +1729,11 @@
         "params": [],
         "scope": "project"
     },
+    "tools": {
+        "template": "/tools",
+        "params": [],
+        "scope": "project"
+    },
     "tracing": {
         "template": "/tracing",
         "params": [],
@@ -1806,6 +1811,11 @@
     },
     "views": {
         "template": "/views",
+        "params": [],
+        "scope": "project"
+    },
+    "viewsNew": {
+        "template": "/views/new",
         "params": [],
         "scope": "project"
     },
