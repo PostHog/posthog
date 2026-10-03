@@ -1353,7 +1353,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             try {
                 const ticket = await request
                 breakpoint()
-                actions.setTicket(ticket as Ticket)
+                // The PATCH never changes Cc, so keep the local list in case a removal landed meanwhile.
+                actions.setTicket({
+                    ...(ticket as Ticket),
+                    cc_participants: values.ticket?.cc_participants ?? (ticket as Ticket).cc_participants,
+                })
                 lemonToast.success('Ticket updated')
                 actions.loadTickets()
                 // tagsModel loads once per session and never refetches, so newly created tags need an explicit reload
@@ -1671,7 +1675,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 lemonToast.success(`Removed ${email} from Cc`)
             } catch {
                 actions.finishRemovingCcParticipant(null)
-                lemonToast.error(`Couldn't remove ${email} from Cc. Try again.`)
+                lemonToast.error("Couldn't remove the Cc address. Try again.")
             }
         },
         deleteMessage: async ({ messageId }) => {

@@ -425,9 +425,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     <div className="flex justify-between items-start gap-2">
                                         <span className="text-muted-alt shrink-0">Cc</span>
                                         <div className="flex flex-wrap justify-end gap-1 min-w-0">
-                                            {ticket.cc_participants.map((address) => (
+                                            {ticket.cc_participants.map((address, index) => (
                                                 <LemonSnack
-                                                    key={address}
+                                                    key={`${index}-${address}`}
                                                     className="text-xs"
                                                     title={address}
                                                     data-attr="ticket-cc-participant"
