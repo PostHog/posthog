@@ -475,7 +475,7 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         # typed columns, so a numeric comparison already has a common type — leave them alone.
         return value
 
-    property_type = (
+    property_types = (
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
@@ -485,8 +485,9 @@ def _coerce_numeric_value_for_string_property(value: ValueT, property: Property,
         .exclude(property_type__isnull=True)
         .exclude(property_type="")
         .values_list("property_type", flat=True)
-        .first()
     )
+    # .first() adds ORDER BY id, which lets Postgres walk the primary key instead of posthog_propdef_proj_uniq
+    property_type = next(iter(property_types[:1]), None)
 
     if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
         return value
