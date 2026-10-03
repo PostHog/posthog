@@ -4043,18 +4043,18 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (3): `employees`, `tasks`, `time_off_calendars`
+Today (7): `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `tasks`, `time_off_calendars`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
 - [x] `POST /timeoff/calendars/employees/search` — the holiday calendar resolved per employee (employment override or site default); fans out over employee ids, full refresh (medium)
-- [ ] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
-- [ ] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
-- [ ] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
+- [x] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
+- [x] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
+- [x] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
 - [ ] `GET /timeoff/requests/changes` — time off request event stream plus GET /timeoff/employees/{id}/balance for balances (high)
 - [ ] `POST /attendance/entries/search` — clock in/out entries; also /attendance/daily-breakdown/search and /attendance/summaries/search for rollups (high)
 - [ ] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high)
-- [ ] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
+- [x] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
 - [ ] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high)
 - [ ] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high)
 - [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)

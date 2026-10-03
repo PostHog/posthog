@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from typing import Any
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -8,12 +8,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.hibob.settings import (
     HIBOB_ENDPOINTS,
     TIME_OFF_CALENDARS,
+    HiBobEndpointConfig,
 )
 
 HIBOB_BASE_URL = "https://api.hibob.com"
@@ -50,6 +53,46 @@ def _leaf_key(key: str) -> str:
     return key.rsplit("/", 1)[-1] if "/" in key else key
 
 
+def _leaf_keys_page(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{_leaf_key(key): value for key, value in item.items()} for item in page]
+
+
+def _employee_history_page(page: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flatten bulk table results (`{employeeId, values: [...]}` per employee) into one row per entry."""
+    rows: list[dict[str, Any]] = []
+    for result in page:
+        employee_id = result.get("employeeId")
+        for value in result.get("values") or []:
+            # The spec types each item as a `{values, restricted_columns}` wrapper, while the
+            # single-employee table endpoints return bare entries, so accept both shapes.
+            entries = value["values"] if isinstance(value.get("values"), list) else [value]
+            rows.extend({**entry, "employeeId": employee_id} for entry in entries)
+    return rows
+
+
+PAGE_MAPPERS: dict[str, Callable[[list[dict[str, Any]]], list[dict[str, Any]]]] = {
+    "employee_history": _employee_history_page,
+    "pointer_keys": _leaf_keys_page,
+}
+
+
+def _map_pages(
+    pages: Iterable[list[dict[str, Any]]], mapper: Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+) -> Iterator[list[dict[str, Any]]]:
+    for page in pages:
+        yield mapper(page)
+
+
+def _paginator(config: HiBobEndpointConfig) -> BasePaginator:
+    if config.cursor_location is None:
+        return SinglePagePaginator()
+    return JSONResponseCursorPaginator(
+        cursor_path="response_metadata.next_cursor",
+        cursor_param="cursor",
+        param_location=config.cursor_location,
+    )
+
+
 def _iter_employee_ids(session: Any) -> Iterator[str]:
     employees_config = HIBOB_ENDPOINTS["employees"]
     response = session.post(
@@ -83,7 +126,7 @@ def _search_employee_calendars(session: Any, path: str, employee_ids: list[str])
 
         items = data.get("items", [])
         if items:
-            yield [{_leaf_key(key): value for key, value in item.items()} for item in items]
+            yield _leaf_keys_page(items)
 
         cursor = (data.get("response_metadata") or {}).get("next_cursor")
         if not cursor:
@@ -120,7 +163,7 @@ def hibob_source(
         return SourceResponse(
             name=endpoint,
             items=lambda: _time_off_calendars_rows(service_user_id, service_user_token, config.path),
-            primary_keys=[config.primary_key],
+            primary_keys=list(config.primary_keys),
             partition_count=1,
             partition_size=1,
             sort_mode="asc",
@@ -137,14 +180,16 @@ def hibob_source(
         "data_selector": config.data_key,
     }
     if config.body is not None:
-        api_endpoint["json"] = config.body
+        # Copy, because the cursor paginator writes the cursor into the request body.
+        api_endpoint["json"] = {**config.body}
+    if config.params is not None:
+        api_endpoint["params"] = config.params
 
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": HIBOB_BASE_URL,
             "auth": {"type": "http_basic", "username": service_user_id, "password": service_user_token},
-            # Both shipped endpoints return their full result set in one response.
-            "paginator": SinglePagePaginator(),
+            "paginator": _paginator(config),
         },
         "resources": [
             {
@@ -155,11 +200,12 @@ def hibob_source(
     }
 
     resource = rest_api_resource(rest_config, team_id, job_id, None)
+    mapper = PAGE_MAPPERS.get(config.row_shape)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
-        primary_keys=[config.primary_key],
+        items=(lambda: _map_pages(resource, mapper)) if mapper else (lambda: resource),
+        primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
