@@ -6,6 +6,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { emailBrandEntryLogic } from './emailBrandEntryLogic'
+import { exampleBrand } from './fixtures'
 
 describe('emailBrandEntryLogic', () => {
     beforeEach(() => {
@@ -33,4 +34,29 @@ describe('emailBrandEntryLogic', () => {
             logic.unmount()
         }
     )
+    it.each(['saved', 'missing'])('keeps the completed brand when an older summary reports %s', async (outcome) => {
+        let finish: () => void = () => {}
+        const waiting = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:id/email_brand/current/': async () => {
+                    await waiting
+                    return outcome === 'missing'
+                        ? [404, { detail: 'Not found' }]
+                        : { ...exampleBrand, name: 'Old brand' }
+                },
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags(['workflows-brand-detection'], { 'workflows-brand-detection': true })
+        const logic = emailBrandEntryLogic({ entryPoint: 'channels' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadEmailBrandSummary'])
+        logic.actions.complete({ ...exampleBrand, name: 'Saved new brand' }, null)
+        finish()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.summary?.name).toBe('Saved new brand')
+        logic.unmount()
+    })
 })

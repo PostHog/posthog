@@ -573,4 +573,149 @@ describe('emailBrandFlowLogic', () => {
         expect(save).not.toHaveBeenCalled()
         expect(logic.values.step).toBe('loading')
     })
+    it('releases edit ownership when the user accepts a missing detection value', async () => {
+        useMocks({ post: { '/api/projects/:id/email_brand/detect/': exampleDetection } })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect()).toFinishAllListeners()
+        logic.actions.editField('primary_color', '#ff5500')
+        useMocks({
+            post: {
+                '/api/projects/:id/email_brand/detect/': {
+                    ...exampleDetection,
+                    proposal: { ...exampleDetection.proposal, primary_color: null },
+                },
+            },
+        })
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        logic.actions.resolveAllConflicts('detected')
+        expect(logic.values.editedFields).not.toContain('primary_color')
+        useMocks({ post: { '/api/projects/:id/email_brand/detect/': exampleDetection } })
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        expect(logic.values.draft.primary_color).toBe('#276749')
+        expect(logic.values.conflicts).toEqual({})
+    })
+
+    it('lets onboarding handle completion without navigating to the library editor', async () => {
+        const navigate = jest.spyOn(router.actions, 'push')
+        logic = emailBrandFlowLogic({ entryPoint: 'onboarding', onComplete })
+        useMocks({
+            patch: { '/api/projects/:id/email_brand/current/': exampleBrand },
+            post: {
+                '/api/projects/:id/email_brand/create_starter_template/': () => [
+                    422,
+                    { code: 'design_rendering_unavailable', detail: 'Editor required' },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.skipToManual()
+        await expectLogic(logic, () => logic.actions.save(true)).toFinishAllListeners()
+        expect(navigate).not.toHaveBeenCalled()
+        expect(onComplete).toHaveBeenCalledWith({ emailBrand: exampleBrand, templateId: null })
+        navigate.mockRestore()
+    })
+
+    it('keeps detection running when the user switches tabs', async () => {
+        let finish: () => void = () => {}
+        const waiting = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:id/email_brand/detect/': async () => {
+                    await waiting
+                    return exampleDetection
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.detect()
+        await expectLogic(logic).toDispatchActions(['loadEmailBrandDetection'])
+        Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+        document.dispatchEvent(new Event('visibilitychange'))
+        Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+        document.dispatchEvent(new Event('visibilitychange'))
+        finish()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.step).toBe('files')
+        expect(logic.values.error).toBeNull()
+    })
+
+    it('waits for an upload before accepting a detected logo conflict', async () => {
+        let finish: () => void = () => {}
+        const waiting = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:id/uploaded_media/': async () => {
+                    await waiting
+                    return { id: 'new-logo', image_location: 'https://example.com/logo.png' }
+                },
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.setLogoConflict({ path: null })
+        logic.actions.uploadLogo(new File(['invented PNG'], 'logo.png', { type: 'image/png' }))
+        await expectLogic(logic).toDispatchActions(['loadEmailBrandLogo'])
+        logic.actions.resolveAllConflicts('detected')
+        expect(logic.values.logoConflict).toEqual({ path: null })
+        finish()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.resolveLogoConflict('detected')
+        expect(logic.values.draft.logo).toBeNull()
+        expect(logic.values.logoConflict).toBeNull()
+    })
+
+    it('clears a repository selection without storing null', async () => {
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.setRepository(null as unknown as string)
+        expect(logic.values.repository).toBe('')
+    })
+
+    it('reports connected and picked funnel steps once with their properties', async () => {
+        useMocks({ post: { '/api/projects/:id/email_brand/detect/': exampleDetection } })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.refreshConnection()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.refreshConnection()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.detect(true)).toFinishAllListeners()
+        expect(capture.mock.calls.filter(([event]) => event === 'email brand github connected')).toEqual([
+            ['email brand github connected'],
+        ])
+        expect(capture.mock.calls.filter(([event]) => event === 'email brand repository picked')).toEqual([
+            ['email brand repository picked', { suggested: true, rank: 1 }],
+        ])
+    })
+    it('offers reconnection when GitHub disconnects during logo import', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:id/email_brand/import_logo/': () => [
+                    400,
+                    { code: 'github_disconnected', detail: 'Reconnect GitHub' },
+                ],
+            },
+        })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toFinishAllListeners()
+        logic.actions.skipToManual()
+        logic.actions.editField('name', 'Juniper Mail')
+        await expectLogic(logic, () => logic.actions.pickLogo('public/logo.png')).toFinishAllListeners()
+        expect(logic.values.step).toBe('connect')
+        expect(logic.values.draft.name).toBe('Juniper Mail')
+        expect(logic.values.error?.code).toBe('github_disconnected')
+    })
 })

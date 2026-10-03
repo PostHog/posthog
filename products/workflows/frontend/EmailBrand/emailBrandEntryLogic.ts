@@ -37,7 +37,7 @@ export interface emailBrandEntryLogicActions {
         emailBrand: EmailBrandApi
         templateId: string | null
     }
-    loadEmailBrandSummary: () => any
+    loadEmailBrandSummary: (_: any) => any
     loadEmailBrandSummaryFailure: (
         error: string,
         errorObject?: any
@@ -86,18 +86,25 @@ export const emailBrandEntryLogic = kea<emailBrandEntryLogicType>([
         setOpen: (isOpen: boolean) => ({ isOpen }),
         complete: (emailBrand: EmailBrandApi, templateId: string | null) => ({ emailBrand, templateId }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         summary: [
             null as EmailBrandApi | null,
             {
-                loadEmailBrandSummary: async () => {
+                loadEmailBrandSummary: async (_, breakpoint) => {
+                    const revision = cache.summaryRevision ?? 0
                     try {
-                        return await emailBrandCurrentRetrieve(String(values.currentTeamId))
+                        const result = await emailBrandCurrentRetrieve(String(values.currentTeamId))
+                        return revision === (cache.summaryRevision ?? 0) ? result : values.summary
                     } catch (error) {
+                        if (revision !== (cache.summaryRevision ?? 0)) {
+                            return values.summary
+                        }
                         if (error instanceof ApiError && error.status === 404) {
                             return null
                         }
                         throw error
+                    } finally {
+                        breakpoint()
                     }
                 },
             },
@@ -110,13 +117,14 @@ export const emailBrandEntryLogic = kea<emailBrandEntryLogicType>([
     selectors({
         enabled: [(s) => [s.featureFlags], (flags: FeatureFlagsSet): boolean => !!flags['workflows-brand-detection']],
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions, props, cache }) => ({
         openFlow: () => {
             if (values.enabled) {
                 actions.setOpen(true)
             }
         },
         complete: ({ templateId }) => {
+            cache.summaryRevision = (cache.summaryRevision ?? 0) + 1
             if (props.entryPoint === 'template_library' && templateId) {
                 router.actions.push(urls.workflowsLibraryTemplate(templateId))
             }
@@ -124,7 +132,7 @@ export const emailBrandEntryLogic = kea<emailBrandEntryLogicType>([
     })),
     afterMount(({ props, actions, values }) => {
         if (values.enabled && props.entryPoint === 'channels') {
-            actions.loadEmailBrandSummary()
+            actions.loadEmailBrandSummary({})
         }
     }),
 ])

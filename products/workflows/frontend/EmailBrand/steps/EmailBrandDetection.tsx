@@ -37,7 +37,7 @@ export function EmailBrandDetection(props: EmailBrandFlowProps): JSX.Element {
                             <div className="flex flex-wrap gap-1 mt-1">
                                 {file.found.length ? (
                                     file.found.map((found) => (
-                                        <LemonTag key={`${found.field}-${found.value}`}>
+                                        <LemonTag key={`${found.field}-${found.value}`} wrap className="max-w-full">
                                             <span className="break-all">{`${found.field.replaceAll('_', ' ')}: ${found.value}`}</span>
                                         </LemonTag>
                                     ))

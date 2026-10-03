@@ -31,6 +31,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
         logoUrl,
         preview,
         previewError,
+        previewLoading,
         validationError,
         starterAttempted,
     } = useValues(logic)
@@ -77,6 +78,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                             type="secondary"
                             size="small"
                             onClick={() => resolveAllConflicts('mine')}
+                            disabledReason={busy ? 'Wait for the current request to finish' : undefined}
                             data-attr="email-brand-keep-all"
                         >
                             Keep all mine
@@ -85,6 +87,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                             type="secondary"
                             size="small"
                             onClick={() => resolveAllConflicts('detected')}
+                            disabledReason={busy ? 'Wait for the current request to finish' : undefined}
                             data-attr="email-brand-use-all"
                         >
                             Use all detected
@@ -162,6 +165,8 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                             {detection?.logo_candidates.map((logo) => (
                                 <LemonButton
                                     key={logo.path}
+                                    fullWidth
+                                    truncate
                                     type="secondary"
                                     size="small"
                                     onClick={() => pickLogo(logo.path)}
@@ -216,6 +221,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                                         size="small"
                                         type="secondary"
                                         onClick={() => resolveLogoConflict('mine')}
+                                        disabledReason={busy ? 'Wait for the current request to finish' : undefined}
                                     >
                                         Keep mine
                                     </LemonButton>
@@ -223,6 +229,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                                         size="small"
                                         type="secondary"
                                         onClick={() => resolveLogoConflict('detected')}
+                                        disabledReason={busy ? 'Wait for the current request to finish' : undefined}
                                     >
                                         Use detected
                                     </LemonButton>
@@ -240,7 +247,7 @@ export function EmailBrandReview(props: EmailBrandFlowProps): JSX.Element {
                     {previewError && (
                         <LemonBanner type="warning">
                             {previewError}
-                            <LemonButton size="small" onClick={refreshPreview}>
+                            <LemonButton size="small" onClick={refreshPreview} loading={previewLoading}>
                                 Try preview again
                             </LemonButton>
                         </LemonBanner>
