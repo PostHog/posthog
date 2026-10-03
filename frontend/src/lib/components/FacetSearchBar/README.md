@@ -47,7 +47,7 @@ The bar shows what `loadValues` returns as is, so it can match on fields the lab
 A failed load shows the error message and runs again on the next keystroke.
 Keep `loadValues` stable between renders: a new function drops the values the old one loaded.
 A pill restored from a URL takes its label from `loadValues('')`. If that list can miss the value, give `formatValue` too.
-If that load fails, the pill shows the raw value with a muted "Couldn't load the label".
+If that load fails, the pill shows the raw value. Its tooltip and screen reader text add "couldn't load the label".
 
 ## Keeping the search in the URL
 

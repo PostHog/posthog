@@ -10,6 +10,8 @@ import { ClientFacet, FacetSearchRows, FacetSearchValue, ServerFacet, facetFilte
 import { facetSearchBarLogic } from './facetSearchBarLogic'
 import { isPillLabelMissing, pillLabel } from './facetSuggestions'
 
+const MISSING_LABEL_NOTE = " (couldn't load the label)"
+
 interface FacetSearchBarBaseProps {
     value: FacetSearchValue
     onChange: (value: FacetSearchValue) => void
@@ -236,7 +238,7 @@ export function FacetSearchBar<TRow>({
                                         <LemonSnack
                                             key={facetFilterKey(filter)}
                                             data-attr={`${dataAttr}-filter`}
-                                            title={label}
+                                            title={labelFailed ? `${label}${MISSING_LABEL_NOTE}` : label}
                                             closeLabel={`Remove filter ${label}`}
                                             onClose={() => {
                                                 removeFilter(filter)
@@ -245,9 +247,7 @@ export function FacetSearchBar<TRow>({
                                             className="max-w-80"
                                         >
                                             <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
-                                            {labelFailed && (
-                                                <span className="ml-1 text-secondary">Couldn't load the label</span>
-                                            )}
+                                            {labelFailed && <span className="sr-only">{MISSING_LABEL_NOTE}</span>}
                                         </LemonSnack>
                                     )
                                 })}

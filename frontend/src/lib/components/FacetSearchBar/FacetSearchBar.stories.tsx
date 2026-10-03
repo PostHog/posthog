@@ -295,7 +295,10 @@ export const ServerModeLongLabelsNarrow: ServerStory = {
 
 export const ServerModeLoadFailed: ServerStory = {
     render: (args) => <ServerModeConsumer {...args} />,
-    args: { loadTeams: failsToLoad, initial: NO_FILTERS },
+    args: {
+        loadTeams: failsToLoad,
+        initial: { filters: [{ facet: 'team', value: 'team-2', negated: true }], text: '' },
+    },
     play: async ({ canvasElement }) => {
         await typeInto(canvasElement, 'team:')
         await waitFor(() => {

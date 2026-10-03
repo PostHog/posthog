@@ -1,4 +1,5 @@
 import {
+    LogicWrapper,
     MakeLogicType,
     actions,
     afterMount,
@@ -25,7 +26,6 @@ import {
     facetFilterKey,
     findFacet,
     parseFacetDraft,
-    serializeFacetSearch,
 } from './facetSearch'
 import {
     AnyFacet,
@@ -60,12 +60,37 @@ function textOf(input: string, draft: FacetDraft | null): string {
     return (draft ? draft.rest : input).trim()
 }
 
-function searchKey(value: FacetSearchValue): string {
-    return serializeFacetSearch(value).replace(/\s+/g, ' ')
-}
-
 function sameText(a: string, b: string): boolean {
     return a.replace(/\s+/g, ' ') === b.replace(/\s+/g, ' ')
+}
+
+/** A URL round trip closes the gaps in the text, so the text compares by its words. Pill values compare exactly. */
+function sameSearch(a: FacetSearchValue, b: FacetSearchValue): boolean {
+    return (
+        sameText(a.text, b.text) &&
+        a.filters.length === b.filters.length &&
+        a.filters.every((filter, index) => facetFilterKey(filter) === facetFilterKey(b.filters[index]))
+    )
+}
+
+/** The first change after an emit is either its echo or replaces it, so an echo counts once. */
+function consumeEcho(cache: { pendingEcho?: FacetSearchValue }, value: FacetSearchValue): boolean {
+    const echo = cache.pendingEcho
+    cache.pendingEcho = undefined
+    return !!echo && sameSearch(value, echo)
+}
+
+/** The typed pills that no pill holds yet, each once. The pills already set stay as the consumer gave them. */
+function newPills(
+    current: FacetFilter[],
+    typed: FacetFilter[],
+    identity: (filter: FacetFilter) => string
+): FacetFilter[] {
+    const held = new Set(current.map(identity))
+    return uniqBy(
+        typed.filter((filter) => !held.has(identity(filter))),
+        identity
+    )
 }
 
 const isFilterRow = (suggestion: FacetSuggestion | null | undefined): boolean =>
@@ -199,7 +224,7 @@ export type facetSearchBarLogicType = MakeLogicType<
     facetSearchBarLogicMeta
 >
 
-export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
+export const facetSearchBarLogic: LogicWrapper<facetSearchBarLogicType> = kea<facetSearchBarLogicType>([
     props({} as FacetSearchBarLogicProps),
     key((props) => props.id),
     path((key) => ['lib', 'components', 'FacetSearchBar', 'facetSearchBarLogic', key]),
@@ -370,7 +395,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
     }),
     listeners(({ actions, values, props, cache }) => {
         const emit = (value: FacetSearchValue): void => {
-            cache.lastEmitted = searchKey(value)
+            cache.pendingEcho = value
             props.onChange(value)
         }
         const loadPendingValues = (): void => {
@@ -418,14 +443,14 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             setInput: ({ input }) => {
                 // Typed or pasted `facet:value` tokens become pills as soon as they are complete.
                 const { filters, remaining } = extractFacetFilters(input, props.facets, { untilEnd: false })
-                const nextFilters = uniqBy([...props.value.filters, ...filters], pillIdentity(props.data))
+                const addedFilters = newPills(props.value.filters, filters, pillIdentity(props.data))
                 const nextInput = filters.length ? remaining : input
                 const text = textOf(nextInput, parseFacetDraft(nextInput, props.facets))
                 if (filters.length) {
                     actions.syncInput(nextInput)
                 }
-                if (nextFilters.length > props.value.filters.length || text !== props.value.text) {
-                    emit({ filters: nextFilters, text })
+                if (addedFilters.length || text !== props.value.text) {
+                    emit({ filters: [...props.value.filters, ...addedFilters], text })
                 }
                 loadPendingValues()
             },
@@ -501,8 +526,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             actions.forgetValues(replacedLoaders)
         }
         // The URL or a "Clear filters" button can change the search without this input. That drops a typed draft too.
-        const changedOutside =
-            searchKey(props.value) !== searchKey(oldProps.value) && searchKey(props.value) !== cache.lastEmitted
+        const changedOutside = !sameSearch(props.value, oldProps.value) && !consumeEcho(cache, props.value)
         if (changedOutside || !sameText(props.value.text, textOf(values.input, values.draft))) {
             actions.syncInput(props.value.text)
         }

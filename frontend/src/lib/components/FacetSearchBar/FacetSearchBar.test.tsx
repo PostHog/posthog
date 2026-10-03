@@ -310,7 +310,9 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.keyboard('status:draft status:archived ')
             expect(shown('rows')).toEqual('Renewal,Sync,Promo')
-            await user.keyboard('-sends:Deals ')
+            await user.keyboard('sends:Deals ')
+            expect(shown('rows')).toEqual('Promo')
+            await user.keyboard('{Backspace}-sends:Deals ')
             expect(shown('rows')).toEqual('Renewal,Sync')
             await user.keyboard('ren')
             expect(shown('rows')).toEqual('Renewal')
@@ -370,9 +372,9 @@ describe('FacetSearchBar', () => {
             expect(shown('url')).toEqual('')
         })
 
-        it('drops a typed draft when the consumer clears the search', async () => {
-            function ClearableConsumer(): JSX.Element {
-                const [value, setValue] = useState(() => parseFacetSearch('status:draft', CLIENT_FACETS))
+        describe('when the consumer changes the search', () => {
+            function ResettableConsumer({ url, replacement }: { url: string; replacement: string }): JSX.Element {
+                const [value, setValue] = useState(() => parseFacetSearch(url, CLIENT_FACETS))
                 return (
                     <div>
                         <FacetSearchBar
@@ -381,21 +383,57 @@ describe('FacetSearchBar', () => {
                             value={value}
                             onChange={setValue}
                             placeholder="Search"
-                            dataAttr="clearable-search"
+                            dataAttr="resettable-search"
                         />
                         <button type="button" data-attr="clear" onClick={() => setValue({ filters: [], text: '' })}>
                             Clear
                         </button>
+                        <button
+                            type="button"
+                            data-attr="replace"
+                            onClick={() => setValue(parseFacetSearch(replacement, CLIENT_FACETS))}
+                        >
+                            Replace
+                        </button>
+                        <output data-attr="url">{serializeFacetSearch(value)}</output>
                     </div>
                 )
             }
-            render(<ClearableConsumer />)
-            const user = userEvent.setup()
-            await user.click(input())
-            await user.keyboard('status:act')
-            await user.click(document.querySelector('[data-attr="clear"]')!)
-            expect(pills()).toEqual([])
-            expect(input()).toHaveValue('')
+            const setupResettable = (url: string, replacement = ''): ReturnType<typeof userEvent.setup> => {
+                render(<ResettableConsumer url={url} replacement={replacement} />)
+                return userEvent.setup()
+            }
+            const press = (attr: string): HTMLElement => document.querySelector<HTMLElement>(`[data-attr="${attr}"]`)!
+
+            it('drops a typed draft when the search is cleared', async () => {
+                const user = setupResettable('status:draft')
+                await user.click(input())
+                await user.keyboard('status:act')
+                await user.click(press('clear'))
+                expect(pills()).toEqual([])
+                expect(input()).toHaveValue('')
+            })
+
+            it('drops a typed draft when the search is set back to one the bar sent before', async () => {
+                const user = setupResettable('', 'status:draft')
+                await user.click(input())
+                await user.keyboard('status:draft ')
+                await user.click(press('clear'))
+                await user.click(input())
+                await user.paste('status:act')
+                await user.click(press('replace'))
+                expect(shown('url')).toEqual('status:draft')
+                expect(input()).toHaveValue('')
+            })
+
+            it('drops a typed draft when only the spaces inside a quoted pill value change', async () => {
+                const user = setupResettable('sends:"Your trial ends"', 'sends:"Your  trial ends"')
+                await user.click(input())
+                await user.keyboard('status:act')
+                await user.click(press('replace'))
+                expect(shown('url')).toEqual('sends:"Your  trial ends"')
+                expect(input()).toHaveValue('')
+            })
         })
 
         it('Esc closes the popover before anything around the bar, and a click on the input opens it again', async () => {
@@ -462,17 +500,36 @@ describe('FacetSearchBar', () => {
         })
 
         it.each([
-            ['a typed facet value followed by a space', 'status:active ', 'status:active', ['Status: Active']],
-            ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ['Sends: Your trial ends']],
-            ['text around a typed facet value', 'wel status:active ren', 'status:active wel ren', ['Status: Active']],
-            ['a facet alias', 'subject:Deals ', 'sends:Deals', ['Sends: Deals']],
-            ['an unknown facet, which stays text', 'owner:me ', 'owner:me', []],
-        ])('turns %s into pills and text', async (_, typed, url, expectedPills) => {
+            [
+                'a typed facet value followed by a space',
+                'status:active ',
+                'status:active',
+                ['Status: Active'],
+                'Welcome',
+            ],
+            [
+                'a closed quoted value',
+                'sends:"Your trial ends"',
+                'sends:"Your trial ends"',
+                ['Sends: Your trial ends'],
+                'Renewal',
+            ],
+            [
+                'text around a typed facet value',
+                'wel status:active ren',
+                'status:active wel ren',
+                ['Status: Active'],
+                '',
+            ],
+            ['a facet alias', 'subject:Deals ', 'sends:Deals', ['Sends: Deals'], 'Promo'],
+            ['an unknown facet, which stays text', 'owner:me ', 'owner:me', [], ''],
+        ])('turns %s into pills and text', async (_, typed, url, expectedPills, expectedRows) => {
             const user = setup()
             await user.click(input())
             await user.keyboard(typed)
             expect(shown('url')).toEqual(url)
             expect(pills()).toEqual(expectedPills)
+            expect(shown('rows')).toEqual(expectedRows)
         })
 
         it.each([
@@ -490,6 +547,15 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.paste('status:draft -status:archived status:draft ')
             expect(pills()).toEqual(['Status: Draft', 'Status is not: Archived'])
+            expect(input()).toHaveValue('')
+        })
+
+        it('adds a pasted filter next to pills from the URL that differ only by case', async () => {
+            const user = setup('status:Draft status:draft')
+            await user.click(input())
+            await user.paste('sends:"Your trial ends" ')
+            expect(shown('url')).toEqual('status:Draft status:draft sends:"Your trial ends"')
+            expect(shown('rows')).toEqual('Renewal')
             expect(input()).toHaveValue('')
         })
 
@@ -695,11 +761,11 @@ describe('FacetSearchBar', () => {
                     facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]}
                 />
             )
+            const note = "Team is not: t-2 (couldn't load the label)"
             await waitFor(() =>
-                expect(document.querySelector('[data-attr="server-search-filter"]')).toHaveTextContent(
-                    "Couldn't load the label"
-                )
+                expect(document.querySelector('[data-attr="server-search-filter"]')).toHaveTextContent(note)
             )
+            expect(screen.getByTitle(note)).toBeInTheDocument()
             expect(pills()).toEqual(['Team is not: t-2'])
         })
 
