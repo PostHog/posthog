@@ -47,10 +47,10 @@ A parameterized case is still its own test invocation, so `setUp` and `beforeEac
 That sets the limit too: fold in variations of the same behavior, and don't bolt assertions about unrelated behavior onto a test that already passes.
 
 **Check the dependencies of each case before placing it.**
-If the nearest test class uses Postgres or ClickHouse, ask whether the new case itself reads or writes that store, including through setup and helpers.
-Put a pure case in a `SimpleTestCase` class even when nearby cases need storage; parameterize it with the other pure cases there.
+If the nearest test class uses Postgres or ClickHouse, ask whether the case would still need either store after extraction, including through helpers it calls.
+Put a pure case in a `ClickhouseFreeSimpleTestCase` class even when nearby cases need storage; parameterize it with the other pure cases there.
 Do not add a pure case to a storage-backed class just to keep related behavior in one class or file.
-Run the `SimpleTestCase` class: its database blocker verifies the choice.
+Run the `ClickhouseFreeSimpleTestCase` class: it blocks Django database access and the standard ClickHouse query paths.
 
 Search before you write.
 If you haven't looked for the nearest existing test, you can't answer this question.

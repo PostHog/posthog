@@ -124,6 +124,7 @@ Aim for a ratio, not a cap: many tests at the bottom, very few at the top — if
 When logic is hard to test cheaply, that's a design signal: extract it into a pure function (or a kea logic) and test that directly rather than standing up a database, a request, and a render.
 Escalating to the next rung is the last resort, not the default.
 
+- **Check each case's storage needs.** Move pure cases out of classes that need Postgres or ClickHouse. `ClickhouseFreeSimpleTestCase` blocks Django database access and the standard ClickHouse query paths, so use it when a test should need neither store.
 - **Use `TestCase`, not `TransactionTestCase`, unless you truly need it.** `TransactionTestCase` flushes the DB between tests instead of rolling back a transaction — dramatically slower, and a common source of cross-test interference. For `transaction.on_commit` side effects use `self.captureOnCommitCallbacks(execute=True)`; reaching ClickHouse is not a reason to switch (`ClickhouseTestMixin` runs on a plain `TestCase`).
 - Mock only true boundaries — network, external APIs, the clock, queues. Don't mock your own internal helpers; that's how change-detector tests are born.
 - Frontend: prefer a kea logic test (`logic.actions` / `logic.values`) over a full component render whenever the behavior lives in the logic, and don't snapshot large rendered trees — assert specific fields instead.
