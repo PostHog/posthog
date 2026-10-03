@@ -11,6 +11,12 @@ import * as zod from 'zod'
 
 export const createBodyNameMax = 64
 
+export const createBodyMemberNoticeOneMessageMax = 1000
+
+export const createBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const createBodyMemberNoticeOneActionOneUrlMax = 2000
+
 export const CreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(createBodyNameMax),
     logo_media_id: zod.uuid().nullish(),
@@ -42,6 +48,36 @@ export const CreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(createBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(createBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(createBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -58,6 +94,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const updateBodyNameMax = 64
+
+export const updateBodyMemberNoticeOneMessageMax = 1000
+
+export const updateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const updateBodyMemberNoticeOneActionOneUrlMax = 2000
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(updateBodyNameMax),
@@ -90,6 +132,36 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(updateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(updateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(updateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
@@ -106,6 +178,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const partialUpdateBodyNameMax = 64
+
+export const partialUpdateBodyMemberNoticeOneMessageMax = 1000
+
+export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
@@ -138,6 +216,36 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(partialUpdateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
