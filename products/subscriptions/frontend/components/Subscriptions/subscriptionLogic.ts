@@ -1069,7 +1069,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 breakpoint()
                 actions.setPreviewError(e instanceof Error ? e.message : 'Failed to generate preview')
             } finally {
-                actions.setPreviewLoading(false)
+                try {
+                    breakpoint()
+                    actions.setPreviewLoading(false)
+                } catch {
+                    // A newer preview run owns the loading state.
+                }
             }
         },
 
