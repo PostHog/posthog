@@ -17,12 +17,14 @@ class Migration(migrations.Migration):
     the thread table. Nothing here touches the database, so the order does not matter for the
     table, and a dependency on 0011 would make every rollback of `alerts` below it unapply this
     app's later migrations, including a concurrent index that cannot run in a transaction.
+    For the same reason the `posthog` dependency is the one `alerts.0007` already has, not the
+    newest `posthog` migration.
     """
 
     initial = True
 
     dependencies = [
-        ("posthog", "1390_rename_desktop_canvas_comment_scope"),
+        ("posthog", "1366_project_deletion_scheduled_at"),
         ("alerts", "0008_platformalert_firing_started_at_and_uuid7_pk"),
     ]
 
