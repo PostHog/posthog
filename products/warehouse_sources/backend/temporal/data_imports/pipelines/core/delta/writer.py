@@ -330,6 +330,7 @@ class DeltaWriter:
                 governor_rewrite_mb=adm.rewrite_mb,
                 governor_rewrite_total_mb=adm.rewrite_total_mb,
                 governor_rewrite_files=adm.rewrite_files,
+                governor_reserved_mb=adm.reserved_mb,
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,

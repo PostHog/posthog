@@ -1211,6 +1211,7 @@ class TestDeltaliteWritePath:
         assert log_kwargs["governor_rewrite_total_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_rewrite_mb"] is not None
         assert log_kwargs["governor_reserved_slots"] is not None and log_kwargs["governor_wait_ms"] == 0
+        assert log_kwargs["governor_reserved_mb"] == log_kwargs["governor_predicted_peak_mb"]
         assert fake_table.upsert.call_args.kwargs["max_parallel_partitions"] == 1
 
     @pytest.mark.asyncio

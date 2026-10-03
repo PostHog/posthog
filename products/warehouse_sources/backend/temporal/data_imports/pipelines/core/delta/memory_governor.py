@@ -40,6 +40,12 @@ worker for the existing files of the partition it rewrites (``RewriteProfile``),
 table's add actions with no object-store request. When even one worker exceeds the slice, the
 upsert reserves more than one slice, and later admissions wait (bounded) for that room.
 
+The per-worker charge sizes parallelism only. Pod memory during a large merge follows the
+stored size of ALL candidate files, not the files of the ``mpp`` largest partitions.
+So the reservation is at least ``rewrite_total_factor`` × that total, plus the base and source
+terms. A merge that touches many small partitions therefore reserves several slices, although
+its plan keeps the full parallelism.
+
 Two knobs buy I/O overlap rather than memory: ``max_parallel_files`` (readers per partition
 worker) and ``probe_concurrency`` (PK-column probes per worker). deltalite budgets every decoded
 batch, probe or rewrite, against ``max_buffered_bytes``, so neither knob can push decoded bytes
@@ -259,6 +265,15 @@ class UpsertPlan:
     #: The part of ``predicted_peak_mb`` charged for rewriting existing files, in MB.
     rewrite_mb: float = 0.0
 
+    def reservation_mb(self, source_mb: float, rewrite: RewriteProfile | None, rewrite_total_factor: float) -> float:
+        """Memory to reserve for this plan: the prediction, or the whole rewrite when that is larger."""
+        if rewrite is None or rewrite_total_factor <= 0:
+            return self.predicted_peak_mb
+        whole_rewrite = (
+            _MARGINAL_BASE_MB + _MARGINAL_PER_SOURCE_MB * source_mb + rewrite_total_factor * rewrite.total_mb
+        )
+        return max(self.predicted_peak_mb, round(whole_rewrite, 1))
+
     def as_upsert_kwargs(self) -> dict[str, int]:
         return {
             "max_parallel_partitions": self.max_parallel_partitions,
@@ -450,6 +465,9 @@ class GovernorConfig:
     #: Longest an enforce-mode admission waits for room before it writes anyway. The wait holds no
     #: reservation, so it can never block a release; the bound keeps a waiter from stalling its slot.
     max_wait_s: float = 60.0
+    #: Memory reserved per stored MB of all candidate rewrite files, on top of the base and source
+    #: terms. 0 reserves only the prediction.
+    rewrite_total_factor: float = 1.0
 
     @staticmethod
     def from_env() -> GovernorConfig:
@@ -465,6 +483,7 @@ class GovernorConfig:
             reserve_mb=_env_float("DELTALITE_GOVERNOR_RESERVE_MB", 2048.0),
             limit_override_mb=float(override) if override else None,
             max_wait_s=max(0.0, _env_float("DELTALITE_GOVERNOR_MAX_WAIT_S", 60.0)),
+            rewrite_total_factor=max(0.0, _env_float("DELTALITE_GOVERNOR_REWRITE_TOTAL_FACTOR", 1.0)),
         )
 
     @staticmethod
@@ -526,7 +545,9 @@ class Admission:
     #: Stored MB of all candidate files the merge can rewrite, over every touched partition.
     rewrite_total_mb: float | None = None
     rewrite_files: int | None = None
-    #: Slices this upsert holds (enforce) or would hold (advisory). Above 1 when even mpp=1 overflows.
+    #: Memory this upsert holds (enforce) or would hold (advisory), in MB.
+    reserved_mb: float | None = None
+    #: ``reserved_mb`` in slices. Above 1 when even mpp=1 overflows or the whole rewrite exceeds a slice.
     reserved_slots: float | None = None
     #: Time spent waiting for room before the write, and whether the wait ran out.
     wait_ms: int = 0
@@ -643,6 +664,8 @@ class MemoryGovernor:
         is held for the whole ``with`` block and released on exit, even on exception. In enforce
         mode an upsert predicted above its slice reserves up to the whole usable pod, and entry
         waits (bounded by ``max_wait_s``) until the reservation fits beside the ones in flight.
+        The reservation also covers every candidate rewrite file (``rewrite_total_factor``), which
+        can exceed the prediction that sized the plan.
         """
         source_mb = source_bytes / MB
 
@@ -661,7 +684,7 @@ class MemoryGovernor:
         usable_mb = budget_mb * self.config.max_concurrent
         plan = size_upsert(budget_mb, source_mb, n_partitions, rewrite)
         # Capped at the usable pod so an upsert alone always fits and never waits for itself.
-        reserve_mb = min(plan.predicted_peak_mb, usable_mb)
+        reserve_mb = min(plan.reservation_mb(source_mb, rewrite, self.config.rewrite_total_factor), usable_mb)
 
         # Only enforce reserves against the budget (and may wait for room); advisory is a pure
         # no-op on the accounting.
@@ -684,6 +707,7 @@ class MemoryGovernor:
             rewrite_mb=plan.rewrite_mb if rewrite is not None else None,
             rewrite_total_mb=round(rewrite.total_mb, 1) if rewrite is not None else None,
             rewrite_files=rewrite.files if rewrite is not None else None,
+            reserved_mb=round(reserve_mb, 1),
             reserved_slots=round(reserve_mb / budget_mb, 2) if budget_mb > 0 else None,
             wait_ms=round(waited_s * 1000),
             wait_timed_out=timed_out,

@@ -304,6 +304,21 @@ class TestProcessConcurrency:
             cfg = GovernorConfig.from_env()
             assert (cfg.safety, cfg.reserve_mb) == (0.7, 4096.0)
 
+    @parameterized.expand(
+        [
+            ("unset", None, 1.0),
+            ("blank", " ", 1.0),
+            ("kill_switch", "0", 0.0),
+            ("scaled", "1.5", 1.5),
+            ("invalid", "lots", 1.0),
+            ("negative_is_off", "-1", 0.0),
+        ]
+    )
+    def test_reads_rewrite_total_factor(self, _name, raw, expected):
+        env = {} if raw is None else {"DELTALITE_GOVERNOR_REWRITE_TOTAL_FACTOR": raw}
+        with patch.dict("os.environ", env, clear=True):
+            assert GovernorConfig.from_env().rewrite_total_factor == expected
+
 
 _PART = "_ph_partition_key"
 # (partition, stored bytes, min id, max id)
@@ -496,7 +511,7 @@ class TestOverSlotReservation:
         cm, adm = await self._enter(gov, self._BIG)
         assert (adm.planned_mpp, adm.capacity_exceeded) == (1, True)
         assert adm.rewrite_mb == 3000.0 and adm.rewrite_total_mb == 2000.0 and adm.rewrite_files == 20
-        assert adm.reserved_slots == 3.39 and gov._reserved_mb == 3389.5
+        assert adm.reserved_mb == 3389.5 and adm.reserved_slots == 3.39 and gov._reserved_mb == 3389.5
         assert (adm.wait_ms, fake.sleeps) == (0, 0)
         await self._exit(cm)
         assert gov._reserved_mb == 0.0 and gov._inflight == 0
@@ -592,3 +607,99 @@ class TestOverSlotReservation:
         assert adm.upsert_kwargs == {} and adm.reserved_slots == 3.39 and adm.rewrite_mb == 3000.0
         assert (gov._reserved_mb, gov._inflight, fake.sleeps) == (0.0, 0, 0)
         await self._exit(cm)
+
+
+class TestWholeRewriteReservation:
+    # The production slice: 16 slots of 1356.8 MB, 21708.8 MB usable. A 10 MB source (7.3).
+    _LIMIT = 21_708.8
+    # Many small partitions with a big total: each worker rewrites 19.5 MB, so the plan keeps
+    # (4,4) = 220 + 532 + 7.3 + 78 = 837.3, but the merge rewrites 5460 MB in all.
+    _TRADES = RewriteProfile(partition_bytes=(13 * MB,) * 420, files=420)
+    # (4,4) = 220 + 532 + 7.3 + 300 = 1059.3; the whole rewrite is 220 + 7.3 + 200 = 427.3.
+    _SMALL = RewriteProfile(partition_bytes=(50 * MB,) * 4, files=4)
+
+    def _gov(self, mode: str = "enforce", factor: float = 1.0, **kwargs) -> MemoryGovernor:
+        return _governor(mode, limit_mb=self._LIMIT, max_concurrent=16, rewrite_total_factor=factor, **kwargs)
+
+    @staticmethod
+    async def _enter(gov: MemoryGovernor, rewrite: RewriteProfile):
+        cm = gov.admit(source_bytes=10 * MB, n_partitions=len(rewrite.partition_bytes), rewrite=rewrite)
+        return cm, await cm.__aenter__()
+
+    @parameterized.expand(
+        [
+            ("trades_like_reserves_the_whole_rewrite", _TRADES, 1.0, 5687.3, 4.19),
+            ("factor_scales_the_total", _TRADES, 0.5, 2957.3, 2.18),
+            ("factor_zero_reserves_the_prediction", _TRADES, 0.0, 837.3, 0.62),
+            ("small_merge_reserves_the_prediction", _SMALL, 1.0, 1059.3, 0.78),
+            (
+                "capped_at_the_usable_pod",
+                RewriteProfile(partition_bytes=(13 * MB,) * 2000, files=2000),
+                1.0,
+                21708.8,
+                16.0,
+            ),
+            # One 3 GB partition: the capped per-worker charge (4096) is above the whole rewrite (3227.3).
+            (
+                "prediction_above_the_whole_rewrite",
+                RewriteProfile(partition_bytes=(3_000 * MB,), files=3),
+                1.0,
+                4456.3,
+                3.28,
+            ),
+        ]
+    )
+    async def test_reservation(self, _name, rewrite, factor, exp_reserved_mb, exp_slots):
+        gov = self._gov(factor=factor)
+        cm, adm = await self._enter(gov, rewrite)
+        # The total sets only the reservation: the knobs are the plan the per-worker charge sized.
+        plan = size_upsert(gov.slot_budget_mb() or 0.0, 10.0, len(rewrite.partition_bytes), rewrite)
+        assert adm.upsert_kwargs == plan.as_upsert_kwargs()
+        assert adm.predicted_peak_mb == plan.predicted_peak_mb
+        assert (adm.reserved_mb, adm.reserved_slots, gov._reserved_mb) == (exp_reserved_mb, exp_slots, exp_reserved_mb)
+        await cm.__aexit__(None, None, None)
+        assert gov._reserved_mb == 0.0 and gov._inflight == 0
+
+    async def test_unknown_rewrite_reserves_the_prediction(self):
+        gov = self._gov()
+        cm = gov.admit(source_bytes=10 * MB, n_partitions=4)
+        adm = await cm.__aenter__()
+        assert adm.reserved_mb == adm.predicted_peak_mb == gov._reserved_mb
+        await cm.__aexit__(None, None, None)
+
+    async def test_sixteen_small_merges_never_wait(self):
+        async def _no_sleep(_seconds: float) -> None:
+            raise AssertionError("a slice-sized admission must not wait")
+
+        gov = self._gov(sleep=_no_sleep)
+        held = [await self._enter(gov, self._SMALL) for _ in range(16)]
+        assert gov._inflight == 16 and all(adm.reserved_slots == 0.78 for _cm, adm in held)
+        for cm, _adm in held:
+            await cm.__aexit__(None, None, None)
+
+    @parameterized.expand([("whole_rewrite", 1.0, True), ("kill_switch", 0.0, False)])
+    async def test_four_big_rewrites_cannot_share_the_pod(self, _name, factor, fourth_waits):
+        # 4 x 5687.3 is above the 21708.8 MB pod; 4 x 837.3 is far below it.
+        fake = _FakeTime()
+        gov = self._gov(factor=factor, clock=fake.clock, sleep=fake.sleep)
+        held = [await self._enter(gov, self._TRADES) for _ in range(3)]
+        fourth = asyncio.create_task(self._enter(gov, self._TRADES))
+        await _settle()
+        assert fourth.done() is not fourth_waits
+
+        await held[0][0].__aexit__(None, None, None)
+        await _settle()
+        cm, adm = fourth.result()
+        assert (adm.wait_ms > 0) is fourth_waits and adm.wait_timed_out is False
+        for c in [cm, *(c for c, _adm in held[1:])]:
+            await c.__aexit__(None, None, None)
+        assert gov._reserved_mb == pytest.approx(0.0, abs=1e-6) and gov._inflight == 0
+
+    async def test_advisory_logs_the_whole_rewrite_but_never_reserves(self):
+        fake = _FakeTime()
+        gov = self._gov("advisory", clock=fake.clock, sleep=fake.sleep)
+        held = [await self._enter(gov, self._TRADES) for _ in range(4)]
+        assert all(adm.reserved_mb == 5687.3 and adm.upsert_kwargs == {} for _cm, adm in held)
+        assert (gov._reserved_mb, gov._inflight, fake.sleeps) == (0.0, 0, 0)
+        for cm, _adm in held:
+            await cm.__aexit__(None, None, None)
