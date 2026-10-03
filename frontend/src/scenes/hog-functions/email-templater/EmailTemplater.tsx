@@ -29,6 +29,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
@@ -497,7 +498,7 @@ function LiquidSupportedText({
 }
 
 export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { templates } = useValues(emailTemplaterLogic)
+    const { templates, pickingTemplateId } = useValues(emailTemplaterLogic)
     const { pickTemplate } = useActions(emailTemplaterLogic)
 
     return (
@@ -513,7 +514,18 @@ export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onCl
                 </LemonCard>
                 {templates.map((template, index) => (
                     <div key={template.id} className="w-48 h-56">
-                        <MessageTemplateCard template={template} index={index} onClick={() => pickTemplate(template)} />
+                        <MessageTemplateCard
+                            template={template}
+                            index={index}
+                            onClick={() => pickingTemplateId !== template.id && pickTemplate(template)}
+                            actions={
+                                pickingTemplateId === template.id ? (
+                                    <span role="status" aria-label="Loading template">
+                                        <Spinner />
+                                    </span>
+                                ) : undefined
+                            }
+                        />
                     </div>
                 ))}
             </div>

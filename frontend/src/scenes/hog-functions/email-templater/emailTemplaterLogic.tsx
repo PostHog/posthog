@@ -250,6 +250,7 @@ export interface emailTemplaterLogicValues {
     mergeTags: UnlayerMergeTags
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
+    pickingTemplateId: string | null
     revealedAdvancedFields: EmailMetaFieldKey[]
     showEmailTemplateErrors: boolean
     templates: MessageTemplateListApi[]
@@ -353,6 +354,9 @@ export interface emailTemplaterLogicActions {
     setIsTemplatePickerOpen: (isOpen: boolean) => {
         isOpen: boolean
     }
+    setPickingTemplateId: (templateId: string | null) => {
+        templateId: string | null
+    }
     setTemplatingEngine: (templating: 'hog' | 'liquid') => {
         templating: 'hog' | 'liquid'
     }
@@ -407,6 +411,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsModalOpen: (isModalOpen: boolean) => ({ isModalOpen }),
         setIsSaveTemplateModalOpen: (isOpen: boolean) => ({ isOpen }),
         setIsTemplatePickerOpen: (isOpen: boolean) => ({ isOpen }),
+        setPickingTemplateId: (templateId: string | null) => ({ templateId }),
         designUpdated: true,
         designLoaded: true,
         pickTemplate: (template: MessageTemplateListApi) => ({ template }),
@@ -451,6 +456,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setIsModalOpen: (state, { isModalOpen }) => (isModalOpen ? state : false),
             },
         ],
+        pickingTemplateId: [null as string | null, { setPickingTemplateId: (_, { templateId }) => templateId }],
         appliedTemplate: [
             null as MessageTemplate | null,
             {
@@ -722,6 +728,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsModalOpen: ({ isModalOpen }) => {
             if (!isModalOpen) {
                 cache.pickTemplateRequestId = (cache.pickTemplateRequestId ?? 0) + 1
+                actions.setPickingTemplateId(null)
             }
             if (isModalOpen && props.value) {
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
@@ -733,10 +740,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setIsTemplatePickerOpen: ({ isOpen }) => {
             if (!isOpen) {
                 cache.pickTemplateRequestId = (cache.pickTemplateRequestId ?? 0) + 1
+                actions.setPickingTemplateId(null)
             }
         },
 
         pickTemplate: async ({ template }) => {
+            if (values.pickingTemplateId === template.id) {
+                return
+            }
+            actions.setPickingTemplateId(template.id)
             const requestId = (cache.pickTemplateRequestId ?? 0) + 1
             cache.pickTemplateRequestId = requestId
 
@@ -750,6 +762,10 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } catch {
                 if (cache.pickTemplateRequestId === requestId) {
                     lemonToast.error('Failed to load template')
+                }
+            } finally {
+                if (cache.pickTemplateRequestId === requestId) {
+                    actions.setPickingTemplateId(null)
                 }
             }
         },

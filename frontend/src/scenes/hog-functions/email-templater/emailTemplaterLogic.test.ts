@@ -667,11 +667,14 @@ describe('emailTemplaterLogic', () => {
 
             await expectLogic(logic, () => logic.actions.pickTemplate(listTemplate)).toDispatchActions([
                 'pickTemplate',
+                'setPickingTemplateId',
                 'applyTemplate',
                 'setIsTemplatePickerOpen',
+                'setPickingTemplateId',
             ])
             expect(props.onChange).toHaveBeenCalledWith(expect.objectContaining({ design }))
             expect(logic.values.isTemplatePickerOpen).toBe(false)
+            expect(logic.values.pickingTemplateId).toBeNull()
         })
 
         it('keeps the picker open when the template request fails', async () => {
@@ -685,8 +688,36 @@ describe('emailTemplaterLogic', () => {
             logic.mount()
             logic.actions.setIsTemplatePickerOpen(true)
 
-            await expectLogic(logic, () => logic.actions.pickTemplate(template)).toDispatchActions(['pickTemplate'])
+            await expectLogic(logic, () => logic.actions.pickTemplate(template)).toDispatchActions([
+                'pickTemplate',
+                'setPickingTemplateId',
+                'setPickingTemplateId',
+            ])
             expect(logic.values.isTemplatePickerOpen).toBe(true)
+            expect(logic.values.appliedTemplate).toBeNull()
+            expect(logic.values.pickingTemplateId).toBeNull()
+        })
+
+        it('does not request the same template twice and clears loading when the picker closes', async () => {
+            const template = { id: 'template-1', name: 'Welcome' } as MessageTemplateListApi
+            let resolveRequest!: (template: MessageTemplate) => void
+            const request = new Promise<MessageTemplate>((resolve) => {
+                resolveRequest = resolve
+            })
+            const getTemplate = jest.spyOn(api.messaging, 'getTemplate').mockReturnValue(request)
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsTemplatePickerOpen(true)
+
+            logic.actions.pickTemplate(template)
+            expect(logic.values.pickingTemplateId).toBe(template.id)
+            logic.actions.pickTemplate(template)
+            expect(getTemplate).toHaveBeenCalledTimes(1)
+
+            logic.actions.setIsTemplatePickerOpen(false)
+            expect(logic.values.pickingTemplateId).toBeNull()
+            resolveRequest({ content: { email: DEFAULT_EMAIL_TEMPLATE } } as MessageTemplate)
+            await new Promise((resolve) => setTimeout(resolve, 0))
             expect(logic.values.appliedTemplate).toBeNull()
         })
 
@@ -724,12 +755,14 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.pickTemplate(listTemplate('first'))
                 logic.actions.pickTemplate(listTemplate('second'))
-            }).toDispatchActions(['pickTemplate', 'pickTemplate'])
+            }).toDispatchActions(['pickTemplate', 'setPickingTemplateId', 'pickTemplate', 'setPickingTemplateId'])
+            expect(logic.values.pickingTemplateId).toBe('second')
             resolveSecond(fullTemplate('second'))
             await expectLogic(logic).toDispatchActions(['applyTemplate', 'setIsTemplatePickerOpen'])
             await expectLogic(logic).toMatchValues({
                 appliedTemplate: fullTemplate('second'),
                 isTemplatePickerOpen: false,
+                pickingTemplateId: null,
             })
 
             resolveFirst(fullTemplate('first'))

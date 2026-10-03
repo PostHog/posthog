@@ -2,7 +2,23 @@ import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCo
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
+import type { MinimalHedgehogConfig } from '~/types'
+
 import { MessageTemplateListItem } from './types'
+
+function isMinimalHedgehogConfig(value: unknown): value is MinimalHedgehogConfig {
+    if (!value || typeof value !== 'object') {
+        return false
+    }
+    const config = value as Record<string, unknown>
+    return (
+        typeof config.use_as_profile === 'boolean' &&
+        (typeof config.color === 'string' || config.color === null) &&
+        (typeof config.skin === 'string' || config.skin === null) &&
+        Array.isArray(config.accessories) &&
+        config.accessories.every((accessory) => typeof accessory === 'string')
+    )
+}
 
 export function MessageTemplateCard({
     template,
@@ -21,6 +37,9 @@ export function MessageTemplateCard({
               first_name: template.created_by.first_name,
               last_name: template.created_by.last_name,
               email: template.created_by.email,
+              hedgehog_config: isMinimalHedgehogConfig(template.created_by.hedgehog_config)
+                  ? template.created_by.hedgehog_config
+                  : undefined,
           }
         : null
 
