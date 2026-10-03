@@ -151,6 +151,8 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 code: dedent`
                                     import { SeverityNumber } from '@opentelemetry/api-logs'
 
+                                    export const dynamic = 'force-dynamic'
+
                                     export async function GET() {
                                       const logger = (globalThis as any).__posthogLogger
                                       logger?.emit({
