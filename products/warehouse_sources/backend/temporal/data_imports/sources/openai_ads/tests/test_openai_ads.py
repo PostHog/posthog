@@ -271,6 +271,35 @@ class TestInsights:
         assert rows[0]["currency_code"] == "EUR"
         assert session.send.call_count == 2
 
+    @parameterized.expand(
+        [
+            ("plan_in_middle", "start=1777075200:{plan}:end=1777161600:entity_id=cmpn_1"),
+            ("plan_last", "start=1777075200:end=1777161600:entity_id=cmpn_1:{plan}"),
+            ("plan_first", "{plan}:start=1777075200:end=1777161600:entity_id=cmpn_1"),
+            ("no_plan", "start=1777075200:end=1777161600:entity_id=cmpn_1"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_row_id_stays_the_same_across_syncs_when_plan_segment_changes(
+        self, _name: str, id_template: str, MockSession
+    ) -> None:
+        ids = []
+        for plan in ("plan=eJzLSM3JyVcozy/KSQEAGgQEXQ", "plan=eJwrSS0uAQAEXQHB"):
+            session = MockSession.return_value
+            _wire(
+                session,
+                [
+                    _response({"currency_code": "EUR"}),
+                    _page(
+                        [{"id": id_template.format(plan=plan), "start_time": 1777075200, "end_time": 1777161600}],
+                        has_more=False,
+                    ),
+                ],
+            )
+            ids.append(_rows(_source("campaign_insights", _make_manager()))[0]["id"])
+
+        assert ids == ["start=1777075200:end=1777161600:entity_id=cmpn_1"] * 2
+
     @time_machine.travel("2026-07-21", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_checkpoint_pins_the_window_alongside_the_cursor(self, MockSession) -> None:
