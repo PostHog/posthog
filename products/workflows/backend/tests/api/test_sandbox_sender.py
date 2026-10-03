@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -23,7 +25,7 @@ class TestSandboxSenderAPI(APIBaseTest):
         self.flag_enabled = self._patch("posthoganalytics.feature_enabled", return_value=True)
         self.capture = self._patch("posthoganalytics.capture")
 
-    def _patch(self, target: str, **kwargs: object) -> MagicMock:
+    def _patch(self, target: str, **kwargs: Any) -> MagicMock:
         patcher = patch(target, **kwargs)
         mock = patcher.start()
         self.addCleanup(patcher.stop)
