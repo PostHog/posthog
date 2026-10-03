@@ -123,8 +123,17 @@ body:has(.TodayAppLayout--phone) :is(input, textarea, select) {
     font-size: 1rem;
 }
 
+// React-toastify makes a phone toast full-bleed and square. Float it as a card above the tab bar instead.
 body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
+    right: 12px;
     bottom: calc(84px + env(safe-area-inset-bottom));
+    left: 12px;
+    width: auto;
+
+    .Toastify__toast {
+        margin-bottom: 8px;
+        border-radius: 14px;
+    }
 }
 
 .TodayShell__page {
