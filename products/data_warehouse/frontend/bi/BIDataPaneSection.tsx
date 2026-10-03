@@ -43,7 +43,7 @@ export function BIDataPaneSection({
     emptyText,
     path = [],
 }: {
-    title: string
+    title?: string
     fields: BIField[]
     measure: boolean
     emptyText: string
@@ -58,7 +58,7 @@ export function BIDataPaneSection({
 
     return (
         <div className="flex flex-col">
-            <div className="px-2 pb-1 pt-2 text-xs font-semibold text-secondary">{title}</div>
+            {title ? <div className="px-2 pb-1 pt-2 text-xs font-semibold text-secondary">{title}</div> : null}
             {fields.length === 0 ? <span className="px-2 text-xs text-tertiary">{emptyText}</span> : null}
             {fields.map((field) => (
                 <button

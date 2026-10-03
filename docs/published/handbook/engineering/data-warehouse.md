@@ -240,8 +240,8 @@ symbol not found in flat namespace '_bcp_batch'
 ## Connected fields in BI mode
 
 Below Dimensions and Measures, **Connections** lists the selected table's linked tables and views.
-Expand a connection to load its fields. Each expanded connection has its own Dimensions, Measures,
-and nested Connections; the Connections heading is omitted when there are no further links.
+Expand a connection to load its dimensions, measures, and nested connections. Inside connections,
+fields and further links appear without section headings.
 
 Drag connected fields onto a shelf, double-click them, or press Enter to add them to Rows.
 Measures are aggregated automatically. The worksheet keeps its original source table and uses the full

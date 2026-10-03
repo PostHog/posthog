@@ -16,7 +16,6 @@ export function BIConnectionGroup({ connections }: { connections: BIConnection[]
     }
     return (
         <div className="flex min-w-0 flex-col" data-attr="bi-editor-connections">
-            <div className="px-2 pb-1 pt-2 text-xs font-semibold text-secondary">Connections</div>
             {connections.map((connection) => (
                 <div key={connection.id} className="min-w-0">
                     <LemonButton
@@ -59,14 +58,12 @@ export function BIConnectionGroup({ connections }: { connections: BIConnection[]
                             ) : (
                                 <>
                                     <BIDataPaneSection
-                                        title="Dimensions"
                                         fields={connection.fields.dimensions}
                                         path={connection.path}
                                         measure={false}
                                         emptyText="No matching dimensions"
                                     />
                                     <BIDataPaneSection
-                                        title="Measures"
                                         fields={connection.fields.measures}
                                         path={connection.path}
                                         measure
