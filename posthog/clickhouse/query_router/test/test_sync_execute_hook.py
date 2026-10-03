@@ -17,8 +17,8 @@ from posthog.clickhouse.query_router.config import (
     QueryClass,
     RouterMode,
     arrivals_key,
+    durations_key,
     limit_key,
-    released_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -97,7 +97,7 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
                 waiting_key(pool),
                 waiting_seen_key(pool),
                 limit_key(pool),
-                released_key(pool),
+                durations_key(pool),
                 arrivals_key(pool),
             )
 
@@ -126,11 +126,9 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         self.client_from_pool.assert_not_called()
 
     def test_query_admitted_after_a_wait_logs_the_wait(self) -> None:
-        # Two queries that finished show the pool draining fast enough for the next query to wait instead of
-        # being dropped.
-        for _ in range(2):
-            with tags_context(kind="celery", id="posthog.tasks.example"):
-                sync_execute("SELECT 1", flush=False, workload=Workload.OFFLINE, team_id=1)
+        # A finished query of half a second shows the pool freeing its slot soon enough for the next query to
+        # wait instead of being dropped.
+        self.redis.lpush(durations_key(Pool.OFFLINE), 500)
         held_key = self._enforce_with_a_full_pool()
 
         def free_the_pool_and_sleep(seconds: float) -> None:

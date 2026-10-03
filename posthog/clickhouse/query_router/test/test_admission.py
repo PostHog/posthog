@@ -18,7 +18,8 @@ from posthog.clickhouse.query_router.admission import (
     QueryRouter,
 )
 from posthog.clickhouse.query_router.config import (
-    DRAIN_WINDOW_MS,
+    ARRIVALS_WINDOW_MS,
+    DURATION_HISTORY,
     MAX_WAIT_SECONDS,
     STALE_WAITER_MS,
     Pool,
@@ -26,8 +27,8 @@ from posthog.clickhouse.query_router.config import (
     QueryClass,
     RouterMode,
     arrivals_key,
+    durations_key,
     limit_key,
-    released_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -38,8 +39,10 @@ from posthog.redis import get_client
 # One held slot fills the pool.
 SMALL_LIMIT = 1
 
-# Enough releases in the drain window for every query these tests queue to pass the arrival estimate.
-DRAINING_RELEASES = 10
+# Query durations that make the next query's estimated wait fit half the max wait, or not, at the limits
+# these tests use.
+FAST_QUERY_SECONDS = 0.5
+SLOW_QUERY_SECONDS = 9.0
 
 
 def _sample_value(name: str, labels: dict[str, str]) -> float:
@@ -121,7 +124,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
                 waiting_key(pool),
                 waiting_seen_key(pool),
                 limit_key(pool),
-                released_key(pool),
+                durations_key(pool),
                 arrivals_key(pool),
             )
 
@@ -132,11 +135,10 @@ class TestQueryRouterAdmission(SimpleTestCase):
         for _ in range(count):
             stack.enter_context(self._admit(query_class))
 
-    def _drain(self, releases: int = DRAINING_RELEASES) -> None:
-        # No class ranks below BACKGROUND, so these arrivals use up none of the drain they record.
-        for _ in range(releases):
-            with self._admit(QueryClass.BACKGROUND):
-                pass
+    def _finish(self, seconds: float = FAST_QUERY_SECONDS) -> None:
+        # No class ranks below BACKGROUND, so the arrival counts against no later query.
+        with self._admit(QueryClass.BACKGROUND):
+            self.clock.now += seconds
 
     def _running(self, query_class: QueryClass) -> int:
         return self.redis.zcard(running_key(Pool.OFFLINE, query_class))
@@ -161,7 +163,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
     def test_freed_slot_goes_to_the_waiter_ranked_first(
         self, _name: str, early_class: QueryClass, late_class: QueryClass, early_wins: bool
     ) -> None:
-        self._drain()
+        self._finish()
         early = _ParkedWaiter(self.clock, early_class)
         late = _ParkedWaiter(self.clock, late_class)
         with ExitStack() as held:
@@ -181,7 +183,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     def test_waiter_polls_less_often_the_further_it_is_from_the_head(self) -> None:
         self.enterContext(patch("posthog.clickhouse.query_router.admission.random.uniform", return_value=1.0))
-        self._drain()
+        self._finish()
         waiters = [_ParkedWaiter(self.clock, QueryClass.BACKGROUND) for _ in range(4)]
         with ExitStack() as held:
             self._hold(held, 1)
@@ -197,7 +199,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
             waiter.finish()
 
     def test_waiter_is_dropped_after_its_max_wait_and_leaves_the_queue(self) -> None:
-        self._drain()
+        self._finish()
         started_at = self.clock.now
         with ExitStack() as held:
             self._hold(held, 1)
@@ -212,7 +214,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     def test_waiter_that_wakes_after_its_max_wait_is_dropped_even_when_the_pool_has_freed(self) -> None:
         max_wait_seconds = MAX_WAIT_SECONDS
-        self._drain()
+        self._finish()
         with ExitStack() as held:
             self._hold(held, 1)
 
@@ -236,7 +238,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
             raise Interrupted
 
         self.router.sleep = interrupt
-        self._drain()
+        self._finish()
         with ExitStack() as held:
             self._hold(held, 1)
             with self.assertRaises(Interrupted):
@@ -248,25 +250,27 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("nothing_released", QueryClass.API, 0, 0, False),
-            ("estimate_above_half_the_max_wait", QueryClass.API, 1, 0, False),
-            ("estimate_within_half_the_max_wait", QueryClass.API, 2, 0, True),
-            ("releases_older_than_the_window", QueryClass.API, 2, DRAIN_WINDOW_MS + 1, False),
-            ("higher_class_arrivals_use_up_the_drain", QueryClass.BACKGROUND, 2, 0, False),
+            ("no_query_finished_yet", QueryClass.API, None, 0, True),
+            ("fast_queries", QueryClass.API, FAST_QUERY_SECONDS, 0, True),
+            ("slow_queries", QueryClass.API, SLOW_QUERY_SECONDS, 0, False),
+            ("higher_class_arrivals_take_the_freed_slots", QueryClass.BACKGROUND, 4.0, 0, False),
+            ("higher_class_arrivals_older_than_the_window", QueryClass.BACKGROUND, 4.0, ARRIVALS_WINDOW_MS + 1, True),
         ]
     )
-    def test_query_queues_only_when_the_pool_drains_fast_enough_to_start_it_within_half_its_max_wait(
-        self, _name: str, query_class: QueryClass, releases: int, releases_age_ms: int, queues: bool
+    def test_query_queues_only_when_the_pool_frees_a_slot_within_half_its_max_wait(
+        self, _name: str, query_class: QueryClass, duration_seconds: float | None, arrivals_age_ms: int, queues: bool
     ) -> None:
-        # With a limit of 3 and three API queries running, the next query needs one freed slot. For a
-        # BACKGROUND query the three API arrivals count against the drain.
+        # With a limit of 3 and three API queries running, the next query needs one freed slot. At 4 seconds
+        # per query the pool frees 0.75 slots a second, enough for an API query, but the three API arrivals
+        # in the window take 0.6 of those from a BACKGROUND query.
         self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
         self.redis.set(limit_key(Pool.OFFLINE), 3)
-        self._drain(releases)
-        self.clock.now += releases_age_ms / 1000
-        started_at = self.clock.now
+        if duration_seconds is not None:
+            self._finish(duration_seconds)
         with ExitStack() as held:
             self._hold(held, 3, QueryClass.API)
+            self.clock.now += arrivals_age_ms / 1000
+            started_at = self.clock.now
 
             def free_the_pool_and_sleep(seconds: float) -> None:
                 held.close()
@@ -285,7 +289,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("renewed_by_its_process", True, 2 * 3600, AdmissionOutcome.WOULD_DROP),
+            ("renewed_by_its_process", True, 2 * 3600, AdmissionOutcome.WOULD_WAIT),
             (
                 "left_by_a_dead_process",
                 False,
@@ -313,7 +317,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
             assert self._running(QueryClass.API) == 0
 
     def test_waiter_that_stopped_polling_stops_blocking_after_stale_ms(self) -> None:
-        self._drain()
+        self._finish()
         stuck = _ParkedWaiter(self.clock, QueryClass.BACKGROUND)
         with ExitStack() as held:
             self._hold(held, 1)
@@ -329,15 +333,15 @@ class TestQueryRouterAdmission(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("pool_not_draining", 0, AdmissionOutcome.WOULD_DROP),
-            ("pool_draining", DRAINING_RELEASES, AdmissionOutcome.WOULD_WAIT),
+            ("slow_queries", SLOW_QUERY_SECONDS, AdmissionOutcome.WOULD_DROP),
+            ("fast_queries", FAST_QUERY_SECONDS, AdmissionOutcome.WOULD_WAIT),
         ]
     )
     def test_observe_mode_admits_over_the_limit_and_holds_a_slot(
-        self, _name: str, releases: int, expected_outcome: AdmissionOutcome
+        self, _name: str, duration_seconds: float, expected_outcome: AdmissionOutcome
     ) -> None:
         self.get_mode.return_value = RouterMode.OBSERVE
-        self._drain(releases)
+        self._finish(duration_seconds)
         with ExitStack() as held:
             self._hold(held, SMALL_LIMIT)
             started_at = self.clock.now
@@ -376,6 +380,14 @@ class TestQueryRouterAdmission(SimpleTestCase):
         self.get_pool_bounds.side_effect = ValueError("invalid literal for int()")
         with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
             assert admission.outcome == AdmissionOutcome.ERROR
+
+    def test_release_records_how_long_the_query_ran_and_keeps_the_last_hundred(self) -> None:
+        for _ in range(DURATION_HISTORY + 1):
+            with self._admit(QueryClass.API):
+                self.clock.now += 1.5
+
+        durations = self.redis.lrange(durations_key(Pool.OFFLINE), 0, -1)
+        assert [int(duration) for duration in durations] == [1500] * DURATION_HISTORY
 
     def test_slot_is_released_when_the_query_raises(self) -> None:
         with self.assertRaises(ValueError):

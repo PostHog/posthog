@@ -16,7 +16,8 @@ from redis.exceptions import RedisError
 
 from posthog.clickhouse.query_router import config
 from posthog.clickhouse.query_router.config import (
-    DRAIN_WINDOW_MS,
+    ARRIVALS_WINDOW_MS,
+    DURATION_HISTORY,
     MAX_WAIT_SECONDS,
     QUEUE_WAIT_MARGIN,
     RANK_CLASS_MULTIPLIER,
@@ -25,8 +26,8 @@ from posthog.clickhouse.query_router.config import (
     QueryClass,
     RouterMode,
     arrivals_key,
+    durations_key,
     limit_key,
-    released_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -79,7 +80,7 @@ _REDIS_TIMEOUT_SECONDS = 1.0
 _RETRY_AFTER_SECONDS = (3, 8)
 
 # KEYS[1] to KEYS[4] are the running sets in class order, so KEYS[my_class] is the caller's own set.
-# KEYS[5] is waiting, KEYS[6] is waiting_seen, KEYS[7] is the limit, KEYS[8] is released and KEYS[9]
+# KEYS[5] is waiting, KEYS[6] is waiting_seen, KEYS[7] is the limit, KEYS[8] is durations and KEYS[9]
 # is arrivals. A rank arrives as a string and goes to Redis unchanged, and the script builds rank
 # bounds with string.format('%.0f'), because Lua numbers are doubles and Lua prints a large number in
 # scientific notation.
@@ -98,7 +99,7 @@ local window_ms = tonumber(ARGV[11])
 local wait_budget_ms = tonumber(ARGV[12])
 local waiting = KEYS[5]
 local waiting_seen = KEYS[6]
-local released = KEYS[8]
+local durations = KEYS[8]
 local arrivals = KEYS[9]
 
 local function rank_of(query_class, ms)
@@ -144,12 +145,21 @@ local refused = false
 if first_attempt then
     -- The pool must free this many slots, net, before this query fits.
     local deficit = total + ahead - limit + 1
-    local recent_releases = redis.call('ZCOUNT', released, now - window_ms, '+inf')
+    local recent = redis.call('LRANGE', durations, 0, -1)
+    local duration_sum = 0
+    for _, duration_ms in ipairs(recent) do
+        duration_sum = duration_sum + tonumber(duration_ms)
+    end
     -- A higher class takes a freed slot before this query, whether it starts at once or queues ahead.
     local higher_arrivals = redis.call('ZCOUNT', arrivals, '-inf', '(' .. rank_of(my_class, 0))
-    local net = recent_releases - higher_arrivals
-    -- Without a positive net drain the wait has no bound, so the query is refused.
-    refused = net <= 0 or deficit * window_ms / net > wait_budget_ms
+    -- With no finished query to estimate from, the query waits out its budget.
+    if duration_sum > 0 then
+        -- Slots freed per millisecond: each of the limit's queries finishes after the average duration,
+        -- less the freed slots that higher classes take.
+        local net = limit * #recent / duration_sum - higher_arrivals / window_ms
+        -- Without a positive net drain the wait has no bound, so the query is refused.
+        refused = net <= 0 or deficit / net > wait_budget_ms
+    end
 end
 
 if not enforcing then
@@ -169,18 +179,17 @@ redis.call('ZADD', waiting_seen, now, slot)
 return {'wait', total, limit, ahead}
 """
 
-# KEYS are the slot's running set, waiting, waiting_seen and released. One script for release and for
+# KEYS are the slot's running set, waiting, waiting_seen and durations. One script for release and for
 # leaving the queue keeps the two waiting sets consistent: a waiting entry without a waiting_seen entry
-# is never found stale and would block every waiter behind it. Only a slot that left the running set
-# counts as released, because a waiter that leaves the queue frees nothing.
+# is never found stale and would block every waiter behind it. Only a slot that left the running set ran
+# a query, so only it records a duration.
 _REMOVE_LUA = """
-local now = tonumber(ARGV[2])
 if redis.call('ZREM', KEYS[1], ARGV[1]) == 1 then
-    redis.call('ZADD', KEYS[4], ARGV[2], ARGV[1])
+    redis.call('LPUSH', KEYS[4], ARGV[2])
+    redis.call('LTRIM', KEYS[4], 0, tonumber(ARGV[3]) - 1)
 end
 redis.call('ZREM', KEYS[2], ARGV[1])
 redis.call('ZREM', KEYS[3], ARGV[1])
-redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now - tonumber(ARGV[3]))
 return 0
 """
 
@@ -308,20 +317,20 @@ class QueryRouter:
         SLOT_ERRORS_COUNTER.labels(operation=operation).inc()
         self._log_error("query_router_slot_error", operation=operation)
 
-    def _remove(self, slot: _Slot) -> None:
+    def _remove(self, slot: _Slot, *, ran_ms: int) -> None:
         self._remove_script(
             keys=[
                 running_key(slot.pool, slot.query_class),
                 waiting_key(slot.pool),
                 waiting_seen_key(slot.pool),
-                released_key(slot.pool),
+                durations_key(slot.pool),
             ],
-            args=[slot.slot_id, int(self.get_time() * 1000), DRAIN_WINDOW_MS],
+            args=[slot.slot_id, ran_ms, DURATION_HISTORY],
         )
 
-    def _release(self, slot: _Slot) -> None:
+    def _release(self, slot: _Slot, *, admitted_at: float) -> None:
         try:
-            self._remove(slot)
+            self._remove(slot, ran_ms=self._elapsed_ms(admitted_at))
         except RedisError:
             self._record_slot_error("release")
 
@@ -332,7 +341,7 @@ class QueryRouter:
                 waiting_key(slot.pool),
                 waiting_seen_key(slot.pool),
                 limit_key(slot.pool),
-                released_key(slot.pool),
+                durations_key(slot.pool),
                 arrivals_key(slot.pool),
             ],
             args=[
@@ -346,7 +355,7 @@ class QueryRouter:
                 STALE_WAITER_MS,
                 int(enforcing),
                 int(first_attempt),
-                DRAIN_WINDOW_MS,
+                ARRIVALS_WINDOW_MS,
                 round(MAX_WAIT_SECONDS * 1000 * QUEUE_WAIT_MARGIN),
             ],
         )
@@ -379,7 +388,7 @@ class QueryRouter:
             # A sleep can end late on a busy host. The waiter is dropped even when a slot has freed, so no
             # query waits longer than its class allows.
             if self.get_time() >= deadline:
-                self._remove(slot)
+                self._remove(slot, ran_ms=0)
                 return _Decision(outcome=AdmissionOutcome.DROPPED_WAIT_TIMEOUT, reply=reply, queued=True)
 
     def _enter(self, slot: _Slot, *, enforcing: bool) -> Admission:
@@ -397,13 +406,13 @@ class QueryRouter:
             # The script may have added the slot before its reply was lost. Without this removal the
             # slot would count against the pool until its ttl.
             with suppress(RedisError):
-                self._remove(slot)
+                self._remove(slot, ran_ms=0)
             return admission
         except BaseException:
             # A waiter interrupted in its sleep, for example by a Celery soft time limit, would
             # otherwise stay in the queue and block the waiters behind it until it turns stale.
             with suppress(RedisError):
-                self._remove(slot)
+                self._remove(slot, ran_ms=0)
             raise
 
         waited_ms = self._elapsed_ms(started_at)
@@ -439,6 +448,7 @@ class QueryRouter:
 
         slot = _Slot(pool=pool, query_class=query_class, slot_id=uuid.uuid4().hex)
         admission = self._enter(slot, enforcing=mode == RouterMode.ENFORCE)
+        admitted_at = self.get_time()
         holds_slot = admission.outcome in _SLOT_HOLDING_OUTCOMES
         if holds_slot:
             with self._held_slots_lock:
@@ -449,7 +459,7 @@ class QueryRouter:
             if holds_slot:
                 with self._held_slots_lock:
                     self._held_slots.remove(slot)
-                self._release(slot)
+                self._release(slot, admitted_at=admitted_at)
 
     def renew_slots(self) -> None:
         with self._held_slots_lock:

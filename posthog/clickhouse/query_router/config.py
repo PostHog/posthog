@@ -61,9 +61,14 @@ RANK_CLASS_MULTIPLIER = 10**13
 # A waiter that has not polled for this long is treated as gone and stops blocking the waiters behind it.
 STALE_WAITER_MS = 3_000
 
-# Admission estimates how fast a pool frees slots from the releases and arrivals of this window. A short
-# window makes the estimate follow a pool that stops draining within seconds.
-DRAIN_WINDOW_MS = 5_000
+# Admission estimates the wait from the average duration of the last queries that finished in the pool:
+# a full pool frees limit / average slots per second. The average follows a change in query duration
+# within this many finishes.
+DURATION_HISTORY = 100
+
+# Queries of a higher class that arrive while a query waits take the freed slots before it. The rate of
+# those arrivals is measured over this window.
+ARRIVALS_WINDOW_MS = 5_000
 
 # A query joins the queue only when its estimated wait is at most this fraction of MAX_WAIT_SECONDS. The
 # estimate is rough, and a query that waits its full time and is dropped holds a worker for nothing, so the
@@ -99,8 +104,8 @@ def waiting_seen_key(pool: Pool) -> str:
     return _key(pool, "waiting_seen")
 
 
-def released_key(pool: Pool) -> str:
-    return _key(pool, "released")
+def durations_key(pool: Pool) -> str:
+    return _key(pool, "durations")
 
 
 def arrivals_key(pool: Pool) -> str:
