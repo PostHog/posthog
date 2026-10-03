@@ -193,16 +193,19 @@ describe('recipientsLogic', () => {
         expect(logic.values.hasPreviousPage).toBe(false)
     })
 
-    it('keeps the newest results when an older search fails late', async () => {
+    it.each([
+        { outcome: 'fails', response: [500, { detail: 'Query timed out' }] },
+        { outcome: 'succeeds', response: [200, { results: [recipient('slow@example.com')], next_cursor: null }] },
+    ] as const)('keeps the newest results when an older search $outcome late', async ({ response }) => {
         await mountLogic()
-        let failSlowSearch = (): void => {}
-        const slowSearchFailed = new Promise<void>((resolve) => {
-            failSlowSearch = resolve
+        let answerSlowSearch = (): void => {}
+        const slowSearchAnswered = new Promise<void>((resolve) => {
+            answerSlowSearch = resolve
         })
         useRecipientsResponse(async (params) => {
             if (params.get('search') === 'slow') {
-                await slowSearchFailed
-                return [500, { detail: 'Query timed out' }]
+                await slowSearchAnswered
+                return [response[0], response[1]]
             }
             return [200, PAGES_BY_CURSOR['']]
         })
@@ -211,13 +214,14 @@ describe('recipientsLogic', () => {
         await expectLogic(logic, () => logic.actions.setSearch('jamie')).toDispatchActions([
             'loadAudienceRecipientsSuccess',
         ])
-        failSlowSearch()
+        answerSlowSearch()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values).toMatchObject({
             recipientsView: 'results',
             loadFailed: false,
             recipients: PAGES_BY_CURSOR[''].results,
+            shownRequest: { search: 'jamie', pageCursors: [] },
         })
     })
 
