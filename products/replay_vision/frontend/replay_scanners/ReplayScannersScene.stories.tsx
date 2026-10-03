@@ -13,6 +13,8 @@ import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
+import { userEvent, within } from 'storybook/test'
+
 import type {
     BackfillEstimateResponseApi,
     DraftScannerResponseApi,
@@ -151,6 +153,7 @@ const scannerStats: ScannerStatsResponseApi = {
         classifier: { enabled: 0, total: 1 },
         scorer: { enabled: 1, total: 1 },
         summarizer: { enabled: 1, total: 1 },
+        experiment: { enabled: 0, total: 0 },
     },
 }
 
@@ -964,6 +967,7 @@ const emptyProjectDecorators = [
                     classifier: { enabled: 0, total: 0 },
                     scorer: { enabled: 0, total: 0 },
                     summarizer: { enabled: 0, total: 0 },
+                    experiment: { enabled: 0, total: 0 },
                 },
             } satisfies ScannerStatsResponseApi,
             '/api/projects/:team_id/vision/scanners/creators/': { creators: [] },
@@ -983,6 +987,22 @@ export const UsageTab: StoryObj = {
 export const HomeWatchFeed: StoryObj = {
     parameters: {
         featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
+const WATCH_FEED_VIEW_STORAGE_KEY = 'products.replay_vision.frontend.replay_scanners.watchFeedLogic.view'
+
+// The same feed as thumbnail cards, each closing with why the recording was picked.
+export const HomeWatchFeedGrid: StoryObj = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+    // Seed the saved view before render instead of clicking the toggle: the snapshot build is production
+    // React, which has no act(), so testing-library helpers fail there. Remove it afterwards, or every
+    // later feed story renders as a grid too.
+    beforeEach: () => {
+        localStorage.setItem(WATCH_FEED_VIEW_STORAGE_KEY, JSON.stringify('grid'))
+        return () => localStorage.removeItem(WATCH_FEED_VIEW_STORAGE_KEY)
     },
 }
 
@@ -1040,6 +1060,27 @@ export const ClassifierOverview: StoryObj = {
 export const ScorerOverview: StoryObj = {
     parameters: { pageUrl: urls.replayVision(scorerOverviewScanner.id) },
     decorators: [overviewDecorator(scorerOverviewScanner, scorerOverviewStats)],
+}
+
+// The Scouts tab offers each scanner type only the templates that fit it: root cause for a monitor.
+export const MonitorScouts: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision(monitorOverviewScanner.id)}?tab=scouts` },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats)],
+}
+
+// A summarizer has no outcome to explain, so it gets weekly themes instead of root cause.
+export const SummarizerScouts: StoryObj = {
+    parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts` },
+}
+
+// The root cause prompt under the findings opens the create form in place.
+export const MonitorRootCauseScoutForm: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats)],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Add scout'))
+        await within(document.body).findByText('New scout: root cause')
+    },
 }
 
 // The scan-drought banner: current version 4 has no marker, and the sweep watermark sits past the
@@ -1477,6 +1518,45 @@ export const MonitorOverviewWithScoutReport: StoryObj = {
             },
         }),
     ],
+}
+
+const rootCauseScoutConfig = {
+    ...digestScoutConfig,
+    id: '00000000-0000-0000-0000-0000000000c3',
+    skill_name: 'signals-scout-confused-checkout-root-cause',
+    display_name: 'Confused checkout root cause',
+    source_id: monitorOverviewScanner.id,
+    run_cron_schedule: '0 9 * * 1',
+}
+
+const rootCauseReport = {
+    ...scoutReport,
+    report_id: '00000000-0000-0000-0000-0000000000d2',
+    title: 'Root cause confused checkout: 2026-05-11',
+    skill_name: rootCauseScoutConfig.skill_name,
+    filed_at: '2026-05-11T09:00:00Z',
+    summary: [
+        'Root cause for Confused checkout: 212 sessions answered yes vs 1,340 answered no, last 30 days',
+        '',
+        '**TL;DR:** Two causes explain 61% of flagged sessions: the shipping options reset after an address edit (38%), and a coupon error rendered below the fold on mobile (23%).',
+        '',
+        '## Shipping options reset after an address edit',
+        '',
+        '- 81 sessions, 38% of the bucket, 4% of the contrast.',
+    ].join('\n'),
+}
+
+const rootCauseMocks = mswDecorator({
+    get: {
+        '/api/projects/:team_id/signals/scout/configs/': [rootCauseScoutConfig],
+        '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [rootCauseReport],
+    },
+})
+
+// A scanner with a root cause scout no longer gets the offer; its reports show in the scout card.
+export const MonitorOverviewWithRootCause: StoryObj = {
+    parameters: { pageUrl: urls.replayVision(monitorOverviewScanner.id) },
+    decorators: [overviewDecorator(monitorOverviewScanner, monitorOverviewStats), rootCauseMocks],
 }
 
 export const ScannerScouts: StoryObj = {

@@ -6,6 +6,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
+    _create_flag_evaluations,
     flush_persons_and_events,
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
@@ -40,7 +41,9 @@ from products.feature_flags.backend.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payload,
 )
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
 
@@ -3950,7 +3953,15 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
         for entry in body:
             assert "evaluations_7d" in entry
 
-    def test_evaluation_counts_match_events(self):
+    @parameterized.expand(
+        [
+            ("events", FlagEvaluationsMode.EVENTS, 2, 1),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, 2, 1),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, 1, 3),
+        ]
+    )
+    def test_evaluation_counts_come_from_the_table_the_mode_selects(self, _name, mode, team_count, other_team_count):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
         _create_event(
             team=self.team,
             distinct_id="u1",
@@ -3970,12 +3981,13 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
             properties={"$feature_flag": "shared_flag", "$feature_flag_response": False},
         )
         flush_persons_and_events()
+        _create_flag_evaluations(self.team.id, "shared_flag")
+        _create_flag_evaluations(self.other_team.id, "shared_flag", count=3)
 
         body = self.client.get(self._url("shared_flag")).json()
         by_team = {entry["team_id"]: entry["evaluations_7d"] for entry in body}
 
-        assert by_team[self.team.id] == 2
-        assert by_team[self.other_team.id] == 1
+        assert by_team == {self.team.id: team_count, self.other_team.id: other_team_count}
 
     def test_clickhouse_failure_returns_null_evaluations(self):
         with patch(

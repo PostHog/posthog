@@ -104,6 +104,9 @@ export enum Scene {
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
     Library = 'Library',
+    Views = 'Views',
+    ViewsNew = 'ViewsNew',
+    Tools = 'Tools',
     Link = 'Link',
     Links = 'Links',
     LiveDebugger = 'LiveDebugger',
@@ -232,6 +235,7 @@ export enum Scene {
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
     AIObservabilityScorers = 'AIObservabilityScorers',
+    AIObservabilityScorer = 'AIObservabilityScorer',
     AIObservabilityOfflineExperiments = 'AIObservabilityOfflineExperiments',
     AIObservabilityOfflineExperiment = 'AIObservabilityOfflineExperiment',
     AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
@@ -258,6 +262,7 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
+    TaskNewSession = 'TaskNewSession',
     TaskSpace = 'TaskSpace',
     TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
@@ -437,6 +442,12 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
+    // Business knowledge
+    [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
@@ -474,6 +485,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
     [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,

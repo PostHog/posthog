@@ -1,5 +1,5 @@
 import type { ThreadItem } from '../types/streamTypes'
-import { computeTurnTrailers, mapRowsToTurnSeparator } from './turnTrailers'
+import { computeTurnTrailers, mapRowsToRevealGroup } from './turnTrailers'
 
 function item(type: ThreadItem['type'], id: string, text?: string): ThreadItem {
     return { id, type, text }
@@ -66,8 +66,8 @@ describe('turnTrailers', () => {
         expect(trailers.size).toBe(0)
     })
 
-    it('maps answer rows to the separator of their own turn, and skips human and unfinished rows', () => {
-        const membership = mapRowsToTurnSeparator([
+    it('maps answer rows to their turn separator, human messages to themselves, and skips unfinished rows', () => {
+        const membership = mapRowsToRevealGroup([
             item('human_message', 'h0'),
             item('assistant_message', 'a0'),
             item('turn_separator', 'turn-0'),
@@ -79,6 +79,13 @@ describe('turnTrailers', () => {
             item('assistant_message', 'a2'),
         ])
 
-        expect(Object.fromEntries(membership)).toEqual({ a0: 'turn-0', t1: 'turn-1', a1: 'turn-1' })
+        expect(Object.fromEntries(membership)).toEqual({
+            h0: 'h0',
+            a0: 'turn-0',
+            h1: 'h1',
+            t1: 'turn-1',
+            a1: 'turn-1',
+            h2: 'h2',
+        })
     })
 })

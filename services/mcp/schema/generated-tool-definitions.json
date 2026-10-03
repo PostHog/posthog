@@ -1194,8 +1194,23 @@
         },
         "feature_flag": "autoresearch"
     },
+    "autoresearch-runs-list": {
+        "description": "List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status to understand scoring history. run_type is 'inference' for daily scoring runs.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "List inference runs",
+        "title": "List inference runs",
+        "required_scopes": ["autoresearch:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "autoresearch"
+    },
     "autoresearch-score-create": {
-        "description": "Score today's prediction date now with the pipeline's champion model, instead of waiting for the daily 02:00 UTC scoring run. Use it after autoresearch-train-create completes and promotes a champion. The call is synchronous and returns the inference run with status and rows_scored. It emits one 'autoresearch_prediction' event per scored user, with the score in '$autoresearch_p_y', and sets the pipeline's output_person_property on each scored person. A manual score counts as that day's scoring, so the daily run skips the pipeline until its next cadence date. Call it once per prediction date: a repeat call scores the population again and can duplicate predictions. Returns 400 if the pipeline has no champion (run autoresearch-train-create first), is paused, or its target cannot be resolved. A pipeline with an action target also needs the action:read scope. After scoring, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
+        "description": "Score today's prediction date with the champion model instead of waiting for the daily scoring run. Use autoresearch-train-create first if the pipeline has no champion. Scoring runs in the background and returns an inference run with status 'running'. If one is already running, returns that run without starting another. Poll autoresearch-runs-list for this run's ID until its status is 'completed' (rows_scored is then set) or 'failed' (error is then set). A manual score counts as today's scoring; the daily run skips the pipeline until its next cadence date. Do not start another run for the same prediction date: it can duplicate predictions. The pipeline must not be paused; an action target also needs the action:read scope. Each scored user gets an 'autoresearch_prediction' event with '$autoresearch_p_y' and a person property update. After the run completes, query predictions with execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event = 'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY properties.$autoresearch_p_y DESC LIMIT 50.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Run inference (score users)",
@@ -1315,7 +1330,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-complete-create": {
-        "description": "Finalize a training run. The backend selects the kept iteration with the highest holdout_score. best_iteration_id only breaks a tie at that top score and never overrides the ranking, so upload the bundle of the highest-scoring iteration. The backend then decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run should try next) — these are stored in the run summary and read back by the next run during orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.",
+        "description": "Finalize a training run. The backend selects the kept iteration with the highest holdout_score. best_iteration_id only breaks a tie at that top score and never overrides the ranking, so upload the bundle of the highest-scoring iteration. The backend then decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run should try next) — these are stored in the run summary and read back by the next run during orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations. If you built a report notebook for this run, pass its short_id as report_notebook_short_id.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Complete a training run",
@@ -6699,7 +6714,7 @@
         }
     },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, newest first. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report, open checks first and newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -6711,6 +6726,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "inbox-report-checks-replace": {
+        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace a metric follow-up check",
+        "title": "Replace a metric follow-up check",
+        "required_scopes": ["task:write", "query:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "signals-report-checks-replace",
+        "feature_flag_behavior": "enable"
     },
     "inbox-report-checks-retrieve": {
         "description": "Get one check on a report by its id, with its full config, schedule, status, and last outcome. The verdicts themselves are `check_result` artefacts on the report, so read those through the artefact list.",
@@ -7525,7 +7556,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean or finite number). For 'hog' and 'llm_judge', choose output_type='boolean' or 'numeric'; numeric output_config accepts min, max, step, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a boolean or finite number). For 'hog' and 'llm_judge', choose output_type='boolean' or 'numeric'; numeric output_config accepts min, max, step, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -7777,7 +7808,7 @@
         }
     },
     "llma-evaluation-update": {
-        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it, call llma-evaluation-list first to look it up by name. Changing to or from numeric output requires a new evaluation; for numeric evaluations, update output_config to change bounds, N/A handling, or passing_rule. A passing rule has operator 'gte' or 'lte' and a finite threshold. Rule edits reinterpret historical scores; saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or pass null to move it to the top level.",
+        "description": "Partially update an AI observability evaluation. Requires the evaluation `id` (UUID). If you don't have it, call llma-evaluation-list first to look it up by name. Changing to or from numeric output requires a new evaluation; for numeric evaluations, update output_config to change bounds, N/A handling, or passing_rule. A passing rule has operator 'gte' or 'lte' and a finite threshold. Rule edits reinterpret historical scores; saved reports stay unchanged. Toggle enabled, change its runtime type or evaluation config, or change the model for an llm_judge. When switching to llm_judge, include model_configuration with provider and model. When an llm_judge remains an llm_judge, omit model_configuration to keep its current model or provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or 'session'. Pass a `directory_id` returned by llma-evaluation-directory-list to move the evaluation into a directory, or pass null to move it to the top level. After you enable an evaluation for the first time, offer the user a backfill over past data with llma-evaluation-backfill-estimate.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update evaluation",
@@ -8071,7 +8102,7 @@
         }
     },
     "llma-score-definition-create": {
-        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`. Boolean scorers can override `true_label`/`false_label`. Scorers always start active (not archived) and at version 1.",
+        "description": "Create a new scorer (a.k.a. score definition) used by trace reviews. Pass `name`, `kind` (`categorical`, `numeric`, or `boolean`), and `config` matching the kind. `kind` is immutable after creation. Categorical scorers need an `options` array with unique keys and optional `selection_mode`/`min_selections`/`max_selections` (for `multiple`). Numeric scorers can set `min`, `max`, `step`, and an optional `passing_rule` with `operator` (`gte`/`lte`) and a finite `threshold` within those bounds. Boolean scorers can override `true_label`/`false_label` and set `true_is_failure` (`false`: true passes; `true`: false passes). Omitted or null boolean polarity defaults to true passing in offline evaluations. Numeric scores without a passing rule remain neutral. Scorers always start active (not archived) and at version 1.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create scorer",
@@ -8113,7 +8144,7 @@
         }
     },
     "llma-score-definition-new-version": {
-        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds, rename boolean labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer.",
+        "description": "Publish a new immutable `config` version for an existing scorer. Use this whenever the scoring rules change (add/remove categorical options, tweak numeric bounds or passing rules, change boolean polarity or labels). Existing trace reviews keep their snapshot of the previous version, so historical scores remain stable. The `config` shape must match the scorer's `kind`. Each call increments `current_version` by one. Pass `base_version` (the version number you observed before bumping) for optimistic concurrency — the request returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are saved atomically with the version.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Bump scorer to a new version",
@@ -12278,6 +12309,21 @@
         },
         "feature_flag": "context-layer"
     },
+    "tasks-config-agent-instructions-create": {
+        "description": "Set the project's agent instructions: markdown that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run on the project, including autonomous runs such as loops and scouts. Requires project admin. Replaces the stored text; send an empty string to clear. Read the current text with tasks-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set project agent instructions",
+        "title": "Set project agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-config-create": {
         "description": "Set the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. Requires project admin. `runtime_adapter` and `model` must be set together; send all three fields as null to clear the project default. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12294,7 +12340,7 @@
         "feature_flag": "tasks"
     },
     "tasks-config-list": {
-        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored.",
+        "description": "Get the project-wide default AI run preferences (runtime adapter, model, reasoning effort) applied to task runs created without an explicit runtime selection. All fields are null when no project default is stored. Also returns the project's agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get project task run defaults",
@@ -12353,6 +12399,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-me-config-agent-instructions-create": {
+        "description": "Set the caller's personal agent instructions: markdown that PostHog cloud agents load after the project instructions in Tasks runs the caller starts. Autonomous runs never load them. Anyone who continues a task the caller started can see them, so they must not hold anything private. Replaces the stored text; send an empty string to clear. Read the current text with tasks-me-config-list first, and send the full new text, not a diff.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Set my agent instructions",
+        "title": "Set my agent instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-me-config-create": {
         "description": "Set the caller's per-project default AI run preferences (runtime adapter, model, reasoning effort). They override the project default wholesale. `runtime_adapter` and `model` must be set together; send all three fields as null to clear and inherit the project default. Returns the stored preferences plus the resolved defaults a new run will use. Use tasks-models-retrieve to list valid model identifiers.",
         "category": "Tasks",
@@ -12369,7 +12430,7 @@
         "feature_flag": "tasks"
     },
     "tasks-me-config-list": {
-        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it).",
+        "description": "Get the caller's per-project default AI run preferences, plus the resolved defaults a new run will use when no explicit runtime selection is sent (the caller's preference wins over the project default; `source` says which level supplied it). Also returns the caller's personal agent instructions (`agent_instructions`), empty when unset.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get my task run defaults",
@@ -12474,7 +12535,7 @@
         "feature_flag": "tasks"
     },
     "today-briefing-get": {
-        "description": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the items that need them most (reports assigned to them, insights and dashboards they use, firing alerts, assigned support tickets and error issues, and GitHub pull requests), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
+        "description": "The current user's Today briefing for this project, as shown on the Today home page: a short text about the self-driving reports that need them most (reports that wait for them, that they claimed or review, and urgent reports nobody owns), plus up to 5 items with a label, a signal and a link. A new one is written every morning from 8:00 local time. The first call of the day starts generation and returns status \"collecting\"; while a refresh is being written, the ready briefing comes back with status \"writing\" and its text. Generation takes a few minutes; call again later for the \"ready\" text. 404 when the person gets no briefing (flag off, AI data processing not approved, or out of AI credits); show the inbox reports instead. Use this to answer \"what should I look at today?\".",
         "category": "Today",
         "feature": "today",
         "summary": "Get my Today briefing",
@@ -12490,7 +12551,7 @@
         "feature_flag_behavior": "enable"
     },
     "today-candidates-list": {
-        "description": "The items behind the current user's briefing, each with its source, the reason it was picked, a link, and the facts the text rests on (for example a priority, a status, or the two values behind a change). Use this when you need the numbers and details, not the written text. Items are in briefing order, most urgent first.",
+        "description": "The items behind the current user's briefing, each with its source, the reason it was picked, a link, and the facts the text rests on (the report's status, its priority, and whether an implementation PR exists). Use this when you need the numbers and details, not the written text. Items are in briefing order, most urgent first.",
         "category": "Today",
         "feature": "today",
         "summary": "List my Today candidates",
@@ -14078,12 +14139,57 @@
         },
         "feature_flag": "visual-review"
     },
+    "visual-review-runs-lift-on-merge-create": {
+        "description": "Ask to lift a quarantined snapshot's quarantine once this run's pull request merges, for a pull request that fixes the flaky story. Pass the run's UUID as `id` and the quarantined snapshot's `identifier` (the story ID). The identifier works for an `unchanged` snapshot, which a listing with `exclude_unchanged` leaves out, so no snapshot UUID is needed. Requesting a lift never approves a picture: a changed or new snapshot must first be approved by identifier with `visual-review-runs-approve-create`, or the call returns 400. The lift happens only after the pull request merges and a default-branch run that contains the merge renders the expected picture, with a baseline entry that holds the same picture. Until then the quarantine stays. A repeat call from the same pull request replaces the pending request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Lift a visual review quarantine when the pull request merges",
+        "title": "Lift a visual review quarantine when the pull request merges",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
     "visual-review-runs-list": {
         "description": "Runs in the project; each is one CI capture for one commit. Filter by `review_state`, or by `pr_number`, `commit_sha` or `branch` to find the run that blocks a pull request. Returns status, review decision, commit, branch, PR and a change summary.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "List visual review runs",
         "title": "List visual review runs",
+        "required_scopes": ["visual_review:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-cancel-create": {
+        "description": "Withdraw a pending request to lift a quarantine when this run's pull request merges. The quarantine stays. Pass the run's UUID as `id` and the request's `id` from `visual-review-runs-quarantine-lifts-list` as `request_id`.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "Cancel a visual review lift on merge",
+        "title": "Cancel a visual review lift on merge",
+        "required_scopes": ["visual_review:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "visual-review"
+    },
+    "visual-review-runs-quarantine-lifts-list": {
+        "description": "Requests to lift a quarantine when this run's pull request merges, newest first. `state` is `pending` (waits for the merge and a default-branch run that renders `expected_hash` against a matching baseline), `applied`, `cancelled` or `superseded`. `detail` says what the latest check found. A lift never approves a picture. Empty for a run without a pull request.",
+        "category": "Visual review",
+        "feature": "visual_review",
+        "summary": "List visual review lifts on merge",
+        "title": "List visual review lifts on merge",
         "required_scopes": ["visual_review:read"],
         "annotations": {
             "destructiveHint": false,
@@ -14665,7 +14771,7 @@
         }
     },
     "workflows-stats": {
-        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click.",
+        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click. This reads the workflow's whole history; for one published version, call workflows-version-stats.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow stats",
@@ -14679,12 +14785,12 @@
         }
     },
     "workflows-suggest": {
-        "description": "Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), and in actions only the steps you change, each carrying its id. Send the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.",
+        "description": "Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), and in actions only the steps you change, each carrying its id and only the fields you change; the rest of the step stays as it is. Pass the workflow version you read as base_version, so approving can tell whether someone changed the same step or field since. Send the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers; PostHog reads the step's own metrics at that version when you file and shows those next to yours. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Suggest a workflow change",
         "title": "Suggest a workflow change",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow_proposal:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -14748,5 +14854,20 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-version-stats": {
+        "description": "Execution stats for a single published version of a workflow, in the same shape as workflows-stats. That is how you tell whether a change helped: compare the version before it with the version after it. The unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step you are reading, or several steps share one denominator.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow stats for one version",
+        "title": "Get workflow stats for one version",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "self-optimising-workflows"
     }
 }

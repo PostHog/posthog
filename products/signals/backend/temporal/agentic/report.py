@@ -33,11 +33,18 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.impact_measurement_plans import latest_measurement_plans
-from products.signals.backend.models import ArtefactAttribution, SignalActorKind, SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    ArtefactAttribution,
+    SignalActorKind,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+)
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
+from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_content_gates import (
     team_expected_impact_authoring_enabled,
     team_report_metrics_enabled,
@@ -120,6 +127,7 @@ class RunAgenticReportOutput:
     # writes the metrics they reference — a check naming a metric the report never got is dropped
     # there rather than stored pointing at nothing. `None` predates the field and writes none.
     checks: list[dict[str, Any]] | None = None
+    checks_snapshot: dict[str, str] | None = None
     # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
     # one into a child report. `None` predates the field and creates none.
     layers: list[dict[str, Any]] | None = None
@@ -148,6 +156,14 @@ def _parse_artefact_content(
             f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
             f"current {model_cls.__name__} schema"
         ) from error
+
+
+def _load_check_snapshot(team_id: int, report_id: str) -> dict[str, str]:
+    return check_versions(
+        SignalReportCheck.objects.for_team(team_id).filter(
+            report_id=report_id, status__in=SignalReportCheck.OPEN_STATUSES
+        )
+    )
 
 
 async def _load_previous_research(team_id: int, report_id: str) -> ReportResearchOutput | None:
@@ -970,6 +986,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.team_id
             )
             # 2. Load previous research if this is a re-promoted report
+            checks_snapshot = await database_sync_to_async(_load_check_snapshot, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             previous_research = await _load_previous_research(input.team_id, input.report_id)
             previous_measurement_plans = (
                 await database_sync_to_async(_load_previous_measurement_plans, thread_sensitive=False)(
@@ -1062,6 +1081,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 metric_id: row_id for metric_id, (row_id, _) in previous_measurement_plans.items()
             },
             checks=[check.model_dump(mode="json") for check in result.checks],
+            checks_snapshot=checks_snapshot,
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,

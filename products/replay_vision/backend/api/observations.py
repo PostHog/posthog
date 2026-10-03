@@ -118,7 +118,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
+        help_text="Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.",
     )
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
@@ -175,6 +175,19 @@ class ScannerResultSerializer(serializers.Serializer):
     verification = VerificationRecordSerializer(
         allow_null=True,
         help_text="Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one.",
+    )
+    experiment_variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Experiment scanners only: the variant the exposure data attributes this session's person to. "
+            "Null on the other types and on rows scanned before variant attribution shipped."
+        ),
+    )
+    session_duration_s = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Experiment scanners only: the scanned session's duration in seconds.",
     )
 
 

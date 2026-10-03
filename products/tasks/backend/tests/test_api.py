@@ -7695,6 +7695,37 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.output, {"summary": "Final result"})
 
+    @parameterized.expand(
+        [
+            ("agent_owned_run", {}, 1),
+            ("caller_ended_run", {"caller_ends_run": True}, 0),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.signal_workflow_completion")
+    def test_set_output_completes_a_schema_run_unless_the_caller_ends_it(
+        self, _name, run_state, expected_signals, mock_signal_workflow_completion
+    ):
+        task = self.create_task()
+        task.json_schema = {
+            "type": "object",
+            "properties": {"summary": {"type": "string"}},
+            "required": ["summary"],
+            "additionalProperties": False,
+        }
+        task.save(update_fields=["json_schema"])
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=run_state)
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"summary": "Final result"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_signal_workflow_completion.call_count, expected_signals)
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"summary": "Final result"})
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_set_output_publishes_stream_state_event(self, mock_publish_stream_state_event):
         task = self.create_task()
@@ -8548,6 +8579,137 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _create_slack_file_living_artifact(
+        self, task: Task, run: TaskRun, storage_path: str | None = None, size: int | None = None
+    ):
+        path = storage_path or f"{run.get_artifact_s3_prefix()}/living/doc/signups.v1.png"
+        return TaskArtifact.objects.for_team(task.team_id).create(
+            team_id=task.team_id,
+            task=task,
+            task_run=run,
+            name="signups.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            status=TaskArtifact.Status.ACTIVE,
+            location={"kind": "slack_file", "storage_path": path},
+            versions=[
+                {
+                    "version": 1,
+                    "run_id": str(run.id),
+                    "content_type": "image/png",
+                    "location": {"kind": "slack_file", "storage_path": path},
+                    **({"size": size} if size is not None else {}),
+                },
+                {
+                    "version": 2,
+                    "run_id": str(run.id),
+                    "content_type": "text/markdown; charset=utf-8",
+                    "location": {"kind": "slack_canvas"},
+                    "content": "# Weekly signups",
+                },
+            ],
+            current_version=2,
+        )
+
+    @parameterized.expand(
+        [
+            ("stored_file", 1, b"png bytes", "image/png"),
+            ("version_text", 2, b"# Weekly signups", "text/markdown; charset=utf-8"),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_living_artifact_version_content(self, _name, version, expected_body, expected_type, mock_read_bytes):
+        mock_read_bytes.return_value = b"png bytes"
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact = self._create_slack_file_living_artifact(task, run)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact.id}/versions/{version}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content, expected_body)
+        self.assertEqual(response["Content-Type"], expected_type)
+        self.assertEqual(response["Content-Disposition"], 'attachment; filename="signups.png"')
+
+    @parameterized.expand(
+        [
+            ("download_stored_file_redirects", 1, "?download=true", None, 302),
+            ("download_text_streams", 2, "?download=true", None, 200),
+            ("preview_over_limit_is_refused", 1, "", 26 * 1024 * 1024, 413),
+            ("download_over_limit_redirects", 1, "?download=1", 26 * 1024 * 1024, 302),
+        ]
+    )
+    @patch("posthog.storage.object_storage.get_presigned_url")
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_living_artifact_version_download(
+        self, _name, version, query, size, expected_status, mock_read_bytes, mock_presign
+    ):
+        mock_presign.return_value = "https://storage.example.com/signups.v1.png?signature=fake"
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact = self._create_slack_file_living_artifact(task, run, size=size)
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/{artifact.id}/versions/{version}/{query}"
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 302:
+            self.assertEqual(response["Location"], mock_presign.return_value)
+            self.assertEqual(mock_presign.call_args.kwargs["content_disposition"], 'attachment; filename="signups.png"')
+        if expected_status == 200:
+            self.assertEqual(response.content, b"# Weekly signups")
+        mock_read_bytes.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unknown_version",),
+            ("other_team",),
+            ("other_task",),
+            ("unknown_run",),
+            ("path_outside_task",),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read_bytes")
+    def test_living_artifact_version_content_not_found(self, case, mock_read_bytes):
+        mock_read_bytes.return_value = b"png bytes"
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        artifact = self._create_slack_file_living_artifact(task, run)
+        version = 1
+        url_task, url_run = task, str(run.id)
+        if case == "unknown_version":
+            version = 3
+        elif case == "other_team":
+            other_team = Team.objects.create(organization=Organization.objects.create(name="Other Org"), name="Other")
+            other_task = Task.objects.create(
+                team=other_team, title="Other", description="", origin_product=Task.OriginProduct.USER_CREATED
+            )
+            other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+            artifact = self._create_slack_file_living_artifact(other_task, other_run)
+            url_task, url_run = other_task, str(other_run.id)
+        elif case == "other_task":
+            other_task = self.create_task()
+            other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+            artifact = self._create_slack_file_living_artifact(other_task, other_run)
+        elif case == "unknown_run":
+            url_run = str(uuid.uuid4())
+        elif case == "path_outside_task":
+            other_task = self.create_task()
+            other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+            artifact = self._create_slack_file_living_artifact(
+                task, run, storage_path=f"{other_run.get_artifact_s3_prefix()}/living/doc/secret.v1.png"
+            )
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{url_task.id}/runs/{url_run}/living_artifacts/{artifact.id}/versions/{version}/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        mock_read_bytes.assert_not_called()
 
     @patch("posthog.storage.object_storage.get_presigned_post")
     def test_prepare_artifact_uploads(self, mock_get_presigned_post):
@@ -11605,6 +11767,18 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 "GET",
                 f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/",
                 True,
+            ),
+            (
+                "task:read",
+                "GET",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/versions/1/",
+                True,
+            ),
+            (
+                "other_scope:read",
+                "GET",
+                f"/api/projects/@current/tasks/{{task_id}}/runs/{{run_id}}/living_artifacts/{{artifact_id}}/versions/1/",
+                False,
             ),
             (
                 "task:read",

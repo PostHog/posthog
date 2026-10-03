@@ -1,7 +1,7 @@
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { NodeStats } from '../types'
+import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 
 const TRAILING_ZEROS_BEYOND_CENTS = /0{1,2}$/
 
@@ -47,7 +47,7 @@ export function formatCacheTokens(readTokens: number | null, writeTokens: number
     return sides.length > 0 ? sides.join(' · ') : null
 }
 
-export function statParts(stats: NodeStats): string[] {
+export function statParts(stats: TraceNodeStatsApi): string[] {
     const tokens = formatTokenCounts(stats.inputTokens, stats.outputTokens)
     return [
         stats.costUsd !== null ? formatCostUsd(stats.costUsd) : null,
@@ -58,7 +58,7 @@ export function statParts(stats: NodeStats): string[] {
     ].filter((part): part is string => part !== null)
 }
 
-export function compactStatParts(stats: NodeStats): string[] {
+export function compactStatParts(stats: TraceNodeStatsApi): string[] {
     const knownTokens = [stats.inputTokens, stats.outputTokens].filter((count): count is number => count !== null)
     return [
         stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : null,

@@ -1,31 +1,46 @@
 import './TodayShell.scss'
 
-import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useActions, useMountedLogic, useValues } from 'kea'
+import { Suspense, useEffect, useRef } from 'react'
 
-import { ToastProvider } from '@posthog/quill'
+import { Skeleton, ToastProvider } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { TodayHomeSidebar } from 'scenes/project-homepage/today/TodayHomeSidebar'
 
-import { NewSpaceDialog } from 'products/tasks/frontend/spaces/NewSpaceDialog'
+import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
-import { TodayLibrarySidebar } from './TodayLibrarySidebar'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import { TodayRail } from './TodayRail'
+import { todayRecentsLogic } from './todayRecentsLogic'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
-import { TodaySpacesSidebar } from './TodaySpacesSidebar'
-import { TodayToolsSidebar } from './TodayToolsSidebar'
 
-const PANE_LABELS = { home: 'Today', spaces: 'Spaces', library: 'Library', tools: 'Tools' }
+const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
+const TodayViewsSidebar = lazyWithRetry(() =>
+    import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
+)
+const TodayToolsSidebar = lazyWithRetry(() =>
+    import('./TodayToolsSidebar').then((m) => ({ default: m.TodayToolsSidebar }))
+)
+const TodayLibrarySidebar = lazyWithRetry(() =>
+    import('./TodayLibrarySidebar').then((m) => ({ default: m.TodayLibrarySidebar }))
+)
+const NewSpaceDialog = lazyWithRetry(() =>
+    import('products/tasks/frontend/spaces/NewSpaceDialog').then((m) => ({ default: m.NewSpaceDialog }))
+)
+
+const PANE_LABELS = { home: 'Today', spaces: 'Spaces', views: 'Views', library: 'Library', tools: 'Tools' }
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
     const { activePane, mobileLayout, sidebarVisible, sidebarWidth } = useValues(todayShellLogic)
+    // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
+    useMountedLogic(todayRecentsLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     const sidebarRef = useRef<HTMLDivElement | null>(null)
     const drawerRef = useRef<HTMLElement | null>(null)
@@ -65,24 +80,36 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const pane = (
         <div className="TodayShell__pane">
-            {activePane === 'home' ? (
-                <TodayHomeSidebar />
-            ) : activePane === 'spaces' ? (
-                <TodayPreviewCardProvider>
-                    <TodaySpacesSidebar />
-                </TodayPreviewCardProvider>
-            ) : activePane === 'library' ? (
-                <TodayLibrarySidebar />
-            ) : (
-                <TodayToolsSidebar />
-            )}
+            <QuillSceneHeader
+                title={
+                    <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">
+                        {PANE_LABELS[activePane]}
+                    </h2>
+                }
+            />
+            <Suspense fallback={<Skeleton className="m-4 h-24" />}>
+                {activePane === 'home' ? (
+                    <TodayPreviewCardProvider>
+                        <TodayHomeSidebar />
+                    </TodayPreviewCardProvider>
+                ) : activePane === 'spaces' ? (
+                    <TodaySpacesPane />
+                ) : activePane === 'views' ? (
+                    <TodayViewsSidebar />
+                ) : activePane === 'library' ? (
+                    <TodayLibrarySidebar />
+                ) : (
+                    <TodayToolsSidebar />
+                )}
+            </Suspense>
         </div>
     )
 
     return (
         <ToastProvider>
             <div
-                className={cn('Today TodayShell', className)}
+                data-quill
+                className={cn('Today TodayShell bg-[var(--chrome)]', className)}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ '--today-rail-width': `${TODAY_RAIL_WIDTH}px` } as React.CSSProperties}
             >
@@ -114,7 +141,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     sidebarVisible && (
                         <aside
                             ref={sidebarRef}
-                            className="TodayShell__sidebar relative"
+                            className="TodayShell__sidebar relative border-r border-[var(--border)]"
                             aria-label={PANE_LABELS[activePane]}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{ width: sidebarWidth }}
@@ -126,7 +153,11 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                     )
                 )}
                 {/* Mounted here so the sidebar and the spaces page open the same dialog. */}
-                <NewSpaceDialog />
+                {activePane === 'spaces' && (
+                    <Suspense fallback={null}>
+                        <NewSpaceDialog />
+                    </Suspense>
+                )}
             </div>
         </ToastProvider>
     )

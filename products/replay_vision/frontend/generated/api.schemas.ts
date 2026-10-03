@@ -616,6 +616,7 @@ export const ObservationStatusEnumApi = {
  * * `classifier` - Classifier
  * * `scorer` - Scorer
  * * `summarizer` - Summarizer
+ * * `experiment` - Experiment
  */
 export type ScannerTypeEnumApi = (typeof ScannerTypeEnumApi)[keyof typeof ScannerTypeEnumApi]
 
@@ -624,6 +625,7 @@ export const ScannerTypeEnumApi = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
+    Experiment: 'experiment',
 } as const
 
 /**
@@ -632,12 +634,13 @@ export const ScannerTypeEnumApi = {
 export interface ScannerSnapshotApi {
     /** Scanner name at run time. */
     name: string
-    /** Scanner type (monitor, classifier, scorer, summarizer) at run time.
+    /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
      *
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
@@ -685,6 +688,16 @@ export interface ScannerResultApi {
     signals_count: number
     /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
     verification: VerificationRecordApi | null
+    /**
+     * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+     * @nullable
+     */
+    experiment_variant?: string | null
+    /**
+     * Experiment scanners only: the scanned session's duration in seconds.
+     * @nullable
+     */
+    session_duration_s?: number | null
 }
 
 /**
@@ -778,7 +791,7 @@ export interface ReplayObservationApi {
      * * `failed` - Failed
      * * `ineligible` - Ineligible */
     readonly status: ObservationStatusEnumApi
-    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+    /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
     readonly error_reason: string
     /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
     readonly workflow_id: string
@@ -1088,7 +1101,8 @@ export interface ReplayScannerApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /**
      * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -1222,7 +1236,8 @@ export interface PatchedReplayScannerApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type?: ScannerTypeEnumApi
     /**
      * The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.
@@ -1579,7 +1594,7 @@ export interface PaginatedReplayScannerBackfillListApi {
 export interface BackfillCreateApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
     /**
      * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
@@ -1591,7 +1606,7 @@ export interface BackfillCreateApi {
 export interface BackfillWindowApi {
     /** Inclusive lower bound of the historical window to scan. */
     window_start: string
-    /** Exclusive upper bound of the window; clamped server-side to now. */
+    /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
     window_end: string
 }
 
@@ -1609,7 +1624,7 @@ export interface BackfillEstimateResponseApi {
     credits_remaining: number | null
     /** The window lower bound the estimate covered. */
     window_start: string
-    /** The window upper bound after clamping to now. */
+    /** The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date. */
     window_end: string
 }
 
@@ -2421,7 +2436,8 @@ export interface DraftScannerResponseApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type: ScannerTypeEnumApi
     /** Type-specific config for the drafted `scanner_type`; always includes `prompt`. */
     scanner_config: unknown
@@ -2535,7 +2551,8 @@ export interface InlineScanRequestApi {
      * * `monitor` - Monitor
      * * `classifier` - Classifier
      * * `scorer` - Scorer
-     * * `summarizer` - Summarizer */
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
     scanner_type?: ScannerTypeEnumApi
     /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
     scanner_config?: unknown
@@ -2580,6 +2597,7 @@ export interface ScannerStatsByTypeApi {
     classifier: ScannerTypeStatsApi
     scorer: ScannerTypeStatsApi
     summarizer: ScannerTypeStatsApi
+    experiment: ScannerTypeStatsApi
 }
 
 /**
@@ -2590,7 +2608,7 @@ export interface ScannerStatsResponseApi {
     total: number
     /** Number of enabled scanners on the team. */
     enabled: number
-    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer / experiment). */
     by_type: ScannerStatsByTypeApi
 }
 
@@ -3340,6 +3358,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * * `classifier` - Classifier
      * * `scorer` - Scorer
      * * `summarizer` - Summarizer
+     * * `experiment` - Experiment
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType
@@ -3363,4 +3382,5 @@ export const VisionScannersWatchFeedRetrieveScannerType = {
     Classifier: 'classifier',
     Scorer: 'scorer',
     Summarizer: 'summarizer',
+    Experiment: 'experiment',
 } as const

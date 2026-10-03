@@ -330,7 +330,7 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert sorted(fake_vectors.calls) == sorted([EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_TITLE])
 
     def test_challengers_without_a_vector_or_a_served_feature_set_are_skipped_results(self) -> None:
-        served = self._served()
+        served = self._served(thresholds={"open": 0.25})
         title = self._challenger("title_embeddings", TITLE_EMBEDDINGS_FEATURE_SET)
         tabular = self._challenger("tabular_xgb", TABULAR_FEATURE_SET)
         manifest = self.store.publish_manifest([served, title, tabular])
@@ -344,6 +344,9 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
         assert outcome.score is not None
         results = outcome.score.results
         assert (results[served.key].status, set(results[served.key].scores)) == ("scored", set(HEADS))
+        # thumbs_up saved no threshold, so it has no base rate to divide by.
+        assert results[served.key].lifts == {"open": results[served.key].scores["open"] / 0.25}
+        assert results[title.key].lifts == {}
         assert (results[title.key].status, results[title.key].skip_reason) == ("skipped", NO_VECTOR)
         assert (results[tabular.key].status, results[tabular.key].skip_reason) == (
             "skipped",
@@ -378,6 +381,7 @@ class TestClassificationProperties(SimpleTestCase):
             "readable_heads": ["open"],
             "threshold_open": 0.3,
             "predicted_open": predicted,
+            "lift_open": score / 0.3,
         }
 
 
@@ -424,11 +428,11 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
             event["properties"]["model_key"]: {
                 key: value
                 for key, value in event["properties"].items()
-                if key.startswith(("threshold_", "predicted_", "readable_heads"))
+                if key.startswith(("threshold_", "predicted_", "lift_", "readable_heads"))
             }
             for event in captured.events
         }
-        # thumbs_up saved no threshold, and a model without one gets no stand-in.
+        # thumbs_up saved no threshold, and a model without one gets no stand-in. A zero threshold gives no lift.
         assert classification == {
             served.key: {"readable_heads": ["open"], "threshold_open": 0.0, "predicted_open": True},
             title.key: {"readable_heads": ["open"]},

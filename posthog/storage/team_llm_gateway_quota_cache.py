@@ -307,17 +307,11 @@ def _untrack(team_ids: set[int], *, expired_before: float) -> None:
 
 
 def _missing_blobs(team_ids: set[int]) -> set[int]:
-    missing: set[int] = set()
-    ordered = sorted(team_ids)
     client = team_llm_gateway_quota_hypercache.cache_client
-    for start in range(0, len(ordered), 500):
-        keys = {
-            team_llm_gateway_quota_hypercache.get_cache_key(team_id): team_id
-            for team_id in ordered[start : start + 500]
-        }
-        present = client.get_many(list(keys))
-        missing.update(team_id for key, team_id in keys.items() if key not in present)
-    return missing
+    # One key per call: a multi-key MGET spans cluster slots.
+    return {
+        team_id for team_id in team_ids if not client.has_key(team_llm_gateway_quota_hypercache.get_cache_key(team_id))
+    }
 
 
 def reconcile_quota_projection() -> dict[str, int]:
