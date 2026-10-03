@@ -3,6 +3,7 @@
 A search input for lists that turns `facet:value` into removable pills.
 People type `status:open`, pick from suggestions, or paste a whole query.
 A space ends a value, so `owner:"Jo Doe"` quotes one with spaces. `-status:closed` excludes a value.
+A quoted phrase such as `"status:open notes"` stays search text.
 Pills on one facet are OR, pills on different facets are AND, and the free text is AND with the pills.
 
 You give it three things: the facets, the search state, and the data.

@@ -73,47 +73,114 @@ export function facetFilterKey(filter: FacetFilter): string {
     return `${filter.negated ? '-' : ''}${filter.facet}:${filter.value}`
 }
 
-const TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"|([^\s"]+)(?=\s|$))/g
-const TOKEN_FOLLOWED_BY_SPACE = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"|([^\s"]+)(?=\s))/g
-const DRAFT_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\[\s\S])*)"?|([^\s"]*))$/
-const QUOTED_TOKEN_START = /-?[\w-]+:"/y
-const OPEN_QUOTED_DRAFT = /^(-?)([\w-]+):"((?:[^"\\]|\\[\s\S])*\\?)$/
+interface FacetToken {
+    negated: boolean
+    key: string
+    value: string
+    quoted: boolean
+}
+
+/** One whitespace-separated piece of the input. A quote, plain or after `facet:`, holds its spaces and tokens. */
+interface InputToken {
+    start: number
+    end: number
+    /** A quote that the input ends inside. */
+    open: boolean
+    facet?: FacetToken
+}
+
+const FACET_PREFIX = /(-?)([\w-]+):/y
 
 function isSpace(char: string): boolean {
     return /\s/.test(char)
-}
-
-function openQuotedTokenStart(input: string): number {
-    let index = 0
-    while (index < input.length) {
-        if (isSpace(input[index])) {
-            index++
-            continue
-        }
-        QUOTED_TOKEN_START.lastIndex = index
-        if (QUOTED_TOKEN_START.test(input)) {
-            const tokenStart = index
-            index = QUOTED_TOKEN_START.lastIndex
-            while (index < input.length && input[index] !== '"') {
-                index += input[index] === '\\' ? 2 : 1
-            }
-            if (index >= input.length) {
-                return tokenStart
-            }
-        }
-        while (index < input.length && !isSpace(input[index])) {
-            index++
-        }
-    }
-    return input.length
 }
 
 function unescapeFacetValue(quoted: string): string {
     return quoted.replace(/\\([\s\S])/g, '$1')
 }
 
+/** The index after the closing quote, or -1 when the input ends inside the quote. */
+function closingQuoteEnd(input: string, contentStart: number): number {
+    let index = contentStart
+    while (index < input.length) {
+        if (input[index] === '"') {
+            return index + 1
+        }
+        index += input[index] === '\\' ? 2 : 1
+    }
+    return -1
+}
+
+function wordEnd(input: string, start: number): number {
+    let index = start
+    while (index < input.length && !isSpace(input[index])) {
+        index++
+    }
+    return index
+}
+
+function scanQuoted(input: string, start: number, contentStart: number, facet?: Omit<FacetToken, 'value'>): InputToken {
+    const end = closingQuoteEnd(input, contentStart)
+    const open = end < 0
+    const contentEnd = open ? input.length : end - 1
+    return {
+        start,
+        end: open ? input.length : end,
+        open,
+        facet: facet && { ...facet, value: unescapeFacetValue(input.slice(contentStart, contentEnd)) },
+    }
+}
+
+function scanToken(input: string, start: number): InputToken {
+    const atBoundary = start === 0 || isSpace(input[start - 1])
+    if (!atBoundary) {
+        return { start, end: wordEnd(input, start), open: false }
+    }
+    if (input[start] === '"') {
+        return scanQuoted(input, start, start + 1)
+    }
+    FACET_PREFIX.lastIndex = start
+    const prefix = FACET_PREFIX.exec(input)
+    if (prefix) {
+        const valueStart = FACET_PREFIX.lastIndex
+        const facet = { negated: prefix[1] === '-', key: prefix[2] }
+        if (input[valueStart] === '"') {
+            return scanQuoted(input, start, valueStart + 1, { ...facet, quoted: true })
+        }
+        const end = wordEnd(input, valueStart)
+        const value = input.slice(valueStart, end)
+        if (!value.includes('"')) {
+            return { start, end, open: false, facet: { ...facet, value, quoted: false } }
+        }
+    }
+    return { start, end: wordEnd(input, start), open: false }
+}
+
+function scanTokens(input: string): InputToken[] {
+    const tokens: InputToken[] = []
+    let index = 0
+    while (index < input.length) {
+        if (isSpace(input[index])) {
+            index++
+            continue
+        }
+        const token = scanToken(input, index)
+        tokens.push(token)
+        index = token.end
+    }
+    return tokens
+}
+
+/** A quoted value is complete at its closing quote; a bare value once a space follows it, or at the end with `untilEnd`. */
+function isComplete(token: InputToken, inputLength: number, untilEnd: boolean): boolean {
+    if (!token.facet || token.open) {
+        return false
+    }
+    return token.facet.quoted || (!!token.facet.value && (token.end < inputLength || untilEnd))
+}
+
 /**
- * Takes the complete, known `facet:value` tokens out of the input. Unknown facets stay as typed.
+ * Takes the complete, known `facet:value` tokens out of the input. Unknown facets and quoted phrases stay as typed.
  * With `untilEnd`, a token at the very end counts as complete; the bar leaves it as a draft until a space follows.
  */
 export function extractFacetFilters(
@@ -123,28 +190,25 @@ export function extractFacetFilters(
 ): { filters: FacetFilter[]; remaining: string } {
     const filters: FacetFilter[] = []
     const seen = new Set<string>()
-    const quotedStart = openQuotedTokenStart(input)
-    const remaining = input
-        .slice(0, quotedStart)
-        .replace(
-            untilEnd ? TOKEN : TOKEN_FOLLOWED_BY_SPACE,
-            (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
-                const facet = findFacet(facets, key)
-                const value = quoted !== undefined ? unescapeFacetValue(quoted) : bare
-                if (!facet || value === undefined) {
-                    return token
-                }
-                const filter = { facet: facet.key, value, negated: minus === '-' }
-                const filterKey = facetFilterKey(filter)
-                if (!seen.has(filterKey)) {
-                    seen.add(filterKey)
-                    filters.push(filter)
-                }
-                return lead
-            }
-        )
-    const stillQuoting = input.slice(quotedStart)
-    return { filters, remaining: `${remaining.replace(/\s{2,}/g, ' ')}${stillQuoting}`.replace(/^\s+/, '') }
+    const tokens = scanTokens(input)
+    const openTail = tokens.at(-1)?.open ? tokens[tokens.length - 1].start : input.length
+    let remaining = ''
+    let cursor = 0
+    for (const token of tokens) {
+        const facet = token.facet && findFacet(facets, token.facet.key)
+        if (!token.facet || !facet || !isComplete(token, input.length, untilEnd)) {
+            continue
+        }
+        remaining += input.slice(cursor, token.start)
+        cursor = token.end
+        const filter = { facet: facet.key, value: token.facet.value, negated: token.facet.negated }
+        if (!seen.has(facetFilterKey(filter))) {
+            seen.add(facetFilterKey(filter))
+            filters.push(filter)
+        }
+    }
+    remaining += input.slice(cursor, openTail)
+    return { filters, remaining: `${remaining.replace(/\s{2,}/g, ' ')}${input.slice(openTail)}`.replace(/^\s+/, '') }
 }
 
 export interface FacetDraft {
@@ -156,37 +220,16 @@ export interface FacetDraft {
 }
 
 export function parseFacetDraft(input: string, facets: FacetDefinitionBase[]): FacetDraft | null {
-    const quotedStart = openQuotedTokenStart(input)
-    if (quotedStart < input.length) {
-        return parseOpenQuotedDraft(input, quotedStart, facets)
-    }
-    const match = input.match(DRAFT_TOKEN)
-    if (!match || match.index === undefined) {
-        return null
-    }
-    const facet = findFacet(facets, match[3])
-    if (!facet) {
+    const last = scanTokens(input).at(-1)
+    const facet = last?.facet && last.end === input.length ? findFacet(facets, last.facet.key) : undefined
+    if (!last?.facet || !facet) {
         return null
     }
     return {
         facetKey: facet.key,
-        negated: match[2] === '-',
-        partial: match[4] !== undefined ? unescapeFacetValue(match[4]) : match[5],
-        rest: input.slice(0, match.index + match[1].length),
-    }
-}
-
-function parseOpenQuotedDraft(input: string, start: number, facets: FacetDefinitionBase[]): FacetDraft | null {
-    const match = input.slice(start).match(OPEN_QUOTED_DRAFT)
-    const facet = match && findFacet(facets, match[2])
-    if (!match || !facet) {
-        return null
-    }
-    return {
-        facetKey: facet.key,
-        negated: match[1] === '-',
-        partial: unescapeFacetValue(match[3]),
-        rest: input.slice(0, start),
+        negated: last.facet.negated,
+        partial: last.facet.value,
+        rest: input.slice(0, last.start),
     }
 }
 

@@ -9,13 +9,6 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ClientFacet, FacetSearchRows, FacetSearchValue, ServerFacet, facetFilterKey } from './facetSearch'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
-import { PillLabelStatus } from './facetSuggestions'
-
-const LABEL_NOTES: Record<PillLabelStatus, string> = {
-    shown: '',
-    loading: ' (loading the label)',
-    failed: " (couldn't load the label)",
-}
 
 interface FacetSearchBarBaseProps {
     value: FacetSearchValue
@@ -75,12 +68,11 @@ export function FacetSearchBar<TRow>({
         applyTabTarget,
         removeFilter,
         removeLastFilter,
-        syncInput,
+        setComposing,
     } = useActions(logic)
 
     const inputRef = useRef<HTMLInputElement>(null)
     const movedByKeyboard = useRef(false)
-    const composing = useRef(false)
     const listboxId = `${dataAttr}-listbox`
     const optionId = (index: number): string => `${listboxId}-option-${index}`
     const expanded = open && (options.length > 0 || !!statusMessage)
@@ -213,14 +205,8 @@ export function FacetSearchBar<TRow>({
             <div
                 className="w-full min-w-0"
                 onMouseDown={(event) => event.target !== inputRef.current && event.preventDefault()}
-                // An IME can hold spaces in text it has not confirmed, so tokens are read once it ends.
-                onCompositionStart={() => {
-                    composing.current = true
-                }}
-                onCompositionEnd={() => {
-                    composing.current = false
-                    setInput(inputRef.current?.value ?? input)
-                }}
+                onCompositionStart={() => setComposing(true)}
+                onCompositionEnd={() => setComposing(false)}
             >
                 <div role="status" aria-live="polite" className="sr-only">
                     {expanded ? statusMessage : null}
@@ -238,7 +224,7 @@ export function FacetSearchBar<TRow>({
                     className="h-auto min-h-10 flex-wrap gap-y-1 py-1 [&_input]:min-w-40"
                     value={input}
                     placeholder={value.filters.length ? 'Add a filter or search' : placeholder}
-                    onChange={(next) => (composing.current ? syncInput(next) : setInput(next))}
+                    onChange={setInput}
                     onKeyDown={onKeyDown}
                     inputRef={inputRef}
                     onFocus={() => setOpen(true)}
@@ -249,13 +235,12 @@ export function FacetSearchBar<TRow>({
                             <IconSearch className="text-secondary shrink-0" />
                             {/* Pills are not the popover's trigger, so their close buttons must not look pressed while it is open. */}
                             <PopoverReferenceContext.Provider value={null}>
-                                {pills.map(({ filter, label, labelStatus }) => {
-                                    const note = LABEL_NOTES[labelStatus]
+                                {pills.map(({ filter, label, labelStatus, labelNote }) => {
                                     return (
                                         <LemonSnack
                                             key={facetFilterKey(filter)}
                                             data-attr={`${dataAttr}-filter`}
-                                            title={`${label}${note}`}
+                                            title={`${label}${labelNote}`}
                                             closeLabel={`Remove filter ${label}`}
                                             onClose={(event) => {
                                                 removeFilter(filter)
@@ -268,7 +253,7 @@ export function FacetSearchBar<TRow>({
                                         >
                                             {labelStatus === 'loading' && <Spinner className="mr-1" />}
                                             <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
-                                            {note && <span className="sr-only">{note}</span>}
+                                            {labelNote && <span className="sr-only">{labelNote}</span>}
                                         </LemonSnack>
                                     )
                                 })}

@@ -94,8 +94,14 @@ function createValueLister({ facets, data, filters, valueLoads }: SuggestionCont
     }
 }
 
+const EMPTY_VALUE_LABEL = '(empty string)'
+
+function valueLabelOf(facet: AnyFacet | undefined, value: string, label?: string): string {
+    return (label ?? formatFacetValue(facet, value)) || EMPTY_VALUE_LABEL
+}
+
 export function optionLabel(facet: AnyFacet, option: FacetValueOption): string {
-    return option.label ?? formatFacetValue(facet, option.value)
+    return valueLabelOf(facet, option.value, option.label)
 }
 
 function matchesPartial(facet: AnyFacet, option: FacetValueOption, partial: string): boolean {
@@ -146,9 +152,13 @@ function chosenFilters({ data, filters }: SuggestionContext): IsChosen {
 
 type FailedLoad = Extract<FacetValuesState, { status: 'error' }>
 
-function loadFailedMessage({ reason, retryable }: FailedLoad, facetLabel?: string): string {
+function becauseOf(reason: string | undefined): string {
     const because = reason?.trim().replace(/\.$/, '')
-    const failure = `Couldn't load values${facetLabel ? ` for ${facetLabel}` : ''}${because ? `: ${because}` : ''}.`
+    return because ? `: ${because}` : ''
+}
+
+function loadFailedMessage({ reason, retryable }: FailedLoad, facetLabel?: string): string {
+    const failure = `Couldn't load values${facetLabel ? ` for ${facetLabel}` : ''}${becauseOf(reason)}.`
     return retryable ? `${failure} Type again to retry.` : failure
 }
 
@@ -396,17 +406,25 @@ export interface FacetPill {
     filter: FacetFilter
     label: string
     labelStatus: PillLabelStatus
+    /** Why the pill shows the raw value, for its tooltip and screen readers. Empty once the label shows. */
+    labelNote: string
 }
 
-function pillLabelStatus(filter: FacetFilter, facet: AnyFacet | undefined, context: PillContext): PillLabelStatus {
+function pillLabelState(
+    filter: FacetFilter,
+    facet: AnyFacet | undefined,
+    context: PillContext
+): Pick<FacetPill, 'labelStatus' | 'labelNote'> {
     if (!facet || !isLoadedFacet(facet) || context.valueLabels.has(labelKey(filter.facet, filter.value))) {
-        return 'shown'
+        return { labelStatus: 'shown', labelNote: '' }
     }
-    const status = context.valueLoads[valueLoadKey(facet.key, '')]?.status
-    if (status === 'error') {
-        return 'failed'
+    const load = context.valueLoads[valueLoadKey(facet.key, '')]
+    if (load?.status === 'error') {
+        return { labelStatus: 'failed', labelNote: ` (couldn't load the label${becauseOf(load.reason)})` }
     }
-    return status === 'loaded' ? 'shown' : 'loading'
+    return load?.status === 'loaded'
+        ? { labelStatus: 'shown', labelNote: '' }
+        : { labelStatus: 'loading', labelNote: ' (loading the label)' }
 }
 
 interface PillContext {
@@ -418,12 +436,15 @@ interface PillContext {
 export function describePills(filters: FacetFilter[], context: PillContext): FacetPill[] {
     return filters.map((filter) => {
         const facet = findFacet(context.facets, filter.facet)
-        const valueLabel =
-            context.valueLabels.get(labelKey(filter.facet, filter.value)) ?? formatFacetValue(facet, filter.value)
+        const valueLabel = valueLabelOf(
+            facet,
+            filter.value,
+            context.valueLabels.get(labelKey(filter.facet, filter.value))
+        )
         return {
             filter,
             label: `${facet?.label ?? filter.facet}${filter.negated ? ' is not' : ''}: ${valueLabel}`,
-            labelStatus: pillLabelStatus(filter, facet, context),
+            ...pillLabelState(filter, facet, context),
         }
     })
 }

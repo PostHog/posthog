@@ -590,7 +590,9 @@ describe('FacetSearchBar', () => {
             ],
             ['a facet alias', 'subject:Deals ', 'sends:Deals', ['Sends: Deals'], 'Promo'],
             ['an unknown facet, which stays text', 'owner:me ', 'owner:me', [], ''],
-            ['a quoted phrase that holds a facet token', '"See status:open"', '"See status:open"', [], ''],
+            ['a facet value glued to a closing quote', '"See status:open"', '"See status:open"', [], ''],
+            ['a quoted phrase that holds a facet token', '"See status:open now" ', '"See status:open now"', [], ''],
+            ['an open quoted phrase that holds a facet token', '"See status:op', '"See status:op', [], ''],
         ])('turns %s into pills and text', async (_, typed, url, expectedPills, expectedRows) => {
             const user = setup()
             await user.click(input())
@@ -610,11 +612,22 @@ describe('FacetSearchBar', () => {
             expect(parseFacetSearch(serializeFacetSearch(search), CLIENT_FACETS)).toEqual(search)
         })
 
-        it('keeps a facet token after an escaped line break inside a quoted URL value', () => {
-            expect(parseFacetSearch('sends:"Say \\\nstatus:open now"', CLIENT_FACETS)).toEqual({
-                filters: [{ facet: 'sends', value: 'Say \nstatus:open now', negated: false }],
-                text: '',
-            })
+        it.each([
+            [
+                'an escaped line break inside a quoted value',
+                'sends:"Say \\\nstatus:open now"',
+                { filters: [{ facet: 'sends', value: 'Say \nstatus:open now', negated: false }], text: '' },
+            ],
+            [
+                'a quoted phrase',
+                '"See status:open now" -status:draft',
+                {
+                    filters: [{ facet: 'status', value: 'draft', negated: true }],
+                    text: '"See status:open now"',
+                },
+            ],
+        ])('keeps a facet token after %s in a URL as part of it', (_, url, expected) => {
+            expect(parseFacetSearch(url, CLIENT_FACETS)).toEqual(expected)
         })
 
         it('turns a pasted query into pills, each once', async () => {
@@ -647,11 +660,15 @@ describe('FacetSearchBar', () => {
         })
 
         it('leaves text an IME is still composing alone, and reads it once composition ends', async () => {
-            const user = setup()
+            const { rerender } = render(<ClientConsumer url="" />)
+            const user = userEvent.setup()
             await user.click(input())
             fireEvent.compositionStart(input())
             fireEvent.change(input(), { target: { value: 'sends:ni hao' } })
             expect(pills()).toEqual([])
+            expect(input()).toHaveValue('sends:ni hao')
+
+            rerender(<ClientConsumer url="" data={{ ...DATA }} />)
             expect(input()).toHaveValue('sends:ni hao')
 
             fireEvent.change(input(), { target: { value: 'sends:Deals ' } })
@@ -704,6 +721,23 @@ describe('FacetSearchBar', () => {
             expect(input().getAttribute('aria-controls')).toEqual(listbox()!.id)
             const selected = document.querySelector('[role="option"][aria-selected="true"]')!
             expect(input().getAttribute('aria-activedescendant')).toEqual(selected.id)
+        })
+
+        it('shows an empty value as an empty string in suggestions and pills', async () => {
+            const withEmptySubject = {
+                ...DATA,
+                rows: DATA.rows.map((row) => ({ ...row, subjects: row.subjects.length ? row.subjects : [''] })),
+            }
+            render(<ClientConsumer url="" data={withEmptySubject} />)
+            const user = userEvent.setup()
+            await user.click(input())
+            await user.keyboard('sends:empty')
+            expect(suggestions()).toEqual(['(empty string) (1)'])
+
+            await user.keyboard('{Enter}')
+            expect(pills()).toEqual(['Sends: (empty string)'])
+            expect(shown('url')).toEqual('sends:""')
+            expect(shown('rows')).toEqual('Sync')
         })
     })
 
@@ -867,7 +901,7 @@ describe('FacetSearchBar', () => {
                     facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]}
                 />
             )
-            const note = "Team is not: t-2 (couldn't load the label)"
+            const note = "Team is not: t-2 (couldn't load the label: Forbidden)"
             const pill = (): Element => document.querySelector('[data-attr="server-search-filter"]')!
             await waitFor(() => expect(pill()).toHaveTextContent(note))
             expect(screen.getByTitle(note)).toBeInTheDocument()
