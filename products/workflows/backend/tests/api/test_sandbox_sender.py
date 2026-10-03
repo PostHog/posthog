@@ -106,7 +106,12 @@ class TestSandboxSenderAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("verify", "post", "email/verify/", {}),
-            ("edit", "patch", "email/", {"config": {"email": "x@sandbox.example.com", "name": "Other"}}),
+            (
+                "edit",
+                "patch",
+                "email/",
+                {"config": {"email": "x@sandbox.example.com", "name": "Other", "provider": "ses"}},
+            ),
             ("delete", "delete", "", None),
         ]
     )

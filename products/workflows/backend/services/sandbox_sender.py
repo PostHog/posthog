@@ -40,7 +40,7 @@ def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     return SandboxEmailSender(integration=integration, created=created)
 
 
-def sandbox_sender_display_name(organization_name: str) -> str:
+def _sandbox_sender_display_name(organization_name: str) -> str:
     kept = "".join(char for char in organization_name if char.isalnum() or char in _SANDBOX_SENDER_NAME_PUNCTUATION)
     name = " ".join(kept.split())[:SANDBOX_SENDER_NAME_MAX_LENGTH].strip()
     return f"{name} via PostHog" if name else SANDBOX_SENDER_FALLBACK_NAME
@@ -51,7 +51,7 @@ def _sandbox_sender_config(organization_name: str) -> dict[str, str | bool]:
         "provider": SANDBOX_EMAIL_PROVIDER,
         "email": settings.WORKFLOWS_SANDBOX_SENDER_FROM_ADDRESS,
         "domain": settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN,
-        "name": sandbox_sender_display_name(organization_name),
+        "name": _sandbox_sender_display_name(organization_name),
         "verified": True,
     }
 
@@ -61,7 +61,6 @@ def _sandbox_sender_configured() -> bool:
 
 
 def _sandbox_sender_enabled(team: Team) -> bool:
-    # A failed flag evaluation reads as off, so an outage never hands out sandbox senders.
     try:
         return posthog_feature_flag_enabled(
             SANDBOX_SENDER_FLAG,
