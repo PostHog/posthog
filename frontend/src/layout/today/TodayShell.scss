@@ -109,6 +109,16 @@
     display: contents;
 }
 
+@media (pointer: coarse) {
+    .TodayAppLayout--phone:has(:is(input, textarea, [contenteditable='true']):focus) {
+        --today-tab-bar-height: 0px;
+
+        .TodayTabBar {
+            display: none;
+        }
+    }
+}
+
 body:has(.TodayAppLayout--phone) :is(input, textarea, select) {
     font-size: 1rem;
 }
@@ -138,6 +148,7 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     }
 
     .quill-button--size-row {
+        -webkit-touch-callout: none;
         height: 2.75rem;
         font-size: 0.9375rem;
     }
@@ -158,7 +169,10 @@ body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     align-items: center;
     height: var(--today-tab-bar-height);
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    user-select: none;
     background: var(--today-paper);
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
