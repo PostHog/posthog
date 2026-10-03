@@ -56,6 +56,8 @@ Config fields:
 - `probe_hints` — up to five concrete places to look: an issue id, a service name, the query to repeat.
 - `skill_name` — the scout that answers the check. Leave it unset and the check goes to the fleet's follow-up scout.
 
+The write is refused when the project has no scout that can run the check: no config or no live skill for its lane. Write a `metric_threshold` check instead. A paused lane still accepts the write.
+
 The check is dispatched as a scout run, which closes it with `scout-check-record-result` (`passed`, `failed`, `inconclusive`, or `errored`, plus an explanation).
 The run records `passed` or `failed` when the evidence meets the bar the check states, `inconclusive` with a reason when its tools worked but the evidence cannot settle the question, and `errored` only when a tool or model call failed.
 A run that ends without recording a result is scored `errored` and retried.
@@ -80,7 +82,7 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
 - **`inconclusive`** does not spend the error budget. Its `reason` decides what happens next:
   - `awaiting_data` looks again after 24 hours, then 72 hours, then 7 days. After three looks, or when the next look falls past the horizon, the check ends as `inconclusive`.
   - `unmeasurable`, `needs_manual_verification`, and `no_fix_to_measure` end the check as `inconclusive` at once, because waiting does not help.
-- **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
+- **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. The coordinator also cancels an `agent` check on a project with no scout configs, because no run can ever answer it. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
 
 A **failed `metric_threshold` check on a resolved report re-surfaces**: the breach is emitted as a signal and the pipeline files a fresh report linked back to the resolved one.
 A resolved report is no longer in the inbox, so a verdict left only on its artefact log would reach nobody, and this lane has no scout in it to author anything.

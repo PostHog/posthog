@@ -29,15 +29,17 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportCheck
+from products.signals.backend.report_check_agent import agent_check_lane_available
 from products.signals.backend.report_check_artefacts import write_check_cancelled, write_check_scheduled
 from products.signals.backend.report_check_execution import resolve_check_query
 from products.signals.backend.report_check_research import research_can_reconcile_checks
-from products.signals.backend.report_check_telemetry import capture_report_check_created
+from products.signals.backend.report_check_telemetry import capture_report_check_created, capture_report_check_skipped
 from products.signals.backend.report_check_timing import metric_check_ready_at
 from products.signals.backend.report_checks import (
     DEFAULT_CHECK_SOAK_HOURS,
     MAX_ACTIVE_CHECKS_PER_REPORT,
     MAX_CHECK_HORIZON,
+    AgentCheckConfig,
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
@@ -94,6 +96,10 @@ def create_check(
         raise CheckCreationError("a check names either a next_run_at or a soak_minutes, not both and not neither")
 
     stored_config = _stored_config(report, kind, config)
+    if kind == SignalReportCheck.Kind.AGENT and not _agent_lane_available(report, stored_config):
+        raise CheckCreationError(
+            "This project has no scout that can run agent checks. Use a metric check, or set up scouts first."
+        )
 
     now = timezone.now()
 
@@ -173,6 +179,46 @@ def create_check(
         # never counted as written.
         transaction.on_commit(partial(capture_report_check_created, report.team, check))
         return check
+
+
+def _agent_lane_available(report: SignalReport, config: dict) -> bool:
+    parsed = parse_check_config(SignalReportCheck.Kind.AGENT, config)
+    assert isinstance(parsed, AgentCheckConfig)
+    # The scout fleet is bound to the canonical project, while the report sits on its own environment.
+    canonical_team_id = report.team.parent_team_id or report.team_id
+    return agent_check_lane_available(canonical_team_id, parsed.skill_name)
+
+
+def _without_unrunnable_agent_specs(report: SignalReport, specs: list[CheckSpec]) -> list[CheckSpec]:
+    """Drop the agent specs this project has no scout to run, and keep the rest.
+
+    Research is told up front when only metric checks can run, so this is the backstop for a spec
+    that names the agent kind anyway. One dropped spec must not cost the report its other checks.
+    """
+    kept: list[CheckSpec] = []
+    for spec in specs:
+        if spec.kind == SignalReportCheck.Kind.AGENT:
+            try:
+                runnable = _agent_lane_available(report, spec.config)
+            except CheckConfigValidationError:
+                # `_stored_config` refuses it with the reason.
+                runnable = True
+            if not runnable:
+                skill_name = spec.config.get("skill_name") if isinstance(spec.config, dict) else None
+                logger.info(
+                    "signals.report_check.research_spec_skipped",
+                    report_id=str(report.id),
+                    team_id=report.team_id,
+                    kind=spec.kind,
+                    skill_name=skill_name,
+                    reason="no_check_lane",
+                )
+                capture_report_check_skipped(
+                    report.team, report_id=str(report.id), kind=spec.kind, skill_name=skill_name, reason="no_check_lane"
+                )
+                continue
+        kept.append(spec)
+    return kept
 
 
 def _stored_config(report: SignalReport, kind: str, config: dict) -> dict:
@@ -263,6 +309,7 @@ def create_checks_from_specs(
     replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
     leaves the old checks running.
     """
+    specs = _without_unrunnable_agent_specs(report, specs)
     try:
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
@@ -395,7 +442,9 @@ def replace_metric_check(
 def cancel_check(
     check: SignalReportCheck,
     *,
-    reason: Literal["stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request"],
+    reason: Literal[
+        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+    ],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
 ) -> bool:

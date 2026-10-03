@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import patch
 
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReport, SignalReportCheck
+from products.signals.backend.models import SignalReport, SignalReportCheck, SignalScoutConfig
+from products.signals.backend.report_check_agent import FALLBACK_CHECK_SKILL_NAME
 from products.signals.backend.temporal.summary import (
     MarkReportFailedInput,
     MarkReportInProgressInput,
@@ -16,6 +18,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     reset_report_to_potential_activity,
 )
+from products.skills.backend.models.skills import LLMSkill
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
 
@@ -325,6 +328,11 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
     assert refreshed.total_weight == 0.0
 
 
+def _seed_check_lane(team: Team) -> None:
+    LLMSkill.objects.create(team=team, name=FALLBACK_CHECK_SKILL_NAME, is_latest=True, deleted=False)
+    SignalScoutConfig.objects.for_team(team.id).create(team=team, skill_name=FALLBACK_CHECK_SKILL_NAME)
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
@@ -349,6 +357,7 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     ateam, run_count: int, processed_signal_count: int, signal_count: int, expected_loop: bool
 ):
+    await database_sync_to_async(_seed_check_lane)(ateam)
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
