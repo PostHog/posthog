@@ -28,6 +28,8 @@ import { resolveToolCall } from '../utils/toolResolver'
 import { computeTurnTrailers } from '../utils/turnTrailers'
 import { attachedContextLogic } from './attachedContextLogic'
 import {
+    appendToRunLog,
+    emptyRunLog,
     extractRunArtifacts,
     type FoldCheckpoint,
     foldLogFromCheckpoint,
@@ -284,6 +286,7 @@ describe('runStreamLogic', () => {
                 [notification('_posthog/run_started', {}), 'replay'],
                 [notification('_posthog/user_message', { content: 'first question' }), 'replay'],
                 [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'slow', status: 'in_progress' }), 'replay'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', title: 'Reading' }), 'replay'],
                 [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'first answer' } }), 'replay'],
                 [notification('_client/human_message', { content: 'queued follow-up' }), 'live'],
                 [notification('_posthog/turn_complete', { traceId: 'trace-1' }), 'live'],
@@ -295,22 +298,26 @@ describe('runStreamLogic', () => {
                 [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'answer' } }), 'live'],
                 [notification('_posthog/turn_complete', { traceId: 'trace-2' }), 'live'],
                 [notification('_client/human_message', { content: 'third question' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', rawOutput: 'late' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'fast', status: 'in_progress' }), 'live'],
                 [sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { text: 'third' } }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'slow', status: 'failed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'fast', status: 'completed' }), 'live'],
+                [sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'third answer' } }), 'live'],
             ]
-            const entries = frames.map(([entry, source], index) => ({
-                source,
-                entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() },
-            }))
             const options = { isResumeRun: false, taskId: 'task-1' }
 
+            let log = emptyRunLog()
             let checkpoint: FoldCheckpoint | null = null
-            for (let length = 1; length <= entries.length; length++) {
-                const prefix = entries.slice(0, length)
-                const resumed = foldLogFromCheckpoint(prefix, options, checkpoint)
+            frames.forEach(([entry, source], index) => {
+                log = appendToRunLog(log, [
+                    { source, entry: { ...entry, timestamp: new Date((index + 1) * 1000).toISOString() } },
+                ])
+                const resumed = foldLogFromCheckpoint(log.entries, options, checkpoint)
                 checkpoint = resumed.checkpoint
-                expect(resumed.folded).toEqual(foldLogToThread(prefix, options))
-            }
-            expect(checkpoint?.entries).toHaveLength(13)
+                expect(resumed.folded).toEqual(foldLogToThread(log.entries, options))
+            })
+            expect(checkpoint!.entries.at(-1)?.entry.notification.params).toEqual({ traceId: 'trace-2' })
         })
 
         it.each([
