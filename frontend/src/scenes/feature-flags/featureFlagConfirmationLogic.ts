@@ -28,12 +28,10 @@ function detectFeatureFlagChanges(
 ): string[] {
     const changes: string[] = []
 
-    // Don't require confirmation for new flags
     if (!originalFlag || !updatedFlag.id) {
         return changes
     }
 
-    // Check for active status changes
     let statusChanged = false
     if (originalFlag.active !== updatedFlag.active) {
         if (updatedFlag.active) {
@@ -44,7 +42,6 @@ function detectFeatureFlagChanges(
         statusChanged = true
     }
 
-    // Check for any filter changes (comprehensive detection).
     // objectsEqual (fast-deep-equal) compares bigint filter values directly instead of
     // serialising them, which JSON.stringify can't do (it throws on bigint).
     if (!objectsEqual(originalFlag.filters || {}, updatedFlag.filters || {})) {
@@ -52,29 +49,24 @@ function detectFeatureFlagChanges(
         const originalGroups = originalFlag.filters?.groups || []
         const updatedGroups = updatedFlag.filters?.groups || []
 
-        // Check for rollout percentage changes
         const rolloutChanged = originalGroups.some((group, index) => {
             const updatedGroup = updatedGroups[index]
             return updatedGroup && group.rollout_percentage !== updatedGroup.rollout_percentage
         })
 
-        // Check for variant changes
         const originalVariants = originalFlag.filters?.multivariate?.variants || []
         const updatedVariants = updatedFlag.filters?.multivariate?.variants || []
         const variantsChanged = !objectsEqual(originalVariants, updatedVariants)
 
-        // Check for release condition changes (properties, etc.)
         const conditionsChanged = originalGroups.some((group, index) => {
             const updatedGroup = updatedGroups[index]
             return updatedGroup && !objectsEqual(group.properties || [], updatedGroup.properties || [])
         })
 
-        // Check for payload changes
         const originalPayloads = originalFlag.filters?.payloads || {}
         const updatedPayloads = updatedFlag.filters?.payloads || {}
         const payloadsChanged = !objectsEqual(originalPayloads, updatedPayloads)
 
-        // Add specific change messages
         if (rolloutChanged) {
             changes.push('Release condition rollout percentage changed')
         }
@@ -94,7 +86,6 @@ function detectFeatureFlagChanges(
             changes.push('Payloads changed')
         }
 
-        // If we haven't caught the specific change, add a generic message
         if (!rolloutChanged && !variantsChanged && !conditionsChanged && !payloadsChanged && !statusChanged) {
             changes.push('Feature flag configuration changed')
         }
@@ -103,7 +94,6 @@ function detectFeatureFlagChanges(
     return changes
 }
 
-// Utility function for checking if confirmation is needed and showing modal
 export function checkFeatureFlagConfirmation(
     originalFlag: FeatureFlagType | null,
     updatedFlag: FeatureFlagType,
@@ -116,14 +106,12 @@ export function checkFeatureFlagConfirmation(
     requireStatusConfirmation = false,
     onDisableAndArchive?: () => void
 ): boolean {
-    // Check if confirmation is needed
     const needsConfirmation = !!updatedFlag.id && shouldDisplayConfirmation
 
     if (needsConfirmation) {
         const changes = detectFeatureFlagChanges(originalFlag, updatedFlag)
 
         if (changes.length > 0) {
-            // Show confirmation modal
             openConfirmationModal({
                 featureFlag: updatedFlag,
                 type: 'multi-changes',
@@ -248,5 +236,4 @@ export const featureFlagConfirmationLogic = kea<featureFlagConfirmationLogicType
     })),
 ])
 
-// Export the function for reuse in tests
 export { detectFeatureFlagChanges }
