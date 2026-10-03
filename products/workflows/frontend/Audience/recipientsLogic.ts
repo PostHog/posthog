@@ -16,7 +16,6 @@ const SEARCH_DEBOUNCE_MS = 300
 
 export type RecipientsView = 'loading' | 'error' | 'empty' | 'no-match' | 'results'
 
-/** One page of one search: `pageCursors` holds the cursor of every page before it, the last one fetches it. */
 export interface RecipientsRequest {
     search: string
     pageCursors: string[]
