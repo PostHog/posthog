@@ -229,7 +229,7 @@ class TestTeamTracingConfigRetention(APIBaseTest):
         ]
         self.organization.save()
 
-    def test_patch_records_the_update_time(self):
+    def test_patch_evaluates_the_flag_outside_the_transaction(self) -> None:
         self._grant_30d_retention()
         transaction_depth = len(connection.savepoint_ids)
 
