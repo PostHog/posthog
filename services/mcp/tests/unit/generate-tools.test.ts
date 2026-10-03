@@ -10,6 +10,7 @@ import {
     generateToolCode,
 } from '../../scripts/generate-tools'
 import type { OpenApiSpec, ResolvedOperation } from '../../scripts/generate-tools'
+import { sharedSchemaExclusions } from '../../scripts/lib/definitions.mjs'
 import { QueryWrapperToolConfigSchema, ToolConfigSchema } from '../../scripts/yaml-config-schema'
 import type { EnabledQueryWrapperToolConfig, EnabledToolConfig, ToolConfig } from '../../scripts/yaml-config-schema'
 
@@ -773,6 +774,78 @@ describe('inject_body', () => {
     })
 })
 
+describe('exclude_params on an operation shared by several tools', () => {
+    const genericTool: ToolConfig = { operation: 'things_create', enabled: true }
+    const emailTool: ToolConfig = {
+        operation: 'things_create',
+        enabled: true,
+        exclude_params: ['kind'],
+        inject_body: { kind: 'email' },
+    }
+    const otherEmailTool: ToolConfig = {
+        operation: 'things_create',
+        enabled: true,
+        exclude_params: ['kind', 'name'],
+    }
+    const sharedCategory = {
+        ...defaultCategory,
+        tools: { 'things-create': genericTool, 'things-email-create': emailTool },
+    }
+    const thingsCreateResolved = (): ResolvedOperation =>
+        makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: {
+                        'application/json': {
+                            schema: {
+                                properties: {
+                                    name: { type: 'string' },
+                                    kind: { type: 'string' },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+    const generate = (toolName: string, config: ToolConfig, category = sharedCategory): string =>
+        generateToolCode(
+            toolName,
+            config,
+            thingsCreateResolved(),
+            category,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        ).code
+
+    it('strips a field from the shared schema only when every enabled tool on the operation excludes it', () => {
+        expect(sharedSchemaExclusions([genericTool, emailTool, { ...genericTool, enabled: false }])).toEqual(new Map())
+        expect(sharedSchemaExclusions([emailTool, otherEmailTool])).toEqual(new Map([['things_create', ['kind']]]))
+    })
+
+    it('lets each tool keep or omit a field the other tool excludes', () => {
+        const genericCode = generate('things-create', genericTool)
+        expect(genericCode).toContain('body["kind"] = params.kind')
+        expect(genericCode).not.toContain(`'kind': true`)
+
+        const emailCode = generate('things-email-create', emailTool)
+        expect(emailCode).toContain(`ThingsCreateBody.omit({ 'kind': true })`)
+        expect(emailCode).not.toContain('body["kind"] = params')
+    })
+
+    it('rejects a nested exclusion that only some tools on the operation share', () => {
+        const nestedTool: ToolConfig = { ...emailTool, exclude_params: ['kind', 'config.secret'] }
+        const category = { ...sharedCategory, tools: { ...sharedCategory.tools, 'things-email-create': nestedTool } }
+        expect(() => generate('things-email-create', nestedTool, category)).toThrow(
+            `"things-email-create" excludes nested field "config.secret"`
+        )
+    })
+})
+
 describe('anyOf / oneOf body schemas (discriminated unions)', () => {
     // Polymorphic Python serializers (e.g. file-download-batch-exports) emit
     // request bodies as `anyOf` of per-variant object schemas. Without union
@@ -1385,7 +1458,12 @@ describe('per-tool category in tool definitions', () => {
         }
         const definitions = generateDefinitionsJson([
             {
-                config: { category: 'AI observability', feature: 'llm_analytics', url_prefix: '/ai-observability', tools: {} },
+                config: {
+                    category: 'AI observability',
+                    feature: 'llm_analytics',
+                    url_prefix: '/ai-observability',
+                    tools: {},
+                },
                 enabledTools: [['llma-prompt-list', toolConfig, resolved]],
                 enabledWrappers: [],
                 yamlDir: '/tmp',

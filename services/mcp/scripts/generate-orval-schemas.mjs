@@ -25,7 +25,7 @@ import {
     runOrvalParallel,
 } from '@posthog/openapi-codegen'
 
-import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
+import { discoverDefinitions, resolveSchemaPath, sharedSchemaExclusions } from './lib/definitions.mjs'
 import { lazifyZodSchemas } from './lib/lazy-zod-schemas.mjs'
 import { stripEnumMinLength, stripUuidFormat } from './lib/schema-transforms.mjs'
 
@@ -43,31 +43,11 @@ if (!fs.existsSync(schemaPath)) {
     process.exit(1)
 }
 
-/**
- * Parse a YAML tool definition and return operationIds plus all exclude_params
- * grouped by operationId for schema-level exclusion before Orval runs.
- */
 function parseToolDefinition(filePath) {
     const content = fs.readFileSync(filePath, 'utf-8')
-    const parsed = parseYaml(content)
-    const operationIds = new Set()
-    /** @type {Map<string, string[]>} */
-    const schemaExclusions = new Map()
-
-    if (parsed?.tools) {
-        for (const tool of Object.values(parsed.tools)) {
-            if (!tool?.enabled || !tool?.operation) {
-                continue
-            }
-
-            operationIds.add(tool.operation)
-            const excludeParams = tool.exclude_params ?? []
-            if (excludeParams.length > 0) {
-                schemaExclusions.set(tool.operation, excludeParams)
-            }
-        }
-    }
-    return { operationIds, schemaExclusions }
+    const tools = Object.values(parseYaml(content)?.tools ?? {})
+    const operationIds = new Set(tools.filter((tool) => tool?.enabled && tool?.operation).map((tool) => tool.operation))
+    return { operationIds, schemaExclusions: sharedSchemaExclusions(tools) }
 }
 
 // ------------------------------------------------------------------

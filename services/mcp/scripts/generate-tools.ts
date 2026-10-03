@@ -21,7 +21,7 @@ import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { discoverDefinitions, isQueryWrappersConfig } from './lib/definitions.mjs'
+import { discoverDefinitions, isQueryWrappersConfig, sharedSchemaExclusions } from './lib/definitions.mjs'
 import { type JsonSchemaRoot, generateZodFromSchemaRef, getEntryVarName } from './lib/json-schema-to-zod'
 import {
     type CategoryConfig,
@@ -500,7 +500,8 @@ function composeToolSchema(
     config: ToolConfig,
     resolved: ResolvedOperation,
     spec: OpenApiSpec,
-    getQuerySchema: () => JsonSchemaRoot
+    getQuerySchema: () => JsonSchemaRoot,
+    schemaExcludedFields: ReadonlySet<string> = new Set(config.exclude_params)
 ): SchemaComposition {
     const pascal = operationIdToPascal(config.operation)
     const orvalImports: string[] = []
@@ -620,11 +621,13 @@ function composeToolSchema(
                     continue
                 }
 
-                // exclude_params are removed at the Orval schema level by
-                // applyNestedExclusions in generate-orval-schemas.mjs, so
-                // they won't exist in the Zod schema. Skip them here to
-                // avoid generating .omit() calls for nonexistent fields.
+                // generate-orval-schemas.mjs removes the exclusions that every tool on
+                // this operation shares, so they do not exist in the Zod schema.
+                if (schemaExcludedFields.has(name)) {
+                    continue
+                }
                 if (excludeSet.has(name)) {
+                    bodyOmitFields.add(name)
                     continue
                 }
 
@@ -1072,6 +1075,19 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
 // Code generation for a single tool
 // ------------------------------------------------------------------
 
+function schemaExcludedFieldsFor(toolName: string, config: ToolConfig, category: CategoryConfig): Set<string> {
+    const toolsOnCategory = Object.values({ ...category.tools, [toolName]: config })
+    const shared = new Set(sharedSchemaExclusions(toolsOnCategory).get(config.operation))
+    const unsharedNestedField = config.exclude_params?.find((field) => field.includes('.') && !shared.has(field))
+    if (unsharedNestedField) {
+        throw new Error(
+            `Tool "${toolName}" excludes nested field "${unsharedNestedField}", but other tools on "${config.operation}" do not. ` +
+                'Exclude it on every tool on this operation, or on none.'
+        )
+    }
+    return shared
+}
+
 function generateToolCode(
     toolName: string,
     config: ToolConfig,
@@ -1102,7 +1118,8 @@ function generateToolCode(
         return generateCustomSchemaToolCode(toolName, config, resolved, category, schemaName, factoryName, knownTypes)
     }
 
-    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    const schemaExcludedFields = schemaExcludedFieldsFor(toolName, config, category)
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema, schemaExcludedFields)
     let responseType = config.response_type ?? resolveResponseType(resolved.operation, knownTypes)
 
     // Soft-delete overrides the HTTP method: use PATCH instead of DELETE.

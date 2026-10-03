@@ -86,3 +86,26 @@ export function isQueryWrappersConfig(parsed) {
 export function isToolsConfig(parsed) {
     return typeof parsed === 'object' && parsed !== null && 'tools' in parsed
 }
+
+/**
+ * Tools on one operation share one Orval body schema, so only exclusions every enabled tool shares may leave it.
+ * @param {Iterable<{ enabled?: boolean, operation?: string, exclude_params?: string[] }>} tools
+ * @returns {Map<string, string[]>}
+ */
+export function sharedSchemaExclusions(tools) {
+    const shared = new Map()
+    for (const tool of tools) {
+        if (!tool?.enabled || !tool?.operation) {
+            continue
+        }
+        const excluded = tool.exclude_params ?? []
+        const previous = shared.get(tool.operation)
+        shared.set(tool.operation, previous ? previous.filter((field) => excluded.includes(field)) : excluded)
+    }
+    for (const [operation, fields] of shared) {
+        if (fields.length === 0) {
+            shared.delete(operation)
+        }
+    }
+    return shared
+}
