@@ -187,6 +187,7 @@ const notebooksList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
             query: {
+                alert_investigation: params.alert_investigation,
                 contains: params.contains,
                 created_by: params.created_by,
                 date_from: params.date_from,

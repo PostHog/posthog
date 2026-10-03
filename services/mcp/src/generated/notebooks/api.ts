@@ -43,6 +43,12 @@ export const NotebooksListParams = () => zod.object({
 })
 
 export const NotebooksListQueryParams = () => zod.object({
+    alert_investigation: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Return only the notebooks the alert investigation agent wrote (`true`), or leave them out (`false`).'
+        ),
     contains: zod
         .string()
         .optional()

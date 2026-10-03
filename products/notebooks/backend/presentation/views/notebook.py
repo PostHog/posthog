@@ -1,6 +1,7 @@
 import math
 import hashlib
 from collections import Counter
+from collections.abc import Sequence
 from typing import Any, Literal, cast
 from uuid import UUID
 
@@ -53,6 +54,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.alerts.backend.facade.api import investigation_notebook_ids, notebook_alert_investigations
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -251,10 +253,21 @@ _PARENT_RESOURCE_SCHEMA = {
 }
 
 
+class NotebookAlertInvestigationSerializer(serializers.Serializer):
+    alert_id = serializers.UUIDField(help_text="ID of the alert whose firing the investigation agent looked into.")
+    alert_name = serializers.CharField(allow_null=True, help_text="Name of that alert.")
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    alert_investigation = serializers.SerializerMethodField(
+        help_text=(
+            "The alert this notebook investigates, when the alert investigation agent wrote it. "
+            "`null` for every other notebook."
+        ),
+    )
 
     class Meta:
         model = Notebook
@@ -268,13 +281,22 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "alert_investigation",
             "_create_in_folder",
         ]
         read_only_fields = fields
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
+    @extend_schema_field(NotebookAlertInvestigationSerializer(allow_null=True))
+    def get_alert_investigation(self, notebook: Notebook) -> dict[str, Any] | None:
+        investigation = self.context.get("alert_investigations", {}).get(notebook.id)
+        if investigation is None:
+            return None
+        return {"alert_id": investigation.alert_id, "alert_name": investigation.alert_name}
+
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    alert_investigation = None
     variables = NotebookVariableSerializer(
         many=True,
         required=False,
@@ -693,6 +715,12 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
                 "date_to",
                 OpenApiTypes.DATETIME,
                 description="Filter for notebooks created before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "alert_investigation",
+                OpenApiTypes.BOOL,
+                description="Return only the notebooks the alert investigation agent wrote (`true`), or leave them out (`false`).",
                 required=False,
             ),
             OpenApiParameter(
@@ -1443,6 +1471,16 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return queryset
 
+    def paginate_queryset(self, queryset: QuerySet | Sequence) -> Sequence | None:
+        page = super().paginate_queryset(queryset)
+        if self.action == "list" and page is not None:
+            # One lookup for the whole page, so the list serializer marks investigations without a query per row.
+            self._alert_investigations = notebook_alert_investigations(self.team_id, [notebook.id for notebook in page])
+        return page
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return {**super().get_serializer_context(), "alert_investigations": getattr(self, "_alert_investigations", {})}
+
     def _filter_list_request(self, request: Request, queryset: QuerySet, filters: dict | None = None) -> QuerySet:
         filters = filters or request.GET.dict()
 
@@ -1454,6 +1492,13 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 queryset = queryset.filter(created_by__uuid=value)
             elif key == "last_modified_by":
                 queryset = queryset.filter(last_modified_by__uuid=value)
+            elif key == "alert_investigation" and value in ("true", "false"):
+                investigations = investigation_notebook_ids(self.team_id)
+                queryset = (
+                    queryset.filter(id__in=investigations)
+                    if value == "true"
+                    else queryset.exclude(id__in=investigations)
+                )
             elif key == "date_from" and isinstance(value, str):
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to" and isinstance(value, str):

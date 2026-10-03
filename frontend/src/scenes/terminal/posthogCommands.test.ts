@@ -336,6 +336,7 @@ describe('PostHog terminal commands', () => {
                     created_by: author,
                     last_modified_at: '2026-01-01T00:00:00Z',
                     last_modified_by: author,
+                    alert_investigation: null,
                 },
             ],
         })

@@ -34,6 +34,7 @@ from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
+from products.notebooks.backend.facade.api import create_notebook
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -108,6 +109,38 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+
+    @parameterized.expand(
+        [
+            ("all", "", {"investigation", "notes"}),
+            ("only", "?alert_investigation=true", {"investigation"}),
+            ("without", "?alert_investigation=false", {"notes"}),
+        ]
+    )
+    def test_notebooks_list_marks_and_filters_alert_investigations(
+        self, _name: str, query: str, expected: set[str]
+    ) -> None:
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="Signups drop",
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            calculation_interval=AlertCalculationInterval.DAILY,
+        )
+        investigation = create_notebook(self.team.id, title="investigation", content=None, created_by_id=self.user.id)
+        create_notebook(self.team.id, title="notes", content=None, created_by_id=self.user.id)
+        AlertCheck.objects.create(alert_configuration=alert, investigation_notebook_id=investigation.id)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks/{query}")
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["title"]: row["alert_investigation"] for row in response.json()["results"]}
+        assert set(rows) == expected
+        if "investigation" in rows:
+            assert rows["investigation"] == {"alert_id": str(alert.id), "alert_name": "Signups drop"}
+        if "notes" in rows:
+            assert rows["notes"] is None
 
     def test_create_and_delete_alert(self) -> None:
         creation_request = {

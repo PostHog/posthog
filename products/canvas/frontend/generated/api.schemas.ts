@@ -1854,6 +1854,10 @@ export type CanvasesListParams = {
      */
     ordering?: CanvasesListOrdering
     /**
+     * Only return canvases pinned to their channel.
+     */
+    pinned?: boolean
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string

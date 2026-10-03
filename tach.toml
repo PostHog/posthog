@@ -659,6 +659,7 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.alerts",
     "products.canvas",
     "products.dashboards",
     "products.product_analytics",

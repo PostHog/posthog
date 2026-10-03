@@ -63521,6 +63521,16 @@ export namespace Schemas {
       _create_in_folder?: string;
     }
 
+    export interface NotebookAlertInvestigation {
+      /** ID of the alert whose firing the investigation agent looked into. */
+      alert_id: string;
+      /**
+         * Name of that alert.
+         * @nullable
+         */
+      alert_name: string | null;
+    }
+
     export interface NotebookCellLastRun {
       /** Identifier of the cell's most recent run. */
       run_id: string;
@@ -63888,6 +63898,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** The alert this notebook investigates, when the alert investigation agent wrote it. `null` for every other notebook. */
+      readonly alert_investigation: NotebookAlertInvestigation | null;
       _create_in_folder?: string;
     }
 
@@ -113201,6 +113213,10 @@ export namespace Schemas {
      */
     ordering?: CanvasesListOrdering;
     /**
+     * Only return canvases pinned to their channel.
+     */
+    pinned?: boolean;
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string;
@@ -120684,6 +120700,10 @@ export namespace Schemas {
     };
 
     export type NotebooksListParams = {
+    /**
+     * Return only the notebooks the alert investigation agent wrote (`true`), or leave them out (`false`).
+     */
+    alert_investigation?: boolean;
     /**
      * Filter for notebooks that match a provided filter.
      *                 Each match pair is separated by a colon,

@@ -558,6 +558,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
                 description="Only return canvases whose name or description contains this text (case-insensitive).",
             ),
             OpenApiParameter(
+                "pinned",
+                OpenApiTypes.BOOL,
+                required=False,
+                description="Only return canvases pinned to their channel.",
+            ),
+            OpenApiParameter(
                 "ordering",
                 OpenApiTypes.STR,
                 required=False,
@@ -600,6 +606,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.ModelViewSet):
             search = self.request.query_params.get("search")
             if search:
                 queryset = queryset.filter(Q(name__icontains=search) | Q(description__icontains=search))
+            if self.request.query_params.get("pinned") == "true":
+                queryset = queryset.filter(pinned_at__isnull=False)
             ordering = self.request.query_params.get("ordering")
             if ordering in CANVAS_LIST_ORDERINGS:
                 return queryset.order_by(ordering)

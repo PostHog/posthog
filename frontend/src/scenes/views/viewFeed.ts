@@ -16,9 +16,23 @@ import {
 
 export const VIEW_FEED_PAGE_SIZE = 50
 
+// pinned: these values are the `made_by` property of the `views sidebar filtered` event.
+export type ViewMadeBy = 'anyone' | 'people' | 'agents'
+
 export interface ViewFeedQuery {
     type: ViewTypeFilter
     search: string
+    /** Only views pinned to the top of their list. */
+    pinned?: boolean
+    madeBy?: ViewMadeBy
+}
+
+/** What one source fetches: one view type, with the search and filters of the query. */
+export interface ViewSourceParams {
+    type: ViewType
+    search: string
+    pinned: boolean
+    madeBy: ViewMadeBy
 }
 
 export interface ViewSourcePage {
@@ -27,10 +41,8 @@ export interface ViewSourcePage {
     hasMore: boolean
 }
 
-export interface ViewSourceState {
+export interface ViewSourceState extends ViewSourceParams {
     projectId: string
-    search: string
-    type: ViewType
     items: ViewItem[]
     offset: number
     hasMore: boolean
@@ -51,25 +63,36 @@ export interface ViewFeed {
 }
 
 export function viewFeedTypes(query: ViewFeedQuery): ViewType[] {
-    return query.type === 'all' ? VIEW_TYPES.map((info) => info.type) : [query.type]
+    // Notebooks cannot be pinned, and an alert investigation is the only view that records that an agent made it.
+    return VIEW_TYPES.map((info) => info.type).filter(
+        (type) =>
+            (query.type === 'all' || query.type === type) &&
+            !(query.pinned && type === 'notebook') &&
+            !(query.madeBy === 'agents' && type !== 'notebook')
+    )
 }
 
-export function viewSourceKey(projectId: string, search: string, type: ViewType): string {
-    return JSON.stringify([projectId, search.trim(), type])
+export function viewSourceParams(query: ViewFeedQuery, type: ViewType): ViewSourceParams {
+    return { type, search: query.search.trim(), pinned: !!query.pinned, madeBy: query.madeBy ?? 'anyone' }
+}
+
+export function viewSourceKey(projectId: string, params: ViewSourceParams): string {
+    return JSON.stringify([projectId, params.search, params.type, params.pinned, params.madeBy])
 }
 
 export async function fetchViewSourcePage(
     projectId: string,
-    type: ViewType,
-    search: string,
+    params: ViewSourceParams,
     offset: number
 ): Promise<ViewSourcePage> {
     const limit = VIEW_FEED_PAGE_SIZE
-    const query = search.trim() || undefined
-    if (type === 'canvas') {
+    const search = params.search || undefined
+    const pinned = params.pinned || undefined
+    if (params.type === 'canvas') {
         const page = await canvasesList(projectId, {
             kind: LISTED_CANVAS_KIND,
-            search: query,
+            search,
+            pinned,
             ordering: '-updated_at',
             limit,
             offset,
@@ -80,17 +103,22 @@ export async function fetchViewSourcePage(
             hasMore: !!page.next && page.results.length > 0,
         }
     }
-    if (type === 'notebook') {
+    if (params.type === 'notebook') {
         // The notebooks endpoint filters on `search`, but its schema does not declare the parameter.
-        const params: NotebooksListParams & { search?: string } = { limit, offset, search: query }
-        const page = await notebooksList(projectId, params)
+        const query: NotebooksListParams & { search?: string } = {
+            limit,
+            offset,
+            search,
+            alert_investigation: params.madeBy === 'anyone' ? undefined : params.madeBy === 'agents',
+        }
+        const page = await notebooksList(projectId, query)
         return {
             items: page.results.filter((notebook) => !notebook.deleted).map(notebookToView),
             fetched: page.results.length,
             hasMore: !!page.next && page.results.length > 0,
         }
     }
-    const page = await dashboardsList(projectId, { search: query, ordering: '-last_viewed_at', limit, offset })
+    const page = await dashboardsList(projectId, { search, pinned, ordering: '-last_viewed_at', limit, offset })
     return {
         items: page.results.filter((dashboard) => !dashboard.deleted).map(dashboardToView),
         fetched: page.results.length,
@@ -154,6 +182,7 @@ export function viewFeedFromSources(
         loading: sources.some((source) => !source || source.loading || source.refreshing),
         hasMore: blocking.length > 0,
         failedTypes: failed.map((source) => source.type),
-        loadFailed: initialized && failed.length === sources.length && items.length === 0,
+        // A query that no view type can match has no sources, which is an empty list rather than a failed load.
+        loadFailed: initialized && sources.length > 0 && failed.length === sources.length && items.length === 0,
     }
 }

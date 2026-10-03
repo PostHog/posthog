@@ -8,6 +8,9 @@ an insight alert means.
 from __future__ import annotations
 
 from typing import Final
+from uuid import UUID
+
+from pydantic.dataclasses import dataclass
 
 from posthog.cdp.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
@@ -20,3 +23,11 @@ INSIGHT_ALERT_EVENT_IDS: Final[tuple[str, ...]] = (LEGACY_INSIGHT_ALERT_EVENT,)
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+
+
+@dataclass(frozen=True)
+class NotebookAlertInvestigation:
+    """The alert that a notebook from the alert investigation agent looks into."""
+
+    alert_id: UUID
+    alert_name: str | None

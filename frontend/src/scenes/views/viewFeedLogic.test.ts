@@ -14,13 +14,21 @@ const at = (day: number): string => `2026-09-${String(day).padStart(2, '0')}T00:
 
 describe('viewFeedLogic', () => {
     let requests: Record<string, string[]>
+    let filters: Record<string, string[]>
 
     beforeEach(() => {
         resetViewFeedSnapshot()
         requests = { canvases: [], notebooks: [], dashboards: [] }
+        filters = { canvases: [], notebooks: [], dashboards: [] }
         const record = (name: string, request: Request): URLSearchParams => {
             const params = new URL(request.url).searchParams
             requests[name].push(`${params.get('offset')}:${params.get('ordering') ?? ''}`)
+            filters[name].push(
+                ['pinned', 'alert_investigation']
+                    .filter((filter) => params.has(filter))
+                    .map((filter) => `${filter}=${params.get(filter)}`)
+                    .join('&')
+            )
             return params
         }
         useMocks({
@@ -99,6 +107,44 @@ describe('viewFeedLogic', () => {
             'Created',
             'Viewed',
         ])
+    })
+
+    it.each([
+        [
+            'pinned leaves out notebooks',
+            { pinned: true },
+            { canvases: ['pinned=true'], notebooks: [], dashboards: ['pinned=true'] },
+        ],
+        [
+            'made by people leaves out investigations',
+            { madeBy: 'people' },
+            { canvases: [''], notebooks: ['alert_investigation=false'], dashboards: [''] },
+        ],
+        [
+            'made by agents asks only for investigations',
+            { madeBy: 'agents' },
+            { canvases: [], notebooks: ['alert_investigation=true'], dashboards: [] },
+        ],
+        [
+            'pinned agents match no view type',
+            { pinned: true, madeBy: 'agents' },
+            { canvases: [], notebooks: [], dashboards: [] },
+        ],
+    ] as const)('%s', async (_name, narrowing, expected) => {
+        const query: ViewFeedQuery = { ...ALL, ...narrowing }
+        const logic = viewFeedLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.refreshFeed(query)).toFinishAllListeners()
+
+        expect(filters).toEqual(expected)
+        const result = selectViewFeed(
+            logic.values.sources,
+            logic.values.spaceNames,
+            teamLogic.values.currentTeamId,
+            query
+        )
+        expect(result).toMatchObject({ initialized: true, loadFailed: false })
     })
 
     it('keeps the loaded list after a remount, so a revisit shows rows at once', async () => {
