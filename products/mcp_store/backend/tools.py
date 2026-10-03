@@ -62,6 +62,10 @@ RESYNC_THROTTLE_SECONDS = 60 * 60
 # call pay for a failed handshake.
 RESYNC_FAILURE_THROTTLE_SECONDS = 5 * 60
 
+# Matches the CharField max_length on MCPServerInstallationTool.
+TOOL_NAME_MAX_LENGTH = 200
+DISPLAY_NAME_MAX_LENGTH = 200
+
 
 class ToolsFetchError(Exception):
     pass
@@ -419,8 +423,17 @@ def sync_installation_tools(installation: MCPServerInstallation) -> list[MCPServ
 
     for tool in upstream_tools:
         tool_name = tool["name"]
+        if len(tool_name) > TOOL_NAME_MAX_LENGTH:
+            # The name is the unique key and the name a caller invokes, so a cut name
+            # would point at a tool upstream does not have. Skip it so the rest still sync.
+            logger.warning(
+                "mcp_store skipped upstream tool with a name that is too long",
+                installation_id=str(installation.id),
+                tool_name_length=len(tool_name),
+            )
+            continue
         seen_names.add(tool_name)
-        display_name = tool.get("title") or tool.get("displayName") or ""
+        display_name = (tool.get("title") or tool.get("displayName") or "")[:DISPLAY_NAME_MAX_LENGTH]
         description = tool.get("description") or ""
         input_schema = tool.get("inputSchema") or {}
         annotations = tool.get("annotations") or {}
