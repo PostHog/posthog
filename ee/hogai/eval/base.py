@@ -10,6 +10,9 @@ from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
 
 from posthog.models.utils import uuid7
 
+# Imported for its side effect: braintrust's offline summary crashes on a skipped score.
+from products.posthog_ai.eval_harness.engines import braintrust_patches  # noqa: F401
+
 from ee.hogai.eval.schema import DatasetInput
 
 

@@ -513,6 +513,9 @@ def _build_template_context(
     if settings.STRIPE_PUBLIC_KEY:
         context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
+    if settings.ORIGIN_TRIAL_TOKENS:
+        context["origin_trial_tokens"] = settings.ORIGIN_TRIAL_TOKENS
+
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True

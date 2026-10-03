@@ -1,6 +1,10 @@
 import { memo } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconCopy, IconWrench } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
@@ -13,7 +17,11 @@ import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
+import { userMessageDisplayText } from '../utils/userMessageDisplay'
 import { Activity } from './ActivityPrimitives'
+import { QuillAssistantMessage, QuillHumanMessage } from './quill/QuillMessages'
+import { QuillSeparatorRow } from './quill/QuillSeparatorRow'
+import { useQuillThread } from './quill/quillThreadContext'
 import { RunErrorRow } from './RunErrorRow'
 import { ThreadAttachments } from './ThreadAttachments'
 import { CompactBoundaryItem, ConversationClearedItem, StatusItem, TaskNotificationItem } from './ThreadItems'
@@ -106,6 +114,28 @@ export interface ThreadRowProps {
     runEnded?: boolean
 }
 
+/** Hidden at rest so a long thread does not repeat a row under every message. */
+function HumanMessageFooter({ startedAt, text }: { startedAt?: number; text?: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-1 mt-1.5 mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            {startedAt !== undefined && (
+                // A fresh dayjs object every render would defeat TZLabel's memo; a string compares by value.
+                <TZLabel time={new Date(startedAt).toISOString()} className="text-xs text-muted" />
+            )}
+            {text && (
+                <LemonButton
+                    icon={<IconCopy />}
+                    type="tertiary"
+                    size="xsmall"
+                    tooltip="Copy message"
+                    data-attr="posthog-ai-human-message-copy"
+                    onClick={() => void copyToClipboard(text)}
+                />
+            )}
+        </div>
+    )
+}
+
 /**
  * Renders a single sandbox thread item by type. Memoized and keyed by stable `item.id` so a re-projected
  * `threadItems` array only re-renders rows whose data actually changed.
@@ -119,15 +149,27 @@ export const ThreadRow = memo(function ThreadRow({
     turnCancelled,
     runEnded = true,
 }: ThreadRowProps): JSX.Element | null {
+    const quill = useQuillThread()
     if (item.type === 'human_message') {
+        if (quill) {
+            return <QuillHumanMessage item={item} />
+        }
+        const text = userMessageDisplayText(item.text ?? '')
         return (
-            <MessageTemplate type="human">
-                <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
+            <MessageTemplate
+                type="human"
+                className="group"
+                action={<HumanMessageFooter startedAt={item.startedAt} text={text} />}
+            >
+                <MarkdownMessage content={text || '*No text.*'} id={item.id} />
                 {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
         )
     }
     if (item.type === 'assistant_message') {
+        if (quill) {
+            return <QuillAssistantMessage item={item} />
+        }
         return (
             <MessageTemplate type="ai" wrapperClassName="max-w-4/5">
                 <MarkdownMessage content={item.text ?? ''} id={item.id} />
@@ -154,6 +196,9 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'error') {
         return <RunErrorRow item={item} isLast={isLast && runEnded} />
+    }
+    if (quill && (item.type === 'status' || item.type === 'compact_boundary' || item.type === 'conversation_cleared')) {
+        return <QuillSeparatorRow item={item} live={isLast && isThinking} />
     }
     if (item.type === 'status') {
         return <StatusItem item={item} />

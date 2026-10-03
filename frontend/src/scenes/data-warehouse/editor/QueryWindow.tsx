@@ -24,7 +24,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -352,7 +352,11 @@ export function QueryWindow({
                 </div>
             ) : null}
 
-            {showQueryPanel && showBIEditor ? <BIEditor tabId={tabId} /> : null}
+            {showQueryPanel && showBIEditor ? (
+                <BIEditor tabId={tabId}>
+                    {showOutputPanel ? <InternalQueryWindow tabId={tabId} biMode onShareTab={onShareTab} /> : null}
+                </BIEditor>
+            ) : null}
 
             {showQueryPanel && !showBIEditor ? (
                 <QueryPane
@@ -417,7 +421,7 @@ export function QueryWindow({
                 />
             ) : null}
 
-            {showOutputPanel ? (
+            {showOutputPanel && !(showQueryPanel && showBIEditor) ? (
                 <InternalQueryWindow tabId={tabId} biMode={showBIEditor} onShareTab={onShareTab} />
             ) : null}
         </div>

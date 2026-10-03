@@ -1,6 +1,6 @@
 # Alerts noop workers
 
-The Alerts product registers three queues through `products/alerts/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
+The alerts platform registers three queues through `products/alerts_platform/backend/facade/temporal.py` and the shared `start_temporal_worker` command:
 
 | Setting in `posthog/settings/temporal.py`         | Queue                                             | Workflow                      |
 | ------------------------------------------------- | ------------------------------------------------- | ----------------------------- |
@@ -228,7 +228,7 @@ than within one.
 
 ## Source evaluation bindings
 
-`products/alerts/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
+`products/alerts_platform/backend/temporal/sources.py` maps a `SourceKind` to the workflow name that evaluates it.
 A source in that map gets its own workflow started by name, carrying one batch key and the tick cutoff.
 A source absent from it keeps the noop `alerts-platform-evaluate` path, which receives no key.
 The alerts product imports nothing from a source: the binding holds a name, and `test_every_source_evaluation_binding_names_a_registered_workflow` fails if that name is not registered on the evaluation queue.
@@ -246,14 +246,112 @@ so a write to those rows, a `LogsAlertEvent` row or a Kafka message here would t
 State transitions land on `PlatformAlert` and schedule advancement on `PlatformAlertConfiguration`, which the logs fleet never reads.
 Delivery stops at `alerts-platform-deliver-preview`, which records what would have been sent and contacts no destination.
 
-The lifecycle decision comes from `products/alerts/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
+The lifecycle decision comes from `products/alerts_platform/backend/facade/lifecycle.py` configured with `LOGS_ALERT_POLICY`,
 which is the shared machine the logs product's own state machine is a thin adapter over.
 Going to the shared machine directly keeps the platform's lifecycle out of a source product's import path.
 
 It evaluates against the tick cutoff rather than the clock, so a retried attempt selects the same alerts,
 resolves the same windows and derives the same evaluation keys as the attempt it replaced.
 The due predicate is applied a second time here, because discovery ran earlier in the tick and a configuration
-can have been disabled, snoozed or broken since.
+can have been disabled or broken since.
+
+### Every check produces an outcome
+
+A check the source cannot evaluate still records what it decided, and the two cases decide differently.
+
+| Case                            | State                                   | Schedule                                                   |
+| ------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
+| Filter config no data satisfies | BROKEN                                  | The next cadence step, though discovery stops selecting it |
+| Query failed                    | The shared machine's error path decides | The next cadence step                                      |
+
+A skip that records nothing leaves its due time where it was, so discovery hands the same check back every tick.
+That is the whole reason these exist: the work is not lost, it is repeated, and a permanently broken alert repeats it forever.
+The source reports the skip; the platform stays the only writer of `next_check_at`.
+
+The failure case goes through `evaluate_alert_check` with an errored `CheckInput`, so the shared machine raises
+`consecutive_failures` and escalates to BROKEN at five, and `classify_alert_error` decides whether the error is
+transient. A transient error advances the schedule but holds the counter, because a cluster outage must not
+disable every alert that ran during it.
+
+`suppressed` is the single definition of what holds a configuration back, and it is BROKEN alone.
+Both `discover_demand` and `due_checks` exclude on it. Discovery has to, because a broken alert that still mints
+a batch key spends the manifest bound on work its own evaluation then drops.
+It is one correlated `Exists` rather than a lookup across the relation: Django splits an excluded multi-valued
+lookup into a subquery per leaf, which would let the conditions match different alert rows once a source writes
+a real grouping key, and would bury them where Postgres cannot lift them into an anti-join.
+
+`alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
+
+### What a check leaves behind
+
+Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
+confirmed the alert.
+Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
+table needs no such flag, so nothing has to decide which checks are worth keeping.
+
+The row is self-sufficient.
+`alert_name`, `condition_snapshot` and `source_config_snapshot` are read when the outcome is
+recorded, so a threshold edited between a check and a retried send cannot change what a message
+claims was breached, and a rename cannot make one thread contradict itself.
+The snapshots are taken at write time rather than shipped with the outcome, because a source's copy
+of `source_config` is a filter tree and shipping one per outcome would cost Temporal payload on
+every batch.
+
+The write happens after the Postgres transaction commits, not inside it.
+`insert_events` never raises: the alert's state and schedule are already written by then, so a
+ClickHouse outage costs a gap in history rather than an alert left due with its state unwritten.
+`alerts_platform_history_rows_dropped_total` counts that gap.
+
+`platform_alert_events` is a plain `ReplicatedMergeTree`, because every row is a distinct check
+and nothing supersedes anything.
+A `ReplacingMergeTree` would have made every count over the table wrong on any part a merge had
+not reached, and ClickHouse never promises a merge will run.
+
+ClickHouse has no unique constraint, so the insert carries an `insert_deduplication_token` naming
+the batch by its contents.
+A retried batch arrives under a token the engine has already seen and is dropped.
+A reader still deduplicates on `(alert_id, evaluation_key)`, because the token only covers a retry
+of the same batch and the engine only remembers a bounded window of them.
+
+`labels` lands empty and stays empty until a source groups its results.
+It is the group's identity, not the alert's filter scope; service and severity live in
+`source_config_snapshot`, which is where a message should read them.
+
+### A mute holds the announcement, not the check
+
+A snooze and a schedule restriction both mute. Neither stops a check.
+The alert evaluates on its cadence, transitions as its data says, and records what happened; only the
+announcement is held. `enabled=False` and BROKEN are the only states that stop a check.
+
+This is how a muted alert keeps telling the truth. Under the older behavior an incident that started and ended
+inside a quiet-hours window left no trace at all, and the alert's state stayed at whatever the last check before
+the window decided.
+
+The semantics arrive as `AlertPolicy.mute_gates_notification_only`, which the platform's
+`PLATFORM_LOGS_ALERT_POLICY` sets and production logs does not. The two stacks therefore disagree about a muted
+alert on purpose, and a comparison against the logs stack has to expect it.
+
+Three consequences worth stating:
+
+- `update_last_notified_at` is held with the announcement, so the cooldown keeps measuring real notifications.
+  An alert is never gated by a send that did not happen.
+- A mute holds FIRE and RESOLVE only. ERROR and BROKEN describe the alert's health rather than its condition,
+  and BROKEN stops future checks, so an announcement held there would never be released.
+- `next_check_at` stays on the cadence through a blocked window. Parking it at the end of the window is what the
+  older skip behavior did, and it also made every restricted alert for a team come due in the same minute.
+
+`AlertCheckOutcome.muted_notification` carries what was held, and
+`alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
+
+A fire a mute swallowed is still owed an announcement.
+`_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
+Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
+is false, so nobody is ever told.
+A recovery that happened entirely inside a mute is not announced when the mute lifts, which is what
+Datadog does and what a person muting an alert expects.
+Production logs gets the same reset on snooze expiry, by way of the SNOOZED branch in
+`evaluate_alert_check`; under mute semantics the state is never SNOOZED, so the reset needs its own
+signal.
 
 ### Evaluating and writing are separate activities
 
@@ -270,7 +368,7 @@ The write is safe to run twice. An attempt that commits leaves every configurati
 and a replay skips those rows rather than advancing them again and skipping a cycle.
 It runs in one transaction, so no alert is marked as notified while its schedule still says the check is due.
 
-`MAX_PREVIEWS_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
+`MAX_DELIVERIES_PER_CYCLE` bounds an outcome together with the delivery it belongs to.
 Recording an outcome whose preview the batch cannot carry would leave an alert firing with nothing announcing it,
 and a firing alert does not fire again. Dropping the pair leaves it due, the way a truncated cohort already behaves.
 `alerts_platform_deliveries_deferred_total` counts them.
@@ -301,7 +399,7 @@ Logs does not group yet; the list is the shape that lets fan-out change the eval
 ### Metrics
 
 The path emits through Temporal's own meter, so every series carries the worker, queue and activity attributes
-the runtime attaches. `products/alerts/backend/temporal/metrics.py` holds them and a source reaches them through
+the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
 | Metric                                                    | What it answers                                             |

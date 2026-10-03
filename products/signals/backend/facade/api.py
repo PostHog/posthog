@@ -26,10 +26,32 @@ from products.signals.backend.artefact_schemas import (
     # notification thread without naming the relationship vocabulary itself.
     TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
 )
+from products.signals.backend.briefing_reports import (
+    IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
+    # Re-exported for the Today briefing, which ranks these reports next to other products' items.
+    BriefingReport as BriefingReport,
+    BriefingReportDetails as BriefingReportDetails,
+    BriefingReportRelation as BriefingReportRelation,
+    OpenReportCounts as OpenReportCounts,
+    open_report_counts as open_report_counts,
+    report_details as report_details,
+    reports_for_briefing as reports_for_briefing,
+)
 from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
+from products.signals.backend.report_metric_access import (
+    # Re-exported so the Today briefing reads report metrics with the viewer's access, as the Inbox does.
+    ReportMetricAccessPolicy as ReportMetricAccessPolicy,
+)
+from products.signals.backend.report_metrics import (
+    # Re-exported so the Today briefing can serialize metric snapshots with the inbox's vocabulary.
+    REPORT_METRIC_KINDS as REPORT_METRIC_KINDS,
+    REPORT_METRIC_ROLES as REPORT_METRIC_ROLES,
+    REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
+    ReportMetricSnapshot as ReportMetricSnapshot,
+)
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching

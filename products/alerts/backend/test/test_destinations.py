@@ -11,14 +11,6 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDelivery,
-    AlertDestinationConfig,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-    EventKindSpec,
-)
 from products.alerts.backend.facade.destinations import serialize_deliveries
 from products.alerts.backend.logic.destination_configs import DESTINATION_SPECS, build_alert_destination_config
 from products.alerts.backend.logic.destinations import (
@@ -35,6 +27,14 @@ from products.alerts.backend.logic.destinations import (
     redact_urls_in_name,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDelivery,
+    AlertDestinationConfig,
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    EventKindSpec,
 )
 from products.cdp.backend.facade.models import HogFunction
 
@@ -775,6 +775,18 @@ class TestRedactUrlsInName:
                 "every_url_in_the_name_is_redacted",
                 "a https://one.example.com/s, b https://two.example.com/s",
                 "a one.example.com, b two.example.com",
+            ),
+            # An apostrophe and a double quote are legal in a URL query, and stopping at one used
+            # to leave the rest of the credential in the name.
+            (
+                "a_quote_inside_the_url_does_not_end_it",
+                "Errors https://hooks.example.com/hook?token='s3cr3t fires",
+                "Errors hooks.example.com fires",
+            ),
+            (
+                "a_url_written_inside_quotes_keeps_them",
+                'named "https://example.com/p/s3cr3t" here',
+                'named "example.com" here',
             ),
         ]
     )
