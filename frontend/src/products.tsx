@@ -284,8 +284,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/spaces': ['TaskSpaces', 'taskSpaces'],
+    '/spaces/new': ['TaskNewSession', 'taskNewSession'],
     '/spaces/:id': ['TaskSpace', 'taskSpace'],
     '/spaces/:id/canvases': ['TaskSpace', 'taskSpaceCanvases'],
+    '/spaces/:id/new': ['TaskNewSession', 'taskSpaceNewSession'],
     '/spaces/:id/settings': ['TaskSpace', 'taskSpaceSettings'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
@@ -1106,6 +1108,7 @@ export const productConfiguration: Record<string, any> = {
     },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     TaskSpaces: { name: 'Spaces', projectBased: true },
+    TaskNewSession: { name: 'New session', projectBased: true },
     TaskSpace: { name: 'Space', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -1372,7 +1375,7 @@ export const productUrls = {
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'tests' | 'lineage'): string =>
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
@@ -1756,8 +1759,10 @@ export const productUrls = {
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     slackTaskContext: (): string => '/slack-task-context',
     taskSpaces: (): string => '/spaces',
+    taskNewSession: (): string => '/spaces/new',
     taskSpace: (id: string): string => `/spaces/${id}`,
     taskSpaceCanvases: (id: string): string => `/spaces/${id}/canvases`,
+    taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',

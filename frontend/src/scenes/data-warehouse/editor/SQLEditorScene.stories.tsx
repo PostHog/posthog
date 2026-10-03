@@ -1,16 +1,19 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
+import { delay } from 'msw'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import type { DataWarehouseSavedQuery } from '~/types'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
 import { expect, userEvent, waitFor, within } from 'storybook/test'
 
+import { BIConfig, BIField, buildBIQuery } from './bi/biEditorTypes'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
@@ -104,6 +107,40 @@ const MANAGED_WAREHOUSE_CONNECTIONS = [
     },
 ]
 
+// A worksheet restored from the URL, so the snapshot shows every shelf holding a pill
+const BI_EVENTS_SOURCE = { table: 'events' }
+const biEventsField = (name: string, type: BIField['type']): BIField => ({
+    id: JSON.stringify([null, 'events', name]),
+    name,
+    expression: name,
+    type,
+    source: BI_EVENTS_SOURCE,
+})
+const BI_WORKSHEET_CONFIG: BIConfig = {
+    source: BI_EVENTS_SOURCE,
+    chartType: ChartDisplayType.ActionsLineGraph,
+    rows: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    columns: [biEventsField('event', 'string')],
+    values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum' }],
+    filters: [{ field: biEventsField('event', 'string'), operator: 'equals', value: 'purchase' }],
+    limit: 1000,
+    sort: null,
+}
+const BI_EVENTS_FIELDS = Object.fromEntries(
+    (
+        [
+            ['event', 'string'],
+            ['distinct_id', 'string'],
+            ['timestamp', 'datetime'],
+            ['$is_bot', 'boolean'],
+            ['properties', 'json'],
+            ['user_id', 'integer'],
+            ['revenue', 'float'],
+            ['duration_ms', 'integer'],
+        ] as const
+    ).map(([name, type]) => [name, { name, hogql_value: name, type, schema_valid: true }])
+)
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data Warehouse/SQL Editor',
@@ -146,6 +183,27 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+export const LoadingInsight: Story = {
+    parameters: {
+        pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="hogql-query-editor"] ~ [role="status"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/insights/': async () => {
+                        await delay('infinite')
+                        return [200, { results: [] }]
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
 
 // Selecting the managed warehouse puts its long name in the sidebar's connection selector, where it
 // has to ellipsize on one line rather than wrap or overflow into the Run button's toolbar.
@@ -321,9 +379,43 @@ export const MaterializationSettings: StoryObj = {
     ],
 }
 
+export const BIModeWorksheet: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        // The editor restores BI state only alongside the query it generated
+        pageUrl: `${urls.sqlEditor()}#${new URLSearchParams({
+            q: buildBIQuery(BI_WORKSHEET_CONFIG)?.query ?? '',
+            mode: 'bi',
+            bi: JSON.stringify(BI_WORKSHEET_CONFIG),
+        })}`,
+        testOptions: {
+            waitForSelector: '[data-attr="bi-editor-data-pane-measure"]',
+            viewport: { width: 1600, height: 900 },
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+                post: {
+                    // The specific path wins over the catch-all query mock on the meta
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+
 export const LazySchema: Story = {
     parameters: {
         pageUrl: urls.sqlEditor({ query: 'SELECT * FROM events LIMIT 100' }),
+        testOptions: {
+            waitForSelector: ['.monaco-editor', '[data-attr="menu-item-posthog"]'],
+        },
         msw: {
             mocks: {
                 get: {

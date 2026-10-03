@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    Autocomplete,
+    AutocompleteList,
     Button,
     Dialog,
     DialogBody,
@@ -78,24 +80,33 @@ export function TodayListAppearanceDialog(): JSX.Element {
                             className="pointer-events-none h-36 rounded-md border border-border bg-chrome p-1"
                             {...{ inert: '' }}
                         >
-                            {PREVIEW_ROWS.map(({ title, hoursAgo, ...values }) => (
-                                <TodaySpacesRow
-                                    key={title}
-                                    label={title}
-                                    icon={<TodaySessionStatusDot dot={SETTLED_DOT} />}
-                                    to={urls.ai()}
-                                    active={false}
-                                    dataAttr="today-list-appearance-preview-row"
-                                    weight="regular"
-                                    details={listItemDetails(
-                                        {
-                                            ...values,
-                                            activity: activityDetail(now.subtract(hoursAgo, 'hour').toISOString(), now),
-                                        },
-                                        draftFields
-                                    )}
-                                />
-                            ))}
+                            {/* Sidebar rows are autocomplete options, so the preview hosts them in an inline list. */}
+                            <Autocomplete inline open>
+                                <AutocompleteList className="!max-h-none !p-0">
+                                    {PREVIEW_ROWS.map(({ title, hoursAgo, ...values }) => (
+                                        <TodaySpacesRow
+                                            key={title}
+                                            optionValue={title}
+                                            label={title}
+                                            icon={<TodaySessionStatusDot dot={SETTLED_DOT} />}
+                                            to={urls.ai()}
+                                            active={false}
+                                            dataAttr="today-list-appearance-preview-row"
+                                            weight="regular"
+                                            details={listItemDetails(
+                                                {
+                                                    ...values,
+                                                    activity: activityDetail(
+                                                        now.subtract(hoursAgo, 'hour').toISOString(),
+                                                        now
+                                                    ),
+                                                },
+                                                draftFields
+                                            )}
+                                        />
+                                    ))}
+                                </AutocompleteList>
+                            </Autocomplete>
                         </div>
                     </section>
                     <section aria-labelledby="today-list-appearance-second-row" className="flex flex-col gap-2">

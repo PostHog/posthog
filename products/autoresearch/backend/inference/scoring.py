@@ -75,7 +75,7 @@ from products.autoresearch.backend.inference.sandbox import (
     validate_runnable_feature_sql,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
-from products.autoresearch.backend.query import HogQLResult, run_hogql
+from products.autoresearch.backend.query import INTERACTIVE_QUERY, HogQLResult, QueryContext, run_hogql
 from products.autoresearch.backend.training.recipe_validation import (
     RecipeValidationError,
     validate_model_class,
@@ -94,11 +94,27 @@ class InferenceRunError(Exception):
 _RESERVED_COLS = frozenset({"distinct_id", _LABEL_COL, _FOLD_COL})
 # The score columns scoring adds to a feature row, kept out of the features hash.
 _SCORE_KEYS = frozenset({"p_y", "p_y_raw"})
+# A capture error description can hold a URL and an exception repr, so the run error clips it.
+_MAX_EMIT_ERROR_DESCRIPTION_CHARS = 200
 
 
 # Namespace for deterministic prediction event UUIDs, so a retried scoring activity
 # re-emits the same UUID per (pipeline, model, date, person) instead of a duplicate.
 _PREDICTION_UUID_NAMESPACE = uuid.UUID("6f9a4a24-0e5c-4a5a-9d0e-2f6a0f0b1c3d")
+
+
+def _clip_middle(text: str, limit: int) -> str:
+    """
+    Keep both ends of ``text``. A requests transport error starts with the target host and
+    ends with the cause, such as ``[Errno 111] Connection refused``, so a head-only clip
+    makes a refused connection and a failed DNS lookup look the same.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "..."
+    head = (limit - len(marker)) // 2
+    tail = limit - len(marker) - head
+    return f"{text[:head]}{marker}{text[-tail:]}"
 
 
 def _is_uuid(value: str) -> bool:
@@ -211,6 +227,7 @@ def run_inference_for_pipeline(
     prediction_date: date | None = None,
     user: User | None = None,
     run: AutoresearchRun | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> AutoresearchRun:
     """
     Top-level inference entry point. Creates an AutoresearchRun, scores users,
@@ -226,6 +243,9 @@ def run_inference_for_pipeline(
 
     ``run`` is a row the caller created before it dispatched the scoring, so the caller
     can return it at once. A retry of the same attempt passes the same row again.
+
+    ``query_context`` is the ClickHouse budget of every scoring query. The Temporal
+    activity passes ``BATCH_QUERY``.
     """
     window = ScoringWindow.for_date(prediction_date)
     if run is None:
@@ -240,7 +260,9 @@ def run_inference_for_pipeline(
     try:
         team = pipeline.team
         acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
-        scored = score_population(team=team, pipeline=pipeline, model=model, window=window, user=acting_user)
+        scored = score_population(
+            team=team, pipeline=pipeline, model=model, window=window, user=acting_user, query_context=query_context
+        )
         emitted = _emit_predictions(
             team=team, pipeline=pipeline, model=model, run=run, scored=scored, window=window, user=acting_user
         )
@@ -331,6 +353,7 @@ def score_population(
     model: AutoresearchModel,
     window: ScoringWindow,
     user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> ScoredPopulation:
     """
     Score the inference population with ``model`` and return the rows without emitting.
@@ -350,7 +373,9 @@ def score_population(
     sample rate is applied here, once, so no route can correct twice or not at all.
     """
     return _apply_prior_correction(
-        _score_population_raw(team=team, pipeline=pipeline, model=model, window=window, user=user)
+        _score_population_raw(
+            team=team, pipeline=pipeline, model=model, window=window, user=user, query_context=query_context
+        )
     )
 
 
@@ -361,13 +386,21 @@ def _score_population_raw(
     model: AutoresearchModel,
     window: ScoringWindow,
     user: User | None = None,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> ScoredPopulation:
     _check_prediction_date(team=team, pipeline=pipeline, window=window)
     acting_user = _acting_user(team=team, pipeline=pipeline, user=user)
     cutoff_ts = window.cutoff_ts
 
     if model.artifact_prefix:
-        result = score_via_sandbox(team=team, pipeline=pipeline, model=model, cutoff_ts=cutoff_ts, user=acting_user)
+        result = score_via_sandbox(
+            team=team,
+            pipeline=pipeline,
+            model=model,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=query_context,
+        )
         return ScoredPopulation(
             rows=result.scored_rows, holdout_auc=result.holdout_auc, negative_sample_rate=model.negative_sample_rate
         )
@@ -382,7 +415,9 @@ def _score_population_raw(
         )
     recipe = model.model_recipe or {}
     if recipe.get("stub"):
-        rows = _fetch_stub_feature_rows(team=team, pipeline=pipeline, recipe=recipe, user=acting_user)
+        rows = _fetch_stub_feature_rows(
+            team=team, pipeline=pipeline, recipe=recipe, user=acting_user, query_context=query_context
+        )
         return ScoredPopulation(rows=_score_rows(rows), holdout_auc=model.holdout_score)
 
     feature_sql = str(recipe.get("feature_sql") or "")
@@ -390,7 +425,14 @@ def _score_population_raw(
         validate_runnable_feature_sql(feature_sql, source="Champion recipe feature_sql")
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
-    return _score_via_anchors(team=team, pipeline=pipeline, recipe=recipe, cutoff_ts=cutoff_ts, user=acting_user)
+    return _score_via_anchors(
+        team=team,
+        pipeline=pipeline,
+        recipe=recipe,
+        cutoff_ts=cutoff_ts,
+        user=acting_user,
+        query_context=query_context,
+    )
 
 
 def _emit_predictions(
@@ -500,11 +542,16 @@ def _emit_predictions(
             error=result.error,
         )
         sample = [result.results.get(uid) for uid in result.warnings[:3]]
+        error_detail = ""
+        if result.error:
+            error_detail = f", {result.error.get('error')}"
+            if description := result.error.get("error_description"):
+                error_detail += f": {_clip_middle(str(description), _MAX_EMIT_ERROR_DESCRIPTION_CHARS)}"
         raise InferenceRunError(
             f"Prediction events were not all accepted ({len(result.dropped)} dropped, "
             f"{len(result.retried)} exhausted retries, {len(result.unaccounted)} unaccounted, "
             f"{len(result.warnings)} stored with a warning{f' e.g. {sample!r}' if sample else ''}"
-            f"{', ' + str(result.error.get('error')) if result.error else ''}); failing the run so it is retried"
+            f"{error_detail}); failing the run so it is retried"
         )
 
     return _EmitResult(
@@ -530,7 +577,15 @@ def _require_still_champion(model: AutoresearchModel) -> None:
 # ── Queries ────────────────────────────────────────────────────────────────────────
 
 
-def _query(*, team: Team, sql: str, values: dict[str, Any], user: User | None, what: str) -> HogQLResult:
+def _query(
+    *,
+    team: Team,
+    sql: str,
+    values: dict[str, Any],
+    user: User | None,
+    what: str,
+    query_context: QueryContext = INTERACTIVE_QUERY,
+) -> HogQLResult:
     """
     Run a person-keyed query as the acting user, fresh, bounded at ``_MATERIALIZE_ROW_LIMIT``.
 
@@ -548,6 +603,7 @@ def _query(*, team: Team, sql: str, values: dict[str, Any], user: User | None, w
             query=HogQLQuery(query=bounded_sql, values=values, modifiers=LABELER_QUERY_MODIFIERS),
             user=user,
             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            query_context=query_context,
         )
     except Exception as exc:
         logger.exception("autoresearch_inference_query_failed", team_id=team.pk, what=what)
@@ -599,7 +655,12 @@ def _feature_lookback_days(pipeline: AutoresearchPipeline) -> int:
 
 
 def _fetch_stub_feature_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, recipe: dict[str, Any], user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    recipe: dict[str, Any],
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> list[dict[str, Any]]:
     """
     Run a stub recipe's feature SQL restricted to the inference population.
@@ -628,8 +689,14 @@ def _fetch_stub_feature_rows(
     if population is not None:
         sql = f"SELECT * FROM ({feature_sql}) AS f WHERE f.distinct_id IN ({population.sql})"
         values = population.values
-    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Feature"))
-    expected = _count_population(team=team, population=population, user=user) if population is not None else None
+    rows = _person_rows(
+        _query(team=team, sql=sql, values=values, user=user, what="Feature", query_context=query_context)
+    )
+    expected = (
+        _count_population(team=team, population=population, user=user, query_context=query_context)
+        if population is not None
+        else None
+    )
     _require_one_row_per_person(rows, source="stub feature_sql", expected_count=expected)
     return rows
 
@@ -666,13 +733,16 @@ def _population_query(
     return _PopulationQuery(sql=f"SELECT person_id FROM ({anchors_sql.strip()})", values=values)
 
 
-def _count_population(*, team: Team, population: _PopulationQuery, user: User) -> int:
+def _count_population(
+    *, team: Team, population: _PopulationQuery, user: User, query_context: QueryContext = INTERACTIVE_QUERY
+) -> int:
     result = _query(
         team=team,
         sql=f"SELECT count() FROM ({population.sql})",
         values=population.values,
         user=user,
         what="Population count",
+        query_context=query_context,
     )
     if len(result.rows) != 1 or not result.rows[0]:
         raise InferenceRunError("Population count query did not return a single row")
@@ -720,6 +790,7 @@ def _score_via_anchors(
     recipe: dict[str, Any],
     cutoff_ts: int | None,
     user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> ScoredPopulation:
     """
     Score with an agent recipe that has no bundle.
@@ -733,10 +804,15 @@ def _score_via_anchors(
     """
     feature_sql = str(recipe.get("feature_sql") or "").replace("{lookback_days}", str(_feature_lookback_days(pipeline)))
     training_rows, negative_sample_rate = _fetch_training_rows(
-        team=team, pipeline=pipeline, feature_sql=feature_sql, user=user
+        team=team, pipeline=pipeline, feature_sql=feature_sql, user=user, query_context=query_context
     )
     inference_rows = _fetch_inference_rows(
-        team=team, pipeline=pipeline, feature_sql=feature_sql, cutoff_ts=cutoff_ts, user=user
+        team=team,
+        pipeline=pipeline,
+        feature_sql=feature_sql,
+        cutoff_ts=cutoff_ts,
+        user=user,
+        query_context=query_context,
     )
     if not inference_rows:
         logger.warning("autoresearch_no_inference_rows", pipeline_id=str(pipeline.pk))
@@ -754,7 +830,12 @@ def _score_via_anchors(
 
 
 def _fetch_training_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> tuple[list[dict[str, Any]], float]:
     """
     The recipe's feature SQL against the labeled anchors: one row per person with ``__label``
@@ -762,7 +843,9 @@ def _fetch_training_rows(
     """
     anchor_ts = int(django_timezone.now().timestamp())
     try:
-        sample = measure_training_sample(team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user)
+        sample = measure_training_sample(
+            team=team, pipeline=pipeline, anchor_ts=anchor_ts, user=user, query_context=query_context
+        )
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
     sql, values = build_training_features_sql(
@@ -776,7 +859,9 @@ def _fetch_training_rows(
         anchor_ts=anchor_ts,
         negative_sample_rate=sample.negative_sample_rate,
     )
-    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Training features"))
+    rows = _person_rows(
+        _query(team=team, sql=sql, values=values, user=user, what="Training features", query_context=query_context)
+    )
     try:
         expected = count_training_anchors(
             team=team,
@@ -784,6 +869,7 @@ def _fetch_training_rows(
             anchor_ts=anchor_ts,
             user=user,
             negative_sample_rate=sample.negative_sample_rate,
+            query_context=query_context,
         )
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
@@ -799,7 +885,13 @@ def _fetch_training_rows(
 
 
 def _fetch_inference_rows(
-    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, cutoff_ts: int | None, user: User
+    *,
+    team: Team,
+    pipeline: AutoresearchPipeline,
+    feature_sql: str,
+    cutoff_ts: int | None,
+    user: User,
+    query_context: QueryContext = INTERACTIVE_QUERY,
 ) -> list[dict[str, Any]]:
     """
     The recipe's feature SQL against the inference anchors: one row per eligible person.
@@ -817,9 +909,13 @@ def _fetch_inference_rows(
         target_definition=pipeline.target_definition,
         team=team,
     )
-    rows = _person_rows(_query(team=team, sql=sql, values=values, user=user, what="Inference features"))
+    rows = _person_rows(
+        _query(team=team, sql=sql, values=values, user=user, what="Inference features", query_context=query_context)
+    )
     try:
-        expected = count_inference_anchors(team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user)
+        expected = count_inference_anchors(
+            team=team, pipeline=pipeline, cutoff_ts=cutoff_ts, user=user, query_context=query_context
+        )
     except SandboxInferenceError as exc:
         raise InferenceRunError(str(exc)) from exc
     _require_one_row_per_person(rows, source="inference feature_sql", expected_count=expected)

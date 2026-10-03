@@ -1340,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1373,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least
@@ -6158,6 +6158,13 @@ export type TasksRunsStreamTokenRetrieveParams = {
      * Set to true when the client can rebuild the run from its durable log after the agent-proxy reports a trimmed stream cursor. Without it, runs that keep only a short live tail in Redis are read from the Django endpoint, which replays the durable backlog itself.
      */
     resync?: boolean
+}
+
+export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean
 }
 
 export type TasksThreadMessagesListParams = {

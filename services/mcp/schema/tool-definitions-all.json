@@ -1345,7 +1345,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-complete-create": {
-        "description": "Finalize a training run. The backend selects the kept iteration with the highest holdout_score. best_iteration_id only breaks a tie at that top score and never overrides the ranking, so upload the bundle of the highest-scoring iteration. The backend then decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run should try next) — these are stored in the run summary and read back by the next run during orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations.",
+        "description": "Finalize a training run. The backend selects the kept iteration with the highest holdout_score. best_iteration_id only breaks a tie at that top score and never overrides the ranking, so upload the bundle of the highest-scoring iteration. The backend then decides champion vs challenger via the promotion ladder (cold-start preliminary, anti-thrash margin for an existing champion), and persists the model. Agents cannot set the champion directly — promotion is server-only. Call autoresearch-models-list afterwards to see the resulting champion/challenger. Optionally pass model_explanation (top features and directionality) for the model card. Also pass distillation (1–2 sentences on what this run learned) and recommended_next (what a future run should try next) — these are stored in the run summary and read back by the next run during orientation; the backend derives the rest of the summary (kept ladder, dead-ends) from your recorded iterations. If you built a report notebook for this run, pass its short_id as report_notebook_short_id.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Complete a training run",
@@ -6827,7 +6827,7 @@
         }
     },
     "inbox-report-artefacts-create": {
-        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). `impact_measurement_plan` stores one proposed outcome: metric_id, title, kind, bounded InsightVizNode Trends query, goal_value, goal_direction, goal_grain (whole_window or per_interval), and decision_window_days or minimum_data_points (which requires an eligibility_query counting qualifying opportunities). Read existing plans first, then append a new version with the same metric_id to revise one without changing the others. Leave activated=false; approval is a separate action. This proposal never starts monitoring. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
+        "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Append an artefact to a report",
@@ -6911,7 +6911,7 @@
         }
     },
     "inbox-report-checks-list": {
-        "description": "List the follow-up checks on one report, open checks first and newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+        "description": "List the follow-up checks on one report: open checks first, then finished checks, newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's checks",
@@ -15519,7 +15519,7 @@
         }
     },
     "workflows-stats": {
-        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click.",
+        "description": "Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports breakdown by metric kind (success/failure) or name, and time range filtering. For email engagement, read email_opened and email_link_clicked against (email_sent - email_untracked): email_untracked counts sends with open/click tracking off, which can never register an open or a click. This reads the workflow's whole history; for one published version, call workflows-version-stats.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get workflow stats",
@@ -15533,12 +15533,12 @@
         }
     },
     "workflows-suggest": {
-        "description": "Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), and in actions only the steps you change, each carrying its id. Send the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.",
+        "description": "Suggest a change to a workflow for a human to review. Send only the content fields you want to change (usually actions), and in actions only the steps you change, each carrying its id and only the fields you change; the rest of the step stays as it is. Pass the workflow version you read as base_version, so approving can tell whether someone changed the same step or field since. Send the evidence behind the suggestion, and a rationale a person can judge without re-deriving your numbers; PostHog reads the step's own metrics at that version when you file and shows those next to yours. This changes nothing on its own: a person approves the suggestion, which stages it as a draft, and publishes that draft to make it live. Pass a stable source_id for your run or finding so retrying returns the suggestion you already made instead of creating a second one. There is no tool to approve a suggestion, by design - only a person resolves one.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Suggest a workflow change",
         "title": "Suggest a workflow change",
-        "required_scopes": ["hog_flow:write"],
+        "required_scopes": ["hog_flow_proposal:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -15602,5 +15602,20 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-version-stats": {
+        "description": "Execution stats for a single published version of a workflow, in the same shape as workflows-stats. That is how you tell whether a change helped: compare the version before it with the version after it. The unversioned read in workflows-stats keys batch and broadcast runs on the run rather than the workflow, so it is not the sum of the versions - compare versions with each other, not with it. Set instance_id to the step you are reading, or several steps share one denominator.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get workflow stats for one version",
+        "title": "Get workflow stats for one version",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "self-optimising-workflows"
     }
 }
