@@ -524,6 +524,26 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         plain_resp = self.client.get(f"{self.scanners_url}{plain.id}/backfills/")
         self.assertEqual(plain_resp.status_code, 200, plain_resp.json())
 
+    def test_variants_of_a_denied_experiment_scanner_read_as_not_found(self) -> None:
+        # The variants readout counts the experiment's exposed people per variant and quotes their
+        # summaries, so a caller denied the experiment must not reach it through the scanner alone.
+        experiment = create_experiment(
+            self.team, "hidden-flag", created_by=self.user, launched=True, variants=["control", "test"]
+        )
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("experiment", "none")
+        self._grant_object_access(self.other_user, "experiment", str(experiment.id), "none")
+        targeted = self._create_experiment_scoped_scanner("targeted", experiment.id, "config")
+
+        self.client.force_login(self.other_user)
+        self.assertEqual(self.client.get(f"{self.scanners_url}{targeted.id}/variants/").status_code, 404)
+
+        # The experiment's creator reads it.
+        self.client.force_login(self.user)
+        resp = self.client.get(f"{self.scanners_url}{targeted.id}/variants/")
+        self.assertEqual(resp.status_code, 200, resp.json())
+
     def test_retargeting_a_scanner_does_not_expose_historical_observations(self) -> None:
         # An observation's population is fixed at creation, so the read gate follows the experiment in
         # each row's snapshot, not the scanner's current targeting. Removing or changing targeting must
