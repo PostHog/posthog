@@ -4121,10 +4121,10 @@ Today (15): `availability`, `contracts`, `document_categories`, `employment_term
 
 Diffed against: <https://api.hoorayhr.io/swagger.json>
 
-- [ ] `/external-leave-budgets` — per-user leave balances - the core HR analytical metric next to time-off we already sync (high)
+- [x] `/external-leave-budgets` — per-user leave balances - the core HR analytical metric next to time-off we already sync (high)
 - [ ] `/attendance-report` — prebuilt attendance breakdown joining time tracking and absence (high)
-- [ ] `/external-leave-types` — lookup resolving the leave type IDs carried on external leave budgets (medium)
-- [ ] `/public-holidays` — holiday calendar lookup needed to interpret time-off and time-tracking days (medium)
+- [x] `/external-leave-types` — lookup resolving the leave type IDs carried on external leave budgets (medium)
+- [x] `/public-holidays` — holiday calendar lookup needed to interpret time-off and time-tracking days (medium)
 - [ ] `/working-today` — daily who-is-working snapshot for headcount/availability reporting (low)
 - [ ] `/time-zones` — static lookup for user time zone codes (low)
 
