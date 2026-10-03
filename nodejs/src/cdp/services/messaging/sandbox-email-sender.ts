@@ -1,4 +1,4 @@
-import { escape } from 'lodash'
+import { defaultTreeAdapter, parse, serialize } from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
@@ -17,10 +17,30 @@ type SandboxEmailOutcome =
     | { type: 'blocked'; reason: 'switch_off'; blockedRecipientCount: number }
 
 function appendHtmlFooter(html: string, footer: string): string {
-    const paragraph = `<p>${escape(footer)}</p>`
-    return /<\/body\s*>/i.test(html)
-        ? html.replace(/<\/body\s*>/i, (closingBody) => paragraph + closingBody)
-        : html + paragraph
+    const document = parse(html)
+    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
+    const body = root?.childNodes.find((node) => defaultTreeAdapter.isElementNode(node) && node.tagName === 'body')
+    if (!body || !defaultTreeAdapter.isElementNode(body)) {
+        throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
+    }
+    const nodes = [...body.childNodes]
+    for (const node of nodes) {
+        if (defaultTreeAdapter.isElementNode(node)) {
+            if (node.tagName === 'plaintext') {
+                node.tagName = 'pre'
+            }
+            nodes.push(...node.childNodes)
+        }
+    }
+    const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
+        {
+            name: 'style',
+            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;font:12px sans-serif!important;color:#525252!important;padding:16px 0!important',
+        },
+    ])
+    defaultTreeAdapter.insertText(paragraph, footer)
+    defaultTreeAdapter.appendChild(body, paragraph)
+    return serialize(document)
 }
 
 export class SandboxEmailSender {

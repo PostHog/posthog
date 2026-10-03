@@ -306,9 +306,28 @@ describe('EmailService', () => {
                 )
             })
 
-            it.each([false, true])(
-                'sends untracked with the fixed identity and organization footer (isTest=%s)',
-                async (isTest) => {
+            it.each([
+                [
+                    false,
+                    '<body>Hello <a href="https://example.com">there</a>.</body>',
+                    'Hello <a href="https://example.com">there</a>.',
+                ],
+                [
+                    true,
+                    '<body>Hello <a href="https://example.com">there</a>.</body>',
+                    'Hello <a href="https://example.com">there</a>.',
+                ],
+                [false, '<body><!-- </body> --><p>Hello</p></body>', '<!-- </body> --><p>Hello</p>'],
+                [
+                    false,
+                    '<body><style>div { display: none } /* </body> */</style><p>Hello</p></body>',
+                    '<style>div { display: none } /* </body> */</style><p>Hello</p>',
+                ],
+                [false, '<body><textarea>Hello </body>', '<textarea>Hello &lt;/body&gt;</textarea>'],
+                [false, '<body><plaintext>Hello </body>', '<pre>Hello &lt;/body&gt;</pre>'],
+            ] as const)(
+                'sends untracked with the fixed identity and organization footer (isTest=%s, html=%s)',
+                async (isTest, html, expectedContent) => {
                     const outputs = new IngestionOutputs({
                         message_assets: new SingleIngestionOutput(
                             'message_assets',
@@ -319,7 +338,6 @@ describe('EmailService', () => {
                     })
                     service = createSandboxService(true, null, new MessageAssetsService(outputs))
                     invocation.state.actionId = 'send-email'
-                    const html = '<body>Hello <a href="https://example.com">there</a>.</body>'
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 4, email: 'override@example.com', name: 'Custom sender' },
                         replyTo: 'reply@example.com',
@@ -354,13 +372,18 @@ describe('EmailService', () => {
                                 Body: {
                                     Text: { Data: `Hello there.\n\n${footer}`, Charset: 'UTF-8' },
                                     Html: {
-                                        Data: `<body>Hello <a href="https://example.com">there</a>.<p>${footer}</p></body>`,
                                         Charset: 'UTF-8',
                                     },
                                 },
                             },
                         },
                     })
+                    const sentHtml = input.Content?.Simple?.Body?.Html?.Data
+                    expect(sentHtml).toContain(`<body>${expectedContent}<div style="`)
+                    expect(sentHtml?.endsWith(`>${footer}</div></body></html>`)).toBe(true)
+                    expect(sentHtml).toContain(
+                        'display:block!important;visibility:visible!important;opacity:1!important'
+                    )
                     expect(input.ReplyToAddresses).toBeUndefined()
                     const headerNames = input.Content?.Simple?.Headers?.map((header) => header.Name)
                     expect(headerNames).toContain('X-PostHog-Tracking-Code')
@@ -386,7 +409,7 @@ describe('EmailService', () => {
                             ? []
                             : [
                                   expect.objectContaining({
-                                      html: `<body>Hello <a href="https://example.com">there</a>.<p>${footer}</p></body>`,
+                                      html: input.Content?.Simple?.Body?.Html?.Data,
                                   }),
                               ]
                     )
