@@ -226,6 +226,12 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                     await submitEmailSender()
                                     finishSetup()
                                 }}
+                                disabledReason={
+                                    verificationLoading || isEmailSenderSubmitting
+                                        ? 'Checking DNS records...'
+                                        : undefined
+                                }
+                                loading={verificationLoading || isEmailSenderSubmitting}
                                 tooltip="You will not be able to send emails until you verify the DNS records"
                             >
                                 {isDomainVerified ? 'Save' : 'Save & finish later'}
