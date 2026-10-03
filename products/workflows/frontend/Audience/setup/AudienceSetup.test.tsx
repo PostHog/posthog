@@ -10,56 +10,40 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { personalAPIKeysLogic } from 'scenes/settings/user/personalAPIKeysLogic'
 import { urls } from 'scenes/urls'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { MessageCategoryApi, RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { AudienceScene } from '../AudienceScene'
 import { audienceSceneLogic } from '../audienceSceneLogic'
+import { MockResponse, recipient, topic, topicsPage, useRecipientsApiMocks } from '../recipientTestFixtures'
 
 const SETUP_HEADING = 'Bring your recipients into PostHog'
+const SEARCH_PLACEHOLDER = 'Search by email address'
 
-function topic(key: string, categoryType: 'marketing' | 'transactional' = 'marketing'): MessageCategoryApi {
-    return {
-        id: `topic-${key}`,
-        key,
-        name: key,
-        category_type: categoryType,
-        created_at: '2026-09-01T00:00:00Z',
-        updated_at: '2026-09-01T00:00:00Z',
-        created_by: null,
-    }
-}
-
-const RECIPIENT: RecipientApi = {
-    email: 'jamie@example.com',
-    all_marketing: 'NO_PREFERENCE',
-    topics: {},
-    suppression: null,
-    persons: [],
-    person_count: 0,
-    last_sent_at: null,
-    preferences_updated_at: null,
-}
+const RECIPIENT = recipient('jamie@example.com')
 
 describe('Audience setup', () => {
     function useAudience({
         topics,
         recipients,
+        recipientsResponse = [200, { results: recipients, next_cursor: null }],
+        personsWithoutEmail = 0,
     }: {
-        topics: MessageCategoryApi[] | 'failing'
+        topics: MessageCategoryApi[] | 'failing' | (() => Promise<MockResponse>)
         recipients: RecipientApi[]
+        recipientsResponse?: MockResponse
+        personsWithoutEmail?: number
     }): void {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_categories/': () =>
-                    topics === 'failing'
-                        ? [500, { detail: 'Server error' }]
-                        : [200, { count: topics.length, next: null, previous: null, results: topics }],
-                '/api/projects/:team_id/messaging_recipients/': { results: recipients, next_cursor: null },
-                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
-            },
+        useRecipientsApiMocks({
+            recipients: () => recipientsResponse,
+            coverage: [200, { persons_without_email: personsWithoutEmail }],
+            topics: () =>
+                typeof topics === 'function'
+                    ? topics()
+                    : topics === 'failing'
+                      ? [500, { detail: 'Server error' }]
+                      : topicsPage(topics),
         })
     }
 
@@ -112,8 +96,59 @@ describe('Audience setup', () => {
 
         expect(await screen.findByText(shows)).toBeInTheDocument()
         const setupShown = shows === SETUP_HEADING
-        expect(screen.queryByPlaceholderText('Search by email address') === null).toBe(setupShown)
-        expect(capture.mock.calls.some(([event]) => event === 'audience setup viewed')).toBe(setupShown)
+        expect(screen.queryByPlaceholderText(SEARCH_PLACEHOLDER) === null).toBe(setupShown)
+        const setupViews = capture.mock.calls.filter(([event]) => event === 'audience setup viewed')
+        expect(setupViews).toEqual(setupShown ? [['audience setup viewed', { source: 'empty_state' }]] : [])
+    })
+
+    it('shows neither the list nor setup until the topics have loaded', async () => {
+        let releaseTopics = (): void => {}
+        const topicsReleased = new Promise<void>((resolve) => {
+            releaseTopics = resolve
+        })
+        useAudience({
+            topics: async () => {
+                await topicsReleased
+                return topicsPage([])
+            },
+            recipients: [],
+        })
+        renderAudienceAt(urls.audience())
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="audience-recipients-first-load"]')).toBeInTheDocument()
+        )
+
+        expect(screen.queryByPlaceholderText(SEARCH_PLACEHOLDER)).not.toBeInTheDocument()
+        expect(screen.queryByText(SETUP_HEADING)).not.toBeInTheDocument()
+
+        releaseTopics()
+
+        expect(await screen.findByText(SETUP_HEADING)).toBeInTheDocument()
+    })
+
+    it('shows the access denied screen instead of setup to a member without access to recipients', async () => {
+        useAudience({
+            topics: [],
+            recipients: [],
+            recipientsResponse: [
+                403,
+                { code: 'permission_denied', detail: 'You need hog_flow viewer access to view recipients.' },
+            ],
+        })
+
+        renderAudienceAt(urls.audienceSetup())
+
+        expect(await screen.findByText(/viewer access to Workflows/)).toBeInTheDocument()
+        expect(screen.queryByText(SETUP_HEADING)).not.toBeInTheDocument()
+    })
+
+    it('keeps the unreachable persons notice above setup', async () => {
+        useAudience({ topics: [], recipients: [], personsWithoutEmail: 3 })
+
+        renderAudienceAt(urls.audience())
+
+        expect(await screen.findByText(SETUP_HEADING)).toBeInTheDocument()
+        expect(await screen.findByText("3 persons can't be reached")).toBeInTheDocument()
     })
 
     it('opens from the Set up button on Recipients', async () => {
@@ -134,7 +169,7 @@ describe('Audience setup', () => {
         })
         renderAudienceAt(urls.audienceSetup())
 
-        await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent("'product-updates': true"))
+        await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent('"product-updates": true'))
         expect(sendPreferencesStep()).toHaveTextContent('newsletter: false')
         expect(sendPreferencesStep()).toHaveTextContent('Set each value from what the user picked')
         expect(sendPreferencesStep()).toHaveTextContent('posthog.messaging.setPreferences(email, {')
@@ -146,7 +181,7 @@ describe('Audience setup', () => {
         await waitFor(() => expect(capture).toHaveBeenCalledWith('audience snippet copied', { variant: 'snippet' }))
 
         fireEvent.click(screen.getByText('Prompt for your coding agent'))
-        await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent('`newsletter`, `product-updates`'))
+        await waitFor(() => expect(sendPreferencesStep()).toHaveTextContent('"newsletter", "product-updates"'))
         expect(sendPreferencesStep()).not.toHaveTextContent('receipts')
 
         fireEvent.click(screen.getByTestId('copy-code-button'))

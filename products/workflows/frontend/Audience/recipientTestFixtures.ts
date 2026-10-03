@@ -30,26 +30,25 @@ export function topic(key: string, categoryType: 'marketing' | 'transactional' =
     }
 }
 
+export function topicsPage(topics: MessageCategoryApi[]): MockResponse {
+    return [200, { count: topics.length, next: null, previous: null, results: topics }]
+}
+
 export function useRecipientsApiMocks({
     recipients,
     coverage,
-    topics = [topic('newsletter')],
+    topics = () => topicsPage([topic('newsletter')]),
 }: {
     recipients: (params: URLSearchParams) => MockResponse | Promise<MockResponse>
     coverage: MockResponse
-    topics?: MessageCategoryApi[]
+    topics?: () => MockResponse | Promise<MockResponse>
 }): void {
     useMocks({
         get: {
             '/api/projects/:team_id/messaging_recipients/': ({ request }) =>
                 recipients(new URL(request.url).searchParams),
             '/api/projects/:team_id/messaging_recipients/coverage/': () => coverage,
-            '/api/projects/:team_id/messaging_categories/': {
-                count: topics.length,
-                next: null,
-                previous: null,
-                results: topics,
-            },
+            '/api/projects/:team_id/messaging_categories/': () => topics(),
         },
     })
 }

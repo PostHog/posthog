@@ -119,19 +119,22 @@ describe('audience routing', () => {
     })
 
     it.each([
-        { visited: ['/audience'], tab: 'recipients', label: 'Recipients' },
-        { visited: ['/audience/recipients'], tab: 'recipients', label: 'Recipients' },
-        { visited: ['/audience/topics'], tab: 'topics', label: 'Topics' },
-        { visited: ['/audience/suppression'], tab: 'suppression', label: 'Suppression list' },
-        { visited: ['/audience/engagement'], tab: 'engagement', label: 'Engagement' },
-        { visited: ['/audience/suppression', '/audience'], tab: 'recipients', label: 'Recipients' },
-        { visited: ['/audience/not-a-tab'], tab: 'recipients', label: 'Recipients' },
-    ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab, label }) => {
+        { visited: ['/audience'], tab: 'recipients', breadcrumbs: ['Recipients'] },
+        { visited: ['/audience/recipients'], tab: 'recipients', breadcrumbs: ['Recipients'] },
+        { visited: ['/audience/topics'], tab: 'topics', breadcrumbs: ['Topics'] },
+        { visited: ['/audience/suppression'], tab: 'suppression', breadcrumbs: ['Suppression list'] },
+        { visited: ['/audience/engagement'], tab: 'engagement', breadcrumbs: ['Engagement'] },
+        { visited: ['/audience/suppression', '/audience'], tab: 'recipients', breadcrumbs: ['Recipients'] },
+        { visited: ['/audience/not-a-tab'], tab: 'recipients', breadcrumbs: ['Recipients'] },
+        { visited: ['/audience/setup'], tab: 'recipients', breadcrumbs: ['Recipients', 'Set up'] },
+        { visited: ['/audience/setup', '/audience'], tab: 'recipients', breadcrumbs: ['Recipients'] },
+        { visited: ['/audience/setup', '/audience/topics'], tab: 'topics', breadcrumbs: ['Topics'] },
+    ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab, breadcrumbs }) => {
         audienceSceneLogic.mount()
 
         visited.forEach((url) => router.actions.push(url))
 
         expect(audienceSceneLogic.values.currentTab).toBe(tab)
-        expect(audienceSceneLogic.values.breadcrumbs.map(({ name }) => name)).toEqual([label])
+        expect(audienceSceneLogic.values.breadcrumbs.map(({ name }) => name)).toEqual(breadcrumbs)
     })
 })
