@@ -116,12 +116,12 @@ export const resolveEmailEngagementDistinctId = (
     return invocation.state?.globals?.event?.distinct_id || undefined
 }
 
+export const isWorkflowSend = (invocation: CyclotronJobInvocationHogFunction): boolean => 'hogFlow' in invocation
+
 // The workflow version that is sending this message, for the tracking code minted below. A flow's
 // email runs as a hog function invocation built by spreading the flow invocation, so `hogFlow` is
 // present at runtime even though the type is the narrower hog function shape. A hog function send
 // has none, and its engagement lands in the version-agnostic series alone.
-export const isWorkflowSend = (invocation: CyclotronJobInvocationHogFunction): boolean => 'hogFlow' in invocation
-
 export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHogFunction): number | undefined => {
     return isWorkflowSend(invocation)
         ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow.version
