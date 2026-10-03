@@ -3,6 +3,7 @@ import {
     actions,
     afterMount,
     connect,
+    isBreakpoint,
     kea,
     key,
     listeners,
@@ -20,7 +21,7 @@ import { isUUIDLike } from 'lib/utils/guards'
 
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { isApiNotFound, loadErrorMessage } from '../../lib/load-error'
+import { isApiNotFound, loadErrorMessage, loadFailureMessage, retryTransientLoad } from '../../lib/load-error'
 import { phDebugQueryParams } from '../../lib/ph-debug'
 import type { RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { TaskLogicProps, taskLogic } from '../../logics/taskLogic'
@@ -34,6 +35,7 @@ export type TaskDetailSceneLogicProps = TaskLogicProps
 export interface taskDetailSceneLogicValues {
     runTaskInFlight: boolean // taskLogic
     task: Task | null // taskLogic
+    taskDeleted: boolean // taskLogic
     taskError: string | null // taskLogic
     taskLoading: boolean // taskLogic
     taskNotFound: boolean // taskLogic
@@ -164,7 +166,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task', 'taskLoading', 'taskNotFound', 'taskError', 'runTaskInFlight']],
+        values: [
+            taskLogic(props),
+            ['task', 'taskLoading', 'taskNotFound', 'taskDeleted', 'taskError', 'runTaskInFlight'],
+        ],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],
@@ -235,12 +240,18 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         runs: [
             [] as TaskRun[],
             {
-                loadTaskRuns: async () => {
+                loadTaskRuns: async (_, breakpoint) => {
                     try {
-                        const response = await api.tasks.runs.list(props.taskId, phDebugQueryParams())
+                        const response = await retryTransientLoad(
+                            () => api.tasks.runs.list(props.taskId, phDebugQueryParams()),
+                            breakpoint
+                        )
                         return response.results
                     } catch (errorObject) {
-                        actions.loadTaskRunsFailure(loadErrorMessage('', errorObject), errorObject)
+                        if (isBreakpoint(errorObject as Error)) {
+                            throw errorObject
+                        }
+                        actions.loadTaskRunsFailure(loadFailureMessage(errorObject), errorObject)
                         return values.runs
                     }
                 },
@@ -249,15 +260,22 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         selectedRunData: [
             null as TaskRun | null,
             {
-                loadSelectedTaskRun: async () => {
+                loadSelectedTaskRun: async (_, breakpoint) => {
                     if (!values.selectedRunId) {
                         return null
                     }
+                    const selectedRunId = values.selectedRunId
                     try {
-                        const run = await api.tasks.runs.get(props.taskId, values.selectedRunId, phDebugQueryParams())
+                        const run = await retryTransientLoad(
+                            () => api.tasks.runs.get(props.taskId, selectedRunId, phDebugQueryParams()),
+                            breakpoint
+                        )
                         return run ?? null
                     } catch (errorObject) {
-                        actions.loadSelectedTaskRunFailure(loadErrorMessage('', errorObject), errorObject)
+                        if (isBreakpoint(errorObject as Error)) {
+                            throw errorObject
+                        }
+                        actions.loadSelectedTaskRunFailure(loadFailureMessage(errorObject), errorObject)
                         return values.selectedRunData
                     }
                 },

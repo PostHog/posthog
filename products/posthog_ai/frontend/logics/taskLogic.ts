@@ -1,4 +1,4 @@
-import { MakeLogicType, kea, key, listeners, path, props, reducers } from 'kea'
+import { MakeLogicType, isBreakpoint, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
@@ -11,7 +11,13 @@ import { urls } from 'scenes/urls'
 
 import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { isApiNotFound, loadErrorMessage } from '../lib/load-error'
+import {
+    isApiNotFound,
+    isTaskDeleted,
+    loadErrorMessage,
+    loadFailureMessage,
+    retryTransientLoad,
+} from '../lib/load-error'
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { Task, type TaskUpsertProps } from '../types/taskTypes'
 import { tasksLogic } from './tasksLogic'
@@ -25,6 +31,7 @@ export interface taskLogicValues {
     confirmedTask: Task | null
     runTaskInFlight: boolean
     task: Task | null
+    taskDeleted: boolean
     taskError: string | null
     taskLoading: boolean
     taskNotFound: boolean
@@ -115,11 +122,17 @@ export const taskLogic = kea<taskLogicType>([
         task: [
             null as Task | null,
             {
-                loadTask: async () => {
+                loadTask: async (_, breakpoint) => {
                     try {
-                        return await api.tasks.get(props.taskId, phDebugQueryParams())
+                        return await retryTransientLoad(
+                            () => api.tasks.get(props.taskId, phDebugQueryParams()),
+                            breakpoint
+                        )
                     } catch (errorObject) {
-                        actions.loadTaskFailure(loadErrorMessage('', errorObject), errorObject)
+                        if (isBreakpoint(errorObject as Error)) {
+                            throw errorObject
+                        }
+                        actions.loadTaskFailure(loadFailureMessage(errorObject), errorObject)
                         return isApiNotFound(errorObject) ? null : values.task
                     }
                 },
@@ -179,6 +192,13 @@ export const taskLogic = kea<taskLogicType>([
             {
                 loadTask: () => false,
                 loadTaskFailure: (_, { errorObject }) => isApiNotFound(errorObject),
+            },
+        ],
+        taskDeleted: [
+            false,
+            {
+                loadTask: () => false,
+                loadTaskFailure: (_, { errorObject }) => isTaskDeleted(errorObject),
             },
         ],
         // The run loader shares the `task` loader's `taskLoading`, which is also true for plain

@@ -26,8 +26,17 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskNotFound, taskError, latestRun, selectedRun, isTaskPending, isHeaderLoading, runTaskInFlight } =
-        useValues(sceneLogic)
+    const {
+        task,
+        taskNotFound,
+        taskDeleted,
+        taskError,
+        latestRun,
+        selectedRun,
+        isTaskPending,
+        isHeaderLoading,
+        runTaskInFlight,
+    } = useValues(sceneLogic)
     const { runTask, deleteTask, loadTask, updateTask } = useActions(sceneLogic)
     const { activeCreation, hasDesktopAccess } = useValues(taskTrackerSceneLogic)
     const isActiveCreation = activeCreation?.taskId === taskId
@@ -35,7 +44,16 @@ export function TaskDetailPage({ taskId, isMobile, titleActions }: TaskDetailPag
     const skin = useThreadSkin()
 
     if (taskNotFound && !task) {
-        return <NotFound object="task" />
+        return (
+            <NotFound
+                object="task"
+                caption={
+                    taskDeleted
+                        ? 'This task was removed, so it can no longer be opened. Start a new task to pick up the work again.'
+                        : "This task doesn't exist, or it hasn't been shared with you. Ask the person who sent you the link to share it with you."
+                }
+            />
+        )
     }
 
     if (!isTaskPending && !task && !taskError) {

@@ -619,6 +619,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         if task is None:
+            if tasks_facade.is_task_deleted(pk, self.team_id, self._user_id(), bypass_visibility=bypass_visibility):
+                raise NotFound("This task was removed.", code="task_deleted")
             raise NotFound()
         return Response(TaskSerializer(task).data)
 
