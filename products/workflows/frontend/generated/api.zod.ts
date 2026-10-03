@@ -121,6 +121,33 @@ export const EmailBrandDetectCreateBody = /* @__PURE__ */ zod.object({
         .describe('Read the repository again instead of reusing a detection from the last 10 minutes.'),
 })
 
+/**
+ * Stores a PNG, JPEG, GIF or WebP file as it is, and an ICO file as a PNG of its largest frame. For an SVG file it stores nothing and returns the markup, so the browser can draw it as a PNG and upload that through the media upload.
+ * @summary Import a logo from a GitHub repository into the email media library
+ */
+export const emailBrandImportLogoCreateBodyRepositoryMax = 255
+
+export const emailBrandImportLogoCreateBodyRepositoryRegExp = new RegExp('^(?!\\.+\/)[\\w.-]+\/(?!\\.+$)[\\w.-]+$')
+export const emailBrandImportLogoCreateBodyPathMax = 1000
+
+export const emailBrandImportLogoCreateBodyPathRegExp = new RegExp(
+    '^(?!\/)(?!.\*\/\/)(?!.\*(?:^|\/)\\.{1,2}(?:\/|$))[^\\u0000-\\u001f\\\\]+(?<!\/)$'
+)
+
+export const EmailBrandImportLogoCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("Id of the project's GitHub integration to read with."),
+    repository: zod
+        .string()
+        .max(emailBrandImportLogoCreateBodyRepositoryMax)
+        .regex(emailBrandImportLogoCreateBodyRepositoryRegExp)
+        .describe('Full name of the repository to read, as owner\/repo.'),
+    path: zod
+        .string()
+        .max(emailBrandImportLogoCreateBodyPathMax)
+        .regex(emailBrandImportLogoCreateBodyPathRegExp)
+        .describe('Repository path of the image file, usually one of the logo_candidates from detect.'),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201

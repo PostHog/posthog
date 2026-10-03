@@ -240,6 +240,15 @@ export interface EmailBrandCandidatesApi {
     font_family: EmailBrandCandidateApi[]
 }
 
+export interface EmailBrandLogoCandidateApi {
+    /** Repository path of the image file. Pass it to import_logo. */
+    path: string
+    /** Image format from the file extension: png, jpeg, gif, webp, svg or ico. */
+    format: string
+    /** File size in bytes. */
+    size: number
+}
+
 export interface EmailBrandFoundValueApi {
     /** Email brand field the value is a candidate for, for example primary_color. */
     field: string
@@ -265,8 +274,61 @@ export interface EmailBrandDetectionApi {
     proposal: EmailBrandProposalApi
     /** Every distinct value found per field, best first. */
     candidates: EmailBrandCandidatesApi
+    /** The repository's own logo files, best first: raster images, then SVG, then ICO. Import one with import_logo. */
+    logo_candidates: EmailBrandLogoCandidateApi[]
     /** The files detection read, in reading order. */
     files_read: EmailBrandFileReadApi[]
+}
+
+export interface EmailBrandImportLogoRequestApi {
+    /** Id of the project's GitHub integration to read with. */
+    integration_id: number
+    /**
+     * Full name of the repository to read, as owner/repo.
+     * @maxLength 255
+     * @pattern ^(?!\.+/)[\w.-]+/(?!\.+$)[\w.-]+$
+     */
+    repository: string
+    /**
+     * Repository path of the image file, usually one of the logo_candidates from detect.
+     * @maxLength 1000
+     * @pattern ^(?!/)(?!.*\//)(?!.*(?:^|/)\.{1,2}(?:/|$))[^\u0000-\u001f\\]+(?<!/)$
+     */
+    path: string
+}
+
+/**
+ * * `imported` - Imported
+ * * `svg_needs_rasterizing` - SVG needs rasterizing
+ */
+export type LogoImportOutcomeEnumApi = (typeof LogoImportOutcomeEnumApi)[keyof typeof LogoImportOutcomeEnumApi]
+
+export const LogoImportOutcomeEnumApi = {
+    Imported: 'imported',
+    SvgNeedsRasterizing: 'svg_needs_rasterizing',
+} as const
+
+export interface EmailBrandLogoImportApi {
+    /** imported: the image is in the email media library. svg_needs_rasterizing: the logo is an SVG, so draw svg as a PNG in the browser and upload that instead. Nothing was stored.
+     *
+     * * `imported` - Imported
+     * * `svg_needs_rasterizing` - SVG needs rasterizing */
+    outcome: LogoImportOutcomeEnumApi
+    /**
+     * Id of the stored image in the email media library. Null for an SVG.
+     * @nullable
+     */
+    media_id: string | null
+    /**
+     * Public URL of the stored image. Null for an SVG.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * The SVG markup to rasterize. Null for a stored image.
+     * @nullable
+     */
+    svg: string | null
 }
 
 /**

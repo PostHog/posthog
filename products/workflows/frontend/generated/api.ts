@@ -16,6 +16,8 @@ import type {
     EmailBrandApi,
     EmailBrandDetectRequestApi,
     EmailBrandDetectionApi,
+    EmailBrandImportLogoRequestApi,
+    EmailBrandLogoImportApi,
     EmailBrandStarterDesignApi,
     EmailBrandStarterTemplateApi,
     EmailBrandSuggestRepositoryRetrieveParams,
@@ -180,6 +182,27 @@ export const emailBrandDetectCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emailBrandDetectRequestApi),
+    })
+}
+
+export const getEmailBrandImportLogoCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/import_logo/`
+}
+
+/**
+ * Stores a PNG, JPEG, GIF or WebP file as it is, and an ICO file as a PNG of its largest frame. For an SVG file it stores nothing and returns the markup, so the browser can draw it as a PNG and upload that through the media upload.
+ * @summary Import a logo from a GitHub repository into the email media library
+ */
+export const emailBrandImportLogoCreate = async (
+    projectId: string,
+    emailBrandImportLogoRequestApi: EmailBrandImportLogoRequestApi,
+    options?: RequestInit
+): Promise<EmailBrandLogoImportApi> => {
+    return apiMutator<EmailBrandLogoImportApi>(getEmailBrandImportLogoCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailBrandImportLogoRequestApi),
     })
 }
 
