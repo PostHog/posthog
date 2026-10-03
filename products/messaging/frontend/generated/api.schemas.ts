@@ -219,7 +219,7 @@ export interface RecipientPersonApi {
 }
 
 /**
- * Explicit topic statuses keyed by topic key. A topic with no preference is left out. When preferences exist under several casings of the address, `OPTED_OUT` wins per topic.
+ * Explicit topic statuses keyed by topic key. A topic with no preference is left out. When preferences exist under several spellings of the address (casing or surrounding whitespace), `OPTED_OUT` wins per topic.
  */
 export type RecipientApiTopics = { [key: string]: 'OPTED_IN' | 'OPTED_OUT' }
 
@@ -232,7 +232,7 @@ export interface RecipientApi {
      * * `OPTED_OUT` - Opted Out
      * * `NO_PREFERENCE` - No Preference */
     all_marketing: PreferenceStatusEnumApi
-    /** Explicit topic statuses keyed by topic key. A topic with no preference is left out. When preferences exist under several casings of the address, `OPTED_OUT` wins per topic. */
+    /** Explicit topic statuses keyed by topic key. A topic with no preference is left out. When preferences exist under several spellings of the address (casing or surrounding whitespace), `OPTED_OUT` wins per topic. */
     topics: RecipientApiTopics
     /** Active suppression of the address, or null when sends are not blocked. */
     suppression: RecipientSuppressionApi | null
@@ -263,7 +263,7 @@ export interface RecipientPageApi {
 }
 
 export interface RecipientCoverageApi {
-    /** Number of persons with no `email` property. They can't be reached by email. */
+    /** Number of persons whose `email` property is missing, blank or only whitespace. They can't be reached by email. */
     persons_without_email: number
 }
 

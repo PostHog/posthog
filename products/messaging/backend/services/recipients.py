@@ -136,7 +136,7 @@ class RecipientFacet(StrEnum):
 _OPTED_OUT_ROWS = "countIf(source_kind = 'preference' AND JSONExtractString(preferences, {topic_id}) = 'OPTED_OUT')"
 _OPTED_IN_ROWS = "countIf(source_kind = 'preference' AND JSONExtractString(preferences, {topic_id}) = 'OPTED_IN')"
 
-# Unsubscribed wins: one casing of an address opting out outweighs another casing opting in.
+# Unsubscribed wins: one spelling of an address opting out outweighs another spelling opting in.
 _TOPIC_CONDITIONS: dict[RecipientFacet, str] = {
     RecipientFacet.SUBSCRIBED: f"{_OPTED_OUT_ROWS} = 0 AND {_OPTED_IN_ROWS} > 0",
     RecipientFacet.UNSUBSCRIBED: f"{_OPTED_OUT_ROWS} > 0",

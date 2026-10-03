@@ -98,7 +98,8 @@ class RecipientSerializer(serializers.Serializer):
     topics = serializers.DictField(
         child=serializers.ChoiceField(choices=[PreferenceStatus.OPTED_IN, PreferenceStatus.OPTED_OUT]),
         help_text="Explicit topic statuses keyed by topic key. A topic with no preference is left out. "
-        "When preferences exist under several casings of the address, `OPTED_OUT` wins per topic.",
+        "When preferences exist under several spellings of the address (casing or surrounding whitespace), "
+        "`OPTED_OUT` wins per topic.",
     )
     suppression = RecipientSuppressionSerializer(
         allow_null=True, help_text="Active suppression of the address, or null when sends are not blocked."
@@ -125,7 +126,8 @@ class RecipientPageSerializer(serializers.Serializer):
 
 class RecipientCoverageSerializer(serializers.Serializer):
     persons_without_email = serializers.IntegerField(
-        help_text="Number of persons with no `email` property. They can't be reached by email."
+        help_text="Number of persons whose `email` property is missing, blank or only whitespace. "
+        "They can't be reached by email."
     )
 
 
