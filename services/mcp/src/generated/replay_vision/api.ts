@@ -503,6 +503,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1423,6 +1429,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1501,6 +1513,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1577,6 +1595,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .optional()
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
         ),
     verdict: zod
         .string()

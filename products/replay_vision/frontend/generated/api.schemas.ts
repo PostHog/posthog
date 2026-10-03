@@ -2409,6 +2409,82 @@ export interface ScannerScoutCreateResponseApi {
     config: SignalScoutConfigApi
 }
 
+export interface VariantsExperimentApi {
+    /** The experiment's id. */
+    id: number
+    /** The experiment's name. */
+    name: string
+    /** draft, running, paused, exposure_frozen, or stopped. */
+    status: string
+    /**
+     * When the experiment launched.
+     * @nullable
+     */
+    start_date: string | null
+    /**
+     * When the experiment ended; null while it runs.
+     * @nullable
+     */
+    end_date: string | null
+    /**
+     * The experiment's recommended running time in days, when one was set.
+     * @nullable
+     */
+    planned_duration_days: number | null
+    /**
+     * The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.
+     * @nullable
+     */
+    current_day: number | null
+}
+
+export interface VariantsWindowApi {
+    /** Succeeded observations of this scanner, attributed to a variant or not. */
+    total_observations: number
+    /**
+     * When the earliest of those observations completed.
+     * @nullable
+     */
+    first_observation_at: string | null
+    /**
+     * When the latest of those observations completed.
+     * @nullable
+     */
+    last_observation_at: string | null
+}
+
+export interface VariantReadoutApi {
+    /** The variant key. */
+    key: string
+    /** Succeeded observations attributed to this variant. */
+    observations: number
+    /** Distinct people (by distinct id) behind those observations. */
+    distinct_people: number
+    /**
+     * Median scanned session length in seconds; null with no observations.
+     * @nullable
+     */
+    median_session_duration_s: number | null
+    /**
+     * The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.
+     * @nullable
+     */
+    sampling_rate: number | null
+    /** This variant's most recent observations, newest first. */
+    latest_observations: ReplayObservationApi[]
+}
+
+export interface ExperimentVariantsReadoutApi {
+    /** The watched experiment; null if it was deleted. */
+    experiment: VariantsExperimentApi | null
+    /** The span of observations the counts cover. */
+    window: VariantsWindowApi
+    /** One entry per watched variant, plus any variant still holding observations. */
+    variants: VariantReadoutApi[]
+    /** Succeeded observations with no attributed variant. */
+    unattributed_count: number
+}
+
 /**
  * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
  */
@@ -2928,6 +3004,10 @@ export type VisionObservationsRetrieveParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3151,6 +3231,10 @@ export type VisionScannersObservationsListParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3206,6 +3290,10 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     triggered_by?: string
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
@@ -3260,6 +3348,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -3323,6 +3415,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
