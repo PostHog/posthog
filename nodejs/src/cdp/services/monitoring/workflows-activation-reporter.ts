@@ -4,15 +4,14 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { Team } from '~/types'
 
-export type WorkflowsActivationEvent =
-    | 'workflows message delivered'
-    | 'workflows send blocked'
-    | 'workflows send failed'
-
-export type WorkflowsActivationProperties = {
-    workflow_id: string
-    channel?: 'email'
-    reason?: 'quota_limited' | 'unverified_domain' | 'missing_recipient'
+type WorkflowsActivationEvents = {
+    'workflows message delivered': { workflow_id: string; channel: 'email' }
+    'workflows send blocked': { workflow_id: string; channel: 'email'; reason: 'quota_limited' }
+    'workflows send failed': {
+        workflow_id: string
+        channel: 'email'
+        reason: 'unverified_domain' | 'missing_recipient'
+    }
 }
 
 const REPORT_INTERVAL_MS = 60 * 60 * 1000
@@ -25,12 +24,13 @@ export class WorkflowsActivationReporter {
         private capture: typeof captureTeamEvent = captureTeamEvent
     ) {}
 
-    public async report(
+    public async report<Event extends keyof WorkflowsActivationEvents>(
         teamId: number,
-        event: WorkflowsActivationEvent,
-        properties: WorkflowsActivationProperties
+        event: Event,
+        properties: WorkflowsActivationEvents[Event]
     ): Promise<void> {
-        const key = `${teamId}:${event}:${properties.reason ?? ''}`
+        const reason = 'reason' in properties ? properties.reason : ''
+        const key = `${teamId}:${event}:${reason}`
         const now = Date.now()
         const lastReportedAt = this.lastReportedAt.get(key)
         if (lastReportedAt !== undefined && now - lastReportedAt < REPORT_INTERVAL_MS) {

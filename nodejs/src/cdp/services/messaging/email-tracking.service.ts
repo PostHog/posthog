@@ -329,7 +329,7 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
-        if (metricName === 'email_delivered' && hogFlow) {
+        if (metricName === 'email_delivered' && (hogFlow || workflowVersion !== undefined)) {
             void this.workflowsActivationReporter.report(teamId, 'workflows message delivered', {
                 channel: 'email',
                 workflow_id: appSourceId,

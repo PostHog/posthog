@@ -466,15 +466,24 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            const senderFunctionId = async (
+                sender: 'workflow' | 'deleted workflow' | 'hog function'
+            ): Promise<string> => {
+                if (sender === 'workflow') {
+                    return (await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build()))
+                        .id
+                }
+                return sender === 'deleted workflow' ? '0190f0c4-0000-7000-8000-000000000220' : hogFunction.id
+            }
+
             it.each([
-                ['reports a delivered workflow message', true],
-                ['does not report a delivered hog function message', false],
-            ])('%s as a workflows activation step', async (_name, fromWorkflow) => {
+                ['reports a delivered workflow message', 'workflow', 1, true],
+                ['reports a message delivered after its workflow was deleted', 'deleted workflow', 1, true],
+                ['does not report a delivered hog function message', 'hog function', undefined, false],
+            ] as const)('%s as a workflows activation step', async (_name, sender, workflowVersion, reported) => {
                 const reportSpy = jest.spyOn(WorkflowsActivationReporter.prototype, 'report')
-                const functionId = fromWorkflow
-                    ? (await insertHogFlow(hub.postgres, new FixtureHogFlowBuilder().withTeamId(team.id).build())).id
-                    : hogFunction.id
-                const trackingCode = signer.generate({ functionId, id: invocationId, teamId: team.id })
+                const functionId = await senderFunctionId(sender)
+                const trackingCode = signer.generate({ functionId, id: invocationId, teamId: team.id, workflowVersion })
                 const sesRecord = {
                     eventType: 'Delivery',
                     mail: {
@@ -505,7 +514,7 @@ describe('EmailTrackingService', () => {
 
                 expect(res.status).toBe(200)
                 expect(reportSpy.mock.calls).toEqual(
-                    fromWorkflow
+                    reported
                         ? [[team.id, 'workflows message delivered', { channel: 'email', workflow_id: functionId }]]
                         : []
                 )

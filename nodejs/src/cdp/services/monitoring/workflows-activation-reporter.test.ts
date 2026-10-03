@@ -21,18 +21,42 @@ describe('WorkflowsActivationReporter', () => {
     })
 
     it('captures each team and reason once per hour', async () => {
-        await reporter.report(2, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-1' })
-        await reporter.report(2, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-2' })
-        await reporter.report(3, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-9' })
-        await reporter.report(2, 'workflows send failed', { reason: 'missing_recipient', workflow_id: 'flow-1' })
+        await reporter.report(2, 'workflows send failed', {
+            reason: 'unverified_domain',
+            channel: 'email',
+            workflow_id: 'flow-1',
+        })
+        await reporter.report(2, 'workflows send failed', {
+            reason: 'unverified_domain',
+            channel: 'email',
+            workflow_id: 'flow-2',
+        })
+        await reporter.report(3, 'workflows send failed', {
+            reason: 'unverified_domain',
+            channel: 'email',
+            workflow_id: 'flow-9',
+        })
+        await reporter.report(2, 'workflows send failed', {
+            reason: 'missing_recipient',
+            channel: 'email',
+            workflow_id: 'flow-1',
+        })
         jest.advanceTimersByTime(60 * 60 * 1000)
-        await reporter.report(2, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-3' })
+        await reporter.report(2, 'workflows send failed', {
+            reason: 'unverified_domain',
+            channel: 'email',
+            workflow_id: 'flow-3',
+        })
 
         expect(capture.mock.calls).toEqual([
-            [team, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-1' }],
-            [otherTeam, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-9' }],
-            [team, 'workflows send failed', { reason: 'missing_recipient', workflow_id: 'flow-1' }],
-            [team, 'workflows send failed', { reason: 'unverified_domain', workflow_id: 'flow-3' }],
+            [team, 'workflows send failed', { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-1' }],
+            [
+                otherTeam,
+                'workflows send failed',
+                { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-9' },
+            ],
+            [team, 'workflows send failed', { reason: 'missing_recipient', channel: 'email', workflow_id: 'flow-1' }],
+            [team, 'workflows send failed', { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-3' }],
         ])
     })
 
@@ -42,14 +66,25 @@ describe('WorkflowsActivationReporter', () => {
         expect(capture).not.toHaveBeenCalled()
     })
 
-    it('reports again after a failed team lookup', async () => {
-        getTeam.mockRejectedValueOnce(new Error('postgres is down'))
+    it.each([
+        ['a failed team lookup', () => getTeam.mockRejectedValueOnce(new Error('postgres is down'))],
+        ['a missing team', () => getTeam.mockResolvedValueOnce(null)],
+        [
+            'a failed capture',
+            () =>
+                capture.mockImplementationOnce(() => {
+                    throw new Error('capture is down')
+                }),
+        ],
+    ])('reports again after %s', async (_name, failOnce) => {
+        failOnce()
 
         await reporter.report(2, 'workflows message delivered', { channel: 'email', workflow_id: 'flow-1' })
         await reporter.report(2, 'workflows message delivered', { channel: 'email', workflow_id: 'flow-2' })
 
-        expect(capture.mock.calls).toEqual([
-            [team, 'workflows message delivered', { channel: 'email', workflow_id: 'flow-2' }],
-        ])
+        expect(capture).toHaveBeenLastCalledWith(team, 'workflows message delivered', {
+            channel: 'email',
+            workflow_id: 'flow-2',
+        })
     })
 })
