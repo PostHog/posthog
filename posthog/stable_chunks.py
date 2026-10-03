@@ -31,8 +31,6 @@ logger = structlog.get_logger(__name__)
 STABLE_CHUNKS_PARAM = "stable_chunks"
 STABLE_CHUNKS_COOKIE = "ph_stable_chunks"
 STABLE_CHUNKS_FLAG = "stable-chunk-names"
-# Logged-out pages have their own flag, so turning them off leaves logged-in users on the stable build.
-LOGGED_OUT_STABLE_CHUNKS_FLAG = "stable-chunk-names-logged-out"
 _COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 # A logged-out request has no person, so every logged-out request evaluates the flag with this one
 # ID. A partial rollout therefore switches all logged-out pages on or off together.
@@ -117,7 +115,7 @@ def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[s
     """
     The query param wins, then the cookie, then the flag. For a logged-in user, `feature_flags` are
     the ones bootstrapped into posthog-js, so events carry the flag value that picked the build.
-    A logged-out request has no bootstrapped flags, so it evaluates its own flag locally.
+    A logged-out request has no bootstrapped flags, so it evaluates the flag locally.
     """
     param = request.GET.get(STABLE_CHUNKS_PARAM)
     if param is not None:
@@ -141,7 +139,7 @@ def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[s
 def _flag_enabled_for_logged_out_requests() -> bool:
     return (
         posthoganalytics.feature_enabled(
-            LOGGED_OUT_STABLE_CHUNKS_FLAG,
+            STABLE_CHUNKS_FLAG,
             LOGGED_OUT_FLAG_DISTINCT_ID,
             only_evaluate_locally=True,
             send_feature_flag_events=False,
