@@ -628,7 +628,6 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain):
-
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
             team_id=self.team.id,
@@ -659,7 +658,6 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
-
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "pending",
@@ -717,7 +715,6 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
-
         # Mock the verify_email_domain method to return a test result
         expected_result: EmailDomainVerification = {
             "status": "success",
@@ -6103,6 +6100,21 @@ class TestGitHubBranches:
 
         data = response.json()
         assert data["branches"] == ["other"]
+
+    @patch(
+        "posthog.models.integration.github.GitHubIntegration.list_cached_branches",
+        side_effect=GitHubIntegrationError("Cache refresh already in progress"),
+    )
+    def test_api_endpoint_returns_503_when_branches_cannot_load(self, _mock_list_cached, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+            {"repo": "org/repo"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "github_branches_unavailable"
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_branches")
     def test_api_endpoint_prepends_default_branch_even_when_not_in_list(self, mock_list_cached, client: HttpClient):

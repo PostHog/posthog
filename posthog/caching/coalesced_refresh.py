@@ -2,7 +2,8 @@
 
 import uuid
 from collections.abc import Callable
-from typing import Generic, TypeVar, cast
+from contextlib import suppress
+from typing import Generic, Literal, TypeVar, cast
 
 from django.core.cache import caches
 
@@ -63,6 +64,7 @@ class CoalescedCacheRefresh(Generic[T]):
                 value = self.cache.get(self.key)
         except (ConnectionInterrupted, RedisError):
             logger.warning("Failed to read coalesced cache", key=self.key, exc_info=True)
+            trace.get_current_span().set_attribute("cache.refresh.read_error", True)
             return None
         return cast(T, value) if self.is_valid(value) else None
 
@@ -73,7 +75,7 @@ class CoalescedCacheRefresh(Generic[T]):
         )
 
     @staticmethod
-    def _acquire(lock: Lock, token: str, wait: float | None = None) -> str:
+    def _acquire(lock: Lock, token: str, wait: float | None = None) -> Literal["acquired", "contended", "redis_error"]:
         try:
             acquired = (
                 lock.acquire(blocking=False, token=token)
@@ -82,6 +84,9 @@ class CoalescedCacheRefresh(Generic[T]):
             )
         except RedisError:
             logger.warning("Failed to acquire cache refresh claim", exc_info=True)
+            # Redis may have stored the claim before the reply was lost, so drop it if it still holds our token.
+            with suppress(RedisError):
+                lock.do_release(token)
             return "redis_error"
         return "acquired" if acquired else "contended"
 
@@ -175,7 +180,7 @@ class CoalescedCacheRefresh(Generic[T]):
                     span.set_attribute("cache.refresh.state", "filled_before_claim")
                     assert latest is not None
                     return latest
-                cached = latest or cached
+                cached = latest if latest is not None else cached
             elif cached is None:
                 cached = self.read()
 
@@ -188,7 +193,8 @@ class CoalescedCacheRefresh(Generic[T]):
                 value = self.refresh((lambda: self._renew(lock)) if lock is not None and owned else (lambda: True))
                 if not owned or self._publish(value, token):
                     return value
-                return self.read(from_writer=True) or cached or value
+                latest = self.read(from_writer=True)
+                return value if self.is_stale(latest) else cast(T, latest)
             except Exception:
                 logger.warning("Failed to refresh coalesced cache", key=self.key, exc_info=True)
                 if cached is None:

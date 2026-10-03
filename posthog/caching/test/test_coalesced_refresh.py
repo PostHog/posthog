@@ -7,6 +7,9 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from django_redis.cache import RedisCache
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from redis.exceptions import LockNotOwnedError, RedisError
 
 from posthog.caching.coalesced_refresh import CacheRefreshInProgress, CoalescedCacheRefresh
@@ -105,6 +108,7 @@ class TestCoalescedCacheRefresh(SimpleTestCase):
 
     def test_redis_renewal_error_does_not_discard_fetched_value(self):
         key = f"coalesced:test:{uuid.uuid4().hex}"
+        cache.set(key, {"version": 1})
         lock = MagicMock()
         lock.acquire.return_value = True
         lock.reacquire.side_effect = RedisError("unavailable")
@@ -124,3 +128,32 @@ class TestCoalescedCacheRefresh(SimpleTestCase):
             assert refresh.get() == {"version": 1}
             assert refresh.get() == {"version": 1}
         fetch.assert_called_once()
+
+    def test_ambiguous_claim_error_releases_only_this_claim(self):
+        key = f"coalesced:test:{uuid.uuid4().hex}"
+        cache.set(key, {"version": 1})
+        lock = MagicMock()
+        lock.acquire.side_effect = RedisError("reply lost")
+        refresh = refresh_cache(key, MagicMock())
+        with patch.object(refresh, "_lock", return_value=lock):
+            assert refresh.get() == {"version": 1}
+        lock.do_release.assert_called_once_with(lock.acquire.call_args.kwargs["token"])
+
+    def test_read_error_is_visible_on_the_span(self):
+        key = f"coalesced:test:{uuid.uuid4().hex}"
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        lock = MagicMock()
+        lock.acquire.return_value = True
+        refresh = refresh_cache(key, lambda _renew: {"version": 1})
+        with (
+            provider.get_tracer("test").start_as_current_span("request"),
+            patch.object(refresh.cache, "get", side_effect=RedisError("unavailable")),
+            patch.object(refresh, "_lock", return_value=lock),
+            patch.object(refresh, "_publish", return_value=True),
+        ):
+            assert refresh.get() == {"version": 1}
+        attributes = exporter.get_finished_spans()[0].attributes
+        assert attributes is not None
+        assert attributes["cache.refresh.read_error"] is True
