@@ -203,6 +203,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.replay_vision.backend.api.quota.VisionQuotaViewSet",
     "products.replay_vision.backend.api.scanners.ReplayScannerViewSet",
     "products.replay_vision.backend.api.scout_reports.ScannerScoutReportViewSet",
+    "products.replay_vision.backend.api.variants.ReplayScannerVariantsViewSet",
     "products.replay_vision.backend.api.vision_alerts.VisionAlertViewSet",
     "products.review_hog.backend.api.blind_spots.ReviewBlindSpotsConfigViewSet",
     "products.review_hog.backend.api.perspectives.ReviewPerspectiveConfigViewSet",

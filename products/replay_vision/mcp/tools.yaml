@@ -1169,6 +1169,9 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-scanners-variants-list:
+        operation: vision_scanners_variants_list
+        enabled: false
     vision-scanners-watch-feed:
         operation: vision_scanners_watch_feed_retrieve
         enabled: true
