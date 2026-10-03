@@ -35,7 +35,6 @@ export function getEnv(): Env {
         POSTHOG_API_BASE_URL: process.env.POSTHOG_API_BASE_URL || undefined,
         POSTHOG_PUBLIC_URL: process.env.POSTHOG_PUBLIC_URL || undefined,
         MCP_APPS_BASE_URL: process.env.MCP_APPS_BASE_URL || undefined,
-        // Must match the UI app bundle's default host, or the iframe CSP blocks its analytics requests.
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL:
             process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || 'https://us.i.posthog.com',
         POSTHOG_UI_APPS_TOKEN: process.env.POSTHOG_UI_APPS_TOKEN || undefined,

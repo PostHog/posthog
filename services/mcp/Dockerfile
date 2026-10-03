@@ -53,7 +53,6 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 # so the whole `products/` tree needs to be in the build context.
 COPY products/ products/
 WORKDIR /code/services/mcp
-# Vite bakes this into the UI app bundles; without it the analytics client is stripped out.
 ARG POSTHOG_UI_APPS_TOKEN
 ENV POSTHOG_UI_APPS_TOKEN=${POSTHOG_UI_APPS_TOKEN}
 RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
