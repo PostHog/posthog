@@ -42,6 +42,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.project_tags import MATCH_MODES, MAX_TAGS_PER_FILTER
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
@@ -1762,7 +1763,13 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="tags",
                 type=OpenApiTypes.STR,
-                description="JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+                description="JSON-encoded array of tag names. Returns insights with any of the listed tags, or with all of them under `tags_match=all`.",
+            ),
+            OpenApiParameter(
+                name="tags_match",
+                type=OpenApiTypes.STR,
+                enum=list(MATCH_MODES),
+                description=f"How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag, and accepts at most {MAX_TAGS_PER_FILTER} distinct tags.",
             ),
         ]
     ),
@@ -2050,6 +2057,9 @@ class InsightViewSet(
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
         search_term: str | None = None
+        tags_match = request.GET.get("tags_match", "any")
+        if tags_match not in MATCH_MODES:
+            raise ValidationError({"tags_match": f"Must be one of: {', '.join(MATCH_MODES)}."})
 
         for key in filters:
             if key == "saved":
@@ -2138,11 +2148,25 @@ class InsightViewSet(
                 tags_filter = request.GET["tags"]
                 if tags_filter:
                     tags_list = json.loads(tags_filter)
+                    if not isinstance(tags_list, list) or not all(isinstance(tag, str) for tag in tags_list):
+                        raise ValidationError({"tags": "Must be a JSON array of strings."})
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
-                        queryset = queryset.filter(Exists(matching_tags))
+                        if tags_match == "all":
+                            distinct_tags = set(tags_list)
+                            if len(distinct_tags) > MAX_TAGS_PER_FILTER:
+                                raise ValidationError(
+                                    {
+                                        "tags": f"Filter by at most {MAX_TAGS_PER_FILTER} tags at a time with `tags_match=all`."
+                                    }
+                                )
+                            tag_groups = [[name] for name in distinct_tags]
+                        else:
+                            tag_groups = [tags_list]
+                        for names in tag_groups:
+                            matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=names)
+                            queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
                 if created_by_filter:

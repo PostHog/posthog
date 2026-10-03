@@ -176,6 +176,21 @@ describe('savedInsightsLogic', () => {
         expect(logic.values.paramsFromFilters).toMatchObject({ hide_feature_flag_insights: true })
     })
 
+    it.each<[string, Partial<SavedInsightFilters>, string | undefined]>([
+        ['all with several tags', { tags: ['app', 'engagement'], tagsMatch: 'all' }, 'all'],
+        ['any with several tags', { tags: ['app', 'engagement'] }, undefined],
+        ['all with one tag', { tags: ['app'], tagsMatch: 'all' }, undefined],
+    ])('sends tags_match for %s', (_label, filters, expected) => {
+        logic.actions.setSavedInsightsFilters(filters)
+        expect(logic.values.paramsFromFilters.tags_match).toEqual(expected)
+    })
+
+    it('drops the tag match mode when the tag filter is cleared', () => {
+        logic.actions.setSavedInsightsFilters({ tags: ['app', 'engagement'], tagsMatch: 'all' })
+        logic.actions.setSavedInsightsFilters({ tags: [] }, true)
+        expect(logic.values.filters.tagsMatch).toBeUndefined()
+    })
+
     it('can filter the insights', async () => {
         // makes a search query
         logic.actions.setSavedInsightsFilters({ search: 'hello' })

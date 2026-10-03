@@ -153,7 +153,15 @@ export const InsightsListQueryParams = () => zod.object({
     tags: zod
         .string()
         .optional()
-        .describe('JSON-encoded array of tag names. Returns insights with any of the listed tags.'),
+        .describe(
+            'JSON-encoded array of tag names. Returns insights with any of the listed tags, or with all of them under `tags_match=all`.'
+        ),
+    tags_match: zod
+        .enum(['all', 'any'])
+        .optional()
+        .describe(
+            'How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag, and accepts at most 20 distinct tags.'
+        ),
     user: zod
         .boolean()
         .optional()
