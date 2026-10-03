@@ -135,6 +135,7 @@ WHERE event = '$recording_observed'
   AND timestamp <= now() + INTERVAL 1 DAY
 GROUP BY scanner_id, period
 ORDER BY scanner_id, period
+LIMIT 500
 ```
 
 3. Read each field's coverage on its own. Use a field for a scanner only when its coverage is near `1.0` in both windows. A field that covers only one window gives a coverage step, not an output shift.
