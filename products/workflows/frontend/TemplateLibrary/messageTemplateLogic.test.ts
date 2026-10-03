@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -340,12 +341,24 @@ describe('messageTemplateLogic', () => {
     })
 
     describe('starter template from the Email brand', () => {
+        const STARTER_DESIGN_URL = '/api/projects/:team_id/email_brand/starter_design/'
         const STARTER_DESIGN = { counters: {}, schemaVersion: 16, body: { id: 'brand-starter-body', rows: [] } }
+
+        async function mountFromEmailBrand(): Promise<void> {
+            logic = messageTemplateLogic({ id: 'new', fromEmailBrand: true })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        function setEmail(email: Partial<EmailTemplate>): void {
+            const content = logic.values.template.content
+            logic.actions.setTemplateValues({ content: { ...content, email: { ...content.email, ...email } } })
+        }
 
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/email_brand/starter_design/': {
+                    [STARTER_DESIGN_URL]: {
                         name: 'Acme starter template',
                         description: 'Created from your Email brand.',
                         subject: 'Hello from Acme',
@@ -356,10 +369,7 @@ describe('messageTemplateLogic', () => {
         })
 
         it('opens the new-template editor preloaded with the starter design instead of the picker', async () => {
-            logic = messageTemplateLogic({ id: 'new', fromEmailBrand: true })
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions(['loadStarterDesignSuccess']).toFinishAllListeners()
+            await mountFromEmailBrand()
 
             expect(logic.values.templatePickerOpen).toBe(false)
             expect(logic.values.template).toMatchObject({
@@ -368,9 +378,33 @@ describe('messageTemplateLogic', () => {
                 description: 'Created from your Email brand.',
                 content: {
                     templating: 'liquid',
-                    email: { subject: 'Hello from Acme', design: STARTER_DESIGN, html: '' },
+                    email: { subject: 'Hello from Acme', design: STARTER_DESIGN, html: '', text: '' },
                 },
             })
+            expect(logic.values.awaitingStarterExport).toBe(true)
+        })
+
+        // The editor's export fills the html; a switch to plain text keeps only the text, which is a valid save.
+        it.each([
+            { body: 'the exported html', email: { html: '<p>Hi</p>', text: 'Hi' } },
+            { body: 'plain text only', email: { html: '', text: 'Hi' } },
+        ])('stops waiting for the export once the email has $body', async ({ email }) => {
+            await mountFromEmailBrand()
+
+            setEmail(email)
+
+            expect(logic.values.awaitingStarterExport).toBe(false)
+        })
+
+        it('falls back to the template picker when the Email brand does not load', async () => {
+            useMocks({
+                get: { [STARTER_DESIGN_URL]: () => [404, { detail: 'This project has no Email brand yet.' }] },
+            })
+
+            await mountFromEmailBrand()
+
+            expect(logic.values.templatePickerOpen).toBe(true)
+            expect(logic.values.awaitingStarterExport).toBe(false)
         })
     })
 })

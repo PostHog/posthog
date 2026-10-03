@@ -56,6 +56,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         messageLoading,
         templateLoading,
         starterDesignLoading,
+        awaitingStarterExport,
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
@@ -141,7 +142,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         ? 'No changes to save'
                                         : !template.name
                                           ? 'Name is required'
-                                          : props.fromEmailBrand && !template.content.email?.html
+                                          : awaitingStarterExport
                                             ? 'The email design is still loading'
                                             : undefined
                                 }
