@@ -220,6 +220,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ("filter_group", {"condition": CONDITION, "filterGroup": {"type": "nonsense"}}),
             ("missing_condition", {}),
             ("null_condition", {"condition": None}),
+            ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
+            ("non_numeric_window", {"condition": {**CONDITION, "window_minutes": "5"}}),
         ]
     )
     def test_a_broken_config_stops_being_discovered(self, _name: str, source_config: dict[str, Any]) -> None:

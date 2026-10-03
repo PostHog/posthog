@@ -71,6 +71,7 @@ from products.logs.backend.alert_check_query import (
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
+from products.logs.backend.models import LogsAlertConfiguration
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -118,6 +119,16 @@ class LogsAlertCondition:
     threshold_operator: str
     window_minutes: int
 
+    def __post_init__(self) -> None:
+        # `_derive_breaches` reads any operator but `above` as `below`, so an unknown one would
+        # decide the alert against the wrong side of its bound instead of failing.
+        if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
+            raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
+        for name in ("threshold_count", "window_minutes"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer, got {value!r}")
+
     @classmethod
     def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
         condition = check.condition
@@ -142,6 +153,8 @@ def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
         LogsAlertCondition.of(check)
     except (KeyError, TypeError):
         return "The alert's threshold is missing from its configuration"
+    except ValueError as error:
+        return f"The alert's threshold is invalid: {error}"
     return None
 
 
