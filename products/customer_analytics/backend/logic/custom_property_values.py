@@ -8,12 +8,13 @@ Called by facade/api.py. Do not call from outside this module.
 import math
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, TypeVar
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.exceptions_capture import capture_exception
@@ -31,6 +32,7 @@ from products.customer_analytics.backend.models import (
 from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
 
 CoercedValue = float | bool | str | datetime
+_Row = TypeVar("_Row")
 _LINK_VALIDATOR = URLValidator(schemes=["http", "https"])
 
 
@@ -174,12 +176,12 @@ def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timest
         defaults={"display_type": DisplayType.DATETIME},
     )
     for _attempt in range(_LAST_SLACK_MESSAGE_WRITE_ATTEMPTS):
-        current = (
+        current_values = (
             CustomPropertyValue.objects.for_team(team_id)
             .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
             .values_list("value_datetime", flat=True)
-            .first()
         )
+        current = _first_active(current_values)
         if current is not None and timestamp - current < MIN_INTERVAL_BETWEEN_LAST_SLACK_MESSAGE_WRITES:
             return False
         try:
@@ -203,10 +205,10 @@ def set_synced_custom_property_value(
     if value is None:
         return _clear_value(team_id=team_id, account_id=account_id, definition=definition)
     _, coerced = _coerce_to_column(definition, value)
-    current = (
-        CustomPropertyValue.objects.for_team(team_id)
-        .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
-        .first()
+    current = _first_active(
+        CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id=account_id, definition_id=definition.id, is_deleted=False
+        )
     )
     if current is not None:
         current.definition = definition
@@ -239,7 +241,7 @@ def _set_value(
             active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
                 account_id=account_id, definition_id=definition.id, is_deleted=False
             )
-            previous_row = active_rows.first()
+            previous_row = _first_active(active_rows)
             active_rows.update(is_deleted=True)
             row = CustomPropertyValue.objects.for_team(team_id).create(
                 team_id=team_id,
@@ -279,7 +281,7 @@ def _clear_value(
         active_rows = CustomPropertyValue.objects.for_team(team_id).filter(
             account_id=account_id, definition_id=definition.id, is_deleted=False
         )
-        previous_row = active_rows.first()
+        previous_row = _first_active(active_rows)
         if previous_row is None:
             return False
         cleared_rows = active_rows.filter(id=previous_row.id).update(is_deleted=True)
@@ -297,6 +299,12 @@ def _clear_value(
             workflow_id=workflow_id,
         )
     return True
+
+
+def _first_active(queryset: QuerySet[CustomPropertyValue, _Row]) -> _Row | None:
+    # `.first()` adds ORDER BY id, which lets Postgres walk the pkey through soft-deleted rows.
+    # The partial unique constraint allows at most one active row, so no order is needed.
+    return next(iter(queryset[:1]), None)
 
 
 def _schedule_value_changed_event(
