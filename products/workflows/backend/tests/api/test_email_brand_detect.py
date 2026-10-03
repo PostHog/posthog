@@ -16,6 +16,7 @@ from rest_framework import status
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, Team
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import Integration
 
 BRAND_DETECTION_FLAG = "workflows-brand-detection"
@@ -89,6 +90,7 @@ class FakeGitHub:
     status_overrides: dict[str, int] = field(default_factory=dict)
     override_headers: dict[str, str] = field(default_factory=dict)
     token_refresh_status: int = status.HTTP_201_CREATED
+    times_out_on: str | None = None
     shed: bool = False
     calls: list[dict] = field(default_factory=list)
 
@@ -99,6 +101,8 @@ class FakeGitHub:
         path = url.removeprefix("https://api.github.com")
         if path.startswith("/app/installations/"):
             return self._token_refresh()
+        if self.times_out_on and self.times_out_on in path:
+            raise requests.ConnectTimeout("invented timeout")
         for fragment, status_code in self.status_overrides.items():
             if fragment in path:
                 return _response(status_code, {"message": "denied"}, self.override_headers)
@@ -273,6 +277,23 @@ class TestEmailBrandDetectAPI(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert response.json()["code"] == expected_code
+
+    @parameterized.expand(
+        [
+            ("GitHub times out", {"times_out_on": "/git/blobs/"}),
+            ("token refresh fails for a moment", {"status_overrides": {"/repos/": 401}, "token_refresh_status": 502}),
+        ]
+    )
+    def test_reports_busy_for_a_passing_failure_after_the_installation_came_back(self, _flag, _name, fake_state):
+        self.integration.config = {**self.integration.config, INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY: 1}
+        self.integration.save()
+        for attribute, value in fake_state.items():
+            setattr(self.github, attribute, value)
+
+        response = self._detect(repository="acme/acme-web")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
+        assert response.json()["code"] == "github_busy"
 
     def test_reports_a_github_server_error_without_retrying_past_the_time_budget(self, _flag):
         self.github.status_overrides = {"/git/blobs/": 502}

@@ -6,7 +6,7 @@ from django.core.cache import cache
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.github_integration_base import GitHubInstallationUnavailable, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.workflows.backend.services.brand_detection.detector import BrandDetection, TreeEntry, detect_brand
@@ -56,11 +56,9 @@ def _detect(reader: "_RepositoryReader", repository: str, app_root: str | None) 
     try:
         tree = reader.tree()
         return detect_brand(repository_name=repository, tree=tree, read_text=reader.read_text, app_root=app_root)
-    except GitHubIntegrationError as error:
-        if reader.installation_unavailable():
-            raise GitHubDisconnected() from error
-        raise GitHubBusy() from error
-    except (GitHubEgressBudgetExhausted, GitHubRateLimitError) as error:
+    except GitHubInstallationUnavailable as error:
+        raise GitHubDisconnected() from error
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
         raise GitHubBusy() from error
 
 
@@ -87,9 +85,6 @@ class _RepositoryReader:
         blobs = [entry for entry in tree.get("tree", []) if isinstance(entry, dict) and entry.get("type") == "blob"]
         self._blob_shas = {entry["path"]: entry["sha"] for entry in blobs}
         return [TreeEntry(path=entry["path"], size=int(entry.get("size") or 0)) for entry in blobs]
-
-    def installation_unavailable(self) -> bool:
-        return self._github.installation_unavailable()
 
     def read_text(self, path: str) -> str | None:
         if time.monotonic() > self._deadline:

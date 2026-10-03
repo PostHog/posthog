@@ -165,6 +165,11 @@ class GitHubIntegrationError(Exception):
         self.status_code = status_code
 
 
+class GitHubInstallationUnavailable(GitHubIntegrationError):
+    """GitHub refused to mint an installation token because the installation is gone (uninstalled or
+    suspended). Unlike other integration failures, retrying does not help: the user must reconnect."""
+
+
 def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
     """Postgres ``column || patch``: a top-level key merge performed by the database.
 
@@ -499,17 +504,13 @@ class GitHubIntegrationBase:
             data = response.json()
         except ValueError:
             self._on_token_refresh_failed(response)
-            raise GitHubIntegrationError(
-                f"Non-JSON response when refreshing installation token: {response.text[:500]}",
-                status_code=response.status_code,
+            raise self._token_refresh_error(
+                response, f"Non-JSON response when refreshing installation token: {response.text[:500]}"
             ) from None
 
         if response.status_code != 201 or not data.get("token"):
             self._on_token_refresh_failed(response)
-            raise GitHubIntegrationError(
-                f"Failed to refresh installation token: {response.text}",
-                status_code=response.status_code,
-            )
+            raise self._token_refresh_error(response, f"Failed to refresh installation token: {response.text}")
 
         if "expires_at" not in data:
             raise Exception("GitHub API response missing expires_at field")
@@ -541,6 +542,14 @@ class GitHubIntegrationBase:
         }
         self._on_token_refreshed()
         self.integration.save()
+
+    def _token_refresh_error(self, response: requests.Response, message: str) -> GitHubIntegrationError:
+        error_type = (
+            GitHubInstallationUnavailable
+            if self._installation_permanently_unavailable(response)
+            else GitHubIntegrationError
+        )
+        return error_type(message, status_code=response.status_code)
 
     def mint_scoped_installation_token(
         self,
@@ -2938,6 +2947,8 @@ class GitHubIntegrationBase:
             if response.status_code == 401 and attempt == 0:
                 try:
                     self.refresh_access_token()
+                except GitHubInstallationUnavailable:
+                    raise
                 except Exception as exc:
                     raise GitHubIntegrationError(
                         f"GitHubIntegration: token refresh after 401 failed on {path}"
