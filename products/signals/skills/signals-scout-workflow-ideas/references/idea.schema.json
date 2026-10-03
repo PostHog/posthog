@@ -1,0 +1,82 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Workflow idea record",
+    "description": "One workflow or broadcast this project does not have yet and arguably should, recorded so the idea can be judged before anyone builds a review surface for it. Subject is `idea:<slug>`.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "idea_schema_version",
+        "idea_kind",
+        "idea_title",
+        "audience",
+        "trigger_kind",
+        "trigger_name",
+        "message_outline",
+        "reach_people",
+        "window_days",
+        "existing_coverage",
+        "confidence"
+    ],
+    "properties": {
+        "idea_schema_version": {
+            "const": "1",
+            "description": "Definition version. Charts filter on it, so bump it when a field's meaning changes."
+        },
+        "idea_kind": {
+            "enum": ["workflow", "broadcast"],
+            "description": "A workflow fires per person on a trigger. A broadcast goes to an audience once."
+        },
+        "idea_title": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "What a person would name this workflow in the list."
+        },
+        "audience": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "Who it reaches, in terms this project can filter on: an event, a property, a cohort, a group. Not a persona."
+        },
+        "trigger_kind": {
+            "enum": ["event", "schedule", "batch"],
+            "description": "What starts it. `event` fires per person, `schedule` on a cadence, `batch` over an audience once."
+        },
+        "trigger_name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The project's own event or action name, copied exactly, or the cadence for a schedule."
+        },
+        "message_outline": {
+            "type": "string",
+            "maxLength": 1200,
+            "description": "What the message says and what it asks the reader to do. Concrete enough to judge, not a finished draft."
+        },
+        "reach_people": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct people the trigger matched over the window. The denominator for whether this is worth anyone's time."
+        },
+        "window_days": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Days the reach was measured over."
+        },
+        "existing_coverage": {
+            "enum": ["none", "partial", "unknown"],
+            "description": "Whether a live workflow already messages this audience at this moment. `partial` means one exists but misses the moment or the audience."
+        },
+        "covered_by": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The workflow id already covering it, when coverage is `partial`."
+        },
+        "confidence": {
+            "enum": ["low", "medium", "high"],
+            "description": "How sure the scout is that this is worth building, given reach, coverage and how cleanly the trigger reads."
+        },
+        "why_now": {
+            "type": "string",
+            "maxLength": 600,
+            "description": "What in the data makes this worth doing now rather than any other week."
+        }
+    }
+}
