@@ -141,9 +141,9 @@ export interface taskRunArtifactsLogicValues {
 export interface taskRunArtifactsLogicActions {
     loadTaskRunsSuccess: (
         runs: TaskRun[],
-        payload?: any
+        payload?: void | undefined
     ) => {
-        payload?: any
+        payload?: void | undefined
         runs: TaskRun[]
     } // taskDetailSceneLogic
     cancelEditing: () => {
