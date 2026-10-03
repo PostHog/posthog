@@ -6,7 +6,7 @@ Use this reference to decide where code belongs before editing it.
 
 | Layer                       | Location                                                     | Owns                                                                                                                                       |
 | --------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Pure lifecycle decisions    | `products/alerts/backend/facade/lifecycle.py`                | State transitions, policy decisions, and notification actions                                                                              |
+| Pure lifecycle decisions    | `products/alerts_platform/backend/facade/lifecycle.py`       | State transitions, policy decisions, and notification actions                                                                              |
 | Shared alert door           | `products/alerts/backend/facade/`                            | Contracts, constants, scheduling math, delivery SLOs, and insight alert reads and writes. Other products call it                           |
 | Shared alert implementation | `products/alerts/backend/logic/`                             | Destination configuration and persistence, internal-event delivery, and email transport. Only the facade calls it                          |
 | Insight alert evaluation    | `products/alerts/backend/evaluation/`                        | Insight query extraction, comparison, and breach formatting. Core still drives it directly                                                 |
@@ -50,7 +50,7 @@ Read [frontend-alerting.md](frontend-alerting.md) before adding or extending a p
 
 ## Lifecycle contract
 
-`products/alerts/backend/facade/lifecycle.py` is pure Python.
+`products/alerts_platform/backend/facade/lifecycle.py` is pure Python.
 
 - `CheckInput` normalizes one product evaluation.
 - `AlertSnapshot` contains only fields needed for lifecycle decisions.
@@ -111,7 +111,7 @@ Email callers use `send_alert_email(...)` from `products.alerts.backend.facade.e
 
 ## Scheduling contract
 
-`products/alerts/backend/facade/scheduling.py` is pure Python and owns reusable scheduling math:
+`products/alerts_platform/backend/facade/scheduling.py` is pure Python and owns reusable scheduling math:
 
 - `compute_shard_offset_seconds(...)` deterministically assigns a UUID-keyed alert to scheduler ticks.
 - `advance_next_check_at(...)` advances from the prior schedule, skips missed intervals, snaps to the midnight-anchored cadence grid, and applies the shard offset.
