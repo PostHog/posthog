@@ -1785,6 +1785,15 @@ class TestIntegrationAPIKeyAccess:
             (
                 "post",
                 "domain-connect/apply-url/",
+                {"context": "email", "integration_id": "{twilio_id}"},
+                "integration:write",
+                OrganizationMembership.Level.ADMIN,
+                404,
+                {"detail": "No email sender with this integration_id exists in this project."},
+            ),
+            (
+                "post",
+                "domain-connect/apply-url/",
                 {"context": "proxy", "proxy_record_id": "6f1c1a52-3b7e-4c1e-9d0a-2f4b8e6c9a10"},
                 "integration:write",
                 OrganizationMembership.Level.ADMIN,
@@ -1887,7 +1896,10 @@ class TestIntegrationAPIKeyAccess:
         PersonalAPIKey.objects.create(
             label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=[scope]
         )
+        ids = {"{email_id}": email_integration.id, "{twilio_id}": self.twilio_integration.id}
         path = url_suffix.format(email_id=email_integration.id, twilio_id=self.twilio_integration.id)
+        if body is not None:
+            body = {key: ids.get(value, value) if isinstance(value, str) else value for key, value in body.items()}
 
         response = getattr(client, method)(
             f"/api/environments/{self.team.pk}/integrations/{path}",
