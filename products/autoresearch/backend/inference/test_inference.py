@@ -53,6 +53,11 @@ _STUB_ROWS = [
     {"distinct_id": "user-1", "events_total_30d": 50, "days_since_last_seen": 2},
     {"distinct_id": "user-2", "events_total_30d": 10, "days_since_last_seen": 15},
 ]
+_REFUSED_CONNECTION_ERROR = (
+    "HTTPConnectionPool(host='capture.example.com', port=8010): Max retries exceeded with url: "
+    "/i/v1/analytics/events (Caused by NewConnectionError('<urllib3.connection.HTTPConnection "
+    "object at 0x7f0000000000>: Failed to establish a new connection: [Errno 111] Connection refused'))"
+)
 
 
 def _accepted(events: list[dict]) -> CaptureInternalResult:
@@ -195,13 +200,26 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("transport_failure", Exception("capture unavailable"), None),
+            ("transport_failure", Exception("capture unavailable"), None, "capture unavailable"),
+            (
+                "transport_error_result",
+                None,
+                lambda events: CaptureInternalResult(
+                    status_code=0,
+                    error={"error": "transport_error", "error_description": _REFUSED_CONNECTION_ERROR},
+                    unaccounted=[event["event_uuid"] for event in events],
+                ),
+                "transport_error: HTTPConnectionPool(host='capture.example.com', port=8010): Max retries exceeded "
+                "with url: /i/v1/an... object at 0x7f0000000000>: Failed to establish a new connection: "
+                "[Errno 111] Connection refused')))",
+            ),
             (
                 "one_event_dropped",
                 None,
                 lambda events: CaptureInternalResult(
                     status_code=200, ok=[events[0]["event_uuid"]], dropped=[events[1]["event_uuid"]]
                 ),
+                "1 dropped",
             ),
             (
                 "one_event_stored_with_a_warning",
@@ -212,20 +230,22 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
                     warnings=[events[1]["event_uuid"]],
                     results={events[1]["event_uuid"]: {"result": "warning", "message": "person processing disabled"}},
                 ),
+                "person processing disabled",
             ),
         ]
     )
-    def test_any_emit_failure_fails_the_run(self, _name, side_effect, result_for):
+    def test_any_emit_failure_fails_the_run(self, _name, side_effect, result_for, expected_message):
         # Completing with a partial batch advanced last_scored_at past the people who never
         # received their prediction; the deterministic UUIDs make a full replay safe instead.
         pipeline, model = self._make_pipeline_and_model()
         capture = MagicMock(side_effect=side_effect or (lambda **kwargs: result_for(kwargs["events"])))
 
-        with self.assertRaises(InferenceRunError):
+        with self.assertRaisesMessage(InferenceRunError, expected_message):
             self._run_live(pipeline, model, capture)
 
         run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
         assert run.status == AutoresearchRun.Status.FAILED
+        assert expected_message in run.error
         pipeline.refresh_from_db()
         assert pipeline.last_scored_at is None
 
