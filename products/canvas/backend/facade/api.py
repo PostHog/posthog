@@ -1,9 +1,4 @@
-from products.canvas.backend.artifacts import (
-    ARTIFACT_PERMISSIONS_POLICY as ARTIFACT_PERMISSIONS_POLICY,
-    artifact_delivery_origin as artifact_delivery_origin,
-    create_canvas_sandbox_document_url as create_canvas_sandbox_document_url,
-    require_artifact_host as require_artifact_host,
-)
+from products.canvas.backend.artifacts import create_canvas_sandbox_document_url as create_canvas_sandbox_document_url
 from products.canvas.backend.connectors import (
     ConnectorCallStatus as ConnectorCallStatus,
     ConnectorKind as ConnectorKind,

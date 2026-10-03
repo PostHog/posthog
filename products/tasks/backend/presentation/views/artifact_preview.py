@@ -12,7 +12,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.csp_middleware import app_frame_ancestor_sources
 
-from products.canvas.backend.facade.api import (
+from products.canvas.backend.artifacts import (
     ARTIFACT_PERMISSIONS_POLICY,
     artifact_delivery_origin,
     require_artifact_host,

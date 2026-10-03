@@ -1004,9 +1004,6 @@ layer = "modules"
 [[interfaces]]
 expose = [
     "backend\\.routes.*",
-    "backend\\.facade\\.api\\.ARTIFACT_PERMISSIONS_POLICY",
-    "backend\\.facade\\.api\\.artifact_delivery_origin",
-    "backend\\.facade\\.api\\.require_artifact_host",
 ]
 from = [
     "products.canvas",
