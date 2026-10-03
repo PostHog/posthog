@@ -41,18 +41,6 @@ class RouterMode(StrEnum):
 # joins the queue only when it is likely to start within it.
 MAX_WAIT_SECONDS = 5.0
 
-
-@frozen
-class PoolBounds:
-    floor: int
-    ceiling: int
-
-    def __post_init__(self) -> None:
-        # With a ceiling of 0 no class may start a query, so every enforced query would wait and drop.
-        if not 0 < self.floor <= self.ceiling:
-            raise ValueError(f"need 0 < floor <= ceiling, got floor={self.floor} and ceiling={self.ceiling}")
-
-
 # The rank of a waiter is query_class * RANK_CLASS_MULTIPLIER + first-seen epoch milliseconds, so a
 # higher class always sorts first and equal classes sort by arrival. The multiplier must stay above
 # any epoch-millisecond value and the sum below 2^53, the largest integer a Redis score keeps exact.
@@ -74,16 +62,6 @@ ARRIVALS_WINDOW_MS = 5_000
 # estimate is rough, and a query that waits its full time and is dropped holds a worker for nothing, so the
 # router refuses a doubtful query on arrival instead.
 QUEUE_WAIT_MARGIN = 0.5
-
-# The controller rewrites the limit every second. The expiry makes admission fall back to the pool
-# ceiling when the controller stops.
-LIMIT_TTL_SECONDS = 15
-
-CONTROLLER_LEADER_KEY = "query_router:controller:leader"
-
-# Epoch seconds of the last load read that reached every node of the cluster, or of the first partial
-# read when no read has reached every node.
-CONTROLLER_LAST_COMPLETE_SAMPLE_KEY = "query_router:controller:last_complete_sample"
 
 
 def _key(pool: Pool, suffix: str) -> str:
@@ -112,23 +90,11 @@ def arrivals_key(pool: Pool) -> str:
     return _key(pool, "arrivals")
 
 
-def limit_key(pool: Pool) -> str:
-    return _key(pool, "limit")
-
-
-def load_key(pool: Pool) -> str:
-    return _key(pool, "load")
-
-
-def limit_updated_key(pool: Pool) -> str:
-    return _key(pool, "limit_updated")
-
-
 @frozen
 class _RouterSettings:
     mode: RouterMode
     enforced: frozenset[tuple[Pool, QueryClass]]
-    bounds: Mapping[Pool, PoolBounds]
+    limits: Mapping[Pool, int]
 
 
 def _enforced_pairs(raw: str) -> frozenset[tuple[Pool, QueryClass]]:
@@ -141,20 +107,19 @@ def _enforced_pairs(raw: str) -> frozenset[tuple[Pool, QueryClass]]:
     return frozenset(pairs)
 
 
-def _bounds_from(values: Mapping[str, Any]) -> dict[Pool, PoolBounds]:
-    return {
-        pool: PoolBounds(
-            floor=int(values[f"QUERY_ROUTER_{pool.name}_FLOOR"]),
-            ceiling=int(values[f"QUERY_ROUTER_{pool.name}_CEILING"]),
-        )
-        for pool in Pool
-    }
+def _limits_from(values: Mapping[str, Any]) -> dict[Pool, int]:
+    limits = {pool: int(values[f"QUERY_ROUTER_{pool.name}_LIMIT"]) for pool in Pool}
+    for pool, limit in limits.items():
+        # With a limit of 0 no query may start, so every enforced query would wait and drop.
+        if limit <= 0:
+            raise ValueError(f"QUERY_ROUTER_{pool.name}_LIMIT must be positive, got {limit}")
+    return limits
 
 
 _SETTING_KEYS = [
     "QUERY_ROUTER_MODE",
     "QUERY_ROUTER_ENFORCE",
-    *(f"QUERY_ROUTER_{pool.name}_{bound}" for pool in Pool for bound in ("FLOOR", "CEILING")),
+    *(f"QUERY_ROUTER_{pool.name}_LIMIT" for pool in Pool),
 ]
 
 
@@ -170,28 +135,28 @@ def _load_settings(_minute: int) -> _RouterSettings:
     try:
         values = get_instance_settings(_SETTING_KEYS)
         mode = RouterMode(values["QUERY_ROUTER_MODE"])
-        bounds = _bounds_from(values)
+        limits = _limits_from(values)
         try:
             enforced = _enforced_pairs(values["QUERY_ROUTER_ENFORCE"])
         except ValueError:
             # A mistyped enforce list stops enforcement but keeps the router counting.
             logger.warning("query_router_enforce_setting_invalid", value=values["QUERY_ROUTER_ENFORCE"])
             enforced = frozenset()
-        return _RouterSettings(mode=mode, enforced=enforced, bounds=bounds)
+        return _RouterSettings(mode=mode, enforced=enforced, limits=limits)
     except Exception:
         # The settings table does not exist during the first Postgres migrations, and a mistyped
         # value must not take queries down. Both cases turn the router off.
         logger.warning("query_router_settings_unreadable", exc_info=True)
         defaults = {key: CONSTANCE_CONFIG[key][0] for key in _SETTING_KEYS}
-        return _RouterSettings(mode=RouterMode.OFF, enforced=frozenset(), bounds=_bounds_from(defaults))
+        return _RouterSettings(mode=RouterMode.OFF, enforced=frozenset(), limits=_limits_from(defaults))
 
 
 def _settings() -> _RouterSettings:
     return _load_settings(int(time.time() // 60))
 
 
-def get_pool_bounds(pool: Pool) -> PoolBounds:
-    return _settings().bounds[pool]
+def get_pool_limit(pool: Pool) -> int:
+    return _settings().limits[pool]
 
 
 def get_global_mode() -> RouterMode:

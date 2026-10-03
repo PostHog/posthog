@@ -337,24 +337,14 @@ CONSTANCE_CONFIG = {
         "Comma-separated pool:class pairs the query router enforces when QUERY_ROUTER_MODE is 'enforce', for example 'offline:4,offline:3'. Pools: offline, online. Classes: 1 interactive, 2 API, 3 async, 4 background.",
         str,
     ),
-    "QUERY_ROUTER_OFFLINE_CEILING": (
-        get_from_env("QUERY_ROUTER_OFFLINE_CEILING", 400, type_cast=int),
-        "Highest number of concurrent queries the query router admits to the offline ClickHouse nodes. Also the limit in use when the controller is not running.",
+    "QUERY_ROUTER_OFFLINE_LIMIT": (
+        get_from_env("QUERY_ROUTER_OFFLINE_LIMIT", 100, type_cast=int),
+        "Number of queries the query router lets run at once on the offline ClickHouse nodes. Above it, a query waits briefly in class order or is refused.",
         int,
     ),
-    "QUERY_ROUTER_OFFLINE_FLOOR": (
-        get_from_env("QUERY_ROUTER_OFFLINE_FLOOR", 80, type_cast=int),
-        "Lowest value the query router controller may reduce the offline limit to under load.",
-        int,
-    ),
-    "QUERY_ROUTER_ONLINE_CEILING": (
-        get_from_env("QUERY_ROUTER_ONLINE_CEILING", 600, type_cast=int),
-        "Highest number of concurrent queries the query router admits to the online ClickHouse nodes. Also the limit in use when the controller is not running.",
-        int,
-    ),
-    "QUERY_ROUTER_ONLINE_FLOOR": (
-        get_from_env("QUERY_ROUTER_ONLINE_FLOOR", 150, type_cast=int),
-        "Lowest value the query router controller may reduce the online limit to under load.",
+    "QUERY_ROUTER_ONLINE_LIMIT": (
+        get_from_env("QUERY_ROUTER_ONLINE_LIMIT", 600, type_cast=int),
+        "Number of queries the query router lets run at once on the online ClickHouse nodes. Above it, a query waits briefly in class order or is refused.",
         int,
     ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
@@ -504,10 +494,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_HEDGED_APP_QUERIES",
     "QUERY_ROUTER_MODE",
     "QUERY_ROUTER_ENFORCE",
-    "QUERY_ROUTER_OFFLINE_CEILING",
-    "QUERY_ROUTER_OFFLINE_FLOOR",
-    "QUERY_ROUTER_ONLINE_CEILING",
-    "QUERY_ROUTER_ONLINE_FLOOR",
+    "QUERY_ROUTER_OFFLINE_LIMIT",
+    "QUERY_ROUTER_ONLINE_LIMIT",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",

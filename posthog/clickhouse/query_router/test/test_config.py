@@ -5,15 +5,13 @@ import pytest
 from unittest.mock import patch
 
 from posthog.clickhouse.query_router import config
-from posthog.clickhouse.query_router.config import Pool, PoolBounds, QueryClass, RouterMode
+from posthog.clickhouse.query_router.config import Pool, QueryClass, RouterMode
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "QUERY_ROUTER_MODE": "enforce",
     "QUERY_ROUTER_ENFORCE": "offline:4",
-    "QUERY_ROUTER_OFFLINE_FLOOR": 10,
-    "QUERY_ROUTER_OFFLINE_CEILING": 20,
-    "QUERY_ROUTER_ONLINE_FLOOR": 30,
-    "QUERY_ROUTER_ONLINE_CEILING": 40,
+    "QUERY_ROUTER_OFFLINE_LIMIT": 20,
+    "QUERY_ROUTER_ONLINE_LIMIT": 40,
 }
 
 
@@ -30,7 +28,7 @@ def test_enforce_applies_only_to_the_listed_pool_and_class() -> None:
         assert config.get_mode(Pool.OFFLINE, QueryClass.BACKGROUND) == RouterMode.ENFORCE
         assert config.get_mode(Pool.OFFLINE, QueryClass.API) == RouterMode.OBSERVE
         assert config.get_mode(Pool.ONLINE, QueryClass.BACKGROUND) == RouterMode.OBSERVE
-        assert config.get_pool_bounds(Pool.ONLINE) == PoolBounds(floor=30, ceiling=40)
+        assert config.get_pool_limit(Pool.ONLINE) == 40
 
 
 @pytest.mark.parametrize(
@@ -41,12 +39,7 @@ def test_enforce_applies_only_to_the_listed_pool_and_class() -> None:
             {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_MODE": "enforced"}}, RouterMode.OFF, id="mistyped mode"
         ),
         pytest.param(
-            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_OFFLINE_CEILING": 0}}, RouterMode.OFF, id="zero ceiling"
-        ),
-        pytest.param(
-            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ONLINE_FLOOR": 50}},
-            RouterMode.OFF,
-            id="floor above ceiling",
+            {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_OFFLINE_LIMIT": 0}}, RouterMode.OFF, id="zero limit"
         ),
         pytest.param(
             {"return_value": {**DEFAULT_SETTINGS, "QUERY_ROUTER_ENFORCE": "offline"}},

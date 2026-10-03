@@ -26,7 +26,6 @@ class TestClassify(SimpleTestCase):
     @parameterized.expand(
         [
             *[(f"exempt_user_{user.value}", QueryTags(kind="request"), user, None) for user in EXEMPT_USERS],
-            ("router_load_poll", QueryTags(kind="request", feature=Feature.QUERY_ROUTER), ClickHouseUser.DEFAULT, None),
             (
                 "query_task_for_a_person_in_the_app",
                 QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID),

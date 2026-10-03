@@ -27,7 +27,6 @@ from posthog.clickhouse.query_router.config import (
     RouterMode,
     arrivals_key,
     durations_key,
-    limit_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -58,6 +57,14 @@ WAIT_SECONDS_HISTOGRAM = Histogram(
     buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30),
 )
 
+# How full the pool is when queries arrive, which is what an operator compares with the limit setting.
+RUNNING_HISTOGRAM = Histogram(
+    "posthog_query_router_running",
+    "Queries holding a slot in the pool when a routed query arrived.",
+    labelnames=["pool"],
+    buckets=(10, 25, 50, 75, 100, 125, 150, 200, 300, 400, 600),
+)
+
 _BASE_POLL_DELAY_SECONDS = 0.05
 # Stays well under STALE_WAITER_MS, so a waiter deep in the queue is never taken for gone between polls.
 _MAX_POLL_DELAY_SECONDS = 1.0
@@ -80,17 +87,17 @@ _REDIS_TIMEOUT_SECONDS = 1.0
 _RETRY_AFTER_SECONDS = (3, 8)
 
 # KEYS[1] to KEYS[4] are the running sets in class order, so KEYS[my_class] is the caller's own set.
-# KEYS[5] is waiting, KEYS[6] is waiting_seen, KEYS[7] is the limit, KEYS[8] is durations and KEYS[9]
-# is arrivals. A rank arrives as a string and goes to Redis unchanged, and the script builds rank
-# bounds with string.format('%.0f'), because Lua numbers are doubles and Lua prints a large number in
-# scientific notation.
+# KEYS[5] is waiting, KEYS[6] is waiting_seen, KEYS[7] is durations and KEYS[8] is arrivals. A rank
+# arrives as a string and goes to Redis unchanged, and the script builds rank bounds with
+# string.format('%.0f'), because Lua numbers are doubles and Lua prints a large number in scientific
+# notation.
 _TRY_ENTER_LUA = """
 local now = tonumber(ARGV[1])
 local slot = ARGV[2]
 local my_class = tonumber(ARGV[3])
 local rank = ARGV[4]
 local rank_class_multiplier = tonumber(ARGV[5])
-local ceiling = ARGV[6]
+local limit = tonumber(ARGV[6])
 local ttl_ms = tonumber(ARGV[7])
 local stale_ms = tonumber(ARGV[8])
 local enforcing = ARGV[9] == '1'
@@ -99,8 +106,8 @@ local window_ms = tonumber(ARGV[11])
 local wait_budget_ms = tonumber(ARGV[12])
 local waiting = KEYS[5]
 local waiting_seen = KEYS[6]
-local durations = KEYS[8]
-local arrivals = KEYS[9]
+local durations = KEYS[7]
+local arrivals = KEYS[8]
 
 local function rank_of(query_class, ms)
     return string.format('%.0f', query_class * rank_class_multiplier + ms)
@@ -123,8 +130,6 @@ if first_attempt then
     end
     redis.call('ZADD', arrivals, rank, slot)
 end
-
-local limit = tonumber(redis.call('GET', KEYS[7]) or ceiling)
 
 local total = 0
 for i = 1, 4 do
@@ -206,7 +211,7 @@ class AdmissionOutcome(StrEnum):
     DROPPED_WAIT_TIMEOUT = "dropped_wait_timeout"
     # The pool drained too slowly for the query to start well within its class's max wait.
     DROPPED_ON_ARRIVAL = "dropped_on_arrival"
-    # Redis or the pool bounds failed, so the query runs without a slot.
+    # Redis or the limit setting failed, so the query runs without a slot.
     ERROR = "error"
 
 
@@ -334,13 +339,12 @@ class QueryRouter:
         except RedisError:
             self._record_slot_error("release")
 
-    def _try_enter(self, slot: _Slot, *, rank: int, ceiling: int, enforcing: bool, first_attempt: bool) -> _Reply:
+    def _try_enter(self, slot: _Slot, *, rank: int, limit: int, enforcing: bool, first_attempt: bool) -> _Reply:
         answer, total, limit, ahead = self._try_enter_script(
             keys=[
                 *(running_key(slot.pool, query_class) for query_class in QueryClass),
                 waiting_key(slot.pool),
                 waiting_seen_key(slot.pool),
-                limit_key(slot.pool),
                 durations_key(slot.pool),
                 arrivals_key(slot.pool),
             ],
@@ -350,7 +354,7 @@ class QueryRouter:
                 int(slot.query_class),
                 rank,
                 RANK_CLASS_MULTIPLIER,
-                ceiling,
+                limit,
                 _SLOT_TTL_SECONDS * 1000,
                 STALE_WAITER_MS,
                 int(enforcing),
@@ -361,13 +365,13 @@ class QueryRouter:
         )
         return _Reply(answer=_Answer(answer.decode()), total=int(total), limit=int(limit), ahead=int(ahead))
 
-    def _poll(self, slot: _Slot, *, enforcing: bool, ceiling: int, started_at: float) -> _Decision:
+    def _poll(self, slot: _Slot, *, enforcing: bool, limit: int, started_at: float) -> _Decision:
         deadline = started_at + MAX_WAIT_SECONDS
         # The rank keeps the first poll's time, so a waiter keeps its place in the queue on every poll.
         rank = int(slot.query_class) * RANK_CLASS_MULTIPLIER + int(started_at * 1000)
         queued = False
         while True:
-            reply = self._try_enter(slot, rank=rank, ceiling=ceiling, enforcing=enforcing, first_attempt=not queued)
+            reply = self._try_enter(slot, rank=rank, limit=limit, enforcing=enforcing, first_attempt=not queued)
             if reply.answer == _Answer.ADMITTED:
                 outcome = AdmissionOutcome.ADMITTED_AFTER_WAIT if queued else AdmissionOutcome.ADMITTED
                 return _Decision(outcome=outcome, reply=reply, queued=queued)
@@ -394,13 +398,13 @@ class QueryRouter:
     def _enter(self, slot: _Slot, *, enforcing: bool) -> Admission:
         started_at = self.get_time()
         try:
-            ceiling = config.get_pool_bounds(slot.pool).ceiling
+            limit = config.get_pool_limit(slot.pool)
         except Exception:
             # A malformed or unreadable instance setting must not fail every query.
             return self._fail_open(slot, started_at)
 
         try:
-            decision = self._poll(slot, enforcing=enforcing, ceiling=ceiling, started_at=started_at)
+            decision = self._poll(slot, enforcing=enforcing, limit=limit, started_at=started_at)
         except RedisError:
             admission = self._fail_open(slot, started_at)
             # The script may have added the slot before its reply was lost. Without this removal the
@@ -421,6 +425,7 @@ class QueryRouter:
             query_class=_class_label(slot.query_class),
             outcome=decision.outcome.value,
         ).inc()
+        RUNNING_HISTOGRAM.labels(pool=slot.pool.value).observe(decision.reply.total)
         if decision.queued:
             WAIT_SECONDS_HISTOGRAM.labels(pool=slot.pool.value, query_class=_class_label(slot.query_class)).observe(
                 waited_ms / 1000

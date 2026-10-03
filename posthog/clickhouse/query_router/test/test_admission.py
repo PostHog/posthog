@@ -23,12 +23,10 @@ from posthog.clickhouse.query_router.config import (
     MAX_WAIT_SECONDS,
     STALE_WAITER_MS,
     Pool,
-    PoolBounds,
     QueryClass,
     RouterMode,
     arrivals_key,
     durations_key,
-    limit_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -107,9 +105,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
         self.redis = get_client()
         self.router = QueryRouter(redis_client=self.redis, get_time=self.clock.time, sleep=self.clock.sleep)
         self.get_mode = self._start_patch("posthog.clickhouse.query_router.config.get_mode", RouterMode.ENFORCE)
-        self.get_pool_bounds = self._start_patch(
-            "posthog.clickhouse.query_router.config.get_pool_bounds", PoolBounds(floor=1, ceiling=SMALL_LIMIT)
-        )
+        self.get_pool_limit = self._start_patch("posthog.clickhouse.query_router.config.get_pool_limit", SMALL_LIMIT)
         self.addCleanup(self._delete_router_keys)
 
     def _start_patch(self, target: str, return_value: object) -> MagicMock:
@@ -123,7 +119,6 @@ class TestQueryRouterAdmission(SimpleTestCase):
                 *(running_key(pool, query_class) for query_class in QueryClass),
                 waiting_key(pool),
                 waiting_seen_key(pool),
-                limit_key(pool),
                 durations_key(pool),
                 arrivals_key(pool),
             )
@@ -144,8 +139,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
         return self.redis.zcard(running_key(Pool.OFFLINE, query_class))
 
     def test_every_class_starts_while_the_pool_is_under_the_limit(self) -> None:
-        self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
-        self.redis.set(limit_key(Pool.OFFLINE), 10)
+        self.get_pool_limit.return_value = 10
 
         with ExitStack() as held:
             self._hold(held, 9)
@@ -263,8 +257,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
         # With a limit of 3 and three API queries running, the next query needs one freed slot. At 4 seconds
         # per query the pool frees 0.75 slots a second, enough for an API query, but the three API arrivals
         # in the window take 0.6 of those from a BACKGROUND query.
-        self.get_pool_bounds.return_value = PoolBounds(floor=1, ceiling=1000)
-        self.redis.set(limit_key(Pool.OFFLINE), 3)
+        self.get_pool_limit.return_value = 3
         if duration_seconds is not None:
             self._finish(duration_seconds)
         with ExitStack() as held:
@@ -377,7 +370,7 @@ class TestQueryRouterAdmission(SimpleTestCase):
         assert _sample_value(*admission_errors) == admission_errors_before + 1
 
         server.connected = True
-        self.get_pool_bounds.side_effect = ValueError("invalid literal for int()")
+        self.get_pool_limit.side_effect = ValueError("invalid literal for int()")
         with router.admit(pool=Pool.OFFLINE, query_class=QueryClass.API) as admission:
             assert admission.outcome == AdmissionOutcome.ERROR
 

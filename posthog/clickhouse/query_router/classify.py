@@ -40,7 +40,7 @@ def pool_for(*, workload: Workload, team_id: int | None, explicit_client: bool) 
 
 
 def classify_query(tags: QueryTags, ch_user: ClickHouseUser) -> QueryClass | None:
-    if ch_user in _EXEMPT_USERS or tags.feature == Feature.QUERY_ROUTER:
+    if ch_user in _EXEMPT_USERS:
         return None
     # The app loads most insights through the query task, which runs a request's query for a caller
     # that polls for the result. The task carries the tags of that request, so its query keeps the

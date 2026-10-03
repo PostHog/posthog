@@ -143,8 +143,6 @@ class Feature(StrEnum):
     MCP = "mcp"
     # The offline analysis of a slow query: a handful of EXPLAINs per scan slot, not per request.
     QUERY_SCAN = "query_scan"
-    # The load poll of the query router controller, which the router must never queue or drop.
-    QUERY_ROUTER = "query_router"
     SEMANTIC_SEARCH = "semantic_search"
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.

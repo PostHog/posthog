@@ -13,12 +13,10 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_router.admission import get_query_router
 from posthog.clickhouse.query_router.config import (
     Pool,
-    PoolBounds,
     QueryClass,
     RouterMode,
     arrivals_key,
     durations_key,
-    limit_key,
     running_key,
     waiting_key,
     waiting_seen_key,
@@ -81,7 +79,7 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
         self.enterContext(patch.object(router, "sleep", self.clock.sleep))
         self.get_global_mode = self._start_patch("get_global_mode", RouterMode.OBSERVE)
         self.get_mode = self._start_patch("get_mode", RouterMode.OBSERVE)
-        self._start_patch("get_pool_bounds", PoolBounds(floor=1, ceiling=SMALL_LIMIT))
+        self._start_patch("get_pool_limit", SMALL_LIMIT)
         self.ch_client = _FakeClient(self.redis)
         self.client_from_pool = self.enterContext(
             patch("posthog.clickhouse.client.execute.get_client_from_pool", return_value=self.ch_client)
@@ -96,7 +94,6 @@ class TestSyncExecuteQueryRouterHook(SimpleTestCase):
                 *(running_key(pool, query_class) for query_class in QueryClass),
                 waiting_key(pool),
                 waiting_seen_key(pool),
-                limit_key(pool),
                 durations_key(pool),
                 arrivals_key(pool),
             )
