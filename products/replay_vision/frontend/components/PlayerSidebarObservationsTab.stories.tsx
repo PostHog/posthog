@@ -12,6 +12,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { sessionFrameResponse } from '~/mocks/fixtures/sessionFrame'
 import { SessionRecordingSidebarTab } from '~/types'
 
+import { waitFor } from 'storybook/test'
+
 import {
     MEDIUM,
     MEDIUM_INACTIVE,
@@ -117,6 +119,17 @@ const meta: Meta = {
         }).url,
         waitForSelector: '[data-attr=vision-observations-tab]',
         testOptions: { waitForLoadersToDisappear: false },
+    },
+    // The player shows its controls for a moment after loading, so a snapshot taken then would flip between runs.
+    play: async () => {
+        await waitFor(
+            () => {
+                if (!document.querySelector('.PlayerSeekbar')?.closest('.invisible')) {
+                    throw new Error('The player controls are still showing')
+                }
+            },
+            { timeout: 10000 }
+        )
     },
 }
 export default meta
