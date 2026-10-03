@@ -24,6 +24,7 @@ import type {
     EstimateRequestApi,
     EstimateResponseApi,
     EvaluatePromptSuggestionRequestApi,
+    ExperimentVariantsReadoutApi,
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationSearchResponseApi,
@@ -1532,6 +1533,24 @@ export const visionScannersScoutsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scannerScoutCreateApi),
+    })
+}
+
+export const getVisionScannersVariantsListUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/variants/`
+}
+
+/**
+ * Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live.
+ */
+export const visionScannersVariantsList = async (
+    projectId: string,
+    scannerId: string,
+    options?: RequestInit
+): Promise<ExperimentVariantsReadoutApi[]> => {
+    return apiMutator<ExperimentVariantsReadoutApi[]>(getVisionScannersVariantsListUrl(projectId, scannerId), {
+        ...options,
+        method: 'GET',
     })
 }
 
