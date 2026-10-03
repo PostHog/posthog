@@ -249,6 +249,10 @@ class CurrentPromptSuggestionSerializer(serializers.Serializer):
         help_text="Maximum rated sessions one suggestion test re-runs. Each successful re-run charges "
         "credits like a normal observation of the same model."
     )
+    scanner_version = serializers.IntegerField(
+        help_text="The scanner's current version. A pending suggestion with a different `scanner_version` "
+        "is outdated and can't be applied or tested."
+    )
 
 
 class ReplayScannerPromptSuggestionViewSet(
@@ -328,6 +332,7 @@ class ReplayScannerPromptSuggestionViewSet(
             "stale": stale,
             "rated_count": self._rated_count(scanner),
             "evaluation_session_cap": EVALUATION_SESSION_CAP,
+            "scanner_version": scanner.scanner_version,
         }
         return Response(payload)
 
@@ -522,12 +527,17 @@ class ReplayScannerPromptSuggestionViewSet(
         # both see "not in flight", and the second stub save moves `started_at`, which re-keys the usage
         # receipts of the first run's still-settling sessions and charges them twice.
         with transaction.atomic():
-            # Serialize capped budget reads with the admission gate's row lock; scanner before
-            # suggestion, matching apply's lock order. `credit_limit` comes from the earlier unlocked
-            # fetch, so a limit set concurrently with this request fails open once (create_observation
-            # re-reads under the lock; the next request here sees the limit).
-            if scanner.credit_limit is not None:
-                ReplayScanner.objects.select_for_update().filter(team_id=self.team_id, pk=scanner.id).only("pk").first()
+            # Serialize capped budget reads with the admission gate's row lock, and read the current version
+            # under it so a concurrent edit can't slip past the version check; scanner before suggestion,
+            # matching apply's lock order. `credit_limit` comes from the earlier unlocked fetch, so a limit set
+            # concurrently with this request fails open once (create_observation re-reads under the lock; the
+            # next request here sees the limit).
+            current_version = (
+                ReplayScanner.objects.select_for_update()
+                .filter(team_id=self.team_id, pk=scanner.id)
+                .values_list("scanner_version", flat=True)
+                .first()
+            )
             suggestion = ReplayScannerPromptSuggestion.objects.select_for_update().get(
                 team_id=self.team_id, id=suggestion.id
             )
@@ -536,6 +546,9 @@ class ReplayScannerPromptSuggestionViewSet(
             # A test already in flight keeps reporting its state even if quota ran out meanwhile.
             if evaluation_in_flight(suggestion.evaluation):
                 return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
+            # Apply refuses this suggestion, so a test of it spends credits on a result nobody can use.
+            if suggestion.scanner_version != current_version:
+                raise ValidationError("The scanner prompt changed since this was generated. Generate a fresh one.")
             # Each re-run session charges credits like a normal observation, so refuse a test that would
             # overspend the month. An uncapped org (no credit limit) never trips this.
             planned = min(session_limit, rated_count)

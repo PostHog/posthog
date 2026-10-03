@@ -25796,6 +25796,8 @@ export namespace Schemas {
       rated_count: number;
       /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
       evaluation_session_cap: number;
+      /** The scanner's current version. A pending suggestion with a different `scanner_version` is outdated and can't be applied or tested. */
+      scanner_version: number;
     }
 
     /**

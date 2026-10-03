@@ -142,6 +142,7 @@ class TestPromptSuggestions(_VisionAPITestCase):
         fresh = self.client.get(self._suggestions_url("current/")).json()
         self.assertFalse(fresh["stale"])
         self.assertEqual(fresh["rated_count"], 1)
+        self.assertEqual(fresh["scanner_version"], fresh["suggestion"]["scanner_version"])
         self.assertIsNotNone(fresh["suggestion"])
 
         label = ReplayObservationLabel.objects.get(observation=observation)
