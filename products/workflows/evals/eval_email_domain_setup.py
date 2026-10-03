@@ -233,6 +233,7 @@ def _cases() -> list[SandboxedEvalCase]:
                 "handed_over_records_keeping_dmarc": {
                     "records": _records_reference(_without_dmarc(domain_of(EXISTING_DMARC_SENDER)))
                 },
+                "waits_for_manual_records": {},
                 "bounded_verify_polling": {"max_calls": 3},
             },
         ),
@@ -251,6 +252,7 @@ def _cases() -> list[SandboxedEvalCase]:
                 "handed_over_records_merging_spf": {
                     "records": _records_reference(_with_merged_root_spf(domain_of(EXISTING_SPF_SENDER)))
                 },
+                "waits_for_manual_records": {},
                 "bounded_verify_polling": {"max_calls": 3},
             },
         ),
@@ -264,6 +266,8 @@ def _cases() -> list[SandboxedEvalCase]:
             setup=seed_helpdesk_mx,
             expected={
                 "senders_in_project": {"senders": {MAIL_FROM_TAKEN_SENDER: {"mail_from_subdomain_not": "feedback"}}},
+                "final_message_mentions": {"values": _exact_values(domain_of(MAIL_FROM_TAKEN_SENDER))},
+                "waits_for_manual_records": {},
                 "bounded_verify_polling": {"max_calls": 3},
             },
         ),

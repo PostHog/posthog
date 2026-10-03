@@ -73,6 +73,10 @@ def _skip(name: str, reason: str) -> Score:
     return Score(name=name, score=None, metadata={"reason": reason})
 
 
+def _missing_log(name: str) -> Score:
+    return Score(name=name, score=0.0, metadata={"reason": "No raw log"})
+
+
 def read_senders(team_id: int) -> dict[str, dict[str, Any]]:
     return {
         integration.integration_id: integration.config
@@ -138,7 +142,7 @@ class AvoidedTool(Scorer):
             return _skip(self._name(), "Not applicable to this case")
         parser = _parser(output)
         if parser is None:
-            return _skip(self._name(), "No raw log")
+            return _missing_log(self._name())
         called = sorted(tool for tool in spec.get("tools", []) if _successful(parser, tool))
         return Score(name=self._name(), score=0.0 if called else 1.0, metadata={"called": called})
 
@@ -206,7 +210,7 @@ class SharedApplyUrl(Scorer):
             return _skip(self._name(), "Not applicable to this case")
         parser = _parser(output)
         if parser is None:
-            return _skip(self._name(), "No raw log")
+            return _missing_log(self._name())
         returned = {url for call in _successful(parser, APPLY_URL_TOOL) for url in APPLY_URL.findall(call.output)}
         if not returned:
             return Score(name=self._name(), score=0.0, metadata={"reason": f"No URL from a {APPLY_URL_TOOL} call"})
@@ -231,7 +235,7 @@ class BoundedVerifyPolling(Scorer):
             return _skip(self._name(), "Not applicable to this case")
         parser = _parser(output)
         if parser is None:
-            return _skip(self._name(), "No raw log")
+            return _missing_log(self._name())
         calls = len(parser.get_tool_calls(VERIFY_TOOL))
         return Score(name=self._name(), score=1.0 if calls <= spec["max_calls"] else 0.0, metadata={"calls": calls})
 

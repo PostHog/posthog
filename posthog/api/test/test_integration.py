@@ -90,6 +90,8 @@ from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.contracts import EmailDomainVerification, WorkflowSummary
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
+EMAIL_CONFIG = {"email": "hello@mail.example.com", "domain": "mail.example.com", "provider": "ses"}
+
 
 def _p256_public_pem() -> str:
     return (
@@ -1810,11 +1812,18 @@ class TestIntegrationAPIKeyAccess:
             (
                 "patch",
                 "{email_id}/email/",
-                {"config": {"email": "hello@mail.example.com", "name": "Acme", "provider": "ses"}},
+                {
+                    "config": {
+                        "email": "hello@mail.example.com",
+                        "name": "Acme",
+                        "mail_from_subdomain": "bounce",
+                        "provider": "ses",
+                    }
+                },
                 "integration:write",
                 OrganizationMembership.Level.ADMIN,
                 200,
-                {"kind": "email", "config": ANY},
+                {"kind": "email", "config": {**EMAIL_CONFIG, "name": "Acme", "mail_from_subdomain": "bounce"}},
             ),
         ],
     )
@@ -1854,7 +1863,7 @@ class TestIntegrationAPIKeyAccess:
             team=self.team,
             kind="email",
             integration_id="hello@mail.example.com",
-            config={"email": "hello@mail.example.com", "domain": "mail.example.com", "provider": "ses"},
+            config=EMAIL_CONFIG,
         )
         key_value = "test_key_email_domain"
         PersonalAPIKey.objects.create(
