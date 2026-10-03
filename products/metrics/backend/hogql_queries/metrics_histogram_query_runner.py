@@ -8,7 +8,7 @@ upper bound, cell = observation count.
 
 import datetime as dt
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from posthog.schema import (
     CachedMetricsHistogramQueryResponse,
@@ -31,7 +31,12 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
+from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
+    _QUERY_SETTINGS,
+    MetricQueryRunner,
+    _interval_step,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 
 if TYPE_CHECKING:
@@ -101,18 +106,42 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         date_range = self._query_date_range()
         date_from = date_range.date_from()
         date_to = date_range.date_to()
+        interval = self._resolve_interval(date_to - date_from)
 
-        interval = self.query.interval or _INTERVAL_LADDER[0][0]
+        runner = self._build_runner(date_from, date_to, interval)
+        results = self._execute_histogram_query(runner)
+        bounds = self._shared_bounds(results)
+
+        # The runner floors date_from onto the bucket grid in the team timezone and returns
+        # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.
+        grid_start = runner.date_from
+        step = _interval_step(interval)
+        grid_times = self._grid_times(grid_start, runner.date_to, step)
+
+        if len(bounds) * len(grid_times) > MAX_GRID_CELLS:
+            raise ExposedHogQLError(
+                f"heatmap grid would hold {len(bounds)} rows x {len(grid_times)} columns; "
+                "use a coarser interval, a narrower range, or fewer histogram bounds"
+            )
+
+        counts = self._grid_counts(results, bounds, grid_start, step, len(grid_times))
+
+        # The base response requires `results`; the heatmap grid lives in times/bounds/counts,
+        # so `results` is returned as null.
+        return MetricsHistogramQueryResponse(
+            results=None, times=grid_times, bounds=[float(b) for b in bounds], counts=counts
+        )
+
+    def _resolve_interval(self, span: dt.timedelta) -> str:
+        if self.query.interval is not None:
+            return self.query.interval or _INTERVAL_LADDER[0][0]
         # Auto-pick the finest interval that keeps the bucket count sane when not pinned.
-        if self.query.interval is None:
-            span = date_to - date_from
-            for name, step, _ in _INTERVAL_LADDER:
-                if span / step <= 100:
-                    interval = name
-                    break
-            else:
-                interval = _INTERVAL_LADDER[-1][0]
+        for name, step, _ in _INTERVAL_LADDER:
+            if span / step <= 100:
+                return name
+        return _INTERVAL_LADDER[-1][0]
 
+    def _build_runner(self, date_from: datetime, date_to: datetime, interval: str) -> MetricQueryRunner:
         filters = tuple(
             MetricFilter(
                 key=f.key,
@@ -124,7 +153,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         )
 
         try:
-            runner = build_metric_query_runner(
+            return build_metric_query_runner(
                 team=self.team,
                 metric_name=self.query.metricName,
                 aggregation="histogram_quantile",
@@ -143,6 +172,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             # errors, so a bare ValueError would surface as a 500 instead of a 400.
             raise ExposedHogQLError(str(exc)) from exc
 
+    def _execute_histogram_query(self, runner: MetricQueryRunner) -> list[Any]:
         # Reuse the per-bucket distribution query directly rather than the quantile post-processing.
         query = runner._build_histogram_query()
         response = execute_hogql_query(
@@ -156,42 +186,41 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             runner._raise_on_truncation(response.results)
         except ValueError as exc:
             raise ExposedHogQLError(str(exc)) from exc
+        return response.results
 
-        # The runner floors date_from onto the bucket grid in the team timezone and returns
-        # tz-aware bucket starts; rebuild the same grid so response rows land on columns exactly.
-        grid_start = runner.date_from
-        step = _interval_step(interval)
-
+    @staticmethod
+    def _shared_bounds(results: list[Any]) -> tuple[float, ...]:
         # Rows: (time, bounds, bounds_variants, counts). Bounds variants must agree (same rule
         # as the quantile runner) or the grid has no stable y axis.
-        distinct_bounds = {tuple(variant) for row in response.results for variant in row[2] if variant}
+        distinct_bounds = {tuple(variant) for row in results for variant in row[2] if variant}
         if len(distinct_bounds) > 1:
             raise ExposedHogQLError(
                 "histogram bounds differ across the selected time range; "
                 "narrow the query with filters so all series share one bucket layout"
             )
-        bounds = sorted(distinct_bounds)[0] if distinct_bounds else []
+        return sorted(distinct_bounds)[0] if distinct_bounds else ()
 
-        # Assemble the grid: column per time bucket, row per bound, zero-filled.
-        # `runner.date_to` is exclusive, so the last column is the bucket whose
-        # start is strictly before it — a date_to that lands exactly on a bucket
-        # boundary adds no trailing zero column. Bucket starts key the columns in
-        # ClickHouse's naive string form because weekly rows come back as dates.
+    @staticmethod
+    def _grid_times(grid_start: datetime, grid_end: datetime, step: dt.timedelta) -> list[str]:
+        # `grid_end` is exclusive, so the last column is the bucket whose start is
+        # strictly before it — a date_to that lands exactly on a bucket boundary
+        # adds no trailing zero column.
         grid_times: list[str] = []
         cursor = grid_start
-        while cursor < runner.date_to:
+        while cursor < grid_end:
             grid_times.append(cursor.isoformat())
             cursor = cursor + step
-        time_index = {_grid_time_key(grid_start + i * step): i for i in range(len(grid_times))}
+        return grid_times
 
-        if len(bounds) * len(grid_times) > MAX_GRID_CELLS:
-            raise ExposedHogQLError(
-                f"heatmap grid would hold {len(bounds)} rows x {len(grid_times)} columns; "
-                "use a coarser interval, a narrower range, or fewer histogram bounds"
-            )
-
-        counts = [[0 for _ in grid_times] for _ in bounds]
-        for row in response.results:
+    @staticmethod
+    def _grid_counts(
+        results: list[Any], bounds: tuple[float, ...], grid_start: datetime, step: dt.timedelta, column_count: int
+    ) -> list[list[int]]:
+        # Column per time bucket, row per bound, zero-filled. Bucket starts key the
+        # columns in ClickHouse's naive string form because weekly rows come back as dates.
+        time_index = {_grid_time_key(grid_start + i * step): i for i in range(column_count)}
+        counts = [[0 for _ in range(column_count)] for _ in bounds]
+        for row in results:
             time_val = row[0]
             if isinstance(time_val, datetime):
                 time_key = _grid_time_key(time_val.astimezone(grid_start.tzinfo))
@@ -206,12 +235,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             for bound_idx, bound in enumerate(row_bounds):
                 if bound_idx < len(bounds) and bounds[bound_idx] == bound and bound_idx < len(row_counts):
                     counts[bound_idx][column] += int(row_counts[bound_idx])
-
-        # The base response requires `results`; the heatmap grid lives in times/bounds/counts,
-        # so `results` is returned as null.
-        return MetricsHistogramQueryResponse(
-            results=None, times=grid_times, bounds=[float(b) for b in bounds], counts=counts
-        )
+        return counts
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         if dashboard_filter.date_from or dashboard_filter.date_to:
