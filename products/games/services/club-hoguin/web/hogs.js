@@ -151,6 +151,27 @@ export function createHogs(town, sprites, world, serverNow) {
                 hog.walk = walk
             }
         },
+        /** A new skin or hat: the sprite layers are built again in place. */
+        relook(/** @type {string} */ id, /** @type {string} */ skin, /** @type {string | null} */ hat) {
+            const hog = hogs.get(id)
+            if (!hog) {
+                return
+            }
+            hog.view = { ...hog.view, skin, hat }
+            hog.group.remove(hog.body)
+            hog.body = makeLayer()
+            hog.group.add(hog.body)
+            if (hog.hat) {
+                hog.group.remove(hog.hat)
+                hog.hat = null
+            }
+            if (hat) {
+                hog.hat = makeLayer()
+                hog.hat.position.z = 0.02
+                hog.hat.userData.frame = /** @type {any} */ (sprites.animations.get(`accessories/${hat}`))[0]
+                hog.group.add(hog.hat)
+            }
+        },
         /** @param {string} id @param {string} text @param {number} at */
         say(id, text, at) {
             const hog = hogs.get(id)

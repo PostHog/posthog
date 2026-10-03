@@ -194,6 +194,12 @@ function applyEvent(event) {
             player.bubble = event.phrase
             player.bubbleUntil = event.at + world.limits.bubbleMs
         }
+    } else if (event.kind === 'look') {
+        const player = model.players.get(event.id)
+        if (player) {
+            player.skin = event.skin
+            player.hat = event.hat
+        }
     } else if (event.kind === 'poke') {
         model.objects = event.objects
     }

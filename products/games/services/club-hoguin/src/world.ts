@@ -37,6 +37,9 @@ export const LIMITS = {
     pokeCooldownMs: 1_000,
     // The ship it button is for pressing a lot. One rocket every half second, from anyone.
     shipCooldownMs: 500,
+    // What one player can do: a burst, then this many actions a second. Moves, phrases, emotes, and uses all count.
+    actionsPerSecond: 10,
+    actionBurst: 15,
     bubbleMs: 6_000,
     emoteMs: 2_500,
     feedSize: 20,
@@ -70,6 +73,7 @@ interface Player {
     lastSayAt: number
     lastEmoteAt: number
     lastPokeAt: number
+    actions: { tokens: number; at: number }
 }
 
 export interface PlayerView {
@@ -130,6 +134,7 @@ export type WorldEventBody =
     | { kind: 'walk'; id: string; from: Point; path: Point[] }
     | { kind: 'say'; id: string; phrase: string; text: string }
     | { kind: 'emote'; id: string; emoji: string }
+    | { kind: 'look'; id: string; skin: Skin; hat: Hat | null }
     | { kind: 'poke'; id: string; objectId: ObjectId; objects: ObjectState; text: string }
 export type WorldEvent = { seq: number; at: number } & WorldEventBody
 
@@ -398,6 +403,7 @@ export class World {
             lastSayAt: -Infinity,
             lastEmoteAt: -Infinity,
             lastPokeAt: -Infinity,
+            actions: { tokens: LIMITS.actionBurst, at: now },
         }
         this.players.set(player.token, player)
         const text = this.post(now, 'join', player, `${player.name} waddled in`)
@@ -418,10 +424,28 @@ export class World {
         return { id: player.id, client: player.client }
     }
 
+    // Takes one action from the budget of the player. False when the budget is empty.
+    private spendAction(player: Player, now: number): boolean {
+        const budget = player.actions
+        budget.tokens = Math.min(
+            LIMITS.actionBurst,
+            budget.tokens + ((now - budget.at) / 1000) * LIMITS.actionsPerSecond
+        )
+        budget.at = now
+        if (budget.tokens < 1) {
+            return false
+        }
+        budget.tokens -= 1
+        return true
+    }
+
     moveTo(token: string, x: unknown, y: unknown, now: number): ActionResult {
         const player = this.players.get(token)
         if (!player) {
             return { ok: false, error: 'unknown_player' }
+        }
+        if (!this.spendAction(player, now)) {
+            return { ok: false, error: 'too_many_actions' }
         }
         if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) {
             return { ok: false, error: 'invalid_target' }
@@ -441,8 +465,29 @@ export class World {
         if (!object) {
             return { ok: false, error: 'unknown_object' }
         }
+        if (!this.spendAction(player, now)) {
+            return { ok: false, error: 'too_many_actions' }
+        }
         this.startWalk(player, findPath(player, object.stand), now)
         player.intent = object.id
+        return { ok: true }
+    }
+
+    // Changes the skin and the hat. The name and the place stay, so friends still know who this is.
+    changeLook(token: string, skin: unknown, hat: unknown, now: number): ActionResult {
+        const player = this.players.get(token)
+        if (!player) {
+            return { ok: false, error: 'unknown_player' }
+        }
+        if (!isSkin(skin) || (hat !== null && !isHat(hat))) {
+            return { ok: false, error: 'invalid_look' }
+        }
+        if (!this.spendAction(player, now)) {
+            return { ok: false, error: 'too_many_actions' }
+        }
+        player.skin = skin
+        player.hat = skin === 'default' ? hat : null
+        this.emit(now, { kind: 'look', id: player.id, skin: player.skin, hat: player.hat })
         return { ok: true }
     }
 
@@ -455,7 +500,7 @@ export class World {
         if (!phrase) {
             return { ok: false, error: 'unknown_phrase' }
         }
-        if (now - player.lastSayAt < LIMITS.sayCooldownMs) {
+        if (now - player.lastSayAt < LIMITS.sayCooldownMs || !this.spendAction(player, now)) {
             return { ok: false, error: 'cooldown' }
         }
         player.lastSayAt = now
@@ -474,7 +519,7 @@ export class World {
         if (!emote) {
             return { ok: false, error: 'unknown_emote' }
         }
-        if (now - player.lastEmoteAt < LIMITS.emoteCooldownMs) {
+        if (now - player.lastEmoteAt < LIMITS.emoteCooldownMs || !this.spendAction(player, now)) {
             return { ok: false, error: 'cooldown' }
         }
         player.lastEmoteAt = now
@@ -506,7 +551,8 @@ export class World {
         const cooldown = object.id === 'ship' ? LIMITS.shipCooldownMs : LIMITS.pokeCooldownMs
         if (
             now - player.lastPokeAt < cooldown ||
-            (object.id === 'ship' && now - this.lastShipAt < LIMITS.shipCooldownMs)
+            (object.id === 'ship' && now - this.lastShipAt < LIMITS.shipCooldownMs) ||
+            !this.spendAction(player, now)
         ) {
             return { ok: false, error: 'cooldown' }
         }

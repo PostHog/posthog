@@ -33,13 +33,14 @@ Add `?embed=1` to the URL for the embed layout, which fills the frame and drops 
 <iframe src="http://localhost:8642/?embed=1" width="720" height="520"></iframe>
 ```
 
-| Variable                      | Default                    | What it does                                 |
-| ----------------------------- | -------------------------- | -------------------------------------------- |
-| `PORT`                        | `8642`                     | The port the server listens on               |
-| `HOST`                        | `0.0.0.0`                  | The address the server binds to              |
-| `TRUSTED_PROXY_HOPS`          | `0`                        | The number of proxies in front of the server |
-| `CLUB_HOGUIN_POSTHOG_API_KEY` | not set                    | Sends usage events to PostHog when it is set |
-| `CLUB_HOGUIN_POSTHOG_HOST`    | `https://us.i.posthog.com` | The PostHog ingestion host                   |
+| Variable                      | Default                    | What it does                                                          |
+| ----------------------------- | -------------------------- | --------------------------------------------------------------------- |
+| `PORT`                        | `8642`                     | The port the server listens on                                        |
+| `HOST`                        | `0.0.0.0`                  | The address the server binds to                                       |
+| `TRUSTED_PROXY_HOPS`          | `0`                        | The number of proxies in front of the server                          |
+| `CLUB_HOGUIN_BOTS`            | `0`                        | Hedgehogs that walk around and chat on their own, for trying the town |
+| `CLUB_HOGUIN_POSTHOG_API_KEY` | not set                    | Sends usage events to PostHog when it is set                          |
+| `CLUB_HOGUIN_POSTHOG_HOST`    | `https://us.i.posthog.com` | The PostHog ingestion host                                            |
 
 The server reads the files in `web/` when it starts, so restart it after you change one.
 

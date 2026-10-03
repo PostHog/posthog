@@ -53,6 +53,7 @@ const ERROR_STATUS: Record<string, number> = {
     cooldown: 429,
     too_far: 409,
     club_full: 503,
+    too_many_actions: 429,
     too_many_from_address: 429,
 }
 
@@ -310,6 +311,15 @@ export function createClubHoguinServer({
                     body.objectId === undefined
                         ? world.moveTo(player.token, body.x, body.y, now())
                         : world.walkToUse(player.token, body.objectId, now())
+                if (!result.ok) {
+                    fail(result.error)
+                }
+                sendJson(request, response, 200, { ok: true })
+                return
+            }
+            case '/api/look': {
+                const player = requirePlayer(request)
+                const result = world.changeLook(player.token, body.skin, body.hat ?? null, now())
                 if (!result.ok) {
                     fail(result.error)
                 }

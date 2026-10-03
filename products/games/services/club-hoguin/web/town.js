@@ -830,6 +830,8 @@ export function createTown(world, canvas) {
     const flights = []
     let buttonPressedAt = -1
     let launchRocket = () => undefined
+    const MAX_ROCKETS = 6
+    const flameMaterial = glow(0xffa51f, 2.4, 3, { transparent: true, opacity: 0.9 })
     {
         const pad = new THREE.Group()
         pad.add(mesh(cylinder(1.9, 2.05, 0.3, 16), mat(0x4a5162), [0, 0.15, 0]))
@@ -896,7 +898,7 @@ export function createTown(world, canvas) {
                 } else {
                     const lift = flight.age - 0.5
                     flight.group.position.set(0, 0.3 + lift * lift * 4.5, 0)
-                    if (Math.random() < 0.6) {
+                    if (Math.random() < 0.3) {
                         puff(at(34, 15.1, Math.max(0.6, flight.group.position.y - 0.4)), 0xe8eef6, 1)
                     }
                 }
@@ -905,29 +907,26 @@ export function createTown(world, canvas) {
                     flights.splice(index, 1)
                 }
             }
+            rocketLight.intensity = flights.length > 0 ? 50 : 0
             rocket.visible = flights.every((flight) => flight.age > 0.5)
         })
         launchRocket = () => {
             buttonPressedAt = performance.now() / 1000
             const group = rocket.clone()
             group.visible = true
-            // The copy has its own flame and light, so each rocket burns on its own.
-            const ownFlame = mesh(
-                cone(0.42, 1.6, 8),
-                glow(0xffa51f, 2.4, 3, { transparent: true, opacity: 0.9 }),
-                [0, -0.2, 0],
-                {
-                    rotation: [Math.PI, 0, 0],
-                    cast: false,
-                }
-            )
+            // Every rocket shares one flame material and the pad's light. Lights are the expensive part of a
+            // scene, so a rage click never adds one. Past six rockets in the air, the oldest one is gone.
+            const ownFlame = mesh(cone(0.42, 1.6, 8), flameMaterial, [0, -0.2, 0], {
+                rotation: [Math.PI, 0, 0],
+                cast: false,
+            })
             group.add(ownFlame)
-            const light = lamp(0xffa51f, 50, 50, 16)
-            light.position.set(0, 1, 0)
-            group.add(light)
             pad.add(group)
-            flights.push({ group, flame: ownFlame, light, age: 0 })
-            puff(at(34, 15.1, 0.5), 0xe8eef6, 14)
+            flights.push({ group, flame: ownFlame, age: 0 })
+            while (flights.length > MAX_ROCKETS) {
+                pad.remove(flights.shift().group)
+            }
+            puff(at(34, 15.1, 0.5), 0xe8eef6, 8)
         }
         const counter = sign(4, 1.4, 100, () => undefined)
         counter.board.position.copy(at(30.6, 16.3, 2.4))
@@ -968,9 +967,19 @@ export function createTown(world, canvas) {
 
     /** @type {Array<{ mesh: THREE.Mesh, velocity: THREE.Vector3, life: number, maxLife: number, gravity: number, spin: number, grow: number }>} */
     const particles = []
+    // The most particles alive at once. Past that, the oldest one goes, so a rage click cannot pile them up.
+    const MAX_PARTICLES = 240
+    function keepParticleBudget() {
+        while (particles.length >= MAX_PARTICLES) {
+            const oldest = particles.shift()
+            scene.remove(oldest.mesh)
+            oldest.mesh.material.dispose()
+        }
+    }
     const particleGeometry = { puff: sphere(0.3, 0), confetti: box(0.16, 0.16, 0.03) }
     function puff(/** @type {THREE.Vector3} */ position, /** @type {number} */ color, count = 6) {
         for (let index = 0; index < count; index++) {
+            keepParticleBudget()
             const piece = mesh(
                 particleGeometry.puff,
                 new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }),
@@ -995,6 +1004,7 @@ export function createTown(world, canvas) {
     }
     function confetti(/** @type {THREE.Vector3} */ position, /** @type {number[]} */ colors, count = 36) {
         for (let index = 0; index < count; index++) {
+            keepParticleBudget()
             const piece = mesh(
                 particleGeometry.confetti,
                 new THREE.MeshBasicMaterial({ color: colors[index % colors.length], transparent: true }),

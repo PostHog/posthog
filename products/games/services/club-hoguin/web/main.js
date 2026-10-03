@@ -12,6 +12,7 @@ const LOOK_KEY = 'club-hoguin-look'
 const ERROR_MESSAGES = {
     too_far: 'Walk closer to something to use it.',
     cooldown: 'Slow down a little, hedgehog.',
+    too_many_actions: 'Slow down a little, hedgehog.',
     club_full: 'The club is full right now. Trying again soon.',
     too_many_from_address: 'Too many hedgehogs from your network are here. Close another Club Hoguin tab or pane.',
 }
@@ -241,6 +242,9 @@ function applyEvent(event) {
         case 'say':
             hogs.say(event.id, event.phrase, event.at)
             break
+        case 'look':
+            hogs.relook(event.id, event.skin, event.hat)
+            break
         case 'emote':
             showEmote(event.id, event.emoji)
             if (event.emoji === '🏳️‍🌈') {
@@ -264,6 +268,11 @@ function playPoke(entry) {
     town.playPoke(entry.objectId)
     hogs.playOnce(entry.id, 'jump')
     if (entry.objectId === 'ship') {
+        // At most three callouts at once; the oldest goes.
+        const callouts = labels.querySelectorAll('.callout')
+        if (callouts.length >= 3) {
+            callouts[0].remove()
+        }
         const launcher = hogs.hogs.get(entry.id)
         const callout = label('callout')
         callout.textContent = `🚀 ${launcher ? launcher.view.name : 'Someone'} shipped!`
@@ -588,11 +597,12 @@ function buildToolbar() {
     })
     $('enter').addEventListener('click', async () => {
         $('card').hidden = true
-        if (token && !sameLook(picked, look)) {
-            await api('POST', '/api/leave', {}).catch(() => undefined)
-            token = null
-        }
+        const changed = !sameLook(picked, look)
         look = { skin: picked.skin, hat: picked.hat ?? null }
+        if (token && changed) {
+            // A hedgehog in the town changes in place, and keeps its name.
+            void act('/api/look', look)
+        }
         try {
             window.localStorage.setItem(LOOK_KEY, JSON.stringify(look))
         } catch {

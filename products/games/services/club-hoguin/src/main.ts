@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
 import { Analytics } from './analytics.ts'
+import { Bots } from './bots.ts'
 import { FramePainter } from './frame.ts'
 import { decodePng } from './png.ts'
 import { RateLimiter } from './rate-limiter.ts'
@@ -94,7 +95,11 @@ async function main(): Promise<void> {
         serverId,
     })
 
+    const botCount = Number(process.env.CLUB_HOGUIN_BOTS ?? 0)
+    const bots = botCount > 0 ? new Bots(world, botCount, Math.random) : null
+
     setInterval(() => {
+        bots?.tick(Date.now())
         const { departed, poked } = world.tick(Date.now())
         departed.forEach((player) => trackDeparture(analytics, player))
         poked.forEach((event) => trackPoke(analytics, event))

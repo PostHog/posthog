@@ -127,6 +127,24 @@ describe('World', () => {
         expect(world.touch(first.token, 0)).not.toBeNull()
     })
 
+    it('refuses a flood of actions from one player, and takes them again as time passes', () => {
+        const world = makeWorld()
+        const { token } = join(world)
+        const results = Array.from({ length: LIMITS.actionBurst + 1 }, (_, i) => world.moveTo(token, 2 + i, 8, 0))
+        expect(results.slice(0, -1).every((result) => result.ok)).toBe(true)
+        expect(results.at(-1)).toEqual({ ok: false, error: 'too_many_actions' })
+        expect(world.moveTo(token, 20, 8, 1000 / LIMITS.actionsPerSecond + 1)).toEqual({ ok: true })
+    })
+
+    it('changes the look of a hedgehog but not its name', () => {
+        const world = makeWorld()
+        const { token, name } = join(world)
+        expect(world.changeLook(token, 'robohog', 'tophat', 0)).toEqual({ ok: true })
+        expect(world.changeLook(token, 'robohog', 'crown', 0)).toEqual({ ok: false, error: 'invalid_look' })
+        expect(world.snapshot(token, 0).you).toMatchObject({ name, skin: 'robohog', hat: null })
+        expect(world.eventsSince(1, 0)!.events).toMatchObject([{ kind: 'look', skin: 'robohog', hat: null }])
+    })
+
     it('keeps polling hedgehogs and removes idle ones', () => {
         const world = makeWorld()
         const active = join(world)
