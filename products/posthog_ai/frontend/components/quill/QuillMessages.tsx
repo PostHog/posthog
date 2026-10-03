@@ -34,6 +34,12 @@ const ASSISTANT_CODE_CLASS = cn(
     '[&_.CodeSnippet>div:first-child_svg]:!text-(--muted-foreground)'
 )
 
+// A checklist starts at the text edge like a paragraph, and its read-only boxes draw at full strength. Inside quill the checkbox's lemon accent resolves to nothing, so a ticked box takes quill's primary colour.
+const ASSISTANT_TASK_LIST_CLASS = cn(
+    '[&_ul:has(>li>.LemonCheckbox)]:!pl-0',
+    '[&_.LemonCheckbox_label]:[--box-color:var(--primary)] [&_.LemonCheckbox_svg]:!opacity-100'
+)
+
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
  * is measured against the clamped height and re-measured on resize, and the toggle only appears when the
@@ -118,7 +124,7 @@ export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item 
                         <MarkdownMessage
                             content={item.text ?? ''}
                             id={item.id}
-                            className={cn(ASSISTANT_TABLE_CLASS, ASSISTANT_CODE_CLASS)}
+                            className={cn(ASSISTANT_TABLE_CLASS, ASSISTANT_CODE_CLASS, ASSISTANT_TASK_LIST_CLASS)}
                         />
                     </ChatBubbleContent>
                 </ChatBubble>
