@@ -363,7 +363,8 @@ function ObservationsTabContent({ sessionId }: { sessionId: string }): JSX.Eleme
     }, [currentIndex, followMoments])
 
     return (
-        <div className="flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
+        // A container, so long observation text wraps at the sidebar's width instead of widening the sidebar.
+        <div className="@container flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
             {observationsLoading && observations.length === 0 ? (
                 <div className="flex items-center gap-2 text-muted p-4">
                     <Spinner /> Loading observations…
