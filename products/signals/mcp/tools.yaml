@@ -613,7 +613,14 @@ tools:
             `scout-config-create` (one skill) or `scout-config-sync` (the whole fleet), or on the coordinator's next
             tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
             findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
-            Pair with `scout-config-update` to tune them.
+            Rows are compact by default: `id`, both names, `enabled`, `status`, `pause_reason`, `emit`, the schedule,
+            `last_run_at`, and `tags`. Set `compact` to false only when you need each scout's `description`, owners,
+            output destinations, or other config details, and narrow with `search` or `tags` first on a large fleet. To
+            read the roster in pages, pass `limit` and raise `offset` by `limit` on each call; a page with fewer than
+            `limit` rows is the last page. Pair with `scout-config-update` to tune them.
+        param_overrides:
+            compact:
+                default: true
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -1334,6 +1341,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-config-list. This alias forwards to the same endpoint and will be removed.
             Call scout-config-list directly with the same arguments.'
+        param_overrides:
+            compact:
+                default: true
     signals-scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
