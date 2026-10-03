@@ -32,6 +32,7 @@ import type {
     TicketFullEmailApi,
     TicketMessageApi,
     TicketNoteCreateRequestApi,
+    TicketRemoveCcParticipantRequestApi,
     TicketReplyRequestApi,
     TicketUnreadCountResponseApi,
     TicketUpdateRequestApi,
@@ -364,6 +365,29 @@ export const conversationsTicketsNotesDestroy = async (
     return apiMutator<void>(getConversationsTicketsNotesDestroyUrl(projectId, id, messageId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getConversationsTicketsRemoveCcParticipantCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/remove_cc_participant/`
+}
+
+/**
+ * Remove an address from the ticket's Cc participants, so later replies do not copy it.
+ *
+ * Removing an address that is not a participant changes nothing and returns the ticket.
+ */
+export const conversationsTicketsRemoveCcParticipantCreate = async (
+    projectId: string,
+    id: string,
+    ticketRemoveCcParticipantRequestApi: TicketRemoveCcParticipantRequestApi,
+    options?: RequestInit
+): Promise<TicketApi> => {
+    return apiMutator<TicketApi>(getConversationsTicketsRemoveCcParticipantCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(ticketRemoveCcParticipantRequestApi),
     })
 }
 

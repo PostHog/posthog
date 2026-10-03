@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonSnack, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Resizer } from 'lib/components/Resizer/Resizer'
@@ -116,6 +116,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         fullEmailMessageId,
         composerPrefillAt,
         aiDraftApplying,
+        ccParticipantRemoving,
     } = useValues(logic)
     // The list's filters / saved view ride along in this page's query string
     // (the ticket row carries them through on navigation). Preserve them on the
@@ -141,6 +142,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadFullEmail,
         closeFullEmail,
         applyAiDraft,
+        removeCcParticipant,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -421,23 +423,27 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 ticket?.cc_participants &&
                                 ticket.cc_participants.length > 0 && (
                                     <div className="flex justify-between items-start gap-2">
-                                        <span className="text-muted-alt shrink-0">CC</span>
-                                        <span
-                                            className="text-xs truncate text-right"
-                                            title={ticket.cc_participants.join(', ')}
-                                        >
-                                            {ticket.cc_participants.join(', ')}
-                                        </span>
+                                        <span className="text-muted-alt shrink-0">Cc</span>
+                                        <div className="flex flex-wrap justify-end gap-1 min-w-0">
+                                            {ticket.cc_participants.map((address) => (
+                                                <LemonSnack
+                                                    key={address}
+                                                    className="text-xs"
+                                                    title={address}
+                                                    data-attr="ticket-cc-participant"
+                                                    onClose={
+                                                        canEditTicket && !ccParticipantRemoving
+                                                            ? () => removeCcParticipant(address)
+                                                            : undefined
+                                                    }
+                                                >
+                                                    {ccParticipantRemoving === address && <Spinner className="mr-1" />}
+                                                    {address}
+                                                </LemonSnack>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
-                            {ticket?.channel_source === 'email' && ticket?.email_to && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">To</span>
-                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
-                                        {ticket.email_to}
-                                    </span>
-                                </div>
-                            )}
                             {ticket?.channel_source === 'github' &&
                                 ticket?.github_repo &&
                                 ticket?.github_issue_number && (

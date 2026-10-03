@@ -52,6 +52,7 @@ import {
     conversationsTicketsNotesDestroy,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsRemoveCcParticipantCreate,
 } from 'products/conversations/frontend/generated/api'
 import type { PatchedTicketUpdateRequestApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
@@ -240,6 +241,7 @@ export interface supportTicketSceneLogicValues {
     aiDraftApplying: boolean
     assignee: TicketAssignee
     breadcrumbs: Breadcrumb[]
+    ccParticipantRemoving: string | null
     chatMessages: ChatMessage[]
     chatPanelWidth: (desiredSize: number | null) => number
     composerPrefillAt: number
@@ -313,6 +315,9 @@ export interface supportTicketSceneLogicActions {
     }
     deleteMessage: (messageId: string) => {
         messageId: string
+    }
+    finishRemovingCcParticipant: (ccParticipants: string[] | null) => {
+        ccParticipants: string[] | null
     }
     incrementUnreadCustomerCount: () => {
         value: true
@@ -500,6 +505,12 @@ export interface supportTicketSceneLogicActions {
         messageId: string
         rating: AiReplyFeedbackRating
     }
+    removeCcParticipant: (email: string) => {
+        email: string
+    }
+    startRemovingCcParticipant: (email: string) => {
+        email: string
+    }
     updateTicket: () => {
         value: true
     }
@@ -583,6 +594,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         incrementUnreadCustomerCount: true,
         updateTicket: true,
         setTicketUpdating: (updating: boolean) => ({ updating }),
+        removeCcParticipant: (email: string) => ({ email }),
+        startRemovingCcParticipant: (email: string) => ({ email }),
+        // Applies only the Cc list, so unsaved status, priority and tag edits stay in place.
+        finishRemovingCcParticipant: (ccParticipants: string[] | null) => ({ ccParticipants }),
 
         loadMessages: true,
         setMessages: (messages: CommentType[]) => ({ messages }),
@@ -768,6 +783,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                finishRemovingCcParticipant: (state, { ccParticipants }) =>
+                    state && ccParticipants ? { ...state, cc_participants: ccParticipants } : state,
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
@@ -778,6 +795,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 updateTicket: () => true,
                 setTicketUpdating: (_, { updating }) => updating,
                 setTicket: () => false,
+            },
+        ],
+        ccParticipantRemoving: [
+            null as string | null,
+            {
+                startRemovingCcParticipant: (_, { email }) => email,
+                finishRemovingCcParticipant: () => null,
             },
         ],
         ticketLoading: [
@@ -1614,6 +1638,40 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setMessages: ({ messages }) => {
             if (values.editingMessageId && !messages.some((m) => m.id === values.editingMessageId)) {
                 actions.cancelEditingMessage()
+            }
+        },
+        removeCcParticipant: ({ email }) => {
+            if (!values.ticket?.id || values.ccParticipantRemoving) {
+                return
+            }
+            LemonDialog.open({
+                title: `Remove ${email} from Cc?`,
+                description: 'Replies on this ticket will stop copying this address.',
+                primaryButton: {
+                    children: 'Remove',
+                    status: 'danger',
+                    onClick: () => actions.startRemovingCcParticipant(email),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        startRemovingCcParticipant: async ({ email }) => {
+            const ticketId = values.ticket?.id
+            if (!ticketId) {
+                actions.finishRemovingCcParticipant(null)
+                return
+            }
+            try {
+                const ticket = await conversationsTicketsRemoveCcParticipantCreate(
+                    String(getCurrentTeamId()),
+                    ticketId,
+                    { email }
+                )
+                actions.finishRemovingCcParticipant((ticket.cc_participants as string[] | null) ?? [])
+                lemonToast.success(`Removed ${email} from Cc`)
+            } catch {
+                actions.finishRemovingCcParticipant(null)
+                lemonToast.error(`Couldn't remove ${email} from Cc. Try again.`)
             }
         },
         deleteMessage: async ({ messageId }) => {

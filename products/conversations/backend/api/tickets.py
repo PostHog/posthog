@@ -214,6 +214,13 @@ class TicketNoteCreateRequestSerializer(TicketNoteUpdateRequestSerializer):
     )
 
 
+class TicketRemoveCcParticipantRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(
+        max_length=254,
+        help_text="Cc address to remove from the ticket. Replies stop copying it. Matching ignores case.",
+    )
+
+
 class TicketReplyRequestSerializer(serializers.Serializer):
     """Payload for posting a reply or internal note to a ticket."""
 
@@ -758,6 +765,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "note",
         "delete_note",
         "create_note",
+        "remove_cc_participant",
     ]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
@@ -1817,6 +1825,66 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             locked.save(update_fields=["deleted"])
 
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=TicketRemoveCcParticipantRequestSerializer,
+        responses={200: TicketSerializer},
+    )
+    @action(detail=True, methods=["post"])
+    def remove_cc_participant(self, request, *args, **kwargs):
+        """Remove an address from the ticket's Cc participants, so later replies do not copy it.
+
+        Removing an address that is not a participant changes nothing and returns the ticket.
+        """
+        ticket = self.get_object()
+        serializer = TicketRemoveCcParticipantRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].lower()
+
+        with transaction.atomic():
+            locked = Ticket.objects.select_for_update().only("cc_participants").get(id=ticket.id, team_id=self.team_id)
+            before = list(locked.cc_participants or [])
+            after = [addr for addr in before if addr.lower() != email]
+            if after != before:
+                locked.cc_participants = after
+                locked.save(update_fields=["cc_participants", "updated_at"])
+
+        ticket.refresh_from_db()
+        if after != before:
+            self._log_cc_participant_removal(request, ticket, before, after)
+        self._attach_persons_to_tickets([ticket])
+        return Response(self.get_serializer(ticket).data)
+
+    def _log_cc_participant_removal(self, request, ticket: Ticket, before: list[str], after: list[str]) -> None:
+        try:
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team_id,
+                user=request.user,
+                was_impersonated=is_impersonated(request),
+                item_id=str(ticket.id),
+                scope="Ticket",
+                activity="updated",
+                detail=Detail(
+                    name=f"Ticket #{ticket.ticket_number}",
+                    changes=[
+                        Change(type="Ticket", field="cc_participants", before=before, after=after, action="changed")
+                    ],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
+        try:
+            report_user_action(
+                request.user,
+                "support ticket cc participant removed",
+                {**_ticket_action_properties(ticket), "remaining_cc_count": len(after)},
+                team=self.team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e, {"ticket_id": str(ticket.id)})
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

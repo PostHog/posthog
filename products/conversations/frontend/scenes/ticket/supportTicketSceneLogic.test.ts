@@ -64,6 +64,7 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsTicketsRemoveCcParticipantCreate: jest.fn(),
 }))
 
 import api from '~/lib/api'
@@ -74,6 +75,7 @@ import {
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsRemoveCcParticipantCreate,
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
@@ -1188,5 +1190,61 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic removing a Cc participant', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const removeCcMock = conversationsTicketsRemoveCcParticipantCreate as jest.Mock
+    const emailTicket = (): Ticket =>
+        ({
+            ...makeTicket(),
+            priority: 'medium',
+            assignee: null,
+            channel_source: 'email',
+            email_from: 'customer@example.com',
+            cc_participants: ['support@example.com', 'teammate@example.com'],
+        }) as Ticket
+
+    beforeEach(async () => {
+        initKeaTests()
+        ticketGetMock.mockReset().mockResolvedValue(emailTicket())
+        removeCcMock.mockReset()
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket'])
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+    })
+
+    it('updates the Cc list and keeps unsaved edits', async () => {
+        logic.actions.setStatus('pending')
+        removeCcMock.mockResolvedValue({ ...emailTicket(), cc_participants: ['teammate@example.com'] })
+
+        await expectLogic(logic, () => {
+            logic.actions.startRemovingCcParticipant('support@example.com')
+        }).toDispatchActions(['finishRemovingCcParticipant'])
+
+        expect(removeCcMock).toHaveBeenCalledWith(expect.any(String), emailTicket().id, {
+            email: 'support@example.com',
+        })
+        expect(logic.values.ticket?.cc_participants).toEqual(['teammate@example.com'])
+        expect(logic.values.status).toBe('pending')
+        expect(logic.values.ccParticipantRemoving).toBeNull()
+    })
+
+    it('keeps the Cc list when the request fails', async () => {
+        removeCcMock.mockRejectedValue(new Error('network'))
+
+        await expectLogic(logic, () => {
+            logic.actions.startRemovingCcParticipant('support@example.com')
+        }).toDispatchActions(['finishRemovingCcParticipant'])
+
+        expect(logic.values.ticket?.cc_participants).toEqual(['support@example.com', 'teammate@example.com'])
+        expect(logic.values.ccParticipantRemoving).toBeNull()
     })
 })
