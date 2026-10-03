@@ -9,11 +9,10 @@ import { TodayReportBody } from './TodayReportBody'
 import { TodayReportLiveBody } from './TodayReportLiveBody'
 import { todayReportLogic } from './todayReportLogic'
 import { TodaySampleBanner } from './TodaySampleBanner'
-import { isSampleReportId } from './todaySampleReports'
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, reportUrl, sections, reportState } = useValues(logic)
+    const { currentReport, reportFailed, fullReportLoading, isSample } = useValues(logic)
     const { loadFullReport } = useActions(logic)
 
     if (!currentReport) {
@@ -89,15 +88,13 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
         )
     }
 
-    const bodyProps = { report: currentReport, reportState, reportUrl, sections }
-
     return (
         <div className="TodayReport Today__page" data-quill>
             <TodaySampleBanner />
-            {isSampleReportId(currentReport.id) ? (
-                <TodayReportBody {...bodyProps} live={null} />
+            {isSample ? (
+                <TodayReportBody report={currentReport} live={null} />
             ) : (
-                <TodayReportLiveBody {...bodyProps} />
+                <TodayReportLiveBody report={currentReport} />
             )}
         </div>
     )

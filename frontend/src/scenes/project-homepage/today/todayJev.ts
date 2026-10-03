@@ -3,106 +3,111 @@ import { ApiRequest } from 'lib/api'
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql } from '~/queries/utils'
 
-import {
-    EXPANSION_QUESTION,
-    READING_LABELS,
-    READING_QUESTION,
-    TodayKeyClause,
-    TodayKeyClauseRequest,
-    clauseRoleInput,
-    expansionFor,
-    expansionInput,
-    marksWorthShowing,
-    readingGuide,
-    reportSentences,
-    textClauses,
-} from './todayKeyClauses'
+export interface JevPick {
+    label: string
+    probability: number
+}
 
-const TAGS = { scene: 'TodayReport', name: 'today_report_cause' }
+export interface JevClient {
+    choice: (items: string[], question: string, labels: string[]) => Promise<(JevPick | null)[]>
+    yes: (items: string[], question: string) => Promise<(number | null)[]>
+}
 
 type ChoiceCell = [string, [string, number][], number] | null
 
-function asPick(cell: ChoiceCell): { label: string; probability: number } | null {
+interface SavedAnswers {
+    at: number
+    answers: unknown[]
+}
+
+const TAGS = { scene: 'TodayReport', name: 'today_report_jev' }
+const STORE_KEY = 'today-jev-answers'
+const MAX_SAVED = 100
+
+function hash(text: string): string {
+    let value = 5381
+    for (let index = 0; index < text.length; index++) {
+        value = ((value << 5) + value + text.charCodeAt(index)) | 0
+    }
+    return (value >>> 0).toString(36)
+}
+
+function savedAnswers(): Record<string, SavedAnswers> {
+    try {
+        return JSON.parse(localStorage.getItem(STORE_KEY) ?? '{}')
+    } catch {
+        return {}
+    }
+}
+
+function saveAnswers(key: string, answers: unknown[]): void {
+    const newestFirst = Object.entries({ ...savedAnswers(), [key]: { at: Date.now(), answers } }).sort(
+        (first, second) => second[1].at - first[1].at
+    )
+    try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(Object.fromEntries(newestFirst.slice(0, MAX_SAVED))))
+    } catch {
+        return
+    }
+}
+
+const pending = new Map<string, Promise<unknown[]>>()
+
+async function remembered<T>(parts: string[], ask: () => Promise<T[]>): Promise<T[]> {
+    const key = hash(parts.join('\u0000'))
+    const saved = savedAnswers()[key]
+    if (saved) {
+        return saved.answers as T[]
+    }
+    if (!pending.has(key)) {
+        pending.set(
+            key,
+            ask()
+                .then((answers) => {
+                    saveAnswers(key, answers)
+                    return answers
+                })
+                .finally(() => pending.delete(key))
+        )
+    }
+    return (await pending.get(key)) as T[]
+}
+
+async function answersFor<T>(items: string[], query: HogQLQueryString): Promise<(T | null)[]> {
+    const response: HogQLQueryResponse<[string, T][]> = await new ApiRequest().query().create({
+        data: { query: { kind: NodeKind.HogQLQuery, query, tags: TAGS } },
+    })
+    const byItem = new Map(response.results)
+    return items.map((item) => byItem.get(item) ?? null)
+}
+
+function asPick(cell: ChoiceCell): JevPick | null {
     return cell && typeof cell[0] === 'string' && typeof cell[2] === 'number'
         ? { label: cell[0], probability: cell[2] }
         : null
 }
 
-async function runHogQL<T>(query: HogQLQueryString): Promise<T[]> {
-    const response: HogQLQueryResponse<T[]> = await new ApiRequest().query().create({
-        data: { query: { kind: NodeKind.HogQLQuery, query, tags: TAGS } },
-    })
-    return response.results
+async function askChoice(items: string[], question: string, labels: string[]): Promise<(JevPick | null)[]> {
+    const cells = await answersFor<ChoiceCell>(
+        items,
+        hogql`SELECT item, jev(item, ${question}, choice := ${labels}, batch_size := 1) AS answer FROM (SELECT arrayJoin(${items}) AS item) LIMIT ${items.length}`
+    )
+    return cells.map(asPick)
 }
 
-async function withExpansions(marks: TodayKeyClause[], sentences: string[]): Promise<TodayKeyClause[]> {
-    if (!marks.length || !sentences.length) {
-        return marks
-    }
-    const inputs = marks.flatMap((mark) => sentences.map((sentence) => expansionInput(mark, sentence)))
-    const rows = await runHogQL<[string, number | null]>(
-        hogql`SELECT item, jev(item, ${EXPANSION_QUESTION}, noul := ['true', 'false'], batch_size := 1) AS answer FROM (SELECT arrayJoin(${inputs}) AS item) LIMIT 400`
+async function askYes(items: string[], question: string): Promise<(number | null)[]> {
+    const answers = await answersFor<number>(
+        items,
+        hogql`SELECT item, jev(item, ${question}, noul := ['true', 'false'], batch_size := 1) AS answer FROM (SELECT arrayJoin(${items}) AS item) LIMIT ${items.length}`
     )
-    const byInput = new Map(rows.map(([input, probability]) => [input, probability]))
-    return marks.map((mark) => ({
-        ...mark,
-        expansion: expansionFor(
-            sentences,
-            sentences.map((sentence) => byInput.get(expansionInput(mark, sentence)) ?? null)
-        ),
-    }))
+    return answers.map((answer) => (typeof answer === 'number' ? answer : null))
 }
 
-/**
- * Asks Jev what each clause of each text tells the reader and keeps the surest clause for each role, then asks
- * which of the report's own sentences explain each kept clause, so its card can quote them.
- */
-export async function fetchKeyClauses(
-    requests: TodayKeyClauseRequest[],
-    summary: string
-): Promise<Record<string, TodayKeyClause[]>> {
-    const prepared = requests.map((request) => ({ ...request, clauses: textClauses(request.text) }))
-    const inputs = prepared.flatMap((request) => request.clauses.map((clause) => clauseRoleInput(request.text, clause)))
-    if (!inputs.length) {
-        return Object.fromEntries(requests.map((request) => [request.text, []]))
-    }
-    const rows = await runHogQL<[string, ChoiceCell]>(
-        hogql`SELECT item, jev(item, ${READING_QUESTION}, choice := ${READING_LABELS}, batch_size := 1) AS answer FROM (SELECT arrayJoin(${inputs}) AS item) LIMIT 400`
-    )
-    const roleByInput = new Map(rows.map(([input, cell]) => [input, asPick(cell)]))
-    const guides = prepared.map((request) =>
-        readingGuide(
-            request.clauses,
-            request.roles,
-            request.clauses.map((clause) => roleByInput.get(clauseRoleInput(request.text, clause)) ?? null)
-        )
-    )
-    const sentences = reportSentences(
-        summary,
-        requests.map((request) => request.text)
-    )
-    const expanded = await withExpansions(guides.flat(), sentences)
-    const shown = marksWorthShowing(expanded)
-    let next = 0
-    return Object.fromEntries(
-        prepared.map((request, index) => [
-            request.text,
-            guides[index].map(() => expanded[next++]).filter((mark) => shown.has(mark)),
-        ])
-    )
-}
-
-const EXCERPT_QUESTION = 'Which numbered code excerpt shows the code that the finding describes?'
-const EXCERPT_LABELS = ['1', '2', '3', '4', '5']
-const MIN_EXCERPT_PROBABILITY = 0.5
-
-/** Asks Jev which of several places in a file shows what a finding describes. */
-export async function fetchExcerptChoice(finding: string, excerpts: string[]): Promise<number | null> {
-    const input = `Finding:\n${finding}\n\n${excerpts.map((excerpt, index) => `Code excerpt ${index + 1}:\n${excerpt}`).join('\n\n')}`
-    const [row] = await runHogQL<[string, ChoiceCell]>(
-        hogql`SELECT item, jev(item, ${EXCERPT_QUESTION}, choice := ${EXCERPT_LABELS}, batch_size := 1) AS answer FROM (SELECT arrayJoin(${[input]}) AS item) LIMIT 1`
-    )
-    const pick = row ? asPick(row[1]) : null
-    const index = pick ? Number(pick.label) - 1 : -1
-    return pick && pick.probability >= MIN_EXCERPT_PROBABILITY && index >= 0 && index < excerpts.length ? index : null
+export const jev: JevClient = {
+    choice: async (items, question, labels) =>
+        items.length
+            ? remembered(['choice', question, ...labels, ...items], () => askChoice(items, question, labels))
+            : [],
+    yes: async (items, question) =>
+        items.length ? remembered(['yes', question, ...items], () => askYes(items, question)) : [],
 }

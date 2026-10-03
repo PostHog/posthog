@@ -1,162 +1,53 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import {
-    IconChevronDown,
-    IconClock,
-    IconCode,
-    IconCopy,
-    IconLogomark,
-    IconPullRequest,
-    IconSearch,
-    IconSparkles,
-} from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-    Text,
-} from '@posthog/quill'
+import { IconClock, IconPullRequest, IconSparkles } from '@posthog/icons'
+import { Text } from '@posthog/quill'
 
-import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { Composer } from 'products/posthog_ai/frontend/api/primitives'
-import { buildReportImplementationPrompt } from 'products/signals/frontend/inbox/components/detail/buildReportImplementationPrompt'
-import { IMPLEMENTATION_AGENTS } from 'products/signals/frontend/inbox/components/detail/implementationAgents'
-import {
-    InboxQuestionSource,
-    captureInboxReportAction,
-    discussQuestionProperties,
-} from 'products/signals/frontend/inbox/inboxAnalytics'
-import { inboxTaskKickoffLogic, isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import type { ReportTaskEntry } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
+import { captureInboxReportAction, discussQuestionProperties } from 'products/signals/frontend/inbox/inboxAnalytics'
+import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import type {
+    ImplementationSlotClaim,
+    ReportTaskEntry,
+} from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { parsePrUrlParts } from 'products/signals/frontend/inbox/utils/reportPresentation'
-import type { BriefingItemStateEnumApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayActionButton } from './TodayActionButton'
+import { TodayImplementMenu } from './TodayImplementMenu'
 import { todayLogic } from './todayLogic'
-import {
-    TodayNextStep,
-    buildReportInvestigationPrompt,
-    inFlightPullRequest,
-    pullRequestsIn,
-    reportWorkKind,
-    todayReportSections,
-} from './todayReportPresentation'
-import { isSampleReportId } from './todaySampleReports'
+import { startDisabledReason, todayNextStep } from './todayNextStep'
+import { todayReportLogic } from './todayReportLogic'
 
-const AGENTS = IMPLEMENTATION_AGENTS.filter((agent) => agent.key !== 'posthog-code')
 const SAMPLE_REASON = 'Sample reports can’t start work. Turn off sample reports to use a real one.'
-
-type PrimaryAction =
-    | { kind: 'review'; url: string; label: string }
-    | { kind: 'open_task'; label: string }
-    | { kind: 'start' }
-    | null
-
-function reviewLabel(url: string, draft: boolean): string {
-    const number = parsePrUrlParts(url)?.number
-    const name = draft ? 'draft PR' : 'PR'
-    return number ? `Review ${name} #${number}` : `Review ${name}`
-}
-
-function pickedUp(date: string | null): string {
-    return date ? ` on ${dayjs(date).format('D MMM')}` : ''
-}
-
-function withPullRequest(report: SignalReport, note: string): { primary: PrimaryAction; note: string } {
-    const pullRequest = inFlightPullRequest(report)
-    return {
-        primary: pullRequest
-            ? { kind: 'review', url: pullRequest.url, label: `View PR #${pullRequest.number}` }
-            : { kind: 'start' },
-        note,
-    }
-}
-
-function decide(
-    step: TodayNextStep,
-    report: SignalReport,
-    hasRun: boolean
-): { primary: PrimaryAction; note: string | null } {
-    switch (step.kind) {
-        case 'review_pr':
-            return {
-                primary: { kind: 'review', url: step.url, label: reviewLabel(step.url, step.state === 'draft') },
-                note:
-                    step.reviewDecision === 'approved'
-                        ? 'Approved and ready to merge.'
-                        : step.reviewDecision === 'changes_requested'
-                          ? 'A reviewer asked for changes.'
-                          : null,
-            }
-        case 'merged':
-            return { primary: null, note: 'The fix is merged. Resolve the report once it is live.' }
-        case 'task_running': {
-            if (hasRun) {
-                return { primary: { kind: 'open_task', label: 'Open the running task' }, note: null }
-            }
-            return withPullRequest(report, `A PostHog task picked this up${pickedUp(step.since)}.`)
-        }
-        case 'claimed':
-            return withPullRequest(report, `${step.by} picked this up${pickedUp(step.since)}.`)
-        case 'already_addressed': {
-            const pullRequest = inFlightPullRequest(report)
-            return pullRequest
-                ? {
-                      primary: { kind: 'review', url: pullRequest.url, label: `View PR #${pullRequest.number}` },
-                      note: null,
-                  }
-                : {
-                      primary: null,
-                      note:
-                          pullRequestsIn(todayReportSections(report.summary).proposal, report.repo_slug).size > 0
-                              ? null
-                              : 'A fix is already in flight. The full report links to it.',
-                  }
-        }
-        case 'needs_input':
-        case 'start':
-            return { primary: { kind: 'start' }, note: null }
-    }
-}
 
 export function TodayReportNextStep({
     report,
-    reportState,
-    reportUrl,
     reportTaskToOpen,
-    step,
+    slotClaim,
 }: {
     report: SignalReport
-    reportState: BriefingItemStateEnumApi
-    reportUrl: string
     reportTaskToOpen: ReportTaskEntry | null
-    step: TodayNextStep
+    slotClaim: ImplementationSlotClaim | null
 }): JSX.Element | null {
     const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { openReportTask } = useActions(inboxTaskKickoffLogic)
+    const { reportState, reportUrl, isSample, sections } = useValues(todayReportLogic({ reportId: report.id }))
     const { askingAi } = useValues(todayLogic)
     const { askAi } = useActions(todayLogic)
     const [composerOpen, setComposerOpen] = useState(false)
     const [draft, setDraft] = useState('')
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
-    const isSample = isSampleReportId(report.id)
     const sampleReason = isSample ? SAMPLE_REASON : null
     const task = reportTaskToOpen?.task
-    const run = task?.latest_run
-    const { primary, note } = decide(step, report, !!(task && run))
-    const workKind = reportWorkKind(report)
-    const workPrompt =
-        workKind === 'implement'
-            ? buildReportImplementationPrompt(report, reportUrl)
-            : buildReportInvestigationPrompt(report, reportUrl)
+    const runningTask = task?.latest_run ? { taskId: task.id, runId: task.latest_run.id } : null
+    const { primary, note, pickedUp } = todayNextStep(report, {
+        proposal: sections.proposal,
+        slotClaimed: slotClaim !== null,
+        hasRun: runningTask !== null,
+    })
 
     if (reportState !== 'open') {
         return null
@@ -165,11 +56,7 @@ export function TodayReportNextStep({
     const askDisabledReason = isSample
         ? 'Sample reports can’t start a chat. Turn off sample reports to ask about a real one.'
         : null
-    const startDisabledReason =
-        sampleReason ??
-        (step.kind === 'task_running' || step.kind === 'claimed' ? 'A task already picked this up.' : null) ??
-        (!isActionCapableReport(report) ? 'This report can’t start work. Ask about it instead.' : null) ??
-        createPrDisabledReason
+    const startReason = startDisabledReason(report, pickedUp, createPrDisabledReason)
 
     const openComposer = (text: string): void => {
         setComposerOpen(true)
@@ -181,27 +68,17 @@ export function TodayReportNextStep({
         })
     }
 
-    const ask = (question: string, source: InboxQuestionSource): void => {
-        if (!question || askDisabledReason || askingAi) {
+    const ask = (question: string): void => {
+        if (!question || askingAi) {
             return
         }
         captureInboxReportAction({
             report,
             actionType: 'discuss',
             surface: 'today',
-            extra: discussQuestionProperties({ source, suggestionCount: 0 }),
+            extra: discussQuestionProperties({ source: 'typed', suggestionCount: 0 }),
         })
         askAi(question, 'report_page', report)
-    }
-
-    const runPrompt = (agentKey: string, send: (prompt: string) => void): void => {
-        captureInboxReportAction({
-            report,
-            actionType: 'copy_implementation_prompt',
-            surface: 'today',
-            extra: { agent: agentKey },
-        })
-        send(workPrompt)
     }
 
     return (
@@ -220,11 +97,11 @@ export function TodayReportNextStep({
                         {primary.label}
                     </TodayActionButton>
                 )}
-                {primary?.kind === 'open_task' && task && run && (
+                {primary?.kind === 'open_task' && runningTask && (
                     <TodayActionButton
                         variant="primary"
                         className="me-1"
-                        onClick={() => openReportTask(report, task.id, run.id)}
+                        onClick={() => openReportTask(report, runningTask.taskId, runningTask.runId)}
                         data-attr="today-report-open-task"
                     >
                         <IconClock />
@@ -232,60 +109,13 @@ export function TodayReportNextStep({
                     </TodayActionButton>
                 )}
                 {primary?.kind === 'start' && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger
-                            render={
-                                <Button
-                                    variant="primary"
-                                    disabled={isSample}
-                                    className="me-1 gap-1.5"
-                                    data-attr="today-report-implement-with"
-                                >
-                                    {workKind === 'implement' ? <IconCode /> : <IconSearch />}
-                                    {workKind === 'implement' ? 'Implement with' : 'Investigate with'}
-                                    <IconChevronDown />
-                                </Button>
-                            }
-                        />
-                        <DropdownMenuContent align="start" className="TodayMenu w-52">
-                            <DropdownMenuItem
-                                onClick={() => openComposer(workPrompt)}
-                                disabled={!!startDisabledReason}
-                                title={startDisabledReason ?? undefined}
-                                data-attr="today-report-start-task"
-                            >
-                                <IconLogomark className="size-4" />
-                                PostHog
-                            </DropdownMenuItem>
-                            {AGENTS.map((agent) => (
-                                <DropdownMenuItem
-                                    key={agent.key}
-                                    onClick={() =>
-                                        runPrompt(agent.key, (prompt) =>
-                                            window.open(agent.buildDeepLink(prompt), '_blank')
-                                        )
-                                    }
-                                    data-attr={`today-report-open-${agent.key}`}
-                                >
-                                    {agent.icon}
-                                    {agent.name}
-                                </DropdownMenuItem>
-                            ))}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                onClick={() =>
-                                    runPrompt(
-                                        'clipboard',
-                                        (prompt) => void copyToClipboard(prompt, 'prompt for your agent')
-                                    )
-                                }
-                                data-attr="today-report-copy-prompt"
-                            >
-                                <IconCopy className="size-4" />
-                                Copy prompt
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <TodayImplementMenu
+                        report={report}
+                        reportUrl={reportUrl}
+                        disabled={isSample}
+                        postHogDisabledReason={startReason}
+                        onStartWithPostHog={openComposer}
+                    />
                 )}
                 <TodayActionButton
                     className={primary ? undefined : '-ms-2'}
@@ -308,11 +138,10 @@ export function TodayReportNextStep({
                     value={draft}
                     onChange={setDraft}
                     onSubmit={() => {
-                        ask(draft.trim(), 'typed')
+                        ask(draft.trim())
                         setDraft('')
                     }}
                     textAreaRef={textAreaRef}
-                    disabledReason={askDisabledReason ?? undefined}
                     loading={askingAi}
                     disabled={askingAi}
                 >

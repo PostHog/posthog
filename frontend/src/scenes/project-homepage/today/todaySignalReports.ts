@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 
 import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
 
-import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 export type TodayReportIcon =
@@ -72,13 +72,6 @@ const FALLBACK_SOURCE: TodayReportSource = {
     icon: 'signal',
 }
 
-/** Questions that only ask for an answer, so they are safe to offer on any report. */
-export const GENERAL_REPORT_PROMPTS = [
-    'Why is this happening?',
-    'Who is affected, and how badly?',
-    'What would you look at first?',
-]
-
 export function reportTitle(report: Pick<SignalReport, 'title'>): string {
     return report.title?.trim() || 'Untitled report'
 }
@@ -128,17 +121,7 @@ export function reportMeta(report: Pick<SignalReport, 'source_products' | 'updat
     return `${reportSource(report).label} · ${dayjs(report.updated_at).fromNow()}`
 }
 
-/**
- * The prompts offered under a report. The report's own suggestions can ask for action, so they are
- * offered only where the Inbox offers them too. Every other report gets questions that only ask for
- * an answer.
- */
-export function reportPrompts(report: SignalReport): string[] {
-    const suggested = isActionCapableReport(report) ? (report.suggested_prompts ?? []) : []
-    return suggested.length ? suggested : GENERAL_REPORT_PROMPTS
-}
-
-function lowerFirst(text: string): string {
+export function lowerFirst(text: string): string {
     // Keep acronyms such as "API" or "LLM" as they are.
     return /^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text
 }
@@ -162,4 +145,57 @@ export function briefingForReports(reports: SignalReport[]): TodayBriefingSegmen
         ])
     }
     return paragraphs
+}
+
+const SHOWN_SOURCES = 2
+const SOURCE_LINE_CHARS = 32
+
+const PROPER_WORDS: Record<string, string> = {
+    ai: 'AI',
+    api: 'API',
+    github: 'GitHub',
+    llm: 'LLM',
+    mcp: 'MCP',
+    posthog: 'PostHog',
+    pr: 'PR',
+    sql: 'SQL',
+    ui: 'UI',
+    ux: 'UX',
+}
+
+export function scoutLabel(skillName: string | null | undefined): string | null {
+    const name = scoutDisplayName(skillName)
+    if (!name) {
+        return null
+    }
+    const words = name.split(' ').map((word) => PROPER_WORDS[word.toLowerCase()] ?? word)
+    return `${words.join(' ').replace(/\b(self) (driving)\b/i, '$1-$2')} scout`
+}
+
+export function priorityBadgeVariant(priority: string | null | undefined): 'destructive' | 'warning' | 'default' {
+    if (priority === 'P0' || priority === 'P1') {
+        return 'destructive'
+    }
+    return priority === 'P2' ? 'warning' : 'default'
+}
+
+export function reportSourceLine(report: Pick<SignalReport, 'source_products' | 'scout_name'>): {
+    line: string
+    title: string
+} {
+    const scout = scoutLabel(report.scout_name)
+    const labels = [
+        ...new Set(
+            (report.source_products ?? []).map((source) =>
+                source === 'signals_scout' ? (scout ?? 'Scout') : sourceStyle(source).label
+            )
+        ),
+    ]
+    if (labels.length === 0) {
+        return { line: scout ?? sourceStyle(null).label, title: '' }
+    }
+    const count = labels.slice(0, SHOWN_SOURCES).join(', ').length > SOURCE_LINE_CHARS ? 1 : SHOWN_SOURCES
+    const shown = labels.slice(0, count).join(', ')
+    const rest = labels.length - count
+    return { line: rest > 0 ? `${shown} +${rest}` : shown, title: labels.join(', ') }
 }

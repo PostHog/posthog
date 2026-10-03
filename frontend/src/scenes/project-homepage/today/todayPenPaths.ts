@@ -29,17 +29,17 @@ function smooth(points: Point[]): string {
 function strokePass(next: () => number, from: number, to: number, height: number): string {
     const tilt = (next() - 0.6) * 2.4
     const wave = (next() - 0.5) * 2.2
+    const waves = [0, wave, -wave, 0]
     const points = [0, 0.33, 0.66, 1].map(
         (progress, index): Point => [
             from + (to - from) * progress,
-            height + tilt * (progress - 0.5) + (index === 1 ? wave : index === 2 ? -wave : 0) + (next() - 0.5) * 0.6,
+            height + tilt * (progress - 0.5) + waves[index] + (next() - 0.5) * 0.6,
         ]
     )
     const [start, first, second, end] = points.map(format)
     return `M${start} C${first} ${second} ${end}`
 }
 
-/** Two quick passes of a pen under a word, in a 100 × 10 box. The seed keeps a word's stroke the same on every render. */
 export function underlinePaths(seed: string): [string, string] {
     const next = random(seed)
     return [
@@ -48,14 +48,11 @@ export function underlinePaths(seed: string): [string, string] {
     ]
 }
 
-// Just below 1 the loop rounds like a pen ellipse but keeps enough side room to clear the first and last letters.
 const LOOP_SQUARENESS = 0.85
 
-/** A loop drawn around a word, in a 100 × 100 box, that overshoots its start the way a hand does. */
 export function circlePath(seed: string): string {
     const next = random(`${seed}-circle`)
     const start = -2.5 + (next() - 0.5) * 0.4
-    // A hand closes the loop past where it started, so the stroke overlaps itself at the top left.
     const sweep = Math.PI * 2 * (1.12 + next() * 0.05)
     const tilt = (next() - 0.5) * 0.08
     const steps = 32

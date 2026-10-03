@@ -1,157 +1,105 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useActions } from 'kea'
+import { useMemo, useState } from 'react'
 
-import { IconArrowRight, IconChevronDown, IconExternal, IconPlay } from '@posthog/icons'
-import { Button, Item, ItemActions, ItemContent, ItemTitle, Text, cn } from '@posthog/quill'
+import { IconChevronDown, IconExternal, IconPlay } from '@posthog/icons'
+import { Item, ItemActions, ItemContent, ItemTitle, Text, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { urls } from 'scenes/urls'
 
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { TodayEvidencePreview } from './TodayEvidencePreview'
+import { TodaySignalDestination, citedSource, signalDestination } from './todayEvidence'
+import { TodayEvidenceDetail } from './TodayEvidenceDetail'
 import { TodayIcon } from './TodayIcon'
-import { codeFileKey, todayReportLogic } from './todayReportLogic'
-import {
-    TodayCodeExcerpt,
-    codeIdentifiers,
-    scoutLabel,
-    signalCodeFile,
-    signalDestination,
-    signalHeadline,
-    signalMeta,
-    signalReading,
-    signalSlackThread,
-} from './todayReportPresentation'
-import { chooseCodeExcerpt, signalPreview } from './todaySignalPreview'
+import { shortDate } from './todayProse'
+import { todayReportLogic } from './todayReportLogic'
+import { TodaySignalPreview, signalPreview } from './todaySignalPreview'
 import { sourceStyle } from './todaySignalReports'
+import { signalHeadline, signalMeta, signalDetail, signalSourceLabel } from './todaySignalText'
 
-const PLAYER_LEAD_IN_MS = 5000
-const NO_CANDIDATES: TodayCodeExcerpt[] = []
+const EXPAND: TodaySignalDestination = { kind: 'read' }
 
-export function TodayReportSignalRow({
-    reportId,
-    signal,
-    showSource,
-}: {
-    reportId: string
-    signal: SignalNodeApi
-    showSource: boolean
-}): JSX.Element {
-    const { evidenceOpened, loadCodeFile, chooseExcerpt } = useActions(todayReportLogic({ reportId }))
-    const { codeFiles, excerptChoices, jevEnabled } = useValues(todayReportLogic({ reportId }))
+interface RowHint {
+    label: string
+    icon: JSX.Element
+}
+
+function rowHint(
+    action: TodaySignalDestination,
+    preview: TodaySignalPreview | null,
+    expanded: boolean
+): RowHint | null {
+    if (action.kind === 'recording') {
+        return { label: 'Play', icon: <IconPlay /> }
+    }
+    if (action.kind === 'link') {
+        return { label: action.label, icon: <IconExternal /> }
+    }
+    if (!preview) {
+        return null
+    }
+    return {
+        label: expanded ? 'Close' : preview.hint,
+        icon: <IconChevronDown className={cn('transition-transform duration-200', expanded && 'rotate-180')} />,
+    }
+}
+
+function rowElement(action: TodaySignalDestination, hint: RowHint | null, expanded: boolean): JSX.Element {
+    if (action.kind === 'link') {
+        return <LinkPrimitive to={action.to} target={action.external ? '_blank' : undefined} />
+    }
+    if (!hint) {
+        return <div />
+    }
+    return <button type="button" aria-expanded={action.kind === 'read' ? expanded : undefined} />
+}
+
+export function TodayReportSignalRow({ reportId, signal }: { reportId: string; signal: SignalNodeApi }): JSX.Element {
+    const { evidenceOpened, readCode } = useActions(todayReportLogic({ reportId }))
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const [reading, setReading] = useState(false)
-    const codeFile = signalCodeFile(signal)
-    const slackThread = signalSlackThread(signal)
+    const [expanded, setExpanded] = useState(false)
     const preview = useMemo(() => signalPreview(signal), [signal])
-    const destination = preview ? ({ kind: 'read' } as const) : signalDestination(signal)
-    const source = sourceStyle(signal.source_product)
-    const skill = (signal.extra as { skill_name?: unknown } | null)?.skill_name
-    const sourceLabel =
-        signal.source_product === 'signals_scout'
-            ? (scoutLabel(typeof skill === 'string' ? skill : null) ?? source.label)
-            : source.label
-    const meta = signalMeta(signal)
-    const readable = destination.kind === 'read'
+    const action = preview ? EXPAND : signalDestination(signal)
+    const hint = rowHint(action, preview, expanded)
+    const cited = citedSource(signal)
+    const sourceLabel = signalSourceLabel(signal)
     const time = dayjs(signal.timestamp)
-
-    const hint =
-        destination.kind === 'recording'
-            ? { label: 'Play', icon: <IconPlay /> }
-            : destination.kind === 'link'
-              ? { label: destination.label, icon: <IconExternal /> }
-              : readable
-                ? {
-                      label: reading ? 'Close' : (preview?.hint ?? 'Read in full'),
-                      icon: (
-                          <IconChevronDown
-                              className={cn('transition-transform duration-200', reading && 'rotate-180')}
-                          />
-                      ),
-                  }
-                : null
-
-    const render =
-        destination.kind === 'link' ? (
-            <LinkPrimitive to={destination.to} target={destination.external ? '_blank' : undefined} />
-        ) : hint ? (
-            <button type="button" aria-expanded={readable ? reading : undefined} />
-        ) : (
-            <div />
-        )
+    const detailId = `today-signal-${signal.signal_id}`
 
     const onClick = (): void => {
         if (!hint) {
             return
         }
-        evidenceOpened(signal, codeFile ? 'code' : slackThread ? 'slack' : destination.kind)
-        if (destination.kind === 'recording') {
-            openSessionPlayer(
-                { id: destination.sessionId },
-                destination.timestamp ? Math.max(destination.timestamp - PLAYER_LEAD_IN_MS, 0) : null
-            )
-        } else if (readable) {
-            if (!reading) {
-                preview?.code.forEach((file) => loadCodeFile(file))
-            }
-            setReading(!reading)
+        if (expanded) {
+            setExpanded(false)
+            return
         }
+        evidenceOpened(signal, cited ?? action.kind)
+        if (action.kind === 'recording') {
+            openSessionPlayer({ id: action.sessionId }, action.startAt)
+        }
+        if (action.kind !== 'read') {
+            return
+        }
+        if (preview?.code.length) {
+            readCode(signal, preview.code)
+        }
+        setExpanded(true)
     }
 
-    const opened = readable ? signalReading(signal) : null
-    const codeName = codeFile?.path.split('/').pop()
-    const detailId = `today-signal-${signal.signal_id}`
-    const best = useMemo(
-        () =>
-            preview?.code.length
-                ? chooseCodeExcerpt(
-                      preview.code,
-                      preview.code.map((file) => codeFiles[codeFileKey(file)]),
-                      codeIdentifiers(signal.content)
-                  )
-                : null,
-        [preview, codeFiles, signal.content]
-    )
-    const ready = best && best !== 'loading' ? best : null
-    const candidates = ready?.candidates ?? NO_CANDIDATES
-    const choiceKey = ready ? `${signal.signal_id}:${ready.file.path}` : null
-    const choice = choiceKey ? excerptChoices[choiceKey] : undefined
-    const needsChoice = jevEnabled && candidates.length > 1
-    const choiceLoading = needsChoice && (choice === undefined || choice === 'pending')
-    const askForChoice = reading && needsChoice && choice === undefined
-    const chosen =
-        ready && needsChoice
-            ? choiceLoading
-                ? 'loading'
-                : { ...ready, excerpt: candidates[typeof choice === 'number' ? choice : 0] ?? ready.excerpt }
-            : best
-
-    useEffect(() => {
-        if (askForChoice && choiceKey) {
-            chooseExcerpt(
-                choiceKey,
-                signal.content,
-                candidates.map((candidate) => candidate.lines.join('\n'))
-            )
-        }
-    }, [askForChoice, choiceKey, candidates, chooseExcerpt, signal.content])
-    const open = preview?.code.length ? (chosen === null ? preview.open : null) : (preview?.open ?? null)
-    const facts = [sourceLabel, ...(preview?.facts ?? []).filter((fact) => fact !== sourceLabel && fact !== codeName)]
-
     return (
-        <div className={cn('rounded-md transition-colors duration-150', reading && 'bg-[var(--today-soft)]')}>
+        <div className={cn('rounded-md transition-colors duration-150', expanded && 'bg-[var(--today-soft)]')}>
             <Item
                 variant="default"
                 size="sm"
-                render={render}
+                render={rowElement(action, hint, expanded)}
                 onClick={onClick}
-                aria-controls={readable ? detailId : undefined}
+                aria-controls={expanded ? detailId : undefined}
                 className={cn(
                     'group/row w-full rounded-md border-0 px-2 py-2 text-left text-foreground no-underline',
-                    reading && 'hover:bg-transparent',
+                    expanded && 'hover:bg-transparent',
                     !hint && 'cursor-default'
                 )}
                 title={hint?.label}
@@ -159,10 +107,10 @@ export function TodayReportSignalRow({
             >
                 <ItemContent className="min-w-0">
                     <ItemTitle
-                        className={cn('font-normal text-[var(--foreground)]', !reading && 'line-clamp-2')}
-                        title={[sourceLabel, meta].filter(Boolean).join(' · ')}
+                        className={cn('font-normal text-[var(--foreground)]', !expanded && 'line-clamp-2')}
+                        title={[sourceLabel, signalMeta(signal)].filter(Boolean).join(' · ')}
                     >
-                        {reading && opened ? opened.lead : signalHeadline(signal)}
+                        {expanded ? signalDetail(signal).lead : signalHeadline(signal)}
                     </ItemTitle>
                 </ItemContent>
                 <ItemActions className="shrink-0 self-start pt-0.5">
@@ -173,11 +121,9 @@ export function TodayReportSignalRow({
                         className="flex items-center gap-2 whitespace-nowrap"
                     >
                         <span aria-hidden className="flex size-3.5 items-center justify-center [&_svg]:size-3.5">
-                            {showSource && (
-                                <span title={sourceLabel} className={cn('flex', hint && 'group-hover/row:hidden')}>
-                                    <TodayIcon icon={codeFile ? 'code' : slackThread ? 'slack' : source.icon} />
-                                </span>
-                            )}
+                            <span title={sourceLabel} className={cn('flex', hint && 'group-hover/row:hidden')}>
+                                <TodayIcon icon={cited ?? sourceStyle(signal.source_product).icon} />
+                            </span>
                             {hint && (
                                 <span className="hidden text-[var(--foreground)] group-hover/row:flex">
                                     {hint.icon}
@@ -189,55 +135,13 @@ export function TodayReportSignalRow({
                             title={time.format('LLL')}
                             className="w-12 text-right tabular-nums"
                         >
-                            {time.isSame(dayjs(), 'day') ? 'Today' : time.format('D MMM')}
+                            {time.isSame(dayjs(), 'day') ? 'Today' : shortDate(time)}
                         </time>
                     </Text>
                 </ItemActions>
             </Item>
-            {reading && opened && preview && (
-                <div id={detailId} className="TodaySignalReading">
-                    <div className="flex min-h-0 flex-col gap-2 overflow-hidden px-2 pb-3">
-                        <TodayEvidencePreview preview={preview} chosen={chosen} />
-                        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                            <Text size="xs" variant="muted" render={<p />} className="min-w-0">
-                                {facts.join(' · ')}
-                                {' · '}
-                                <time dateTime={signal.timestamp}>
-                                    {time.format(time.isSame(dayjs(), 'year') ? 'D MMM, HH:mm' : 'D MMM YYYY, HH:mm')}
-                                </time>
-                            </Text>
-                            {open ? (
-                                <Button
-                                    variant="link-muted"
-                                    size="sm"
-                                    className="-me-2 px-2"
-                                    nativeButton={false}
-                                    render={
-                                        <LinkPrimitive to={open.to} target={open.external ? '_blank' : undefined} />
-                                    }
-                                    data-attr={slackThread ? 'today-report-signal-slack' : 'today-report-signal-open'}
-                                >
-                                    {open.label}
-                                    {open.external ? <IconExternal /> : <IconArrowRight />}
-                                </Button>
-                            ) : (
-                                !preview.code.length && (
-                                    <Button
-                                        variant="link-muted"
-                                        size="sm"
-                                        className="-me-2 px-2"
-                                        nativeButton={false}
-                                        render={<LinkPrimitive to={urls.inboxReport('reports', reportId)} />}
-                                        data-attr="today-report-signal-full-report"
-                                    >
-                                        Open in the full report
-                                        <IconArrowRight />
-                                    </Button>
-                                )
-                            )}
-                        </div>
-                    </div>
-                </div>
+            {expanded && preview && (
+                <TodayEvidenceDetail id={detailId} reportId={reportId} signal={signal} preview={preview} />
             )}
         </div>
     )

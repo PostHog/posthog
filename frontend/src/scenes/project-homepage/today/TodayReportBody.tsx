@@ -1,19 +1,21 @@
+import { useValues } from 'kea'
+
 import type {
     ImplementationSlotClaim,
     ReportTaskEntry,
 } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import type { BriefingItemStateEnumApi } from 'products/today/frontend/generated/api.schemas'
 
+import { TodayResearchNote, markedFigures } from './todayFigureSources'
 import { TodayReportAbstract } from './TodayReportAbstract'
 import { TodayReportEvidence } from './TodayReportEvidence'
 import { TodayReportFeedback } from './TodayReportFeedback'
 import { TodayReportHeader } from './TodayReportHeader'
+import { todayReportLogic } from './todayReportLogic'
 import { TodayReportNextStep } from './TodayReportNextStep'
-import { TodayReportSections, TodayResearchNote, todayNextStep } from './todayReportPresentation'
 import { TodayReportProposal } from './TodayReportProposal'
 
-export interface TodayReportLiveState {
+interface TodayReportLiveState {
     reportTaskToOpen: ReportTaskEntry | null
     implementationSlotClaim: ImplementationSlotClaim | null
     research: TodayResearchNote[]
@@ -21,49 +23,38 @@ export interface TodayReportLiveState {
 
 export function TodayReportBody({
     report,
-    reportState,
-    reportUrl,
-    sections,
     live,
 }: {
     report: SignalReport
-    reportState: BriefingItemStateEnumApi
-    reportUrl: string
-    sections: TodayReportSections
     live: TodayReportLiveState | null
 }): JSX.Element {
-    const slotClaim = live?.implementationSlotClaim ?? null
-    const research = live?.research ?? []
-    const step = todayNextStep(report, { taskRunning: slotClaim === 'in_flight', slotClaimed: slotClaim !== null })
+    const { signals, sections, impactText } = useValues(todayReportLogic({ reportId: report.id }))
+    const evidence = { signals, research: live?.research ?? [], summary: report.summary }
+    const leadMarks = markedFigures(sections.lead, evidence)
     return (
-        <>
-            <article className="TodayReportArticle @container flex max-w-150 flex-col gap-10">
-                <div className="flex flex-col gap-5">
-                    <TodayReportHeader
-                        report={report}
-                        reportState={reportState}
-                        sections={sections}
-                        research={research}
-                    />
-                    <TodayReportAbstract report={report} sections={sections} research={research} />
-                </div>
-                <section className="flex flex-col gap-4" aria-label="Proposal">
-                    <TodayReportProposal report={report} sections={sections} />
-                    <TodayReportNextStep
-                        report={report}
-                        reportState={reportState}
-                        reportUrl={reportUrl}
-                        reportTaskToOpen={live?.reportTaskToOpen ?? null}
-                        step={step}
-                    />
-                </section>
-                <TodayReportEvidence report={report} />
-                {live && (
-                    <footer>
-                        <TodayReportFeedback report={report} />
-                    </footer>
-                )}
-            </article>
-        </>
+        <article className="TodayReportArticle @container flex max-w-150 flex-col gap-10">
+            <div className="flex flex-col gap-5">
+                <TodayReportHeader report={report} leadMarks={leadMarks} />
+                <TodayReportAbstract
+                    report={report}
+                    leadIsMeasured={leadMarks.length > 0}
+                    impactMarks={markedFigures(impactText, evidence)}
+                />
+            </div>
+            <section className="flex flex-col gap-4" aria-label="Proposal">
+                <TodayReportProposal reportId={report.id} />
+                <TodayReportNextStep
+                    report={report}
+                    reportTaskToOpen={live?.reportTaskToOpen ?? null}
+                    slotClaim={live?.implementationSlotClaim ?? null}
+                />
+            </section>
+            <TodayReportEvidence report={report} />
+            {live && (
+                <footer>
+                    <TodayReportFeedback report={report} />
+                </footer>
+            )}
+        </article>
     )
 }

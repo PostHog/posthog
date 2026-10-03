@@ -1,25 +1,29 @@
+import { useValues } from 'kea'
+
 import { IconWarning } from '@posthog/icons'
 import { Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
-import { TodayMarkedFigure, daysAgo, staleEvidenceDate } from './todayReportPresentation'
+import type { SignalReport } from 'products/signals/frontend/inbox/types'
 
-/** Says how old the evidence behind a paragraph's figures is, when all of it is more than a week old. */
+import { TodayMarkedFigure, daysAgo, staleEvidenceDate } from './todayFigureSources'
+import { shortDate } from './todayProse'
+import { todayReportLogic } from './todayReportLogic'
+
 export function TodayEvidenceAge({
     marked,
-    reportUpdatedAt,
-    lastSeen,
+    report,
 }: {
     marked: TodayMarkedFigure[]
-    reportUpdatedAt: string
-    lastSeen: string | null
+    report: Pick<SignalReport, 'id' | 'updated_at'>
 }): JSX.Element | null {
+    const { lastSeen } = useValues(todayReportLogic({ reportId: report.id }))
     const date = staleEvidenceDate(marked)
-    // The header already shows the report's age, so the line only speaks when the figures are older than the report.
-    if (!date || daysAgo(date) <= daysAgo(reportUpdatedAt)) {
+    if (!date || daysAgo(date) <= daysAgo(report.updated_at)) {
         return null
     }
+    const seenSince = lastSeen && dayjs(lastSeen).isAfter(date, 'day') ? lastSeen : null
     return (
         <Text
             size="xs"
@@ -30,11 +34,11 @@ export function TodayEvidenceAge({
         >
             <IconWarning className="size-3.5 shrink-0 text-[var(--warning-foreground)]" aria-hidden />
             <span>
-                Figures as of <time dateTime={date}>{dayjs(date).format('D MMM')}</time> ·{' '}
+                Figures as of <time dateTime={date}>{shortDate(date)}</time> ·{' '}
                 <span className="font-medium text-[var(--foreground)]">{daysAgo(date)} days old</span>
-                {lastSeen && dayjs(lastSeen).isAfter(date, 'day') && (
+                {seenSince && (
                     <>
-                        {' · '}Last seen <time dateTime={lastSeen}>{dayjs(lastSeen).format('D MMM')}</time>
+                        {' · '}Last seen <time dateTime={seenSince}>{shortDate(seenSince)}</time>
                     </>
                 )}
             </span>

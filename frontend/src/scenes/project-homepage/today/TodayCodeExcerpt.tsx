@@ -3,57 +3,71 @@ import { Button, Skeleton, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { TodayPenStroke } from './TodayPenStroke'
-import { TodayCodeExcerpt as Excerpt, TodayCodeFile } from './todayReportPresentation'
-import { TodayChosenExcerpt } from './todaySignalPreview'
+import { TodayPenMark } from './TodayPenMark'
+import type { TodayCodeQuote, TodayCodeWindow } from './todayQuotedCode'
+import { TodayCodeFile } from './todaySignalText'
 
 const PEN_DELAY_MS = 120
 const PEN_STAGGER_MS = 120
 
-function indentOf(line: string): number {
-    return line.length - line.trimStart().length
-}
-
-function CodeLine({ text, marks, order }: { text: string; marks: Excerpt['marks']; order: number }): JSX.Element {
+function CodeLine({
+    line,
+    marks,
+    order,
+}: {
+    line: string
+    marks: TodayCodeWindow['marks']
+    order: number
+}): JSX.Element {
+    const indent = line.length - line.trimStart().length
     const parts: JSX.Element[] = []
-    let last = 0
+    let last = indent
     marks.forEach((mark, index) => {
         if (mark.start < last) {
             return
         }
-        parts.push(<span key={`t${index}`}>{text.slice(last, mark.start)}</span>)
+        parts.push(<span key={`t${index}`}>{line.slice(last, mark.start)}</span>)
         parts.push(
-            <span key={`m${index}`} className="TodayPenned text-[var(--foreground)]">
-                {text.slice(mark.start, mark.end)}
-                <TodayPenStroke
-                    seed={`${text}${mark.start}`}
-                    delayMs={PEN_DELAY_MS + (order + index) * PEN_STAGGER_MS}
-                />
-            </span>
+            <TodayPenMark
+                key={`m${index}`}
+                seed={`${line}${mark.start}`}
+                delayMs={PEN_DELAY_MS + (order + index) * PEN_STAGGER_MS}
+            >
+                {line.slice(mark.start, mark.end)}
+            </TodayPenMark>
         )
         last = mark.end
     })
-    parts.push(<span key="rest">{text.slice(last)}</span>)
-    return <>{parts}</>
+    parts.push(<span key="rest">{line.slice(last)}</span>)
+    return (
+        <code className="flex min-w-0 pe-3">
+            <span className="shrink-0 whitespace-pre">{line.slice(0, indent)}</span>
+            <span className="TodayCodeExcerpt__line min-w-0 break-words whitespace-pre-wrap">{parts}</span>
+        </code>
+    )
 }
 
-/** A few lines of the file a finding is about, read from the team's repository, with the quoted code marked. */
 export function TodayCodeExcerpt({
     file,
-    chosen,
+    quote,
 }: {
     file: TodayCodeFile
-    chosen: TodayChosenExcerpt | 'loading'
+    quote: TodayCodeQuote | 'loading'
 }): JSX.Element {
-    const shown = chosen === 'loading' ? file : chosen.file
-    const directory = shown.path.includes('/') ? `${shown.path.slice(0, shown.path.lastIndexOf('/') + 1)}` : ''
-    const name = shown.path.slice(directory.length)
-    const excerpt = chosen === 'loading' ? null : chosen.excerpt
+    const shown = quote === 'loading' ? file : quote.file
+    const folderEnd = shown.path.lastIndexOf('/') + 1
+    const directory = shown.path.slice(0, folderEnd)
+    const name = shown.path.slice(folderEnd)
+    const excerpt = quote === 'loading' ? null : quote.excerpt
     const lastLine = excerpt ? excerpt.startLine + excerpt.lines.length - 1 : null
+    const githubUrl = quote !== 'loading' ? `${quote.read.url}#L${quote.excerpt.startLine}-L${lastLine}` : null
 
     return (
-        <figure className="TodayCode m-0 overflow-hidden rounded-md border" data-attr="today-report-code-excerpt">
-            <figcaption className="TodayCode__header flex items-center justify-between gap-3 px-3 py-1.5">
+        <figure
+            className="TodayCodeExcerpt m-0 overflow-hidden rounded-md border"
+            data-attr="today-report-code-excerpt"
+        >
+            <figcaption className="TodayCodeExcerpt__header flex items-center justify-between gap-3 px-3 py-1.5">
                 <Text
                     size="xs"
                     variant="muted"
@@ -69,18 +83,13 @@ export function TodayCodeExcerpt({
                         </span>
                     )}
                 </Text>
-                {chosen !== 'loading' && excerpt && (
+                {githubUrl && (
                     <Button
                         variant="link-muted"
                         size="sm"
                         className="-me-2 shrink-0 px-2"
                         nativeButton={false}
-                        render={
-                            <LinkPrimitive
-                                to={`${chosen.read.url}#L${excerpt.startLine}-L${lastLine}`}
-                                target="_blank"
-                            />
-                        }
+                        render={<LinkPrimitive to={githubUrl} target="_blank" />}
                         data-attr="today-report-code-github"
                     >
                         Open on GitHub
@@ -89,7 +98,7 @@ export function TodayCodeExcerpt({
                 )}
             </figcaption>
             {excerpt ? (
-                <pre className="TodayCode__body m-0 py-2 font-mono text-xs leading-relaxed">
+                <pre className="TodayCodeExcerpt__body m-0 py-2 font-mono text-xs leading-relaxed">
                     {excerpt.lines.map((line, index) => (
                         <div key={index} className="flex">
                             <span
@@ -98,22 +107,11 @@ export function TodayCodeExcerpt({
                             >
                                 {excerpt.startLine + index}
                             </span>
-                            <code className="flex min-w-0 pe-3">
-                                <span className="shrink-0 whitespace-pre">{line.slice(0, indentOf(line))}</span>
-                                <span className="TodayCode__line min-w-0 break-words whitespace-pre-wrap">
-                                    <CodeLine
-                                        text={line.slice(indentOf(line))}
-                                        marks={excerpt.marks
-                                            .filter((mark) => mark.line === index)
-                                            .map((mark) => ({
-                                                ...mark,
-                                                start: mark.start - indentOf(line),
-                                                end: mark.end - indentOf(line),
-                                            }))}
-                                        order={index}
-                                    />
-                                </span>
-                            </code>
+                            <CodeLine
+                                line={line}
+                                marks={excerpt.marks.filter((mark) => mark.line === index)}
+                                order={index}
+                            />
                         </div>
                     ))}
                 </pre>

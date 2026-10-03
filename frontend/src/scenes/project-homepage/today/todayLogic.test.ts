@@ -6,12 +6,12 @@ import { initKeaTests } from '~/test/init'
 
 import { userMessageDisplayText } from 'products/posthog_ai/frontend/utils/userMessageDisplay'
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
-import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
 
 import { BRIEFING_POLL_MS, MORE_REPORTS_LIMIT, TOP_REPORT_COUNT, reportIdFromPath, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
-import { GENERAL_REPORT_PROMPTS, briefingForReports, reportPrompts } from './todaySignalReports'
+import { briefingForReports } from './todaySignalReports'
 
 function makeBriefing(overrides: Partial<BriefingApi> = {}): BriefingApi {
     return {
@@ -447,14 +447,5 @@ describe('todayLogic', () => {
             { text: 'pricing page drops off', reportId: 'b' },
             { text: 'LLM costs doubled', reportId: 'c' },
         ])
-    })
-
-    test.each([
-        ['an action-capable report', {}, ['Draft the fix']],
-        ['a report with a pull request', { implementation_pr_url: 'https://example.com/1' }, GENERAL_REPORT_PROMPTS],
-        ['a report judged not actionable', { actionability: 'not_actionable' }, GENERAL_REPORT_PROMPTS],
-    ])('offers the right prompts for %s', (_, overrides, expected) => {
-        const report = makeReport({ suggested_prompts: ['Draft the fix'], ...(overrides as Partial<SignalReport>) })
-        expect(reportPrompts(report)).toEqual(expected)
     })
 })

@@ -19,6 +19,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
     const [openedHere, setOpenedHere] = useState(false)
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
+    const canAddNote = !!feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent
 
     return (
         <div className="flex flex-col gap-2" data-attr="today-report-feedback">
@@ -46,7 +47,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                 >
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                 </TodayActionButton>
-                {feedbackSentiment && !feedbackNoteOpen && !feedbackNoteSent && (
+                {canAddNote && (
                     <Button
                         variant="link-muted"
                         size="sm"

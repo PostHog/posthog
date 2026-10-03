@@ -6,92 +6,67 @@ import { Button, Text } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { isNotNil } from 'lib/utils/guards'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { signalDestination } from './todayEvidence'
+import { highlightSegments } from './todayFigures'
+import { TodayFigureCardContent, anchorToday } from './todayFigureSources'
 import { TodayIcon } from './TodayIcon'
 import { TodayInlineTrend } from './TodayInlineTrend'
-import { TodayPenStroke } from './TodayPenStroke'
-import {
-    TodayFigureCardContent,
-    anchorToday,
-    highlightSegments,
-    scoutLabel,
-    signalDestination,
-} from './todayReportPresentation'
-import { sourceStyle } from './todaySignalReports'
-
-const PLAYER_LEAD_IN_MS = 5000
+import { TodayPenMark } from './TodayPenMark'
+import { shortDate } from './todayProse'
+import { TodayReportIcon, sourceStyle } from './todaySignalReports'
+import { signalSourceLabel } from './todaySignalText'
 
 const PEN_DELAY_MS = 180
 const PEN_STAGGER_MS = 140
 
-function Penned({ children, order }: { children: string; order: number }): JSX.Element {
-    return (
-        <span className="TodayPenned text-[var(--foreground)]">
-            {children}
-            <TodayPenStroke seed={children} delayMs={PEN_DELAY_MS + order * PEN_STAGGER_MS} />
-        </span>
-    )
+type QuotedContent = Extract<TodayFigureCardContent, { kind: 'signal' | 'research' | 'report' }>
+type MetricContent = Extract<TodayFigureCardContent, { kind: 'metric' }>
+
+interface Equation {
+    left: string
+    sign: '=' | '≈'
+    right: string
 }
 
-function Quote({ text, values }: { text: string; values: string[] }): JSX.Element {
-    let order = 0
-    return (
-        <Text
-            size="sm"
-            render={<blockquote />}
-            className="m-0 border-l-2 border-solid ps-3 text-pretty text-[var(--foreground)]"
-        >
-            {highlightSegments(text, values).map((segment, index) =>
-                segment.marked ? (
-                    <Penned key={index} order={order++}>
-                        {segment.text}
-                    </Penned>
-                ) : (
-                    <span key={index}>{segment.text}</span>
-                )
-            )}
-        </Text>
-    )
+interface QuoteSource {
+    icon: TodayReportIcon | null
+    label: string
+    date: string | null
+    signal: SignalNodeApi | null
 }
 
-function Sum({ parts, figure }: { parts: string[]; figure: string }): JSX.Element {
-    return (
-        <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
-            {parts.join(' + ')} = <span className="font-semibold text-[var(--foreground)]">{figure}</span>
-        </Text>
-    )
+function quoteSource(content: QuotedContent): QuoteSource {
+    switch (content.kind) {
+        case 'signal':
+            return {
+                icon: sourceStyle(content.signal.source_product).icon,
+                label: signalSourceLabel(content.signal),
+                date: content.signal.timestamp,
+                signal: content.signal,
+            }
+        case 'research':
+            return { icon: 'scout', label: 'Agent’s research', date: content.note.at, signal: content.signal }
+        case 'report':
+            return { icon: null, label: 'Later in the report', date: null, signal: null }
+    }
 }
 
-function SourceDate({ date }: { date: string }): JSX.Element {
-    const day = dayjs(date)
-    return (
-        <time dateTime={date} title={day.format('LLL')}>
-            {day.format('D MMM')}
-        </time>
-    )
+function equations(content: QuotedContent, figure: string): Equation[] {
+    const working = content.kind === 'signal' ? content.working : undefined
+    return [
+        content.parts ? { left: content.parts.join(' + '), sign: '=' as const, right: figure } : null,
+        content.exact ? { left: content.exact, sign: '≈' as const, right: figure } : null,
+        working ? { left: working.expression, sign: '=' as const, right: working.result } : null,
+    ].filter(isNotNil)
 }
 
-function Rounded({ exact, figure }: { exact: string; figure: string }): JSX.Element {
-    return (
-        <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
-            {exact} ≈ <span className="font-semibold text-[var(--foreground)]">{figure}</span>
-        </Text>
-    )
-}
-
-function signalLabel(signal: SignalNodeApi): string {
-    const source = sourceStyle(signal.source_product)
-    const skill = (signal.extra as { skill_name?: unknown } | null)?.skill_name
-    return signal.source_product === 'signals_scout'
-        ? (scoutLabel(typeof skill === 'string' ? skill : null) ?? source.label)
-        : source.label
-}
-
-function Header({ icon, children }: { icon?: ReactNode; children: ReactNode }): JSX.Element {
+function CardHeader({ icon, children }: { icon: ReactNode; children: ReactNode }): JSX.Element {
     return (
         <Text size="xs" variant="muted" render={<div />} className="flex items-center gap-1.5">
             {icon && (
@@ -104,21 +79,66 @@ function Header({ icon, children }: { icon?: ReactNode; children: ReactNode }): 
     )
 }
 
-function SignalAction({ signal }: { signal: SignalNodeApi }): JSX.Element | null {
+function CardDate({ date }: { date: string }): JSX.Element {
+    const day = dayjs(date)
+    return (
+        <>
+            <span aria-hidden>·</span>
+            <time dateTime={date} title={day.format('LLL')}>
+                {shortDate(day)}
+            </time>
+        </>
+    )
+}
+
+function CardLink({
+    to,
+    external,
+    dataAttr,
+    children,
+}: {
+    to: string
+    external: boolean
+    dataAttr: string
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <Button
+            variant="link"
+            size="sm"
+            className="self-start px-0"
+            nativeButton={false}
+            render={<LinkPrimitive to={to} target={external ? '_blank' : undefined} />}
+            data-attr={dataAttr}
+        >
+            {children}
+            {external ? <IconExternal /> : <IconArrowRight />}
+        </Button>
+    )
+}
+
+function FullReportLink({ reportId, children }: { reportId: string; children: string }): JSX.Element {
+    return (
+        <CardLink
+            to={urls.inboxReport('reports', reportId)}
+            external={false}
+            dataAttr="today-report-figure-full-report"
+        >
+            {children}
+        </CardLink>
+    )
+}
+
+function SignalAction({ signal, reportId }: { signal: SignalNodeApi | null; reportId: string }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const destination = signalDestination(signal)
-    if (destination.kind === 'recording') {
+    const destination = signal ? signalDestination(signal) : null
+    if (destination?.kind === 'recording') {
         return (
             <Button
                 variant="link"
                 size="sm"
                 className="self-start px-0"
-                onClick={() =>
-                    openSessionPlayer(
-                        { id: destination.sessionId },
-                        destination.timestamp ? Math.max(destination.timestamp - PLAYER_LEAD_IN_MS, 0) : null
-                    )
-                }
+                onClick={() => openSessionPlayer({ id: destination.sessionId }, destination.startAt)}
                 data-attr="today-report-figure-play"
             >
                 <IconPlay />
@@ -126,37 +146,101 @@ function SignalAction({ signal }: { signal: SignalNodeApi }): JSX.Element | null
             </Button>
         )
     }
-    if (destination.kind === 'link') {
+    if (destination?.kind === 'link') {
         return (
-            <Button
-                variant="link"
-                size="sm"
-                className="self-start px-0"
-                nativeButton={false}
-                render={<LinkPrimitive to={destination.to} target={destination.external ? '_blank' : undefined} />}
-                data-attr="today-report-figure-open"
-            >
+            <CardLink to={destination.to} external={destination.external} dataAttr="today-report-figure-open">
                 {destination.label}
-                <IconExternal />
-            </Button>
+            </CardLink>
         )
     }
-    return null
+    return <FullReportLink reportId={reportId}>Open the full report</FullReportLink>
 }
 
-function FullReportLink({ reportId, label }: { reportId: string; label: string }): JSX.Element {
+function Quote({ text, values }: { text: string; values: string[] }): JSX.Element {
+    let order = 0
     return (
-        <Button
-            variant="link"
+        <Text
             size="sm"
-            className="self-start px-0"
-            nativeButton={false}
-            render={<LinkPrimitive to={urls.inboxReport('reports', reportId)} />}
-            data-attr="today-report-figure-full-report"
+            render={<blockquote />}
+            className="m-0 border-l-2 border-solid ps-3 text-pretty text-[var(--foreground)]"
         >
-            {label}
-            <IconArrowRight />
-        </Button>
+            {highlightSegments(text, values).map((segment, index) =>
+                segment.marked ? (
+                    <TodayPenMark key={index} seed={segment.text} delayMs={PEN_DELAY_MS + order++ * PEN_STAGGER_MS}>
+                        {segment.text}
+                    </TodayPenMark>
+                ) : (
+                    <span key={index}>{segment.text}</span>
+                )
+            )}
+        </Text>
+    )
+}
+
+function QuoteCard({
+    content,
+    figure,
+    reportId,
+}: {
+    content: QuotedContent
+    figure: string
+    reportId: string
+}): JSX.Element {
+    const source = quoteSource(content)
+    return (
+        <div className="flex flex-col gap-2 p-3">
+            <CardHeader icon={source.icon && <TodayIcon icon={source.icon} />}>
+                <span>{source.label}</span>
+                {source.date && <CardDate date={source.date} />}
+            </CardHeader>
+            <Quote
+                text={source.date ? anchorToday(content.excerpt, source.date) : content.excerpt}
+                values={content.values ?? [figure]}
+            />
+            {equations(content, figure).map((equation) => (
+                <Text key={equation.left} size="xs" variant="muted" render={<p />} className="tabular-nums">
+                    {`${equation.left} ${equation.sign} `}
+                    <span className="font-semibold text-[var(--foreground)]">{equation.right}</span>
+                </Text>
+            ))}
+            <SignalAction signal={source.signal} reportId={reportId} />
+        </div>
+    )
+}
+
+function MetricCard({ content }: { content: MetricContent }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2 p-3">
+            <CardHeader icon={<IconTrends />}>
+                <span>Measured by a saved query</span>
+                {content.at && <CardDate date={content.at} />}
+            </CardHeader>
+            {content.caption && (
+                <Text size="xs" variant="muted" render={<p />} className="text-pretty">
+                    {content.caption}
+                </Text>
+            )}
+            {content.trend && content.trend.length > 1 && (
+                <div className="flex items-center gap-2 pt-4 pb-1 [&>span]:h-8 [&>span]:w-full [&>svg]:h-8 [&>svg]:w-full">
+                    <TodayInlineTrend values={content.trend} type="bar" detailed partialLast={!!content.range} />
+                </div>
+            )}
+            {content.range && (
+                <Text size="xxs" variant="muted" render={<div />} className="-mt-1 flex justify-between">
+                    <span>{content.range.from}</span>
+                    <span>{content.range.to}</span>
+                </Text>
+            )}
+            <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
+                <span className="font-semibold text-[var(--foreground)]">{content.total}</span>
+                {content.window ? ` ${content.window}` : ''}
+            </Text>
+            {content.link && (
+                <CardLink to={content.link.url} external dataAttr="today-report-figure-insight">
+                    {content.link.label}
+                </CardLink>
+            )}
+        </div>
     )
 }
 
@@ -169,116 +253,16 @@ export function TodayFigureCard({
     figure: string
     reportId: string
 }): JSX.Element {
-    if (content.kind === 'signal') {
-        return (
-            <div className="flex flex-col gap-2 p-3">
-                <Header icon={<TodayIcon icon={sourceStyle(content.signal.source_product).icon} />}>
-                    <span>{signalLabel(content.signal)}</span>
-                    <span aria-hidden>·</span>
-                    <SourceDate date={content.signal.timestamp} />
-                </Header>
-                <Quote
-                    text={anchorToday(content.excerpt, content.signal.timestamp)}
-                    values={content.values ?? [figure]}
-                />
-                {content.parts && <Sum parts={content.parts} figure={figure} />}
-                {content.exact && <Rounded exact={content.exact} figure={figure} />}
-                {content.working && (
-                    <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
-                        {content.working.expression} ={' '}
-                        <span className="font-semibold text-[var(--foreground)]">{content.working.result}</span>
-                    </Text>
-                )}
-                {signalDestination(content.signal).kind !== 'read' ? (
-                    <SignalAction signal={content.signal} />
-                ) : (
-                    <FullReportLink reportId={reportId} label="Open the full report" />
-                )}
-            </div>
-        )
-    }
-    if (content.kind === 'research') {
-        return (
-            <div className="flex flex-col gap-2 p-3">
-                <Header icon={<TodayIcon icon="scout" />}>
-                    <span>Agent’s research</span>
-                    <span aria-hidden>·</span>
-                    <SourceDate date={content.note.at} />
-                </Header>
-                <Quote text={anchorToday(content.excerpt, content.note.at)} values={content.values ?? [figure]} />
-                {content.parts && <Sum parts={content.parts} figure={figure} />}
-                {content.exact && <Rounded exact={content.exact} figure={figure} />}
-                {content.signal && signalDestination(content.signal).kind !== 'read' ? (
-                    <SignalAction signal={content.signal} />
-                ) : (
-                    <FullReportLink reportId={reportId} label="Open the full report" />
-                )}
-            </div>
-        )
-    }
-    if (content.kind === 'report') {
-        return (
-            <div className="flex flex-col gap-2 p-3">
-                <Header>Later in the report</Header>
-                <Quote text={content.excerpt} values={content.values ?? [figure]} />
-                {content.parts && <Sum parts={content.parts} figure={figure} />}
-                {content.exact && <Rounded exact={content.exact} figure={figure} />}
-                <FullReportLink reportId={reportId} label="Open the full report" />
-            </div>
-        )
-    }
     if (content.kind === 'metric') {
+        return <MetricCard content={content} />
+    }
+    if (content.kind === 'none') {
         return (
             <div className="flex flex-col gap-2 p-3">
-                <Header icon={<IconTrends />}>
-                    <span>Measured by a saved query</span>
-                    {content.at && (
-                        <>
-                            <span aria-hidden>·</span>
-                            <SourceDate date={content.at} />
-                        </>
-                    )}
-                </Header>
-                {content.caption && (
-                    <Text size="xs" variant="muted" render={<p />} className="text-pretty">
-                        {content.caption}
-                    </Text>
-                )}
-                {content.trend && content.trend.length > 1 && (
-                    <div className="flex items-center gap-2 pt-4 pb-1 [&>span]:h-8 [&>span]:w-full [&>svg]:h-8 [&>svg]:w-full">
-                        <TodayInlineTrend values={content.trend} type="bar" detailed partialLast={!!content.range} />
-                    </div>
-                )}
-                {content.range && (
-                    <Text size="xxs" variant="muted" render={<div />} className="-mt-1 flex justify-between">
-                        <span>{content.range.from}</span>
-                        <span>{content.range.to}</span>
-                    </Text>
-                )}
-                <Text size="xs" variant="muted" render={<p />} className="tabular-nums">
-                    <span className="font-semibold text-[var(--foreground)]">{content.total}</span>
-                    {content.window ? ` ${content.window}` : ''}
-                </Text>
-                {content.link && (
-                    <Button
-                        variant="link"
-                        size="sm"
-                        className="self-start px-0"
-                        nativeButton={false}
-                        render={<LinkPrimitive to={content.link.url} target="_blank" />}
-                        data-attr="today-report-figure-insight"
-                    >
-                        {content.link.label}
-                        <IconExternal />
-                    </Button>
-                )}
+                <CardHeader icon={null}>No source on this page</CardHeader>
+                <FullReportLink reportId={reportId}>Read the full report</FullReportLink>
             </div>
         )
     }
-    return (
-        <div className="flex flex-col gap-2 p-3">
-            <Header>No source on this page</Header>
-            <FullReportLink reportId={reportId} label="Read the full report" />
-        </div>
-    )
+    return <QuoteCard content={content} figure={figure} reportId={reportId} />
 }

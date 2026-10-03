@@ -1,18 +1,18 @@
 import { useValues } from 'kea'
-import { ComponentProps } from 'react'
 
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
+import type { SignalReport } from 'products/signals/frontend/inbox/types'
 
+import { researchNotes } from './todayFigureSources'
 import { TodayReportBody } from './TodayReportBody'
-import { researchNotes } from './todayReportPresentation'
 
-export function TodayReportLiveBody(props: Omit<ComponentProps<typeof TodayReportBody>, 'live'>): JSX.Element {
+export function TodayReportLiveBody({ report }: { report: SignalReport }): JSX.Element {
     const { implementationSlotClaim, reportTaskToOpen, reportArtefacts } = useValues(
-        inboxReportDetailLogic({ reportId: props.report.id, report: props.report })
+        inboxReportDetailLogic({ reportId: report.id, report })
     )
     return (
         <TodayReportBody
-            {...props}
+            report={report}
             live={{
                 reportTaskToOpen,
                 implementationSlotClaim,

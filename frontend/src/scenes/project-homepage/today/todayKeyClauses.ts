@@ -1,6 +1,7 @@
-import { inlineSegments } from './todayReportPresentation'
+import type { JevClient, JevPick } from './todayJev'
+import { renderedText } from './todayProse'
 
-export interface TodayClause {
+interface TodayClause {
     start: number
     end: number
     text: string
@@ -9,45 +10,11 @@ export interface TodayClause {
 
 const SENTENCES = new Intl.Segmenter('en', { granularity: 'sentence' })
 const WORDS = new Intl.Segmenter('en', { granularity: 'word' })
-const IN_PHRASE = new Set([
-    "'",
-    '’',
-    '‘',
-    '-',
-    '.',
-    '/',
-    '_',
-    '"',
-    '“',
-    '”',
-    '`',
-    '$',
-    '€',
-    '£',
-    '%',
-    '#',
-    '@',
-    '*',
-    '+',
-    '=',
-])
-const CLAUSE_OPENERS = new Set([
-    'because',
-    'since',
-    'so',
-    'but',
-    'and',
-    'or',
-    'which',
-    'while',
-    'when',
-    'after',
-    'until',
-    'unless',
-    'although',
-    'though',
-    'whereas',
-])
+const IN_PHRASE = new Set(`'’‘-./_"“”\`$€£%#@*+=`)
+const DASHES = new Set(['–', '—'])
+const CLAUSE_OPENERS = new Set(
+    'because since so but and or which while when after until unless although though whereas'.split(' ')
+)
 const MIN_SIDE_WORDS = 3
 const MIN_CLAUSE_WORDS = 2
 const MAX_CLAUSES = 15
@@ -58,28 +25,23 @@ const MAX_REPORT_SENTENCES = 25
 const MAX_EXPANSION_SENTENCES = 2
 const MIN_EXPANSION_PROBABILITY = 0.6
 const MIN_SECOND_EXPANSION_PROBABILITY = 0.75
-const MAX_MARKS_PER_REPORT = 2
-export const EXPANSION_QUESTION = 'Answer true if the sentence explains the marked part in more detail.'
+const MAX_KEY_CLAUSES = 2
+const EXPANSION_QUESTION = 'Answer true if the sentence explains the marked part in more detail.'
 
-export type TodayReadingRole = 'problem' | 'cause' | 'fix'
-export const READING_LABELS = ['problem', 'cause', 'fix', 'detail']
-export const READING_QUESTION =
+export type TodayClauseRole = 'problem' | 'cause' | 'fix'
+const ROLE_LABELS = ['problem', 'cause', 'fix', 'detail']
+const ROLE_QUESTION =
     'What does this part tell the reader? problem: what goes wrong or who is hurt. cause: why it happens. fix: what to change. detail: anything else, such as numbers, background, tests, or follow-ups.'
 
 export interface TodayKeyClauseRequest {
     text: string
-    roles: TodayReadingRole[]
+    roles: TodayClauseRole[]
 }
 
 export interface TodayKeyClause extends TodayClause {
-    role: TodayReadingRole
+    role: TodayClauseRole
     confidence: number
     expansion: string[]
-}
-
-export interface TodayClauseRole {
-    label: string
-    probability: number
 }
 
 interface Word {
@@ -88,20 +50,25 @@ interface Word {
     text: string
 }
 
+function joinsWords(sentence: string, segment: Intl.SegmentData): boolean {
+    const before = sentence[segment.index - 1] ?? ' '
+    const after = sentence[segment.index + segment.segment.length] ?? ' '
+    return IN_PHRASE.has(segment.segment) || (DASHES.has(segment.segment) && !/\s/.test(before + after))
+}
+
 function sentenceWords(sentence: string, offset: number): (Word | null)[] {
     const tokens: (Word | null)[] = []
     for (const segment of WORDS.segment(sentence)) {
         const text = segment.segment.trim()
         if (segment.isWordLike) {
             tokens.push({ start: offset + segment.index, end: offset + segment.index + segment.segment.length, text })
-        } else if (text && !IN_PHRASE.has(text)) {
+        } else if (text && !joinsWords(sentence, segment)) {
             tokens.push(null)
         }
     }
     return tokens
 }
 
-/** Splits text into clauses at its punctuation, and before a joining word that opens a new clause. */
 export function textClauses(text: string): TodayClause[] {
     const clauses: TodayClause[] = []
     const push = (words: Word[]): void => {
@@ -124,7 +91,8 @@ export function textClauses(text: string): TodayClause[] {
             let current: Word[] = []
             run.forEach((word, index) => {
                 const opensClause = CLAUSE_OPENERS.has(word.text) && word.text === word.text.toLowerCase()
-                if (opensClause && current.length >= MIN_SIDE_WORDS && run.length - index >= MIN_SIDE_WORDS) {
+                const bothSidesLong = current.length >= MIN_SIDE_WORDS && run.length - index >= MIN_SIDE_WORDS
+                if (opensClause && bothSidesLong) {
                     push(current)
                     current = []
                 }
@@ -136,16 +104,11 @@ export function textClauses(text: string): TodayClause[] {
     return clauses.slice(0, MAX_CLAUSES)
 }
 
-/** The state Jev reads to label one clause, with the whole text around it. */
-export function clauseRoleInput(text: string, clause: TodayClause): string {
+function clauseRoleInput(text: string, clause: TodayClause): string {
     return `Text:\n${text}\n\nPart of the text:\n${clause.text}`
 }
 
-function isSureRole(
-    label: TodayClauseRole | null,
-    role: TodayReadingRole,
-    clause: TodayClause
-): label is TodayClauseRole {
+function isSureRole(label: JevPick | null, role: TodayClauseRole, clause: TodayClause): label is JevPick {
     return (
         label !== null &&
         label.label === role &&
@@ -154,11 +117,10 @@ function isSureRole(
     )
 }
 
-/** For each role a text asks for, the clause Jev labelled with it most surely, when it is sure enough and short. */
-export function readingGuide(
+function pickKeyClauses(
     clauses: TodayClause[],
-    roles: TodayReadingRole[],
-    labelled: (TodayClauseRole | null)[]
+    roles: TodayClauseRole[],
+    labelled: (JevPick | null)[]
 ): TodayKeyClause[] {
     const guide: TodayKeyClause[] = []
     for (const role of roles) {
@@ -176,15 +138,7 @@ export function readingGuide(
     return guide.sort((first, second) => first.start - second.start)
 }
 
-/** The text a reader sees for a piece of inline markdown, which is what clause offsets point into. */
-export function renderedText(markdown: string): string {
-    return inlineSegments(markdown)
-        .map((segment) => segment.text)
-        .join('')
-}
-
-/** The report's own sentences outside the text a mark sits in, which a card can quote to explain the mark. */
-export function reportSentences(summary: string, shown: string[]): string[] {
+function reportSentences(summary: string, shown: string[]): string[] {
     const seen = new Set(shown.map((text) => text.trim()))
     const sentences: string[] = []
     for (const line of summary.split('\n')) {
@@ -195,11 +149,8 @@ export function reportSentences(summary: string, shown: string[]): string[] {
         for (const sentence of SENTENCES.segment(text)) {
             const value = sentence.segment.trim()
             const words = [...WORDS.segment(value)].filter((segment) => segment.isWordLike).length
-            if (
-                words >= MIN_SENTENCE_WORDS &&
-                !shown.some((part) => part.includes(value)) &&
-                !sentences.includes(value)
-            ) {
+            const alreadyRead = shown.some((part) => part.includes(value)) || sentences.includes(value)
+            if (words >= MIN_SENTENCE_WORDS && !alreadyRead) {
                 sentences.push(value)
             }
         }
@@ -207,12 +158,11 @@ export function reportSentences(summary: string, shown: string[]): string[] {
     return sentences.slice(0, MAX_REPORT_SENTENCES)
 }
 
-export function expansionInput(clause: TodayClause, sentence: string): string {
+function expansionInput(clause: TodayClause, sentence: string): string {
     return `Marked part:\n${clause.text}\n\nSentence from the report:\n${sentence}`
 }
 
-/** The sentences that explain a mark best, in the order the report gives them. */
-export function expansionFor(sentences: string[], probabilities: (number | null)[]): string[] {
+function expansionFor(sentences: string[], probabilities: (number | null)[]): string[] {
     const ranked = sentences
         .map((sentence, index) => ({ sentence, index, probability: probabilities[index] ?? 0 }))
         .filter((candidate) => candidate.probability >= MIN_EXPANSION_PROBABILITY)
@@ -222,12 +172,61 @@ export function expansionFor(sentences: string[], probabilities: (number | null)
     return ranked.sort((first, second) => first.index - second.index).map((candidate) => candidate.sentence)
 }
 
-/** The marks worth showing: only ones the report explains further, and at most a couple, so the page stays calm. */
-export function marksWorthShowing(marks: TodayKeyClause[]): Set<TodayKeyClause> {
+function keyClausesWorthShowing(marks: TodayKeyClause[]): Set<TodayKeyClause> {
     return new Set(
         marks
             .filter((mark) => mark.expansion.length > 0)
             .sort((first, second) => second.confidence - first.confidence)
-            .slice(0, MAX_MARKS_PER_REPORT)
+            .slice(0, MAX_KEY_CLAUSES)
+    )
+}
+
+function regroup<T>(flat: T[], groups: unknown[][]): T[][] {
+    let start = 0
+    return groups.map((group) => flat.slice(start, (start += group.length)))
+}
+
+async function withExpansions(
+    keyClauses: TodayKeyClause[],
+    sentences: string[],
+    jev: JevClient
+): Promise<TodayKeyClause[]> {
+    const answers = await jev.yes(
+        keyClauses.flatMap((keyClause) => sentences.map((sentence) => expansionInput(keyClause, sentence))),
+        EXPANSION_QUESTION
+    )
+    const perClause = regroup(
+        answers,
+        keyClauses.map(() => sentences)
+    )
+    return keyClauses.map((keyClause, index) => ({
+        ...keyClause,
+        expansion: expansionFor(sentences, perClause[index]),
+    }))
+}
+
+export async function findKeyClauses(
+    requests: TodayKeyClauseRequest[],
+    summary: string,
+    jev: JevClient
+): Promise<Record<string, TodayKeyClause[]>> {
+    const sentences = reportSentences(
+        summary,
+        requests.map((request) => request.text)
+    )
+    if (!sentences.length) {
+        return Object.fromEntries(requests.map((request) => [request.text, []]))
+    }
+    const prepared = requests.map((request) => ({ ...request, clauses: textClauses(request.text) }))
+    const inputs = prepared.flatMap((request) => request.clauses.map((clause) => clauseRoleInput(request.text, clause)))
+    const roles = regroup(
+        await jev.choice(inputs, ROLE_QUESTION, ROLE_LABELS),
+        prepared.map((request) => request.clauses)
+    )
+    const picked = prepared.map((request, index) => pickKeyClauses(request.clauses, request.roles, roles[index]))
+    const expanded = regroup(await withExpansions(picked.flat(), sentences, jev), picked)
+    const shown = keyClausesWorthShowing(expanded.flat())
+    return Object.fromEntries(
+        requests.map((request, index) => [request.text, expanded[index].filter((keyClause) => shown.has(keyClause))])
     )
 }
