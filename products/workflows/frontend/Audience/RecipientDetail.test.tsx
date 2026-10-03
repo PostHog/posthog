@@ -18,10 +18,12 @@ import { TeamType } from '~/types'
 
 import type { MessageCategoryApi, RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { optOutSceneLogic } from '../OptOuts/optOutSceneLogic'
 import { AudienceScene } from './AudienceScene'
 import { audienceSceneLogic } from './audienceSceneLogic'
 import { recipientDetailLogic } from './recipientDetailLogic'
 import { MockResponse, recipient } from './recipientTestFixtures'
+import { recipientTimelineLogic } from './recipientTimelineLogic'
 
 const NEWSLETTER: MessageCategoryApi = {
     id: '0199c1aa-0000-7000-8000-000000000001',
@@ -232,19 +234,21 @@ describe('recipient detail', () => {
         expect(await screen.findByTestId('audience-recipient-detail')).toHaveClass('ph-no-capture')
     })
 
-    it('tracks a copied address without the address', async () => {
-        const writeText = jest.fn().mockResolvedValue(undefined)
-        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    it.each([
+        { outcome: 'lands', writeText: () => Promise.resolve(), copies: 1 },
+        { outcome: 'fails', writeText: () => Promise.reject(new Error('denied')), copies: 0 },
+    ])('tracks a copied address without the address only when the copy $outcome', async ({ writeText, copies }) => {
+        const clipboardWrite = jest.fn(writeText)
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText: clipboardWrite }, configurable: true })
         await openRecipient()
 
         fireEvent.click(await screen.findByTestId('audience-recipient-copy-email'))
 
-        await waitFor(() =>
-            expect(capturedEvents('audience recipient address copied')).toEqual([
-                ['audience recipient address copied', {}],
-            ])
+        await waitFor(() => expect(clipboardWrite).toHaveBeenCalledWith('jamie@example.com'))
+        await expectLogic(recipientDetailLogic({ email: 'jamie@example.com' })).toFinishAllListeners()
+        expect(capturedEvents('audience recipient address copied')).toEqual(
+            Array(copies).fill(['audience recipient address copied', {}])
         )
-        expect(writeText).toHaveBeenCalledWith('jamie@example.com')
     })
 
     it('shows its own error with a retry instead of a toast, and tracks the visit once it loads', async () => {
@@ -263,22 +267,52 @@ describe('recipient detail', () => {
         expect(capturedEvents('audience recipient retried')).toEqual([['audience recipient retried', {}]])
     })
 
-    it('keeps a reopened recipient when the lookup from its earlier visit fails late', async () => {
-        const firstLookup = heldResponse()
-        respondToLookup = () => {
-            respondToLookup = () => FOUND_JAMIE
-            return firstLookup.respond()
+    it.each([
+        { request: 'lookup', fails: 'audience-recipient-retry' },
+        { request: 'activity load', fails: 'audience-recipient-timeline-retry' },
+    ])('keeps a reopened recipient when the $request from its earlier visit fails late', async ({ request, fails }) => {
+        const firstAnswer = heldResponse()
+        if (request === 'lookup') {
+            respondToLookup = () => {
+                respondToLookup = () => FOUND_JAMIE
+                return firstAnswer.respond()
+            }
+        } else {
+            respondToTimeline = () => {
+                respondToTimeline = () => [200, { results: THREE_EMAIL_EVENTS }]
+                return firstAnswer.respond()
+            }
         }
-        await openRecipient()
+        await openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
+        if (request === 'activity load') {
+            await waitFor(() => expect(timelineQueries).toHaveLength(1))
+        }
         fireEvent.click(await screen.findByText('Back to recipients'))
         fireEvent.click(await screen.findByText('jamie@example.com'))
-        expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
+        expect(await screen.findByText('Clicked a link')).toBeInTheDocument()
 
-        firstLookup.release([500, { detail: 'The query took too long.' }])
+        firstAnswer.release([500, { detail: 'The query took too long.' }])
 
         await expectLogic(recipientDetailLogic({ email: 'jamie@example.com' })).toFinishAllListeners()
-        expect(screen.getByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
-        expect(screen.queryByTestId('audience-recipient-retry')).not.toBeInTheDocument()
+        await expectLogic(recipientTimelineLogic({ email: 'jamie@example.com' })).toFinishAllListeners()
+        expect(screen.getByText('Clicked a link')).toBeInTheDocument()
+        expect(screen.queryByTestId(fails)).not.toBeInTheDocument()
+    })
+
+    it('opens the preferences page without an error when Back is clicked while its link is generated', async () => {
+        const link = heldResponse()
+        jest.spyOn(window, 'open').mockImplementation(() => ({}) as Window)
+        const consoleError = jest.spyOn(console, 'error')
+        await openRecipient()
+        useMocks({ post: { '/api/projects/:team_id/messaging_preferences/generate_link/': link.respond } })
+
+        fireEvent.click(await screen.findByTestId('audience-recipient-preferences-page'))
+        fireEvent.click(screen.getByText('Back to recipients'))
+        link.release([200, { preferences_url: 'https://app.example.com/messaging-preferences/token/' }])
+
+        await waitFor(() => expect(window.open).toHaveBeenCalled())
+        await expectLogic(optOutSceneLogic).toFinishAllListeners()
+        expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining('unmounted'), expect.anything())
     })
 
     it.each([
@@ -313,8 +347,8 @@ describe('recipient detail', () => {
         expect(within(timeline).getByText('All marketing')).toBeInTheDocument()
         expect(screen.getByText(/follows the address, not a person/)).toBeInTheDocument()
         expect(timelineQueries).toHaveLength(1)
-        expect(timelineQueries[0]).toContain("lower(properties.$email_to) = 'jamie@example.com'")
-        expect(timelineQueries[0]).toContain("lower(properties.$email) = 'jamie@example.com'")
+        expect(timelineQueries[0]).toContain("lowerUTF8(properties.$email_to) = 'jamie@example.com'")
+        expect(timelineQueries[0]).toContain("lowerUTF8(properties.$email) = 'jamie@example.com'")
     })
 
     it('shows a failed activity load inline instead of a toast and loads it again on retry', async () => {
