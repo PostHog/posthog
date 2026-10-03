@@ -2,6 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 import { subscriptions } from 'kea-subscriptions'
+import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,9 +14,12 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
-export type TodayRailPane = 'home' | 'spaces' | 'views' | 'library' | 'tools'
+export type TodayRailPane = 'home' | 'spaces' | 'views' | 'library' | 'tools' | 'more'
+
+export const TODAY_MORE_PANES: TodayRailPane[] = ['library', 'tools']
 
 export const TODAY_RAIL_WIDTH = 60
+export const TODAY_PHONE_MAX_WIDTH = 768
 export const TODAY_SIDEBAR_DEFAULT_WIDTH: number = 312
 export const TODAY_SIDEBAR_MIN_WIDTH = 240
 export const TODAY_SIDEBAR_MAX_WIDTH = 480
@@ -33,7 +37,7 @@ function isUnder(path: string, root: string): boolean {
     return path === root || path.startsWith(`${root}/`)
 }
 
-const RAIL_PANE_HOME: Record<TodayRailPane, () => string> = {
+const RAIL_PANE_HOME: Record<Exclude<TodayRailPane, 'more'>, () => string> = {
     home: () => urls.projectHomepage(),
     spaces: () => urls.ai(),
     views: () => urls.viewsNew(),
@@ -74,6 +78,7 @@ export interface todayShellLogicValues {
     activePane: TodayRailPane
     leftNavWidth: number
     mobileSidebarOpen: boolean
+    phoneLayout: boolean
     pickedPane: TodayRailPane | null
     routePane: TodayRailPane | null
     sidebarOpen: boolean
@@ -126,8 +131,17 @@ export interface todayShellLogicActions {
 export interface todayShellLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         routePane: (location: { hash: string; pathname: string; search: string }) => TodayRailPane | null
-        activePane: (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null) => TodayRailPane
-        leftNavWidth: (sidebarOpen: boolean, sidebarWidth: number, mobileLayout: boolean) => number
+        activePane: (
+            pickedPane: TodayRailPane | null,
+            routePane: TodayRailPane | null,
+            phoneLayout: boolean
+        ) => TodayRailPane
+        leftNavWidth: (
+            sidebarOpen: boolean,
+            sidebarWidth: number,
+            mobileLayout: boolean,
+            phoneLayout: boolean
+        ) => number
         sidebarVisible: (mobileLayout: boolean, mobileSidebarOpen: boolean, sidebarOpen: boolean) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
@@ -153,6 +167,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
         setSidebarWidth: (width: number) => ({ width }),
         toggleSidebar: true,
     }),
+    windowValues(() => ({
+        phoneLayout: (window: Window) => window.innerWidth < TODAY_PHONE_MAX_WIDTH,
+    })),
     reducers({
         // The last pane picked on the rail, or reached through a route that belongs to one, stays open on other pages.
         pickedPane: [
@@ -185,14 +202,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (location: { pathname: string }): TodayRailPane | null => railPaneForPath(location.pathname),
         ],
         activePane: [
-            (s) => [s.pickedPane, s.routePane],
-            (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null): TodayRailPane =>
-                pickedPane ?? routePane ?? 'home',
+            (s) => [s.pickedPane, s.routePane, s.phoneLayout],
+            (pickedPane: TodayRailPane | null, routePane: TodayRailPane | null, phoneLayout: boolean): TodayRailPane =>
+                pickedPane === 'more' && !phoneLayout ? (routePane ?? 'home') : (pickedPane ?? routePane ?? 'home'),
         ],
         leftNavWidth: [
-            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout],
-            (sidebarOpen: boolean, sidebarWidth: number, mobileLayout: boolean): number =>
-                TODAY_RAIL_WIDTH + (sidebarOpen && !mobileLayout ? sidebarWidth : 0),
+            (s) => [s.sidebarOpen, s.sidebarWidth, s.mobileLayout, s.phoneLayout],
+            (sidebarOpen: boolean, sidebarWidth: number, mobileLayout: boolean, phoneLayout: boolean): number =>
+                phoneLayout ? 0 : TODAY_RAIL_WIDTH + (sidebarOpen && !mobileLayout ? sidebarWidth : 0),
         ],
         sidebarVisible: [
             (s) => [s.mobileLayout, s.mobileSidebarOpen, s.sidebarOpen],
@@ -232,8 +249,10 @@ export const todayShellLogic = kea<todayShellLogicType>([
         },
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
-            posthog.capture('today rail pane picked', { pane })
-            router.actions.push(RAIL_PANE_HOME[pane]())
+            posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
+            if (pane !== 'more') {
+                router.actions.push(RAIL_PANE_HOME[pane]())
+            }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
             } else {
