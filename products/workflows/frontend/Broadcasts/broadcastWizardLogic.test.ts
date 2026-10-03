@@ -311,7 +311,14 @@ describe('broadcastWizardLogic', () => {
                 post: {
                     '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
                         200,
-                        { affected, total: affected, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
+                        {
+                            affected,
+                            total: affected,
+                            without_email: 0,
+                            limit: 50000,
+                            dedupe_key: 'email',
+                            confirm_token: 'token',
+                        },
                     ],
                 },
             })

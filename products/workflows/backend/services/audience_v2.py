@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Optional
 
 import posthoganalytics
@@ -12,12 +13,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.filters import Filter
 from posthog.models.team.team import Team
 
-from products.feature_flags.backend.person_sampling import (
-    count_matching_persons,
-    count_settings,
-    sample_predicate,
-    sampled_or_exact_count,
-)
+from products.feature_flags.backend import person_sampling
+from products.feature_flags.backend.person_sampling import count_matching_persons, count_settings, sample_predicate
 from products.feature_flags.backend.user_blast_radius import (
     BlastRadiusResult,
     replace_proxy_properties,
@@ -27,7 +24,11 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.workflows.backend.services.batch_audience import (
     EMAIL_DEDUPE_KEY,
     SUPPORTED_DEDUPE_KEYS,
+    DedupeAudienceCount,
+    DedupeAudienceSize,
+    dedupe_audience_count_from_row,
     email_dedupe_group_expr,
+    email_missing_expr,
 )
 
 AUDIENCE_QUERY_V2_FLAG = "workflows-audience-query-v2"
@@ -59,7 +60,7 @@ def get_person_audience_count_v2(team: Team, filters: dict) -> BlastRadiusResult
         return sampled_person_blast_radius(team, cleaned_filter, query_type=QUERY_TYPE)
 
 
-def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> BlastRadiusResult:
+def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> DedupeAudienceSize:
     """
     Send count for a dedupe-enabled batch workflow, sized from a sample of the dedupe groups.
 
@@ -80,13 +81,29 @@ def get_dedupe_audience_count_v2(team: Team, filters: dict, dedupe_key: str) -> 
         database = Database.create_for(team=team)
 
         total = count_matching_persons(team, None, database, query_type=QUERY_TYPE)
-        affected = sampled_or_exact_count(
+        count = _sampled_or_exact_dedupe_count(
             lambda sample_modulus: _run_dedupe_count(team, cleaned_filter, database, sample_modulus)
         )
-        return BlastRadiusResult(affected=min(affected, total), total=total)
+        return DedupeAudienceSize(affected=min(count.sends, total), total=total, without_email=count.without_email)
 
 
-def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_modulus: Optional[int]) -> int:
+def _sampled_or_exact_dedupe_count(
+    run_count: Callable[[Optional[int]], DedupeAudienceCount],
+) -> DedupeAudienceCount:
+    # Mirrors person_sampling.sampled_or_exact_count for a pair of counts from one query. The
+    # sample keys on the dedupe group, so both counts scale by the same modulus.
+    sample = run_count(person_sampling.SAMPLE_MODULUS)
+    if sample.sends >= person_sampling.MIN_SAMPLED_MATCHES:
+        return DedupeAudienceCount(
+            sends=sample.sends * person_sampling.SAMPLE_MODULUS,
+            without_email=sample.without_email * person_sampling.SAMPLE_MODULUS,
+        )
+    return run_count(None)
+
+
+def _run_dedupe_count(
+    team: Team, filter: Filter, database: Database, sample_modulus: Optional[int]
+) -> DedupeAudienceCount:
     query = build_dedupe_count_query(team, filter, sample_modulus=sample_modulus)
     response = execute_hogql_query(
         query=query,
@@ -95,8 +112,7 @@ def _run_dedupe_count(team: Team, filter: Filter, database: Database, sample_mod
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
     )
-    # uniqCombined over a nullable expression returns NULL rather than 0 when no person matches.
-    return (response.results[0][0] if response.results else None) or 0
+    return dedupe_audience_count_from_row(response.results[0] if response.results else None)
 
 
 def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optional[int]) -> ast.SelectQuery:
@@ -115,7 +131,10 @@ def build_dedupe_count_query(team: Team, filter: Filter, sample_modulus: Optiona
         where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
 
     return ast.SelectQuery(
-        select=[ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()])],
+        select=[
+            ast.Call(name="count", distinct=True, args=[email_dedupe_group_expr()]),
+            ast.Call(name="countIf", args=[email_missing_expr()]),
+        ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
     )

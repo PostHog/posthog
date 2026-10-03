@@ -897,6 +897,11 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+    without_email = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many of 'affected' are persons with no email property, who cannot receive an email. "
+        "Only counted when dedupe_key is 'email'; null otherwise.",
+    )
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
     dedupe_key = serializers.ChoiceField(
         choices=list(SUPPORTED_DEDUPE_KEYS),
@@ -6662,6 +6667,7 @@ class HogFlowViewSet(
                     {
                         "affected": size.affected,
                         "total": size.total,
+                        "without_email": None,
                         "limit": size.limit,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
@@ -6683,6 +6689,7 @@ class HogFlowViewSet(
                 {
                     "affected": size.affected,
                     "total": size.total,
+                    "without_email": size.without_email,
                     "limit": size.limit,
                     "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
@@ -7512,6 +7519,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     {
                         "affected": result.affected,
                         "total": result.total,
+                        "without_email": None,
                         "limit": result.limit,
                         "dedupe_key": None,
                     }

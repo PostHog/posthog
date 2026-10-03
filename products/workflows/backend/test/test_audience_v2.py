@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -155,7 +156,8 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 4
+        v1 = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+        assert (result.affected, result.without_email) == (v1.sends, v1.without_email) == (4, 2)
         assert result.total == 5
 
     def test_dedupe_count_is_zero_when_no_person_matches(self):
@@ -164,7 +166,8 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 0
+        v1 = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
+        assert (result.affected, result.without_email) == (v1.sends, v1.without_email) == (0, 0)
 
     def test_sampled_dedupe_count_extrapolates_by_modulus(self):
         for i in range(3):
@@ -173,15 +176,18 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
                 distinct_ids=[f"user-{i}"],
                 properties={"subscribed": "true", "email": f"user-{i}@example.com"},
             )
+        _create_person(team=self.team, distinct_ids=["user-no-email"], properties={"subscribed": "true"})
         flush_persons_and_events()
 
         with (
-            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 1),
+            patch("products.feature_flags.backend.person_sampling.SAMPLE_MODULUS", 2),
             patch("products.feature_flags.backend.person_sampling.MIN_SAMPLED_MATCHES", 0),
+            patch("products.workflows.backend.services.audience_v2.sample_predicate", return_value=parse_expr("1 = 1")),
+            patch("products.workflows.backend.services.audience_v2.count_matching_persons", return_value=100),
         ):
             result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert (result.affected, result.total) == (3, 3)
+        assert (result.affected, result.without_email, result.total) == (8, 2, 100)
 
     def test_dedupe_sampling_predicate_reaches_raw_person_prefilter(self):
         # Same guard as the person-count variant below, for the group-hash predicate.
