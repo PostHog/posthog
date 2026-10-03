@@ -12,7 +12,11 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 from posthog.csp_middleware import app_frame_ancestor_sources
 
-from products.canvas.backend.facade import api as canvas_facade
+from products.canvas.backend.facade.api import (
+    ARTIFACT_PERMISSIONS_POLICY,
+    artifact_delivery_origin,
+    require_artifact_host,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import TASK_RUN_ARTIFACT_MAX_SIZE_BYTES
 
@@ -39,7 +43,7 @@ def create_artifact_preview_url(
         json.dumps([team_id, task_id, run_id, artifact_id, version]),
         timeout=PREVIEW_TOKEN_TTL_SECONDS,
     )
-    return f"{canvas_facade.artifact_delivery_origin()}/canvas-artifacts/task-preview/{token}/index.html"
+    return f"{artifact_delivery_origin()}/canvas-artifacts/task-preview/{token}/index.html"
 
 
 def _preview_claims(token: str) -> tuple[int, UUID, UUID, str, int | None]:
@@ -83,7 +87,7 @@ def _task_html_artifact_preview_csp() -> str:
 
 @xframe_options_exempt
 def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
-    canvas_facade.require_artifact_host(request.get_host())
+    require_artifact_host(request.get_host())
     team_id, task_id, run_id, artifact_id, version = _preview_claims(token)
     if version is None:
         artifact = tasks_facade.task_run_artifact_entry(run_id, task_id, team_id, artifact_id=artifact_id)
@@ -110,5 +114,5 @@ def task_artifact_preview(request: HttpRequest, token: str) -> HttpResponse:
     response["X-Content-Type-Options"] = "nosniff"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
     response["Content-Security-Policy"] = _task_html_artifact_preview_csp()
-    response["Permissions-Policy"] = canvas_facade.ARTIFACT_PERMISSIONS_POLICY
+    response["Permissions-Policy"] = ARTIFACT_PERMISSIONS_POLICY
     return response
