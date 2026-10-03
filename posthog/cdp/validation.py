@@ -97,6 +97,13 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError(
             {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
         )
+    if context.get("workflow_action_type") != "function_email":
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender can only be used in workflow email steps and test sends. "
+                "Select a sender on your own verified domain for destinations."
+            }
+        )
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
@@ -771,6 +778,7 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
+            validate_sandbox_email_sender(value, self.context)
             # Report every missing key in one error: these objects are typically authored
             # programmatically, and a one-at-a-time raise forces a round trip per missing key.
             missing = [f"'{key_}'" for key_ in ("from", "to", "subject") if not value.get(key_)]

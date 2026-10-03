@@ -1611,7 +1611,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if schema.get("type") == "native_email":
                         email_input = inputs.get(schema["key"])
                         if isinstance(email_input, dict):
-                            validate_sandbox_email_sender(email_input.get("value"), self.context)
+                            validate_sandbox_email_sender(
+                                email_input.get("value"), {**self.context, "workflow_action_type": data.get("type")}
+                            )
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -1620,6 +1622,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     },
                     context={
                         "function_type": template.type,
+                        "workflow_action_type": data.get("type"),
+                        "workflow_origin_product": self.context.get("workflow_origin_product"),
                         "is_dwh_source": self.context.get("is_dwh_source", False),
                         # The existing (decrypted) secret inputs for this action, so a resent
                         # {"secret": true} marker recovers the stored value instead of wiping it.
