@@ -578,33 +578,46 @@ def test_max_runtime_stops_between_pages_unless_disabled(
         # A canceling sweep's last mutation keeps applying server-side, so it still executes.
         pytest.param(dagster.DagsterRunStatus.CANCELING, "before", 0, "sweep_running", id="canceling_sweep"),
         pytest.param(dagster.DagsterRunStatus.STARTED, "mid_run", 1, "sweep_running", id="sweep_starts_mid_run"),
+        # A page can outlast the sweep's wait, so the drain also checks before each request.
+        pytest.param(dagster.DagsterRunStatus.STARTED, "mid_page", 1, "sweep_running", id="sweep_starts_mid_page"),
+        # A failing request can retry for an hour, so the drain also checks before each retry.
+        pytest.param(
+            dagster.DagsterRunStatus.STARTED, "during_retry", 0, "sweep_running", id="sweep_starts_during_a_retry"
+        ),
         pytest.param(dagster.DagsterRunStatus.SUCCESS, "before", 3, "drained", id="finished_sweep"),
     ],
 )
-def test_the_drain_stops_between_pages_while_a_sweep_executes(
+def test_the_drain_stops_while_a_sweep_executes(
     cluster: ClickhouseCluster, persons_database, monkeypatch, status, starts, expected_deleted, stopped_reason
 ):
     # The sweep waits for the drain to stop, so a drain that kept going would hold the weekly sweep.
     fake = get_active_fake()
     uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4)]
     queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    monkeypatch.setattr(drain, "SWEEP_CHECK_INTERVAL_SECONDS", 0.0)
     instance = dagster.DagsterInstance.ephemeral()
     start_sweep = partial(instance.create_run_for_job, job_def=clickhouse_deletion_sweep_job, status=status)
     if starts == "before":
         start_sweep()
     else:
         original = fake.delete_tombstoned_persons
+        calls = 0
 
         def start_sweep_on_the_first_request(
             request: DeleteTombstonedPersonsRequest, timeout: float | None = None
         ) -> DeleteTombstonedPersonsResponse:
-            if not delete_requests(fake):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
                 start_sweep()
+                if starts == "during_retry":
+                    raise _RpcError(grpc.StatusCode.UNAVAILABLE)
             return original(request, timeout=timeout)
 
         monkeypatch.setattr(fake, "delete_tombstoned_persons", start_sweep_on_the_first_request)
 
-    result = run_job(cluster, page_size=1, instance=instance)
+    # One row per request either way: one page per row, or one page of three rows.
+    result = run_job(cluster, instance=instance, page_size=3 if starts == "mid_page" else 1, rpc_batch_size=1)
 
     assert result.success
     totals = totals_of(result)

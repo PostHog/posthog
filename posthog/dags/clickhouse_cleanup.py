@@ -592,7 +592,8 @@ def _create_dictionary(
 def wait_for_drain_to_stop(context: dagster.OpExecutionContext) -> None:
     """Block until no Postgres drain run executes, so the drain never runs while the sweep does.
 
-    The drain checks for an executing sweep before each page and stops when it finds one. Each
+    The drain checks for an executing sweep before each page, request and retry, and stops when
+    it finds one, so the wait covers one attempt and the timeout covers a stuck drain. Each
     side checks only after its own run has started, so whichever side checks second sees the
     other. The sweep waits for a terminal status, so no drain request is still in flight.
     """

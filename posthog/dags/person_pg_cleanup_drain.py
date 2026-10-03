@@ -21,8 +21,9 @@ max_blocked. The one state the job parks is a tombstoned person that still owns 
 id: personhog reports it as blocked, and its row is stamped blocked_at and skipped for a retry
 interval, because ingestion can still reach that person and no delete may resolve it.
 
-The drain and the sweep never run together. Before each page the drain checks for an executing
-sweep run and stops if it finds one, and the sweep waits for the drain to stop before it writes.
+The drain and the sweep never run together. Before each page, request and retry the drain checks
+for an executing sweep run and stops if it finds one, and the sweep waits for the drain to stop
+before it writes.
 """
 
 import math
@@ -46,6 +47,7 @@ from prometheus_client import Gauge
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.clickhouse_cleanup import (
+    DRAIN_STOP_POLL_SECONDS,
     PERSON_PG_CLEANUP_DRAIN_JOB,
     PG_CLEANUP_QUEUE_TABLE,
     PublishedGauge,
@@ -66,6 +68,11 @@ DRAIN_METRICS_JOB = "person_pg_cleanup_drain"
 
 # Server-side cap on DeleteTombstonedPersonsRequest.person_uuids.
 RPC_MAX_UUIDS = 1000
+
+# The sweep polls for the drain this often, so checking for the sweep more often only loads
+# Dagster's run storage.
+SWEEP_CHECK_INTERVAL_SECONDS = DRAIN_STOP_POLL_SECONDS
+STOPPED_EARLY = frozenset({"max_runtime", "sweep_running"})
 
 # tonic takes min(client deadline, personhog-router's BACKEND_TIMEOUT_MS), which is 15 s, so this
 # deadline is what bounds a request.
@@ -291,8 +298,8 @@ class DrainTotals:
         }
 
 
-class _OutOfTime(Exception):
-    """The run's deadline passed while a request or statement was being retried."""
+class _Stopped(Exception):
+    """The run's deadline passed, or a sweep started, while a request or statement was being retried."""
 
 
 def chunks_for_page(rows: Sequence[QueueRow], rpc_batch_size: int) -> list[Chunk]:
@@ -496,6 +503,7 @@ class _Drain:
         self.totals.step_rows_min = self.totals.step_rows_max = self.step_rows
         self.successes_at_step = 0
         self.deadline = math.inf if config.max_runtime_seconds == 0 else _now_monotonic() + config.max_runtime_seconds
+        self.next_sweep_check = 0.0
         self.blocked_before = datetime.now(UTC) - timedelta(hours=config.blocked_retry_hours)
 
     def out_of_time(self) -> bool:
@@ -554,8 +562,8 @@ class _Drain:
                     self.close()
                 elif pg_is_queue_conflict(exc):
                     self.totals.pg_queue_conflict_retries += 1
-                if self.out_of_time():
-                    raise _OutOfTime from exc
+                if self.should_stop():
+                    raise _Stopped from exc
                 pause = backoff_seconds(PG_RETRY_BACKOFF_SECONDS, failures)
                 self.context.log.warning(
                     "persons Postgres %s (%s); attempt %d in %.1fs",
@@ -574,8 +582,15 @@ class _Drain:
         """Stop when a sweep run executes, so the drain never runs while the sweep does.
 
         The sweep waits for this run to finish before it touches anything, so stopping here
-        releases it. Rows not yet read stay queued for the next run.
+        releases it. Rows not yet resolved stay queued for the next run. The check runs before
+        every page, request and retry, so the sweep waits for one attempt rather than a whole page.
         """
+        if self.totals.stopped_reason == "sweep_running":
+            return True
+        now = time.monotonic()
+        if now < self.next_sweep_check:
+            return False
+        self.next_sweep_check = now + SWEEP_CHECK_INTERVAL_SECONDS
         sweeps = describe_runs(
             self.context.instance,
             (clickhouse_deletion_sweep_job.name,),
@@ -588,11 +603,12 @@ class _Drain:
         self.totals.stopped_reason = "sweep_running"
         return True
 
+    def should_stop(self) -> bool:
+        return self.out_of_time() or self.yield_to_sweep()
+
     def pages(self) -> Iterator[list[QueueRow]]:
         after: QueueCursor | None = None
-        while not self.out_of_time():
-            if self.yield_to_sweep():
-                return
+        while not self.should_stop():
             limit = self.page_limit()
             if limit <= 0:
                 self.totals.stopped_reason = "max_persons"
@@ -660,8 +676,8 @@ class _Drain:
                             "grpc_code": dagster.MetadataValue.text(_code_name(code)),
                         },
                     ) from exc
-                if self.out_of_time():
-                    raise _OutOfTime from exc
+                if self.should_stop():
+                    raise _Stopped from exc
                 pause = backoff_seconds(self.config.retry_backoff_seconds, failures)
                 self.context.log.warning(
                     "personhog delete of %d persons failed (%s); attempt %d in %.1fs with a %d-row budget",
@@ -700,7 +716,7 @@ class _Drain:
         self.totals.chunks += 1
         pending: Sequence[str] = chunk.person_uuids
         while pending:
-            if self.out_of_time():
+            if self.should_stop():
                 # Rows of the persons still pending stay queued; the next run continues them.
                 return
             response = self.send(chunk, pending)
@@ -793,16 +809,16 @@ class _Drain:
                     continue
                 for chunk in chunks_for_page(page, self.config.rpc_batch_size):
                     self.resolve(chunk)
-                    if self.totals.stopped_reason == "max_runtime":
+                    if self.totals.stopped_reason in STOPPED_EARLY:
                         break
                 if self.totals.pages % LOG_EVERY_PAGES == 0:
                     self.emit_counters_since(emitted)
                     emitted = self.snapshot()
                     self.log_progress()
-                if self.totals.stopped_reason == "max_runtime":
+                if self.totals.stopped_reason in STOPPED_EARLY:
                     # Requests left in this page were never sent, so their rows stay queued.
                     break
-        except _OutOfTime:
+        except _Stopped:
             # Raised inside a retry, so the rows of that request stay queued for the next run.
             pass
         except Exception:
