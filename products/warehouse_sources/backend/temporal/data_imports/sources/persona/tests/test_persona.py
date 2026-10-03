@@ -1,3 +1,4 @@
+import functools
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -8,6 +9,7 @@ import requests
 import requests_mock
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona import persona
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona import (
     PERSONA_BASE_URL,
@@ -389,7 +391,17 @@ class TestVerificationsFanout:
         # so each inquiry has to be hydrated on its own.
         assert manager.fetched_urls[1] == "https://api.withpersona.com/api/v1/inquiries/inq_1?include=verifications"  # type: ignore[attr-defined]
 
-    def test_resume_cursor_is_an_inquiry_id_not_a_verification_id(self, monkeypatch: Any) -> None:
+    @parameterized.expand(
+        [
+            ("one_table_per_chunk", None, [(2000, "inq_a"), (1, "inq_b")]),
+            # The batcher splits an oversized table into chunks, here one row each. A cursor staged
+            # before an earlier chunk commits with that chunk's write and skips the later chunks.
+            ("table_split_into_chunks", 1, [(1, None)] * 1999 + [(1, "inq_a"), (1, "inq_b")]),
+        ]
+    )
+    def test_resume_cursor_is_an_inquiry_id_not_a_verification_id(
+        self, _name: str, max_table_bytes: int | None, expected: list[tuple[int, str | None]]
+    ) -> None:
         # A `ver_` id is a meaningless `page[after]` on /inquiries, and a cursor that overshoots the
         # inquiry still being batched drops its buffered rows on resume.
         pages: list[dict[str, Any]] = [
@@ -406,23 +418,27 @@ class TestVerificationsFanout:
             {"data": [], "links": {"next": None}},
         ]
         iterator = iter(pages)
-        monkeypatch.setattr(persona, "_fetch_page", lambda *a, **kw: next(iterator))
         manager = _FakeResumableManager()
+        batcher = Batcher if max_table_bytes is None else functools.partial(Batcher, max_table_bytes=max_table_bytes)
 
         # A worker shutdown stops the walk at a yield without resuming it, so the cursor covering a
         # table must already be staged when the table is yielded.
-        staged_at_each_yield = [
-            (table.num_rows, manager.saved[-1].after if manager.saved else None)
-            for table in get_rows(
-                api_key="persona_test",
-                endpoint="verifications",
-                logger=MagicMock(),
-                resumable_source_manager=manager,  # type: ignore[arg-type]
-            )
-        ]
+        with (
+            patch.object(persona, "_fetch_page", lambda *a, **kw: next(iterator)),
+            patch.object(persona, "Batcher", batcher),
+        ):
+            staged_at_each_yield = [
+                (table.num_rows, manager.saved[-1].after if manager.saved else None)
+                for table in get_rows(
+                    api_key="persona_test",
+                    endpoint="verifications",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            ]
 
         # The full chunk lands part-way through `inq_b`, and the end of the list page flushes the rest.
-        assert staged_at_each_yield == [(2000, "inq_a"), (1, "inq_b")]
+        assert staged_at_each_yield == expected
 
     def test_hydrate_404_skips_parent_instead_of_aborting_the_sync(self, monkeypatch: Any) -> None:
         # An inquiry can be redacted/deleted between the list page and this hydrate call. Without a

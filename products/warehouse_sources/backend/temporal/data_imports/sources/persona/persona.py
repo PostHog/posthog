@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 
+import pyarrow as pa
 import requests
 from dateutil import parser as date_parser
 from structlog.types import FilteringBoundLogger
@@ -214,6 +215,27 @@ def _build_params(config: PersonaEndpointConfig, watermark: Optional[datetime], 
     return params
 
 
+def _drain_tables(
+    batcher: Batcher,
+    resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
+    cursor: str | None,
+    include_incomplete_chunk: bool = False,
+) -> Iterator[pa.Table]:
+    """Yield every table the batcher has ready, and stage `cursor` just before the last one.
+
+    `save_state` only stages. The pipeline commits the staged cursor right after it writes the next
+    table, and a worker shutdown raises in the pipeline after that write, so the generator does not
+    resume. A cursor staged after the yield is then lost. The batcher can also split one buffered
+    table into several chunks. A cursor staged before an earlier chunk covers rows that are still in
+    a later chunk, so a restart between the two writes skips those rows.
+    """
+    while batcher.should_yield(include_incomplete_chunk=include_incomplete_chunk):
+        table = batcher.get_table()
+        if cursor is not None and not batcher.should_yield(include_incomplete_chunk=include_incomplete_chunk):
+            resumable_source_manager.save_state(PersonaResumeConfig(after=cursor))
+        yield table
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -274,16 +296,9 @@ def get_rows(
             for row in rows:
                 batcher.batch(row)
 
-                while batcher.should_yield():
-                    # Stage BEFORE yielding. `save_state` only stages, and the pipeline commits the
-                    # staged cursor right after it writes this table. A worker shutdown raises in the
-                    # pipeline after that write, so the generator does not resume. A cursor staged
-                    # after the yield is then lost, and the next attempt re-fetches the whole batch.
-                    # The cursor deliberately stops short of the object being batched, whose remaining
-                    # rows may still be buffered. Only checkpoint while more pages remain.
-                    if has_next and checkpoint_after is not None:
-                        resumable_source_manager.save_state(PersonaResumeConfig(after=checkpoint_after))
-                    yield batcher.get_table()
+                # The cursor deliberately stops short of the object being batched, whose remaining
+                # rows may still be buffered. Only checkpoint while more pages remain.
+                yield from _drain_tables(batcher, resumable_source_manager, checkpoint_after if has_next else None)
 
             checkpoint_after = item["id"]
 
@@ -303,13 +318,13 @@ def get_rows(
             # A full source chunk of fan-out rows can take hours to fill, and each worker restart in
             # that time discards the buffered rows. When restarts use up the job's attempts, the
             # next job starts again at page one, so the walk can stop advancing.
-            resumable_source_manager.save_state(PersonaResumeConfig(after=after))
-            while batcher.should_yield(include_incomplete_chunk=True):
-                yield batcher.get_table()
+            if batcher.should_yield(include_incomplete_chunk=True):
+                yield from _drain_tables(batcher, resumable_source_manager, after, include_incomplete_chunk=True)
+            else:
+                resumable_source_manager.save_state(PersonaResumeConfig(after=after))
             resumable_source_manager.safe_point()
 
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+    yield from _drain_tables(batcher, resumable_source_manager, None, include_incomplete_chunk=True)
 
     # Walked to completion, so drop the checkpoint. Persona lists newest-first, so a cursor left
     # over from a finished walk points at the oldest object it saw: the next run would resume below
