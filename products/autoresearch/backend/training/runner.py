@@ -362,7 +362,7 @@ def build_agent_description(
         1. Select `FROM {{anchors}} a` — the framework supplies columns `(person_id, cutoff_ts)`.
            At training cutoff_ts is per-user T0. At inference cutoff_ts is the start of the prediction
            date in UTC (midnight) for every person. Same SQL, two tables. A feature derived from the
-           cutoff's time of day or hour varies in training but is constant at scoring, so it teaches the
+           cutoff's time of day or hour varies in training but is constant at scoring. It teaches the
            model nothing it can use, so it is not worth building.
         2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` — strict `<`. The leakage guard.
         3. Window the lookback: `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
