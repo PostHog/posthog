@@ -209,6 +209,12 @@ export const Canvas: Story = {
     ),
 }
 
+export const Selectable: Story = {
+    render: () => (
+        <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls interactive selectable />
+    ),
+}
+
 // The minimap is gated on the canvas container instead of the viewport, so a canvas that is narrow
 // inside a wide window must still hide it and leave the zoom controls room. The graph is cut to two
 // nodes because fit-view scales the whole graph into 480px, and nodes that small render text the

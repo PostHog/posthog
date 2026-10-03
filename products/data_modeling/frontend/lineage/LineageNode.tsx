@@ -368,7 +368,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     <Tooltip title={node.name} delayMs={500}>
                         <div
                             className={clsx(
-                                'relative rounded-lg border bg-bg-light min-w-[180px]',
+                                'relative pointer-events-auto rounded-lg border bg-bg-light min-w-[180px]',
                                 callbacks.onClick && 'cursor-pointer',
                                 !callbacks.onClick && data.draggable && 'cursor-grab active:cursor-grabbing',
                                 state.isRunning && 'animate-pulse',
