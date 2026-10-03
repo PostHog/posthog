@@ -427,8 +427,10 @@ def build_agent_description(
           and read the part of the cutoff's day before the cutoff from raw events, with the strict `<`
           of rule 2.
         - Keep windows short on high-volume events such as `$pageview`, and filter on event names early.
-        - Prefer columns that are already on events, such as `person.properties.*` (the framework
-          sets the persons-on-events modifiers), to `LEFT JOIN persons`, which is slow on large teams.
+        - Read person properties from the snapshot stored on each event, `poe.properties.*`, and take
+          the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
+          events). `person.properties.*` and `LEFT JOIN persons` both join the persons table, which is
+          slow on large teams, and return current values, which leak the label window at training.
         - Compare iterations on AUC and on the cost that `autoresearch-materialize-features` returns
           (step 3).
 
