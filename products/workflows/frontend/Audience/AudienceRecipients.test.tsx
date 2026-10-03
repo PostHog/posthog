@@ -46,6 +46,21 @@ describe('AudienceRecipients', () => {
         expect(await screen.findByText('sam@example.com')).toBeInTheDocument()
     })
 
+    it('says only the page failed, without the search advice, when a later page fails', async () => {
+        useRecipientsResponse((params) =>
+            params.get('cursor') ? [500, { detail: 'Query timed out' }] : [200, FIRST_PAGE]
+        )
+        render(<AudienceRecipients />)
+
+        fireEvent.click(await screen.findByLabelText('Next page'))
+
+        expect(
+            await screen.findByText("Couldn't load that page of recipients. Try again in a moment.")
+        ).toBeInTheDocument()
+        expect(screen.getByText('alex@example.com')).toBeInTheDocument()
+        expect(screen.queryByText(/Search for part of an address/)).not.toBeInTheDocument()
+    })
+
     it('keeps recipient rows out of autocapture', async () => {
         useRecipientsResponse(() => [200, FIRST_PAGE])
         render(<AudienceRecipients />)
