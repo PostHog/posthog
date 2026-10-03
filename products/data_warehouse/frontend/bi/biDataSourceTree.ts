@@ -6,19 +6,22 @@ export function buildBIDataSourceTree(
     tree: TreeDataItem[],
     sources: BIDataSource[],
     directConnection: boolean,
-    defaultSchemaName?: string | null
+    defaultSchemaName?: string | null,
+    connectionId?: string | null
 ): TreeDataItem[] {
-    const remaining = new Map(sources.map((source) => [source.table, source]))
+    const remaining = new Map(sources.map((source) => [getBIDataSourceKey(source), source]))
     const leaves: TreeDataItem[] = []
     const visit = (items: TreeDataItem[]): TreeDataItem[] =>
         items.flatMap((item) => {
             if (['table', 'view', 'managed-view', 'view-table', 'endpoint'].includes(item.record?.type)) {
                 const tableName = item.record?.type === 'endpoint' ? item.record.tableName : item.name
-                const source = remaining.get(tableName)
+                const source = remaining.get(
+                    getBIDataSourceKey({ table: tableName, connectionId: connectionId ?? undefined })
+                )
                 if (!source) {
                     return []
                 }
-                remaining.delete(tableName)
+                remaining.delete(getBIDataSourceKey(source))
                 const node: TreeDataItem = {
                     id: getBIDataSourceKey(source),
                     name: source.table,

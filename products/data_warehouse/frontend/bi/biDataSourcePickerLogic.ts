@@ -129,7 +129,8 @@ export const biDataSourcePickerLogic: LogicWrapper<biDataSourcePickerLogicType> 
                     tree,
                     sources,
                     !!connectionId && connectionId !== POSTHOG_WAREHOUSE,
-                    selectedDirectSource?.schema_name
+                    selectedDirectSource?.schema_name,
+                    connectionId
                 ),
         ],
         filteredTree: [

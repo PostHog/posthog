@@ -65,12 +65,19 @@ describe('BI data source tree', () => {
 
     it('groups direct connection tables by schema without losing connection identity', () => {
         const connectionSources = sources.map((source) => ({ ...source, connectionId: 'example-connection' }))
-        const results = buildBIDataSourceTree(tree, connectionSources, true, 'public')
+        const results = buildBIDataSourceTree(tree, connectionSources, true, 'public', 'example-connection')
         expect(results.map((node) => node.name)).toEqual(['public', 'sales'])
         expect(results[1].children?.map((node) => [node.displayName, node.id])).toEqual([
             ['customers', getBIDataSourceKey(connectionSources[1])],
             ['orders', getBIDataSourceKey(connectionSources[0])],
         ])
+    })
+
+    it('preserves a saved source from another connection with the same table name', () => {
+        const saved = { table: 'sales.orders', connectionId: 'saved-connection' }
+        const results = buildBIDataSourceTree(tree, [saved, ...sources], false)
+        expect(results[0].children![0].children![0].id).toBe(getBIDataSourceKey(sources[0]))
+        expect(results[1].id).toBe(getBIDataSourceKey(saved))
     })
 
     it('keeps versioned endpoints under their folder with their icon', () => {
