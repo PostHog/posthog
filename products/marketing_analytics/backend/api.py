@@ -1177,6 +1177,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     permission_classes = [IsAuthenticated]
 
     @validated_request(
+        operation_id="marketing_analytics_conversion_recordings_list",
         request_serializer=ConversionRecordingsRequestSerializer,
         responses={200: ConversionRecordingsResponseSerializer},
     )

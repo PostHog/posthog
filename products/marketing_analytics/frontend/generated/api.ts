@@ -144,16 +144,16 @@ export const marketingAnalyticsConversionGoalsCreateCreate = async (
     })
 }
 
-export const getMarketingAnalyticsConversionRecordingsCreateUrl = (projectId: string) => {
+export const getMarketingAnalyticsConversionRecordingsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/marketing_analytics/conversion_recordings/`
 }
 
-export const marketingAnalyticsConversionRecordingsCreate = async (
+export const marketingAnalyticsConversionRecordingsList = async (
     projectId: string,
     conversionRecordingsRequestApi: ConversionRecordingsRequestApi,
     options?: RequestInit
 ): Promise<ConversionRecordingsResponseApi> => {
-    return apiMutator<ConversionRecordingsResponseApi>(getMarketingAnalyticsConversionRecordingsCreateUrl(projectId), {
+    return apiMutator<ConversionRecordingsResponseApi>(getMarketingAnalyticsConversionRecordingsListUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

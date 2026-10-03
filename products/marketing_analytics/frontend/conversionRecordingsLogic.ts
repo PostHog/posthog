@@ -91,15 +91,12 @@ export const conversionRecordingsLogic = kea<conversionRecordingsLogicType>([
                         inStorybook() || inStorybookTestRunner() ? '00000000-0000-4000-8000-000000000000' : uuid()
                     let response: ConversionRecordingsResponseApi
                     try {
-                        response = await api.marketingAnalyticsConversionRecordingsCreate(
-                            String(values.currentTeamId),
-                            {
-                                ...props.request,
-                                client_query_id: queryId,
-                                after: pageIndex > 0 ? values.page.cursors[pageIndex - 1] : undefined,
-                                limit: 100,
-                            }
-                        )
+                        response = await api.marketingAnalyticsConversionRecordingsList(String(values.currentTeamId), {
+                            ...props.request,
+                            client_query_id: queryId,
+                            after: pageIndex > 0 ? values.page.cursors[pageIndex - 1] : undefined,
+                            limit: 100,
+                        })
                     } catch (error) {
                         breakpoint()
                         return {
