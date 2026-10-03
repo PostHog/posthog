@@ -66,11 +66,9 @@ export function Component({ data }: ComponentProps): ReactElement {
               ? (payload.query as StickinessQuery | undefined)?.stickinessFilter?.display
               : undefined
 
-    const queryKey = JSON.stringify(payload?.query)
-
     useEffect(() => {
         captureChartRendered({ visualizationType: visualizationType ?? 'unsupported', queryKind, display })
-    }, [queryKey, visualizationType, queryKind, display])
+    }, [data, visualizationType, queryKind, display])
 
     if (!visualizationType) {
         return (
