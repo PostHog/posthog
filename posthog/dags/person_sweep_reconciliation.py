@@ -43,6 +43,12 @@ _R = TypeVar("_R")
 # property blobs in Postgres. Only the persons it republishes are read in full.
 _PERSON_LIVENESS_FIELDS = ReadOptions(field_mask=["id", "uuid", "team_id", "version"])
 _MAPPING_LIVENESS_FIELDS = ReadOptions(field_mask=["id", "uuid", "team_id"])
+# Postgres stores properties as non-null JSON, so a real row always arrives with at least "{}".
+# Empty bytes mean the service did not return them, and publishing that would wipe the person's
+# properties in ClickHouse. The read-back skips such a row, so the person stays excluded but unpublished.
+_PERSON_REPUBLISH_FIELDS = ReadOptions(
+    field_mask=["id", "uuid", "team_id", "version", "properties", "is_identified", "created_at", "last_seen_at"]
+)
 
 # The floor RPC writes the primary, and the read-back comes from a replica. A person the replica
 # still shows below the floor is left excluded and unpublished, and the next sweep retries it.
@@ -238,22 +244,33 @@ class PostgresReconciler:
         """
         caught_up: dict[str, tuple[int, Person]] = {}
         pending = dict(floors)
+        without_properties = 0
         for attempt in range(REPLICA_CATCH_UP_ATTEMPTS):
             if attempt:
                 time.sleep(REPLICA_CATCH_UP_SECONDS)
             persons = personhog_call(
                 "sweep_reconcile_read_back",
                 lambda: _batched_get_persons_by_uuids(
-                    team_id, list(pending), "sweep_reconcile_read_back", concurrency=self.concurrency
+                    team_id,
+                    list(pending),
+                    "sweep_reconcile_read_back",
+                    read_options=_PERSON_REPUBLISH_FIELDS,
+                    concurrency=self.concurrency,
                 ),
             )
             for proto in persons:
                 uuid = str(UUID(proto.uuid))
-                if uuid in pending and proto.version >= pending[uuid]:
-                    caught_up[uuid] = (proto.version, proto_person_to_model(proto))
-                    del pending[uuid]
+                if uuid not in pending or proto.version < pending[uuid]:
+                    continue
+                del pending[uuid]
+                if not proto.properties:
+                    without_properties += 1
+                    continue
+                caught_up[uuid] = (proto.version, proto_person_to_model(proto))
             if not pending:
                 break
+        if without_properties:
+            logger.warning("sweep_reconcile.properties_missing", team_id=team_id, persons=without_properties)
         if pending:
             logger.warning("sweep_reconcile.replica_behind", team_id=team_id, persons=len(pending))
         return caught_up

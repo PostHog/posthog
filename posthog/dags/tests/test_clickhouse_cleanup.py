@@ -36,6 +36,7 @@ from posthog.dags.clickhouse_cleanup import (
     clickhouse_deletion_sweep_job,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.persons_db import persons_db_url
@@ -793,6 +794,14 @@ def test_keeps_a_distinct_id_recaptured_while_the_run_is_in_flight(cluster: Clic
     assert cluster.any_host(current_owner("recaptured")).result() == UUID(live)
 
 
+def write_distinct_id_row(
+    client: Client, distinct_id: str, person_id: str, *, version: int, written_at: datetime
+) -> None:
+    client.execute(
+        BULK_INSERT_PERSON_DISTINCT_ID2, [(distinct_id, UUID(person_id), TEAM_ID, 0, version, written_at, 0, 0)]
+    )
+
+
 def versions_for(distinct_id: str):
     def query(client: Client) -> list[int]:
         rows = client.execute(
@@ -832,9 +841,16 @@ def person_head(person_uuid: str):
     return query
 
 
+@pytest.mark.parametrize(
+    "read_back, republished, expected_head",
+    [
+        ("with_properties", 1, (101, 0, {"plan": "returning"})),
+        ("without_properties", 0, (100, 1, {})),
+    ],
+)
 @pytest.mark.django_db
 def test_spares_and_republishes_a_person_recreated_below_its_legacy_tombstone(
-    cluster: ClickhouseCluster, persons_database
+    read_back, republished, expected_head, cluster: ClickhouseCluster, persons_database
 ):
     # A legacy hard delete published its tombstones at version + 100. The person came back under
     # the same UUID and restarted at a low version, so ClickHouse alone resolves it as deleted.
@@ -853,16 +869,19 @@ def test_spares_and_republishes_a_person_recreated_below_its_legacy_tombstone(
         properties={"plan": "returning"},
         distinct_ids=["returning"],
     )
+    stored = get_active_fake().stored_person(TEAM_ID, recreated)
+    assert stored is not None
+    if read_back == "without_properties":
+        stored.properties = b""
     doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
 
     result = run_job(cluster, persons_database)
 
     sweep = result.output_for_node("publish_sweep_metrics")
-    assert (sweep.reconciled_person_count, sweep.republished_person_count) == (1, 1)
+    assert (sweep.reconciled_person_count, sweep.republished_person_count) == (1, republished)
     assert (sweep.reconciled_distinct_id_count, sweep.republished_distinct_id_count) == (1, 1)
-    stored = get_active_fake().stored_person(TEAM_ID, recreated)
-    assert stored is not None and stored.version == 101
-    assert cluster.any_host(person_head(recreated)).result() == (101, 0, {"plan": "returning"})
+    assert stored.version == 101
+    assert cluster.any_host(person_head(recreated)).result() == expected_head
     assert cluster.any_host(current_owner("returning")).result() == UUID(recreated)
     assert cluster.any_host(current_deleted("returning")).result() == 0
     assert max(cluster.any_host(versions_for("returning")).result()) == 101
@@ -946,6 +965,70 @@ def test_keeps_but_does_not_republish_a_distinct_id_that_moves_during_the_reconc
     assert cluster.any_host(versions_for("merging")).result() == [0, 100]
 
 
+def after_the_reconcile(write):
+    original = clickhouse_cleanup.SnapshotReconciliation.mappings
+
+    def reconcile_then_write(self):
+        tally = original(self)
+        write()
+        return tally
+
+    return patch.object(clickhouse_cleanup.SnapshotReconciliation, "mappings", reconcile_then_write)
+
+
+@pytest.mark.django_db
+def test_spares_a_person_recreated_below_its_tombstone_after_the_reconcile(
+    cluster: ClickhouseCluster, persons_database
+):
+    seeded_at = datetime.now(UTC) - timedelta(minutes=10)
+    recreated = create_person(team_id=TEAM_ID, version=0, timestamp=seeded_at)
+    create_person(uuid=recreated, team_id=TEAM_ID, version=100, is_deleted=True, timestamp=seeded_at)
+    doomed = create_person(team_id=TEAM_ID, version=0, is_deleted=True, timestamp=seeded_at)
+
+    with after_the_reconcile(
+        lambda: create_person(
+            uuid=recreated, team_id=TEAM_ID, version=1, timestamp=datetime.now(UTC) + timedelta(minutes=10)
+        )
+    ):
+        result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.revived_person_count, sweep.written_since_snapshot_person_count) == (0, 1)
+    assert cluster.any_host(rows_for(recreated)).result() == 3
+    assert cluster.any_host(rows_for(doomed)).result() == 0
+    assert [str(row[1]) for row in queued_rows(persons_database)] == [doomed]
+
+
+@pytest.mark.django_db
+def test_keeps_a_distinct_id_recreated_below_its_tombstone_after_the_reconcile(
+    cluster: ClickhouseCluster, persons_database
+):
+    owner = create_person(team_id=TEAM_ID, version=0)
+    for distinct_id in ("recreated", "gone"):
+        create_person_distinct_id(team_id=TEAM_ID, distinct_id=distinct_id, person_id=owner, version=0)
+        create_person_distinct_id(
+            team_id=TEAM_ID, distinct_id=distinct_id, person_id=owner, version=100, is_deleted=True
+        )
+
+    with after_the_reconcile(
+        lambda: cluster.any_host(
+            partial(
+                write_distinct_id_row,
+                distinct_id="recreated",
+                person_id=owner,
+                version=1,
+                written_at=datetime.now(UTC) + timedelta(minutes=10),
+            )
+        ).result()
+    ):
+        result = run_job(cluster, persons_database)
+
+    sweep = result.output_for_node("publish_sweep_metrics")
+    assert (sweep.revived_distinct_id_count, sweep.written_since_snapshot_distinct_id_count) == (0, 1)
+    assert cluster.any_host(surviving_distinct_ids).result() == {"recreated"}
+    assert cluster.any_host(versions_for("recreated")).result() == [0, 1, 100]
+
+
 @pytest.mark.django_db
 def test_an_interrupted_sweep_leaves_the_tombstone_as_the_surviving_version(
     cluster: ClickhouseCluster, persons_database
@@ -992,7 +1075,8 @@ def test_removes_every_version_below_the_max_in_one_pass(cluster: ClickhouseClus
 @pytest.mark.django_db
 def test_rows_written_after_the_snapshot_survive(cluster: ClickhouseCluster, persons_database):
     # Both passes are bounded by the snapshot's max_version, so a run never removes a row it did
-    # not observe.
+    # not observe. The row is dated before the snapshot, the way a producer with a lagging clock
+    # dates it, so the checkpoints do not skip the key and the version bound is what keeps the row.
     deleted = create_person(team_id=TEAM_ID, version=0, is_deleted=True)
     create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=0)
     create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=100, is_deleted=True)
@@ -1001,7 +1085,9 @@ def test_rows_written_after_the_snapshot_survive(cluster: ClickhouseCluster, per
 
     def write_after_snapshot(self, client, persons_dictionary, settings=None):
         result = original(self, client, persons_dictionary, settings=settings)
-        create_person_distinct_id(team_id=TEAM_ID, distinct_id="racing", person_id=deleted, version=500)
+        write_distinct_id_row(
+            client, "racing", deleted, version=500, written_at=datetime.now(UTC) - timedelta(minutes=10)
+        )
         return result
 
     with patch.object(OrphanedDistinctIdsTable, "populate", write_after_snapshot):
@@ -1309,6 +1395,8 @@ def test_publishes_every_measurement_the_run_took() -> None:
         reconciled_distinct_id_count=6,
         republished_person_count=8,
         republished_distinct_id_count=9,
+        written_since_snapshot_person_count=12,
+        written_since_snapshot_distinct_id_count=13,
     )
 
     registry, pushed_jobs = _publish(run)
@@ -1326,6 +1414,8 @@ def test_publishes_every_measurement_the_run_took() -> None:
     assert registry.get_sample_value(f"{prefix}reconciled_distinct_ids") == 6
     assert registry.get_sample_value(f"{prefix}republished_persons") == 8
     assert registry.get_sample_value(f"{prefix}republished_distinct_ids") == 9
+    assert registry.get_sample_value(f"{prefix}written_since_snapshot_persons") == 12
+    assert registry.get_sample_value(f"{prefix}written_since_snapshot_distinct_ids") == 13
     last_success = registry.get_sample_value(f"{prefix}last_success_timestamp_seconds")
     # Wall clock, not the time.monotonic used elsewhere here: the alert subtracts it from time().
     assert last_success is not None
