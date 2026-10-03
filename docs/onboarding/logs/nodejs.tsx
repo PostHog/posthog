@@ -21,28 +21,28 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    npm install @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    yarn add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    pnpm add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    bun add @opentelemetry/sdk-node @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/api-logs @opentelemetry/resources
                                 `,
                             },
                         ]}
@@ -72,7 +72,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     import { LoggerProvider, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs'
 
                                     const exporter = new OTLPLogExporter({
-                                      url: '<ph_client_api_host>/otlp/v1/logs',
+                                      url: '<ph_client_api_host>/i/v1/logs',
                                       headers: {
                                         Authorization: 'Bearer <ph_project_token>',
                                       },
@@ -82,9 +82,8 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                       resource: resourceFromAttributes({
                                         'service.name': 'my-app',
                                       }),
+                                      processors: [new SimpleLogRecordProcessor({ exporter })],
                                     })
-
-                                    loggerProvider.addLogRecordProcessor(new SimpleLogRecordProcessor(exporter))
 
                                     export const logger = loggerProvider.getLogger('my-app')
                                 `,
