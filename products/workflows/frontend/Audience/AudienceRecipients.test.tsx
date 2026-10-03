@@ -60,9 +60,9 @@ describe('AudienceRecipients', () => {
         })
         render(<AudienceRecipients />)
 
-        fireEvent.click(await screen.findByRole('button', { name: 'Next page' }))
+        fireEvent.click(await screen.findByLabelText('Next page'))
 
-        expect(screen.getByRole('button', { name: 'Next page' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Next page')).toBeInTheDocument()
         releaseLastPage()
         expect(await screen.findByText('sam@example.com')).toBeInTheDocument()
     })

@@ -255,6 +255,9 @@ export const RecipientsNoMatch: Story = audienceTabStory('recipients', {
 export const RecipientsError: Story = audienceTabStory('recipients', {
     recipientsPage: [500, { detail: 'The query took too long.' }],
 })
+export const RecipientsAccessDenied: Story = audienceTabStory('recipients', {
+    recipientsPage: [403, { detail: 'You need hog_flow viewer access to view recipients.' }],
+})
 export const Topics: Story = audienceTabStory('topics')
 export const TopicsNarrow: Story = audienceTabStory('topics', { sceneWidth: 'narrow' })
 export const SuppressionList: Story = audienceTabStory('suppression')
