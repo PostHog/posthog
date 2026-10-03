@@ -2,7 +2,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { uniqueBy } from 'lib/utils/arrays'
 import { isNotNil, isObject } from 'lib/utils/guards'
 
-import { type SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import {
     numberPattern,
@@ -131,7 +131,7 @@ function excerptAround(sentence: string, needles: string[]): string {
 
 interface WeightedText {
     text: string
-    signal: SignalNodeApi | null
+    signal: SignalViewApi | null
     note: TodayResearchNote | null
     weight: number
 }
@@ -156,7 +156,7 @@ interface FigureClaim {
 }
 
 interface TodayFigureEvidence {
-    signals: SignalNodeApi[]
+    signals: SignalViewApi[]
     research: TodayResearchNote[]
     summary: string | null | undefined
 }
@@ -169,8 +169,8 @@ interface TodayFigureExcerpt {
 }
 
 type TodayFigureSource =
-    | ({ kind: 'signal'; signal: SignalNodeApi } & TodayFigureExcerpt)
-    | ({ kind: 'research'; note: TodayResearchNote; signal: SignalNodeApi | null } & TodayFigureExcerpt)
+    | ({ kind: 'signal'; signal: SignalViewApi } & TodayFigureExcerpt)
+    | ({ kind: 'research'; note: TodayResearchNote; signal: SignalViewApi | null } & TodayFigureExcerpt)
     | ({ kind: 'report' } & TodayFigureExcerpt)
 
 const MIN_SUM = 10
@@ -313,7 +313,7 @@ export function figureSource(
 export type TodayFigureCardContent =
     | ({
           kind: 'signal'
-          signal: SignalNodeApi
+          signal: SignalViewApi
           working?: { expression: string; result: string }
       } & Partial<TodayFigureExcerpt> & { excerpt: string })
     | Exclude<TodayFigureSource, { kind: 'signal' }>

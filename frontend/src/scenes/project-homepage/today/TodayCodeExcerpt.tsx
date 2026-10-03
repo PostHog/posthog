@@ -3,9 +3,10 @@ import { Button, Skeleton, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
+import type { CodeFileApi } from 'products/today/frontend/generated/api.schemas'
+
 import { TodayPenMark } from './TodayPenMark'
 import type { TodayCodeQuote, TodayCodeWindow } from './todayQuotedCode'
-import { TodayCodeFile } from './todaySignalText'
 
 const PEN_DELAY_MS = 120
 const PEN_STAGGER_MS = 120
@@ -51,7 +52,7 @@ export function TodayCodeExcerpt({
     file,
     quote,
 }: {
-    file: TodayCodeFile
+    file: CodeFileApi
     quote: TodayCodeQuote | 'loading'
 }): JSX.Element {
     const loaded = quote === 'loading' ? null : quote

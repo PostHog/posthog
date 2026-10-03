@@ -15,6 +15,7 @@ from products.today.backend.logic.jev import JevPick
 from products.today.backend.models import DailyBriefing
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.test_key_clauses import CART_TEXT, CAUSE, CAUSE_EXPLAINED, SUMMARY, FakeJev
+from products.today.backend.tests.test_report_page import page_source
 
 REPORT_ID = "01a10212-6f09-0000-0ed6-46b2df6f81ca"
 
@@ -190,3 +191,24 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             assert [(clause["text"], clause["role"], clause["expansion"]) for clause in text["key_clauses"]] == [
                 (CAUSE, "cause", [CAUSE_EXPLAINED])
             ]
+
+    @parameterized.expand(
+        [
+            ("a report", True, REPORT_ID, status.HTTP_200_OK, "Lead."),
+            ("flag off", False, REPORT_ID, status.HTTP_404_NOT_FOUND, None),
+            ("a sample report", True, "sample-pr", status.HTTP_200_OK, "Safari users can’t finish checkout"),
+            ("an unknown sample", True, "sample-nope", status.HTTP_404_NOT_FOUND, None),
+        ]
+    )
+    def test_report_page_answers_people_with_the_new_navigation(
+        self, _sync_connect: MagicMock, _name: str, flag: bool, report_id: str, expected: int, lead: str | None
+    ) -> None:
+        with (
+            self._flag(flag),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{report_id}/page/")
+
+        assert response.status_code == expected
+        if lead is not None:
+            assert response.json()["lead"].startswith(lead)

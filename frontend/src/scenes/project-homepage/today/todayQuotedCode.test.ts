@@ -1,6 +1,6 @@
 import type { RepositoryFileApi } from 'products/business_knowledge/frontend/generated/api.schemas'
 
-import { codeExcerptCandidates, codeIdentifiers, codeSiblingFiles, findCodeQuote } from './todayQuotedCode'
+import { codeExcerptCandidates, codeIdentifiers, findCodeQuote } from './todayQuotedCode'
 
 function read(path: string, lines: string[]): RepositoryFileApi {
     return { content: lines.join('\n'), url: `https://github.com/example/shop/blob/abc/${path}` } as RepositoryFileApi
@@ -89,11 +89,5 @@ describe('todayQuotedCode', () => {
     ])('chooses %s', (_, reads, expected) => {
         const chosen = findCodeQuote([OWN, SIBLING], reads, ['CARDS_MAX = 120'])
         expect(chosen?.file.path.split('/').pop() ?? null).toEqual(expected)
-    })
-
-    test('finds the files a finding names in its own folder', () => {
-        expect(codeSiblingFiles(OWN, '`Cards.tsx` maps cards, and `cardsLogic.ts` caps them at `CARDS_MAX`.')).toEqual([
-            SIBLING,
-        ])
     })
 })

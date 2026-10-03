@@ -6,6 +6,7 @@ import type { SignalReport } from 'products/signals/frontend/inbox/types'
 import { canResolveReport } from 'products/signals/frontend/inbox/utils/reportActions'
 import { parsePrUrlParts, safeHttpUrl } from 'products/signals/frontend/inbox/utils/reportPresentation'
 import { primaryReportPullRequest } from 'products/signals/frontend/inbox/utils/reportPullRequests'
+import type { PullRequestLinkApi } from 'products/today/frontend/generated/api.schemas'
 
 import { shortDate } from './todayProse'
 
@@ -21,7 +22,8 @@ interface TodayNextStep {
 }
 
 interface TodayNextStepContext {
-    solution: string | null
+    inFlightPullRequest: PullRequestLinkApi | null
+    solutionNamesPullRequest: boolean
     slotClaimed: boolean
     runningTask: { taskId: string; runId: string } | null
 }
@@ -47,23 +49,20 @@ function claimant(assignee: NonNullable<SignalReport['assignee']>): string {
     return name ?? assignee.agent ?? 'An agent'
 }
 
-function inFlightReview(
-    report: Pick<SignalReport, 'summary' | 'repo_slug'>,
-    solution: string | null
-): TodayPrimaryAction | null {
-    const pullRequest = inFlightPullRequest(report, solution)
-    return pullRequest ? { kind: 'review', url: pullRequest.url, label: `View PR #${pullRequest.number}` } : null
+function inFlightReview({ inFlightPullRequest }: TodayNextStepContext): TodayPrimaryAction | null {
+    return inFlightPullRequest
+        ? { kind: 'review', url: inFlightPullRequest.url, label: `View PR #${inFlightPullRequest.number}` }
+        : null
 }
 
-function alreadyAddressed(report: SignalReport, solution: string | null): TodayNextStep {
-    const review = inFlightReview(report, solution)
+function alreadyAddressed(context: TodayNextStepContext): TodayNextStep {
+    const review = inFlightReview(context)
     if (review) {
         return { primary: review, note: null, pickedUp: false }
     }
-    const solutionNamesFix = pullRequestsIn(solution, report.repo_slug).size > 0
     return {
         primary: null,
-        note: solutionNamesFix ? null : 'A fix is already in flight. The full report links to it.',
+        note: context.solutionNamesPullRequest ? null : 'A fix is already in flight. The full report links to it.',
         pickedUp: false,
     }
 }
@@ -88,55 +87,22 @@ export function todayNextStep(report: SignalReport, context: TodayNextStepContex
             return { primary, note: null, pickedUp: true }
         }
         return {
-            primary: inFlightReview(report, context.solution) ?? START,
+            primary: inFlightReview(context) ?? START,
             note: `A PostHog task picked this up${pickedUpOn(assignee?.claimed_at)}.`,
             pickedUp: true,
         }
     }
     if (assignee?.kind === 'user' || assignee?.kind === 'agent') {
         return {
-            primary: inFlightReview(report, context.solution) ?? START,
+            primary: inFlightReview(context) ?? START,
             note: `${claimant(assignee)} picked this up${pickedUpOn(assignee.claimed_at)}.`,
             pickedUp: true,
         }
     }
     if (report.already_addressed) {
-        return alreadyAddressed(report, context.solution)
+        return alreadyAddressed(context)
     }
     return { primary: START, note: null, pickedUp: false }
-}
-
-const GITHUB_PULL_URL = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/g
-
-const BARE_PULL_REFERENCE = /\bPR #(\d+)\b/g
-
-function pullRequestsIn(text: string | null | undefined, repoSlug?: string | null): Map<string, string> {
-    const pulls = new Map([...(text ?? '').matchAll(GITHUB_PULL_URL)].map((match) => [match[1], match[0]]))
-    if (pulls.size === 0 && repoSlug) {
-        for (const match of (text ?? '').matchAll(BARE_PULL_REFERENCE)) {
-            pulls.set(match[1], `https://github.com/${repoSlug}/pull/${match[1]}`)
-        }
-    }
-    return pulls
-}
-
-function onlyPullRequest(
-    text: string | null | undefined,
-    repoSlug?: string | null
-): { url: string; number: string } | null {
-    const pulls = pullRequestsIn(text, repoSlug)
-    if (pulls.size !== 1) {
-        return null
-    }
-    const [[number, url]] = [...pulls.entries()]
-    return { url, number }
-}
-
-export function inFlightPullRequest(
-    report: Pick<SignalReport, 'summary' | 'repo_slug'>,
-    solution: string | null
-): { url: string; number: string } | null {
-    return onlyPullRequest(solution, report.repo_slug) ?? onlyPullRequest(report.summary, report.repo_slug)
 }
 
 type TodayWorkKind = 'implement' | 'investigate'

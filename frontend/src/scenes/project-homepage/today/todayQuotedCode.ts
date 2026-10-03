@@ -1,6 +1,5 @@
 import type { RepositoryFileApi } from 'products/business_knowledge/frontend/generated/api.schemas'
-
-import type { TodayCodeFile } from './todaySignalText'
+import type { CodeFileApi } from 'products/today/frontend/generated/api.schemas'
 
 const CODE_SPAN = /`([^`\n]{3,80})`/g
 
@@ -19,8 +18,6 @@ const EXCERPT_CONTEXT_LINES = 2
 const EXCERPT_WINDOW_LINES = 5
 const MAX_EXCERPT_CANDIDATES = 5
 const CANDIDATE_SLACK = 2
-const MAX_SIBLING_FILES = 2
-const BARE_FILE_NAME = /`([\w-]+\.[a-z]{1,5})`/gi
 const IMPORT_LINE = /^\s*(import\b|from\s+\S+\s+import\b|export\s+\{.*\}\s+from\b)/
 
 interface ScoredAnchor {
@@ -105,17 +102,8 @@ export function codeExcerptCandidates(
     return excerpts
 }
 
-export function codeSiblingFiles(file: TodayCodeFile, content: string): TodayCodeFile[] {
-    const folder = file.path.slice(0, file.path.lastIndexOf('/') + 1)
-    const own = file.path.slice(folder.length)
-    const names = [...content.matchAll(BARE_FILE_NAME)].map((match) => match[1]).filter((name) => name !== own)
-    return [...new Set(names)]
-        .slice(0, MAX_SIBLING_FILES)
-        .map((name) => ({ repo: file.repo, path: `${folder}${name}` }))
-}
-
 export interface TodayCodeQuote {
-    file: TodayCodeFile
+    file: CodeFileApi
     read: RepositoryFileApi
     excerpt: TodayCodeWindow
     candidates: TodayCodeWindow[]
@@ -126,7 +114,7 @@ function distinctMarked(excerpt: TodayCodeWindow): number {
 }
 
 export function findCodeQuote(
-    files: TodayCodeFile[],
+    files: CodeFileApi[],
     reads: (RepositoryFileApi | null)[],
     identifiers: string[]
 ): TodayCodeQuote | null {

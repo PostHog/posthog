@@ -5,10 +5,16 @@ from posthog.models import Team, User
 from products.signals.backend.facade import api as signals
 
 from ..feature_flags import (
+    is_enabled_for as is_enabled_for,
     may_ask_jev as may_ask_jev,
     may_get_briefing as may_get_briefing,
 )
-from ..logic import briefings, code_excerpts, key_clauses
+from ..logic import (
+    briefings,
+    code_excerpts,
+    key_clauses,
+    report_page as report_pages,
+)
 from ..logic.jev import GatewayJev
 from . import contracts
 from .enums import BriefingStatus
@@ -64,3 +70,8 @@ def report_key_clauses(
 
 def pick_code_excerpt(*, team: Team, user: User, finding: str, excerpts: list[str]) -> int | None:
     return code_excerpts.which_excerpt(finding, excerpts, _jev(team, user))
+
+
+def report_page(*, team: Team, report_id: str) -> contracts.ReportPage | None:
+    source = report_pages.page_source(team=team, report_id=report_id)
+    return report_pages.report_page(source) if source is not None else None

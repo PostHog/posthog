@@ -3,7 +3,7 @@ import { isNotNil, isObject } from 'lib/utils/guards'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import type { ReportMetricApi, SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { chartOpenTarget } from 'products/signals/frontend/inbox/utils/chartOpenTarget'
 import {
@@ -13,12 +13,13 @@ import {
     reportMetricWindowLabel,
     selectReportCardImpactMetric,
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
+import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { parseAmount } from './todayFigures'
 import type { TodayFigureCardContent } from './todayFigureSources'
 import { shortDate } from './todayProse'
 import { lowerFirst } from './todaySignalReports'
-import { signalExtra, signalHeadline, textOf } from './todaySignalText'
+import { textOf } from './todaySignalText'
 
 interface TodayDailyTrend {
     data: number[]
@@ -60,8 +61,8 @@ export function dailyTrend(metric: Pick<ReportMetricApi, 'series' | 'value_at' |
     return { data: series.slice(first), since: shortDate(start), start: start.format('YYYY-MM-DD') }
 }
 
-function occurrenceOf(signal: SignalNodeApi): { kind: OccurrenceKind; key: string } | null {
-    const extra = signalExtra(signal)
+function occurrenceOf(signal: SignalViewApi): { kind: OccurrenceKind; key: string } | null {
+    const extra = signal.extra
     if (signal.source_product === 'replay_vision' || signal.source_product === 'session_replay') {
         const session = textOf(extra.session_id)
         return session ? { kind: 'sessions', key: session } : null
@@ -76,7 +77,7 @@ function occurrenceOf(signal: SignalNodeApi): { kind: OccurrenceKind; key: strin
     return null
 }
 
-function occurrencesByKind(signals: SignalNodeApi[]): Map<OccurrenceKind, Occurrences> {
+function occurrencesByKind(signals: SignalViewApi[]): Map<OccurrenceKind, Occurrences> {
     const firstSeen = new Map<OccurrenceKind, Map<string, number>>()
     for (const signal of signals) {
         const occurrence = occurrenceOf(signal)
@@ -96,7 +97,7 @@ function occurrencesByKind(signals: SignalNodeApi[]): Map<OccurrenceKind, Occurr
     )
 }
 
-export function lastOccurrence(signals: SignalNodeApi[]): string | null {
+export function lastOccurrence(signals: SignalViewApi[]): string | null {
     const newest = Math.max(...[...occurrencesByKind(signals).values()].map((occurrences) => occurrences.newest))
     return Number.isFinite(newest) ? new Date(newest).toISOString() : null
 }
@@ -106,13 +107,13 @@ const PGANALYZE_CALLS = /([\d,]+) calls in last 24h/i
 const MS_PER_HOUR = 3_600_000
 
 interface TodayQueryCost {
-    signal: SignalNodeApi
+    signal: SignalViewApi
     averageMs: string
     callsPerDay: string
     hours: number
 }
 
-function pganalyzeQueryCost(signals: SignalNodeApi[]): TodayQueryCost | null {
+function pganalyzeQueryCost(signals: SignalViewApi[]): TodayQueryCost | null {
     for (const signal of signals) {
         const time = signal.source_product === 'pganalyze' ? signal.content.match(PGANALYZE_TIME)?.[1] : undefined
         const calls = signal.content.match(PGANALYZE_CALLS)?.[1]
@@ -189,7 +190,7 @@ function metricNumber(report: Pick<SignalReport, 'metrics'>): TodayImpactNumber 
     }
 }
 
-function ticketNumber(signals: SignalNodeApi[]): TodayImpactNumber | null {
+function ticketNumber(signals: SignalViewApi[]): TodayImpactNumber | null {
     const tickets = occurrencesByKind(signals).get('tickets')
     if (!tickets || tickets.count < MIN_TICKETS) {
         return null
@@ -201,11 +202,11 @@ function ticketNumber(signals: SignalNodeApi[]): TodayImpactNumber | null {
         label: `support tickets ${occurrenceSpan(tickets)}.`,
         window: null,
         chart: null,
-        content: ticket ? { kind: 'signal', signal: ticket, excerpt: signalHeadline(ticket) } : { kind: 'none' },
+        content: ticket ? { kind: 'signal', signal: ticket, excerpt: ticket.headline } : { kind: 'none' },
     }
 }
 
-function queryHoursNumber(signals: SignalNodeApi[]): TodayImpactNumber | null {
+function queryHoursNumber(signals: SignalViewApi[]): TodayImpactNumber | null {
     const cost = pganalyzeQueryCost(signals)
     if (!cost) {
         return null
@@ -220,7 +221,7 @@ function queryHoursNumber(signals: SignalNodeApi[]): TodayImpactNumber | null {
         content: {
             kind: 'signal',
             signal: cost.signal,
-            excerpt: signalHeadline(cost.signal),
+            excerpt: cost.signal.headline,
             values: [cost.averageMs, cost.callsPerDay],
             working: {
                 expression: `${cost.averageMs} ms × ${cost.callsPerDay} calls`,
@@ -230,6 +231,6 @@ function queryHoursNumber(signals: SignalNodeApi[]): TodayImpactNumber | null {
     }
 }
 
-export function impactNumbers(report: Pick<SignalReport, 'metrics'>, signals: SignalNodeApi[]): TodayImpactNumber[] {
+export function impactNumbers(report: Pick<SignalReport, 'metrics'>, signals: SignalViewApi[]): TodayImpactNumber[] {
     return [metricNumber(report), ticketNumber(signals), queryHoursNumber(signals)].filter(isNotNil)
 }

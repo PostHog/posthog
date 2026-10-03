@@ -1,14 +1,14 @@
-import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { dailyTrend, impactNumbers, lastOccurrence } from './todayImpact'
 import { signal } from './todayTestFixtures'
 
-function ticket(ticketNumber: number, timestamp: string): SignalNodeApi {
+function ticket(ticketNumber: number, timestamp: string): SignalViewApi {
     return signal({
         source_product: 'conversations',
         source_id: `ticket-${ticketNumber}`,
         timestamp,
-        extra: { ticket_number: ticketNumber } as unknown as SignalNodeApi['extra'],
+        extra: { ticket_number: ticketNumber },
     })
 }
 
@@ -61,7 +61,7 @@ describe('todayImpact', () => {
                 signal({
                     source_product: 'replay_vision',
                     timestamp: '2026-09-20T10:00:00Z',
-                    extra: { session_id: 's1' } as unknown as SignalNodeApi['extra'],
+                    extra: { session_id: 's1' },
                 }),
                 ticket(1042, '2026-09-25T08:00:00Z'),
                 signal({ source_product: 'signals_scout', timestamp: '2026-09-30T10:00:00Z' }),

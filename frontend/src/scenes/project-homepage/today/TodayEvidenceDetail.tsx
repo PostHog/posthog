@@ -7,27 +7,30 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { TodayCodeExcerpt } from './TodayCodeExcerpt'
-import { citedSource } from './todayEvidence'
+import { TodayPreviewLink } from './todayEvidence'
 import { TodayCodeQuoteState, todayReportLogic } from './todayReportLogic'
-import { TodayPreviewLink, TodaySignalPreview } from './todaySignalPreview'
 import { signalSourceLabel } from './todaySignalText'
 
 function quoteState(stored: TodayCodeQuoteState | undefined): TodayCodeQuoteState {
     return stored === undefined ? 'loading' : stored
 }
 
-function previewLink(preview: TodaySignalPreview, quote: TodayCodeQuoteState | null): TodayPreviewLink | null {
-    return preview.code.length > 0 && quote !== null ? null : preview.open
+function detailOpen(
+    preview: SignalPreviewApi,
+    open: TodayPreviewLink | null,
+    quote: TodayCodeQuoteState | null
+): TodayPreviewLink | null {
+    return preview.code.length > 0 && quote !== null ? null : open
 }
 
-function detailLinkAttr(signal: SignalNodeApi, open: TodayPreviewLink | null): string {
+function detailLinkAttr(signal: SignalViewApi, open: TodayPreviewLink | null): string {
     if (!open) {
         return 'today-report-signal-full-report'
     }
-    return citedSource(signal) === 'slack' ? 'today-report-signal-slack' : 'today-report-signal-open'
+    return signal.cited === 'slack' ? 'today-report-signal-slack' : 'today-report-signal-open'
 }
 
 function DetailLink({
@@ -37,7 +40,7 @@ function DetailLink({
     showsCode,
 }: {
     reportId: string
-    signal: SignalNodeApi
+    signal: SignalViewApi
     open: TodayPreviewLink | null
     showsCode: boolean
 }): JSX.Element | null {
@@ -66,15 +69,17 @@ export function TodayEvidenceDetail({
     reportId,
     signal,
     preview,
+    open: previewLinkOpen,
 }: {
     id: string
     reportId: string
-    signal: SignalNodeApi
-    preview: TodaySignalPreview
+    signal: SignalViewApi
+    preview: SignalPreviewApi
+    open: TodayPreviewLink | null
 }): JSX.Element {
     const { codeQuotes } = useValues(todayReportLogic({ reportId }))
     const quote = preview.code.length ? quoteState(codeQuotes[signal.signal_id]) : null
-    const open = previewLink(preview, quote)
+    const open = detailOpen(preview, previewLinkOpen, quote)
     const facts = [signalSourceLabel(signal), ...preview.facts]
     const time = dayjs(signal.timestamp)
 

@@ -1,6 +1,6 @@
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { inFlightPullRequest, reportWorkKind, todayNextStep } from './todayNextStep'
+import { reportWorkKind, todayNextStep } from './todayNextStep'
 import { report } from './todayTestFixtures'
 
 const RUN = { taskId: 't1', runId: 'r1' }
@@ -55,29 +55,12 @@ describe('todayNextStep', () => {
         ['an untouched report', report({}), null, { primary: { kind: 'start' }, note: null }],
     ])('names the next step for %s', (_, input, runningTask, expected) => {
         const { primary, note } = todayNextStep(input, {
-            solution: null,
+            inFlightPullRequest: null,
+            solutionNamesPullRequest: false,
             slotClaimed: false,
             runningTask,
         })
         expect({ primary, note }).toEqual(expected)
-    })
-
-    test.each([
-        ['one pull request', 'Open PR https://github.com/example/web/pull/7 covers it.', null, '7'],
-        [
-            'several pull requests',
-            'Merged in https://github.com/example/web/pull/7, review https://github.com/example/web/pull/8.',
-            null,
-            null,
-        ],
-        [
-            'several pull requests, one named by the solution',
-            'Merged in https://github.com/example/web/pull/7. Reuse draft https://github.com/example/web/pull/9.',
-            'Reuse draft https://github.com/example/web/pull/9.',
-            '9',
-        ],
-    ])('names the in-flight pull request for %s', (_, summary, solution, expected) => {
-        expect(inFlightPullRequest(report({ summary }), solution)?.number ?? null).toEqual(expected)
     })
 
     test.each([

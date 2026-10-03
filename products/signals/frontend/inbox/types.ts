@@ -8,7 +8,6 @@ import {
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
     type SignalReportRefundApi,
-    type SignalReportSectionsApi,
     type SignalReportStateRequestApi,
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
@@ -92,7 +91,6 @@ export interface SignalReport {
     summary: string | null
     /** The opening of `summary` as plain text, before its first section heading. */
     summary_lead?: string
-    sections?: SignalReportSectionsApi
     status: SignalReportStatus
     total_weight: number
     signal_count: number

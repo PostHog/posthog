@@ -15,10 +15,18 @@ from ..facade.contracts import (
     Candidate,
     CandidateFact,
     CandidateList,
+    CodeFile,
     KeyClause,
+    PageLink,
+    PreviewLine,
+    PullRequestLink,
+    RecordingTarget,
+    ReportPage,
+    SignalPreview,
+    SignalView,
     TextKeyClauses,
 )
-from ..facade.enums import KeyClauseRole
+from ..facade.enums import CitedSource, KeyClauseRole
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -235,3 +243,106 @@ class ExcerptChoiceSerializer(serializers.Serializer):
     index = serializers.IntegerField(
         allow_null=True, help_text="The excerpt that shows what the finding describes, or null when unsure."
     )
+
+
+class PullRequestLinkSerializer(DataclassSerializer):
+    url = serializers.CharField(help_text="The pull request on GitHub.")
+    number = serializers.IntegerField(help_text="The pull request number.")
+
+    class Meta:
+        dataclass = PullRequestLink
+
+
+class CodeFileSerializer(DataclassSerializer):
+    repo = serializers.CharField(help_text="The repository as owner/name.")
+    path = serializers.CharField(help_text="The file path in the repository.")
+
+    class Meta:
+        dataclass = CodeFile
+
+
+class PreviewLineSerializer(DataclassSerializer):
+    text = serializers.CharField(help_text="One line of the preview block.")
+    quiet = serializers.BooleanField(help_text="Whether the line is secondary, such as a stack frame.")
+
+    class Meta:
+        dataclass = PreviewLine
+
+
+class PageLinkSerializer(DataclassSerializer):
+    url = serializers.CharField(help_text="Where the link goes, outside PostHog.")
+    text = serializers.CharField(help_text="The link text.")
+
+    class Meta:
+        dataclass = PageLink
+
+
+class SignalPreviewSerializer(DataclassSerializer):
+    hint = serializers.CharField(help_text="What expanding the signal shows, such as 'Show the stack trace'.")
+    code = CodeFileSerializer(many=True, help_text="Repository files to quote, the finding's own file first.")
+    block = PreviewLineSerializer(many=True, help_text="A preformatted block, such as a stack trace or a query.")
+    text = serializers.CharField(help_text="The finding's text beyond its first sentence.")
+    facts = serializers.ListField(child=serializers.CharField(), help_text="Short facts about the source.")
+    link = PageLinkSerializer(allow_null=True, help_text="A link that replaces the signal's own destination.")
+    link_label = serializers.CharField(
+        allow_null=True, help_text="A label that replaces the label of the signal's own destination."
+    )
+
+    class Meta:
+        dataclass = SignalPreview
+
+
+class RecordingTargetSerializer(DataclassSerializer):
+    session_id = serializers.CharField(help_text="The recording's session id.")
+    start_at = serializers.DateTimeField(
+        allow_null=True, help_text="Where the player starts, a few seconds before the finding."
+    )
+    offset = serializers.CharField(allow_null=True, help_text="The finding's time in the recording, as MM:SS.")
+
+    class Meta:
+        dataclass = RecordingTarget
+
+
+class SignalViewSerializer(DataclassSerializer):
+    signal_id = serializers.CharField(help_text="The signal's id.")
+    source_product = serializers.CharField(help_text="The product that emitted the signal.")
+    source_type = serializers.CharField(help_text="The kind of signal within its product.")
+    source_id = serializers.CharField(help_text="The id of the source object, such as an issue or a ticket.")
+    content = serializers.CharField(help_text="The signal's text as emitted.")
+    timestamp = serializers.DateTimeField(help_text="When the signal happened.")
+    extra = serializers.DictField(help_text="The emitter's extra fields, used to link to the source object.")
+    headline = serializers.CharField(help_text="The signal as one short line.")
+    lead = serializers.CharField(help_text="The signal's first sentence.")
+    meta = serializers.CharField(help_text="Identifiers such as a pull request or ticket number, joined by dots.")
+    cited = serializers.ChoiceField(
+        choices=CitedSource.choices, allow_null=True, help_text="What a scout finding cites: code or a Slack thread."
+    )
+    recording = RecordingTargetSerializer(allow_null=True, help_text="The recording the signal plays, if any.")
+    link = PageLinkSerializer(allow_null=True, help_text="Where a scout finding links outside PostHog, if anywhere.")
+    preview = SignalPreviewSerializer(allow_null=True, help_text="What expanding the signal shows, if anything.")
+
+    class Meta:
+        dataclass = SignalView
+
+
+class ReportPageSerializer(DataclassSerializer):
+    lead = serializers.CharField(help_text="The summary's opening paragraph, as markdown.")
+    proposal = serializers.CharField(
+        help_text="The proposed fix cut to whole sentences, as markdown. Empty when the report proposes none."
+    )
+    impact_sentence = serializers.CharField(
+        help_text="The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise."
+    )
+    in_flight_pull_request = PullRequestLinkSerializer(
+        allow_null=True,
+        help_text="The pull request the proposal names, or else the summary, when it names exactly one.",
+    )
+    solution_names_pull_request = serializers.BooleanField(help_text="Whether the proposal names any pull request.")
+    signals = SignalViewSerializer(many=True, help_text="The report's signals, newest first, ready to show.")
+    evidence = serializers.ListField(
+        child=serializers.CharField(), help_text="The ids of the signals to show as evidence, at most 3."
+    )
+    evidence_count = serializers.IntegerField(help_text="How many distinct source objects the signals come from.")
+
+    class Meta:
+        dataclass = ReportPage

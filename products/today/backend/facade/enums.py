@@ -65,3 +65,8 @@ class KeyClauseRole(LabeledStrEnum):
     PROBLEM = "problem", "Problem"
     CAUSE = "cause", "Cause"
     FIX = "fix", "Fix"
+
+
+class CitedSource(LabeledStrEnum):
+    CODE = "code", "Code"
+    SLACK = "slack", "Slack"

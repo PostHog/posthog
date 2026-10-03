@@ -13,7 +13,7 @@ import { TodaySampleBanner } from './TodaySampleBanner'
 function ReportFailed({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
     const { fullReportLoading } = useValues(logic)
-    const { loadFullReport } = useActions(logic)
+    const { loadFullReport, loadPage } = useActions(logic)
     return (
         <div className="flex max-w-150 flex-col gap-3">
             <Heading size="lg" render={<h1 />}>
@@ -25,7 +25,10 @@ function ReportFailed({ reportId }: { reportId: string }): JSX.Element {
             <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                     variant="primary"
-                    onClick={() => loadFullReport()}
+                    onClick={() => {
+                        loadFullReport()
+                        loadPage()
+                    }}
                     loading={fullReportLoading}
                     data-attr="today-report-retry"
                 >
@@ -86,9 +89,9 @@ function ReportSkeleton(): JSX.Element {
 }
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
-    const { currentReport, reportFailed, isSample } = useValues(todayReportLogic({ reportId }))
+    const { currentReport, page, reportFailed, isSample } = useValues(todayReportLogic({ reportId }))
 
-    if (!currentReport && !reportFailed) {
+    if ((!currentReport || !page) && !reportFailed) {
         return (
             <div className="TodayReport Today__page" data-quill>
                 <ReportSkeleton />

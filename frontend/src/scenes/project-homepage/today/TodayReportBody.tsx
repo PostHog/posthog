@@ -28,9 +28,9 @@ export function TodayReportBody({
     report: SignalReport
     live: TodayReportLiveState | null
 }): JSX.Element {
-    const { signals, sections, impactText } = useValues(todayReportLogic({ reportId: report.id }))
+    const { signals, lead, impactText } = useValues(todayReportLogic({ reportId: report.id }))
     const evidence = { signals, research: live?.research ?? [], summary: report.summary }
-    const leadMarks = markedFigures(sections.lead, evidence)
+    const leadMarks = markedFigures(lead, evidence)
     return (
         <article className="TodayReportArticle @container flex max-w-150 flex-col gap-10">
             <div className="flex flex-col gap-5">

@@ -87,14 +87,15 @@ export function TodayReportNextStep({
 }): JSX.Element | null {
     const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const logic = todayReportLogic({ reportId: report.id })
-    const { reportState, reportUrl, isSample, sections, askingAi } = useValues(logic)
+    const { reportState, reportUrl, isSample, page, askingAi } = useValues(logic)
     const { askAboutReport } = useActions(logic)
     const [composerOpen, setComposerOpen] = useState(false)
     const [draft, setDraft] = useState('')
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const task = reportTaskToOpen?.task
     const { primary, note, pickedUp } = todayNextStep(report, {
-        solution: sections.solution,
+        inFlightPullRequest: page?.in_flight_pull_request ?? null,
+        solutionNamesPullRequest: page?.solution_names_pull_request ?? false,
         slotClaimed: slotClaim !== null,
         runningTask: task?.latest_run ? { taskId: task.id, runId: task.latest_run.id } : null,
     })

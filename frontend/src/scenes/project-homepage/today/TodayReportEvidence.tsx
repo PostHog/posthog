@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { Button, Skeleton, Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -12,28 +12,8 @@ import { TodayReportSectionTitle } from './TodayReportSectionTitle'
 import { TodayReportSignalRow } from './TodayReportSignalRow'
 
 function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
-    const { signals, shownEvidence, reportSignals, reportSignalsLoading } = useValues(todayReportLogic({ reportId }))
-    if (reportSignals === null && reportSignalsLoading) {
-        return (
-            <div className="flex flex-col gap-6 py-3">
-                <Skeleton className="h-3.5 w-11/12" />
-                <Skeleton className="h-3.5 w-3/4" />
-                <Skeleton className="h-3.5 w-5/6" />
-            </div>
-        )
-    }
-    if (reportSignals === null) {
-        return (
-            <Text size="sm" variant="muted" render={<p />}>
-                <span>Couldn’t load the evidence. </span>
-                <LinkPrimitive to={urls.inboxReport('reports', reportId)} data-attr="today-evidence-inbox">
-                    Open the full report
-                </LinkPrimitive>
-                <span> to see it.</span>
-            </Text>
-        )
-    }
-    if (signals.length === 0) {
+    const { shownEvidence } = useValues(todayReportLogic({ reportId }))
+    if (shownEvidence.length === 0) {
         return (
             <Text size="sm" variant="muted" render={<p />}>
                 No signals are attached to this report yet.

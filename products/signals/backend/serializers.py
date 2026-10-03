@@ -1,7 +1,6 @@
 import json
 import uuid
 from collections.abc import Mapping
-from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -87,7 +86,6 @@ from .report_metrics import (
     REPORT_METRIC_ROLES,
     REPORT_METRIC_VALUE_FORMATS,
 )
-from .report_sections import report_sections
 from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
 
 logger = structlog.get_logger(__name__)
@@ -1168,17 +1166,6 @@ class ReportRankingSerializer(serializers.Serializer):
     )
 
 
-class SignalReportSectionsSerializer(serializers.Serializer):
-    lead = serializers.CharField(help_text="The first paragraph of the summary before any section heading.")
-    impact = serializers.CharField(
-        allow_null=True, help_text="The body under the summary's Impact heading, or null when it has none."
-    )
-    solution = serializers.CharField(
-        allow_null=True,
-        help_text="The body under the summary's Solution heading or one of its aliases, or null when it has none.",
-    )
-
-
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -1210,12 +1197,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
             "would be accepted (see the field's schema for the reason values)."
-        ),
-    )
-    sections = serializers.SerializerMethodField(
-        help_text=(
-            "The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and "
-            "Solution headings, as markdown with chart links reduced to their text."
         ),
     )
     summary_lead = serializers.SerializerMethodField(
@@ -1328,7 +1309,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "summary_lead",
-            "sections",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
@@ -1392,10 +1372,6 @@ class SignalReportSerializer(serializers.ModelSerializer):
         except (json.JSONDecodeError, TypeError, ValueError):
             return None
         return data if isinstance(data, dict) else None
-
-    @extend_schema_field(SignalReportSectionsSerializer)
-    def get_sections(self, obj: SignalReport) -> dict[str, str | None]:
-        return asdict(report_sections(obj.summary))
 
     def get_summary_lead(self, obj: SignalReport) -> str:
         return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)

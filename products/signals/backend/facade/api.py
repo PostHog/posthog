@@ -52,6 +52,15 @@ from products.signals.backend.report_metrics import (
     REPORT_METRIC_VALUE_FORMATS as REPORT_METRIC_VALUE_FORMATS,
     ReportMetricSnapshot as ReportMetricSnapshot,
 )
+from products.signals.backend.report_page_source import (
+    ReportPageSource as ReportPageSource,
+    ReportSignal as ReportSignal,
+    report_page_source as report_page_source,
+)
+from products.signals.backend.report_sections import (
+    ReportSections as ReportSections,
+    report_sections as report_sections,
+)
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching

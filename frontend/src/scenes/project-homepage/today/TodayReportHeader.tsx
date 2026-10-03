@@ -31,7 +31,7 @@ export function TodayReportHeader({
     leadMarks: TodayMarkedFigure[]
 }): JSX.Element {
     const { requestReportVerdict } = useActions(todayLogic)
-    const { sections, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
+    const { lead, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
     const sampleReason = isSample ? SAMPLE_REASON : null
     const stateLabel = itemStateLabel({ state: reportState })
     const sources = reportSourceLine(report)
@@ -110,10 +110,10 @@ export function TodayReportHeader({
                 <Heading size="xl" render={<h1 />} className="leading-snug text-balance">
                     {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
                 </Heading>
-                {sections.lead ? (
+                {lead ? (
                     <div data-today-figures>
                         <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
-                            <TodayMarkedText markdown={sections.lead} marked={leadMarks} reportId={report.id} />
+                            <TodayMarkedText markdown={lead} marked={leadMarks} reportId={report.id} />
                         </Text>
                         <TodayEvidenceAge marked={leadMarks} report={report} />
                     </div>

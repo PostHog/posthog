@@ -9,11 +9,9 @@ from ..facade import contracts
 from ..facade.enums import KeyClauseRole
 from .jev import JevClient, JevPick
 from .report_text import rendered_text
+from .sentences import split_sentences
 
 _WORD = re.compile(r"[^\W_](?:\w|(?<=[^\W_])['’.](?=[^\W_])|(?<=\d)[,;](?=\d))*|_+\w*")
-_TERMINATORS = set(".!?")
-_CLOSE = set("\"'”’“‘)]}»«([{")
-_CONTINUE = set(",;:-")
 _IN_PHRASE = set("'’‘-./_\"“”`$€£%#@*+=")
 _DASHES = set("–—")
 _CLAUSE_OPENERS = frozenset(
@@ -63,54 +61,6 @@ class _Word:
     text: str
 
 
-def _continues_sentence(rest: str) -> bool:
-    for char in rest:
-        if char.isalpha():
-            return char.islower()
-        if char in _TERMINATORS:
-            return False
-    return False
-
-
-def _period_continues(text: str, term_start: int, term_end: int, next_index: int) -> bool:
-    following = text[next_index] if next_index < len(text) else ""
-    preceding = text[term_start - 1] if term_start > 0 else ""
-    touching = next_index == term_end
-    if touching and (following.isdigit() or (preceding.isalpha() and following.isupper())):
-        return True
-    return _continues_sentence(text[next_index:])
-
-
-def _sentence_breaks(text: str) -> list[int]:
-    breaks: list[int] = []
-    index = 0
-    while index < len(text):
-        if text[index] not in _TERMINATORS:
-            index += 1
-            continue
-        term_start = index
-        while index < len(text) and text[index] in _TERMINATORS:
-            index += 1
-        term_end = index
-        while index < len(text) and text[index] in _CLOSE:
-            index += 1
-        while index < len(text) and text[index] in " \t\u00a0":
-            index += 1
-        if index >= len(text):
-            break
-        if text[index] in _CONTINUE or text[index] in _TERMINATORS:
-            continue
-        if text[term_end - 1] == "." and _period_continues(text, term_start, term_end, index):
-            continue
-        breaks.append(index)
-    return breaks
-
-
-def _sentences(text: str) -> list[tuple[int, str]]:
-    edges = [0, *_sentence_breaks(text), len(text)]
-    return [(start, text[start:end]) for start, end in zip(edges, edges[1:]) if start < end]
-
-
 def _joins_words(sentence: str, index: int) -> bool:
     char = sentence[index]
     before = sentence[index - 1] if index > 0 else " "
@@ -151,7 +101,7 @@ def _clause(text: str, words: list[_Word]) -> Clause:
 def text_clauses(text: str) -> list[Clause]:
     parts = [
         part
-        for sentence_start, sentence in _sentences(text)
+        for sentence_start, sentence in split_sentences(text)
         for run in _word_runs(sentence, sentence_start)
         for part in _split_at_openers(run)
     ]
@@ -199,7 +149,7 @@ def _report_sentences(summary: str, shown: list[str]) -> list[str]:
         text = rendered_text(line).strip()
         if not text or text in seen:
             continue
-        for _, sentence in _sentences(text):
+        for _, sentence in split_sentences(text):
             value = sentence.strip()
             already_read = any(value in part for part in shown) or value in sentences
             if _word_count(value) >= _MIN_SENTENCE_WORDS and not already_read:

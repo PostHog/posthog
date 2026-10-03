@@ -8,16 +8,15 @@ import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 
-import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalPreviewApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
-import { TodaySignalDestination, citedSource, signalDestination } from './todayEvidence'
+import { TodaySignalDestination, previewOpen, shownPreview, signalDestination } from './todayEvidence'
 import { TodayEvidenceDetail } from './TodayEvidenceDetail'
 import { TodayIcon } from './TodayIcon'
 import { shortDate } from './todayProse'
 import { todayReportLogic } from './todayReportLogic'
-import { TodaySignalPreview, signalPreview } from './todaySignalPreview'
 import { sourceStyle } from './todaySignalReports'
-import { signalHeadline, signalMeta, signalDetail, signalSourceLabel } from './todaySignalText'
+import { signalSourceLabel } from './todaySignalText'
 
 const EXPAND: TodaySignalDestination = { kind: 'read' }
 
@@ -26,11 +25,7 @@ interface RowHint {
     icon: JSX.Element
 }
 
-function rowHint(
-    action: TodaySignalDestination,
-    preview: TodaySignalPreview | null,
-    expanded: boolean
-): RowHint | null {
+function rowHint(action: TodaySignalDestination, preview: SignalPreviewApi | null, expanded: boolean): RowHint | null {
     if (action.kind === 'recording') {
         return { label: 'Play', icon: <IconPlay /> }
     }
@@ -61,7 +56,7 @@ function RowTrailer({
     hint,
     sourceLabel,
 }: {
-    signal: SignalNodeApi
+    signal: SignalViewApi
     hint: RowHint | null
     sourceLabel: string
 }): JSX.Element {
@@ -70,7 +65,7 @@ function RowTrailer({
         <Text size="xs" variant="muted" render={<span />} className="flex items-center gap-2 whitespace-nowrap">
             <span aria-hidden className="flex size-3.5 items-center justify-center [&_svg]:size-3.5">
                 <span title={sourceLabel} className={cn('flex', hint && 'group-hover/row:hidden')}>
-                    <TodayIcon icon={citedSource(signal) ?? sourceStyle(signal.source_product).icon} />
+                    <TodayIcon icon={signal.cited ?? sourceStyle(signal.source_product).icon} />
                 </span>
                 {hint && <span className="hidden text-[var(--foreground)] group-hover/row:flex">{hint.icon}</span>}
             </span>
@@ -81,14 +76,15 @@ function RowTrailer({
     )
 }
 
-export function TodayReportSignalRow({ reportId, signal }: { reportId: string; signal: SignalNodeApi }): JSX.Element {
+export function TodayReportSignalRow({ reportId, signal }: { reportId: string; signal: SignalViewApi }): JSX.Element {
     const { evidenceOpened, readCode } = useActions(todayReportLogic({ reportId }))
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const [expanded, setExpanded] = useState(false)
-    const preview = useMemo(() => signalPreview(signal), [signal])
-    const action = preview ? EXPAND : signalDestination(signal)
+    const destination = useMemo(() => signalDestination(signal), [signal])
+    const open = previewOpen(signal, destination)
+    const preview = shownPreview(signal, open)
+    const action = preview ? EXPAND : destination
     const hint = rowHint(action, preview, expanded)
-    const cited = citedSource(signal)
     const sourceLabel = signalSourceLabel(signal)
     const detailId = `today-signal-${signal.signal_id}`
 
@@ -100,7 +96,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
             setExpanded(false)
             return
         }
-        evidenceOpened(signal, cited ?? action.kind)
+        evidenceOpened(signal, signal.cited ?? action.kind)
         if (action.kind === 'recording') {
             openSessionPlayer({ id: action.sessionId }, action.startAt)
         }
@@ -132,9 +128,9 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
                 <ItemContent className="min-w-0">
                     <ItemTitle
                         className={cn('font-normal text-[var(--foreground)]', !expanded && 'line-clamp-2')}
-                        title={[sourceLabel, signalMeta(signal)].filter(Boolean).join(' · ')}
+                        title={[sourceLabel, signal.meta].filter(Boolean).join(' · ')}
                     >
-                        {expanded ? signalDetail(signal).lead : signalHeadline(signal)}
+                        {expanded ? signal.lead : signal.headline}
                     </ItemTitle>
                 </ItemContent>
                 <ItemActions className="shrink-0 self-start pt-0.5">
@@ -142,7 +138,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
                 </ItemActions>
             </Item>
             {expanded && preview && (
-                <TodayEvidenceDetail id={detailId} reportId={reportId} signal={signal} preview={preview} />
+                <TodayEvidenceDetail id={detailId} reportId={reportId} signal={signal} preview={preview} open={open} />
             )}
         </div>
     )

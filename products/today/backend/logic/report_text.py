@@ -15,7 +15,7 @@ _WHITESPACE = re.compile(r"\s+")
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
-def _readable_date(match: re.Match[str]) -> str:
+def readable_date(match: re.Match[str]) -> str:
     year, month, day = (int(part) for part in match.groups())
     if not 1 <= month <= 12 or not 1 <= day <= 31:
         return match.group(0)
@@ -36,5 +36,5 @@ def _token_text(token: Token) -> str:
 
 
 def rendered_text(markdown: str) -> str:
-    text = _ISO_DATE.sub(_readable_date, _WHITESPACE.sub(" ", _shortened_github_links(markdown)).strip())
+    text = _ISO_DATE.sub(readable_date, _WHITESPACE.sub(" ", _shortened_github_links(markdown)).strip())
     return "".join(_token_text(token) for token in _MARKDOWN.parseInline(text))

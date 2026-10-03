@@ -10,7 +10,7 @@ import { isNotNil } from 'lib/utils/guards'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
-import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalViewApi } from 'products/today/frontend/generated/api.schemas'
 
 import { signalDestination } from './todayEvidence'
 import { highlightSegments } from './todayFigures'
@@ -38,7 +38,7 @@ interface QuoteSource {
     icon: TodayReportIcon | null
     label: string
     date: string | null
-    signal: SignalNodeApi | null
+    signal: SignalViewApi | null
 }
 
 function quoteSource(content: QuotedContent): QuoteSource {
@@ -129,7 +129,7 @@ function FullReportLink({ reportId, children }: { reportId: string; children: st
     )
 }
 
-function SignalAction({ signal, reportId }: { signal: SignalNodeApi | null; reportId: string }): JSX.Element {
+function SignalAction({ signal, reportId }: { signal: SignalViewApi | null; reportId: string }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const destination = signal ? signalDestination(signal) : null
     if (destination?.kind === 'recording') {

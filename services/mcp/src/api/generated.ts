@@ -22010,6 +22010,18 @@ export namespace Schemas {
       CustomSql: 'custom_sql',
     } as const;
 
+    /**
+     * * `code` - Code
+     * * `slack` - Slack
+     */
+    export type CitedSourceEnum = typeof CitedSourceEnum[keyof typeof CitedSourceEnum];
+
+
+    export const CitedSourceEnum = {
+      Code: 'code',
+      Slack: 'slack',
+    } as const;
+
     export interface TagCount {
       /** The tag value. */
       tag: string;
@@ -22575,6 +22587,13 @@ export namespace Schemas {
       LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
+
+    export interface CodeFile {
+      /** The repository as owner/name. */
+      repo: string;
+      /** The file path in the repository. */
+      path: string;
+    }
 
     /**
      * * `connected` - Connected
@@ -66495,6 +66514,13 @@ export namespace Schemas {
       seconds_per_merged_pr: number;
     }
 
+    export interface PageLink {
+      /** Where the link goes, outside PostHog. */
+      url: string;
+      /** The link text. */
+      text: string;
+    }
+
     export interface PaginatedAccountChannelSummaryList {
       count: number;
       /** @nullable */
@@ -70002,21 +70028,6 @@ export namespace Schemas {
       results: SignalReportCheck[];
     }
 
-    export interface SignalReportSections {
-      /** The first paragraph of the summary before any section heading. */
-      lead: string;
-      /**
-         * The body under the summary's Impact heading, or null when it has none.
-         * @nullable
-         */
-      impact: string | null;
-      /**
-         * The body under the summary's Solution heading or one of its aliases, or null when it has none.
-         * @nullable
-         */
-      solution: string | null;
-    }
-
     /**
      * * `potential` - Potential
      * * `candidate` - Candidate
@@ -70382,8 +70393,6 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
-      /** The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and Solution headings, as markdown with chart links reduced to their text. */
-      readonly sections: SignalReportSections;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;
@@ -84046,6 +84055,13 @@ export namespace Schemas {
       is_preview_link: boolean;
     }
 
+    export interface PreviewLine {
+      /** One line of the preview block. */
+      text: string;
+      /** Whether the line is secondary, such as a stack frame. */
+      quiet: boolean;
+    }
+
     export interface PreviewPathCleaningSuggestionResponse {
       /** Up to 20 before/after pairs for sampled paths the suggested rules would rewrite. */
       examples: PathCleaningPreviewExample[];
@@ -86303,6 +86319,13 @@ export namespace Schemas {
       available: boolean;
       /** Pull requests merged in this many days before the view last refreshed. */
       window_days: number;
+    }
+
+    export interface PullRequestLink {
+      /** The pull request on GitHub. */
+      url: string;
+      /** The pull request number. */
+      number: number;
     }
 
     export interface PullRequestList {
@@ -89888,6 +89911,21 @@ export namespace Schemas {
       recorded: boolean;
     }
 
+    export interface RecordingTarget {
+      /** The recording's session id. */
+      session_id: string;
+      /**
+         * Where the player starts, a few seconds before the finding.
+         * @nullable
+         */
+      start_at: string | null;
+      /**
+         * The finding's time in the recording, as MM:SS.
+         * @nullable
+         */
+      offset: string | null;
+    }
+
     /**
      * * `Redshift` - Redshift
      */
@@ -90380,6 +90418,84 @@ export namespace Schemas {
       minimum_data_points?: number | null;
     }
 
+    export interface SignalPreview {
+      /** What expanding the signal shows, such as 'Show the stack trace'. */
+      hint: string;
+      /** Repository files to quote, the finding's own file first. */
+      code: CodeFile[];
+      /** A preformatted block, such as a stack trace or a query. */
+      block: PreviewLine[];
+      /** The finding's text beyond its first sentence. */
+      text: string;
+      /** Short facts about the source. */
+      facts: string[];
+      /** A link that replaces the signal's own destination. */
+      link: PageLink | null;
+      /**
+         * A label that replaces the label of the signal's own destination.
+         * @nullable
+         */
+      link_label: string | null;
+    }
+
+    /**
+     * The emitter's extra fields, used to link to the source object.
+     */
+    export type SignalViewExtra = { [key: string]: unknown };
+
+    export interface SignalView {
+      /** The signal's id. */
+      signal_id: string;
+      /** The product that emitted the signal. */
+      source_product: string;
+      /** The kind of signal within its product. */
+      source_type: string;
+      /** The id of the source object, such as an issue or a ticket. */
+      source_id: string;
+      /** The signal's text as emitted. */
+      content: string;
+      /** When the signal happened. */
+      timestamp: string;
+      /** The emitter's extra fields, used to link to the source object. */
+      extra: SignalViewExtra;
+      /** The signal as one short line. */
+      headline: string;
+      /** The signal's first sentence. */
+      lead: string;
+      /** Identifiers such as a pull request or ticket number, joined by dots. */
+      meta: string;
+      /** What a scout finding cites: code or a Slack thread.
+       *
+       * * `code` - Code
+       * * `slack` - Slack */
+      cited: CitedSourceEnum | null;
+      /** The recording the signal plays, if any. */
+      recording: RecordingTarget | null;
+      /** Where a scout finding links outside PostHog, if anywhere. */
+      link: PageLink | null;
+      /** What expanding the signal shows, if anything. */
+      preview: SignalPreview | null;
+    }
+
+    export interface ReportPage {
+      /** The summary's opening paragraph, as markdown. */
+      lead: string;
+      /** The proposed fix cut to whole sentences, as markdown. Empty when the report proposes none. */
+      proposal: string;
+      /** The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise. */
+      impact_sentence: string;
+      /** The pull request the proposal names, or else the summary, when it names exactly one. */
+      in_flight_pull_request: PullRequestLink | null;
+      /** Whether the proposal names any pull request. */
+      solution_names_pull_request: boolean;
+      /** The report's signals, newest first, ready to show. */
+      signals: SignalView[];
+      /** The ids of the signals to show as evidence, at most 3. */
+      evidence: string[];
+      /** How many distinct source objects the signals come from. */
+      evidence_count: number;
+    }
+
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
 
 
@@ -90419,8 +90535,6 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
-      /** The parts of `summary` a reader acts on: the lead paragraph, and the bodies under its Impact and Solution headings, as markdown with chart links reduced to their text. */
-      readonly sections: SignalReportSections;
       readonly status: SignalReportStatusEnum;
       readonly total_weight: number;
       readonly signal_count: number;

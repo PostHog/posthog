@@ -28,6 +28,7 @@ from .serializers import (
     ExcerptChoiceSerializer,
     KeyClausesQuerySerializer,
     KeyClausesSerializer,
+    ReportPageSerializer,
     TodayQuerySerializer,
 )
 
@@ -51,7 +52,7 @@ def _ask_jev[T](team_id: int, ask: Callable[[], T]) -> T:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["briefing", "candidates", "key_clauses", "excerpt_choice"]
+    scope_object_read_actions = ["briefing", "candidates", "report_page", "key_clauses", "excerpt_choice"]
     scope_object_write_actions = ["refresh"]
 
     def _user(self) -> User:
@@ -114,6 +115,20 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             team=self.team, user=user, timezone_name=request.validated_query_data.get("timezone")
         )
         return Response(CandidateListSerializer(candidates).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=ReportPageSerializer)},
+        summary="Get a report's page",
+        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation.",
+    )
+    @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page")
+    def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
+        if not api.is_enabled_for(cast(User, request.user), self.team):
+            raise NotFound()
+        page = api.report_page(team=self.team, report_id=report_id)
+        if page is None:
+            raise NotFound()
+        return Response(ReportPageSerializer(page).data)
 
     @validated_request(
         request_serializer=KeyClausesQuerySerializer,
