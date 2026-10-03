@@ -125,11 +125,6 @@ describe('audience routing', () => {
         { visited: ['/audience/suppression'], tab: 'suppression', label: 'Suppression list' },
         { visited: ['/audience/suppression', '/audience'], tab: 'recipients', label: 'Recipients' },
         { visited: ['/audience/not-a-tab'], tab: 'recipients', label: 'Recipients' },
-        {
-            visited: ['/audience/topics', '/audience/recipients/jamie%40example.com'],
-            tab: 'recipients',
-            label: 'Recipients',
-        },
     ])('after visiting $visited, Audience shows the $tab tab', ({ visited, tab, label }) => {
         audienceSceneLogic.mount()
 

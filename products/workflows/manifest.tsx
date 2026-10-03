@@ -75,7 +75,6 @@ export const manifest: ProductManifest = {
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
         '/audience': ['Audience', 'audience'],
-        '/audience/recipients/:email': ['Audience', 'audience'],
         '/audience/:tab': ['Audience', 'audience'],
     },
     urls: {
@@ -91,7 +90,6 @@ export const manifest: ProductManifest = {
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
         audience: (tab?: AudienceTab): string => `/audience${tab ? `/${tab}` : ''}`,
-        audienceRecipient: (email: string): string => `/audience/recipients/${encodeURIComponent(email)}`,
     },
     fileSystemTypes: {
         workflows: {

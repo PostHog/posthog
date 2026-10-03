@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -39,9 +37,9 @@ function RecipientCell({ recipient }: { recipient: RecipientApi }): JSX.Element 
     return (
         <div className="flex flex-col gap-1 min-w-0">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <Link to={urls.audienceRecipient(recipient.email)} className="font-medium wrap-anywhere">
-                    <span translate="no">{recipient.email}</span>
-                </Link>
+                <span translate="no" className="font-medium wrap-anywhere">
+                    {recipient.email}
+                </span>
                 {recipient.suppression && (
                     <LemonTag type="danger" size="small">
                         Suppressed
@@ -77,12 +75,6 @@ function TopicsCell({
             ))}
         </div>
     )
-}
-
-function openRecipientUnlessInnerLink(event: React.MouseEvent<HTMLElement>, email: string): void {
-    if (!(event.target as HTMLElement).closest('a, button')) {
-        router.actions.push(urls.audienceRecipient(email))
-    }
 }
 
 export function RecipientsTable(): JSX.Element {
@@ -132,10 +124,6 @@ export function RecipientsTable(): JSX.Element {
                 loading={pageLoading}
                 loadingSkeletonRows={8}
                 nouns={['recipient', 'recipients']}
-                onRow={(recipient) => ({
-                    className: 'cursor-pointer',
-                    onClick: (event) => openRecipientUnlessInnerLink(event, recipient.email),
-                })}
                 pagination={{
                     controlled: true,
                     pageSize: RECIPIENTS_PAGE_SIZE,

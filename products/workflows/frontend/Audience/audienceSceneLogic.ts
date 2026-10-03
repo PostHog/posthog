@@ -67,7 +67,6 @@ export const audienceSceneLogic = kea<audienceSceneLogicType>([
     }),
     urlToAction(({ actions }) => ({
         [urls.audience()]: () => actions.setCurrentTab(DEFAULT_AUDIENCE_TAB),
-        '/audience/recipients/:email': () => actions.setCurrentTab('recipients'),
         [urls.audience(':tab' as AudienceTab)]: ({ tab }) =>
             actions.setCurrentTab(isAudienceTab(tab) ? tab : DEFAULT_AUDIENCE_TAB),
     })),
