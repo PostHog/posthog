@@ -347,6 +347,7 @@ export const API_KEY_SCOPE_PRESETS: {
         scopes: ['action:read', 'query:read', 'project:read', 'organization:read', 'user:read', 'webhook:write'],
     },
     { value: 'analytics', label: 'Performing analytics queries', scopes: ['query:read'] },
+    { value: 'messaging_preferences', label: 'Email preference sync', scopes: ['hog_flow:write'] },
     { value: 'endpoints', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     {
         value: 'project_management',

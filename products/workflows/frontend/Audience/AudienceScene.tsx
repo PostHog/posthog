@@ -17,7 +17,7 @@ import { NewCategoryButton } from '../OptOuts/NewCategoryButton'
 import { OptOutScene } from '../OptOuts/OptOutScene'
 import { SuppressionScene } from '../Suppression/SuppressionScene'
 import { AudienceEngagement } from './AudienceEngagement'
-import { AudienceRecipients } from './AudienceRecipients'
+import { AudienceRecipientsTab } from './AudienceRecipientsTab'
 import { AUDIENCE_TAB_LABELS, AudienceTab, audienceSceneLogic } from './audienceSceneLogic'
 
 export const scene: SceneExport = {
@@ -31,7 +31,7 @@ const AUDIENCE_SCENE_TABS: LemonTab<AudienceTab>[] = [
         key: 'recipients',
         label: AUDIENCE_TAB_LABELS.recipients,
         link: urls.audience(),
-        content: <AudienceRecipients />,
+        content: <AudienceRecipientsTab />,
     },
     {
         key: 'engagement',

@@ -40,6 +40,7 @@ describe('recipientsLogic', () => {
             'loadAudienceRecipientsSuccess',
             'loadAudienceCoverageSuccess',
         ])
+        await expectLogic(optOutCategoriesLogic).toDispatchActions(['loadCategoriesSuccess'])
     }
 
     async function searchForJamie(): Promise<void> {

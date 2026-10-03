@@ -330,6 +330,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
     '/audience': ['Audience', 'audience'],
+    '/audience/setup': ['Audience', 'audience'],
     '/audience/:tab': ['Audience', 'audience'],
 }
 
@@ -1825,6 +1826,7 @@ export const productUrls = {
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
     audience: (tab?: AudienceTab): string => `/audience${tab ? `/${tab}` : ''}`,
+    audienceSetup: (): string => '/audience/setup',
 }
 
 /** This const is auto-generated, as is the whole file */

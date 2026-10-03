@@ -14,7 +14,7 @@ const RECIPIENTS_PAGE_SIZE = 50
 export const RECIPIENT_SEARCH_MAX_LENGTH = 512
 const SEARCH_DEBOUNCE_MS = 300
 
-export type RecipientsView = 'loading' | 'error' | 'empty' | 'no-match' | 'results'
+export type RecipientsView = 'loading' | 'error' | 'setup' | 'empty' | 'no-match' | 'results'
 
 export interface RecipientsRequest {
     search: string
@@ -44,6 +44,7 @@ const EMPTY_PAGE: RecipientPageApi = { results: [], next_cursor: null }
 export interface recipientsLogicValues {
     categories: MessageCategory[] // optOutCategoriesLogic
     accessDenied: boolean
+    categoriesLoading: boolean // optOutCategoriesLogic
     canPage: boolean
     currentPage: number | null
     hasNextPage: boolean
@@ -133,7 +134,9 @@ export interface recipientsLogicMeta {
             loadFailed: boolean,
             page: RecipientPageApi,
             shownRequest: RecipientsRequest,
-            lastRequest: RecipientsRequest
+            lastRequest: RecipientsRequest,
+            categoriesLoading: boolean,
+            categories: MessageCategory[]
         ) => RecipientsView
         searchPending: (search: string, shownRequest: RecipientsRequest) => boolean
         topicNames: (categories: MessageCategory[]) => Record<string, string>
@@ -153,7 +156,7 @@ function currentTeamId(): string {
 
 export const recipientsLogic = kea<recipientsLogicType>([
     path(['products', 'workflows', 'frontend', 'Audience', 'recipientsLogic']),
-    connect(() => ({ values: [optOutCategoriesLogic, ['categories']] })),
+    connect(() => ({ values: [optOutCategoriesLogic, ['categories', 'categoriesLoading']] })),
     actions({
         setSearch: (search: string) => ({ search }),
         clearSearch: true,
@@ -248,13 +251,23 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 Object.fromEntries(categories.map((category) => [category.key, category.name])),
         ],
         recipientsView: [
-            (s) => [s.pageLoading, s.loadFailed, s.page, s.shownRequest, s.lastRequest],
+            (s) => [
+                s.pageLoading,
+                s.loadFailed,
+                s.page,
+                s.shownRequest,
+                s.lastRequest,
+                s.categoriesLoading,
+                s.categories,
+            ],
             (
                 pageLoading: boolean,
                 loadFailed: boolean,
                 page: RecipientPageApi,
                 shownRequest: RecipientsRequest,
-                lastRequest: RecipientsRequest
+                lastRequest: RecipientsRequest,
+                categoriesLoading: boolean,
+                categories: MessageCategory[]
             ): RecipientsView => {
                 if (pageLoading && lastRequest.search !== shownRequest.search) {
                     return 'loading'
@@ -267,10 +280,13 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 if (showsTable) {
                     return 'results'
                 }
-                if (pageLoading) {
+                if (pageLoading || categoriesLoading) {
                     return 'loading'
                 }
-                return shownRequest.search ? 'no-match' : 'empty'
+                if (shownRequest.search) {
+                    return 'no-match'
+                }
+                return categories.length === 0 ? 'setup' : 'empty'
             },
         ],
     }),

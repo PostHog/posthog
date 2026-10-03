@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
+import { urls } from 'scenes/urls'
 
 import { RecipientsBody } from './RecipientsBody'
 import { RECIPIENT_SEARCH_MAX_LENGTH, recipientsLogic } from './recipientsLogic'
@@ -24,17 +26,28 @@ export function AudienceRecipients(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="audience-recipients">
-            <LemonInput
-                type="search"
-                placeholder="Search by email address"
-                aria-label="Search recipients by email address"
-                inputRef={searchInputRef}
-                value={search}
-                maxLength={RECIPIENT_SEARCH_MAX_LENGTH}
-                onChange={setSearch}
-                className="max-w-100"
-                data-attr="audience-recipients-search"
-            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search by email address"
+                    aria-label="Search recipients by email address"
+                    inputRef={searchInputRef}
+                    value={search}
+                    maxLength={RECIPIENT_SEARCH_MAX_LENGTH}
+                    onChange={setSearch}
+                    className="flex-1 max-w-100"
+                    data-attr="audience-recipients-search"
+                />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconGear />}
+                    to={urls.audienceSetup()}
+                    data-attr="audience-recipients-set-up"
+                >
+                    Set up
+                </LemonButton>
+            </div>
             <UnreachablePersonsNotice />
             {loadFailed && (
                 <LemonBanner
