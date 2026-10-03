@@ -50,21 +50,40 @@ const PHONE_PAGE_LIMIT = 50
 export interface TodayPhonePage {
     pathname: string
     url: string
+    /** The history position kea-router stored for this page's latest entry, or null when the entry has none. */
+    entry: number | null
+    /** How many browser history entries the page spans. Filter changes on the same path add entries. */
+    steps: number
+}
+
+/** The history position of the current entry. kea-router writes it on every push and replace. */
+export function currentHistoryEntry(): number | null {
+    const count = window.history.state?.count
+    return typeof count === 'number' ? count : null
 }
 
 export function nextPhonePages(
     pages: TodayPhonePage[],
     method: LocationChangedPayload['method'],
-    page: TodayPhonePage
+    page: Omit<TodayPhonePage, 'steps'>
 ): TodayPhonePage[] {
     const current = pages[pages.length - 1]
-    if (method === 'PUSH' && current?.pathname !== page.pathname) {
-        return [...pages, page].slice(-PHONE_PAGE_LIMIT)
+    const previous = pages[pages.length - 2]
+    // Browser Forward also arrives as POP. A later history position than the current page means forward.
+    const forward = method === 'POP' && page.entry !== null && current?.entry != null && page.entry > current.entry
+    if (method === 'PUSH' || forward) {
+        if (current?.pathname === page.pathname) {
+            return [...pages.slice(0, -1), { ...page, steps: current.steps + 1 }]
+        }
+        return [...pages, { ...page, steps: 1 }].slice(-PHONE_PAGE_LIMIT)
     }
-    if (method === 'POP' && pages[pages.length - 2]?.pathname === page.pathname) {
-        return [...pages.slice(0, -2), page]
+    if (method === 'POP' && current?.pathname === page.pathname) {
+        return [...pages.slice(0, -1), { ...page, steps: Math.max(1, current.steps - 1) }]
     }
-    return [...pages.slice(0, -1), page]
+    if (method === 'POP' && previous?.pathname === page.pathname) {
+        return [...pages.slice(0, -2), { ...page, steps: previous.steps }]
+    }
+    return [...pages.slice(0, -1), { ...page, steps: current?.steps ?? 1 }]
 }
 
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
@@ -230,7 +249,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 setPhonePages: (_, { pages }) => pages,
                 setMobileSidebarOpen: (state, { open }) => (open ? [] : state),
                 locationChanged: (state, { method, pathname, search, hash }) =>
-                    nextPhonePages(state, method, { pathname, url: `${pathname}${search}${hash}` }),
+                    nextPhonePages(state, method, {
+                        pathname,
+                        url: `${pathname}${search}${hash}`,
+                        entry: currentHistoryEntry(),
+                    }),
             },
         ],
         // The resizer persists the width itself. This copy lets the app layout size the main column from it.
@@ -288,13 +311,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }, 'drawerEscape')
         },
         goBackOnPhone: () => {
-            const previous = values.phonePages[values.phonePages.length - 2]
-            if (!previous) {
+            const current = values.phonePages[values.phonePages.length - 1]
+            if (!current || values.phonePages.length < 2) {
                 actions.setMobileSidebarOpen(true)
                 return
             }
-            actions.setPhonePages(values.phonePages.slice(0, -1))
-            router.actions.replace(previous.url)
+            // Step the browser back over every entry of this page, so its Back button and ours stay in step.
+            // The POP that follows updates the page list.
+            window.history.go(-current.steps)
         },
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
@@ -311,6 +335,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
     })),
     afterMount(({ actions }) => {
         const { pathname, search, hash } = router.values.location
-        actions.setPhonePages([{ pathname, url: `${pathname}${search}${hash}` }])
+        actions.setPhonePages([
+            { pathname, url: `${pathname}${search}${hash}`, entry: currentHistoryEntry(), steps: 1 },
+        ])
     }),
 ])

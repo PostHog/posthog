@@ -7,7 +7,14 @@ import { toolHrefForPath } from 'scenes/tools/toolsUtils'
 
 import { initKeaTests } from '~/test/init'
 
-import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
+import {
+    TODAY_RAIL_WIDTH,
+    TODAY_SIDEBAR_MAX_WIDTH,
+    TodayPhonePage,
+    nextPhonePages,
+    railPaneForPath,
+    todayShellLogic,
+} from './todayShellLogic'
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -133,29 +140,61 @@ describe('todayShellLogic', () => {
         }
     })
 
-    it('on phone widths, goes back through pages and then to the pane', () => {
+    it('on phone widths, goes back over every browser entry of a page, then to the pane', () => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        const go = jest.spyOn(window.history, 'go').mockImplementation(() => {})
         try {
             const logic = todayShellLogic()
             logic.mount()
 
             logic.actions.pickPane('tools')
+            router.actions.push('/project/1/data-management/destinations')
             router.actions.push('/project/1/sql')
             router.actions.push('/project/1/sql?open_query=abc')
-            router.actions.push('/project/1/insights/abc')
             expect(logic.values.sidebarVisible).toBe(false)
 
             logic.actions.goBackOnPhone()
-            expect(router.values.location.pathname).toBe('/project/1/sql')
-            expect(router.values.location.search).toBe('?open_query=abc')
+            expect(go).toHaveBeenLastCalledWith(-2)
+
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname: '/project/1/data-management/destinations',
+                search: '',
+                searchParams: {},
+                hash: '',
+                hashParams: {},
+                url: '/project/1/data-management/destinations',
+            })
             expect(logic.values.sidebarVisible).toBe(false)
 
             logic.actions.goBackOnPhone()
+            expect(go).toHaveBeenCalledTimes(1)
             expect(logic.values.sidebarVisible).toBe(true)
             expect(logic.values.activePane).toBe('tools')
         } finally {
+            go.mockRestore()
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
+    })
+
+    it('treats browser Forward as a step to a later page, not back', () => {
+        const page = (pathname: string, entry: number, search = ''): Omit<TodayPhonePage, 'steps'> => ({
+            pathname,
+            url: `${pathname}${search}`,
+            entry,
+        })
+        let pages = nextPhonePages([], 'PUSH', page('/a', 1))
+        pages = nextPhonePages(pages, 'PUSH', page('/b', 2))
+        pages = nextPhonePages(pages, 'PUSH', page('/b', 3, '?q=1'))
+        pages = nextPhonePages(pages, 'PUSH', page('/c', 4))
+        pages = nextPhonePages(pages, 'POP', page('/b', 3, '?q=1'))
+        pages = nextPhonePages(pages, 'POP', page('/c', 4))
+
+        expect(pages.map(({ url, steps }) => [url, steps])).toEqual([
+            ['/a', 1],
+            ['/b?q=1', 2],
+            ['/c', 1],
+        ])
     })
 })

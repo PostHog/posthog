@@ -13,8 +13,8 @@ import { canResolveReport, hasOpenImplementationPr } from 'products/signals/fron
 
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayIcon } from './TodayIcon'
-import { TodayReportActionButton } from './TodayReportActionButton'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
+import { TodayReportActionButton } from './TodayReportActionButton'
 import { TodayReportEvidence } from './TodayReportEvidence'
 import { todayReportLogic } from './todayReportLogic'
 import { TodayReportPrompts } from './TodayReportPrompts'

@@ -34,7 +34,9 @@ export function TodayReportActionButton({
                         variant={variant}
                         disabled={!!disabledReason}
                         nativeButton={!link}
-                        render={link ? <LinkPrimitive to={link} target={targetBlank ? '_blank' : undefined} /> : undefined}
+                        render={
+                            link ? <LinkPrimitive to={link} target={targetBlank ? '_blank' : undefined} /> : undefined
+                        }
                         onClick={link ? undefined : onClick}
                         data-attr={dataAttr}
                     />

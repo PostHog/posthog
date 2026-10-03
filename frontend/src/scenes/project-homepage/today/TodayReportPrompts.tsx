@@ -27,7 +27,7 @@ export function TodayReportPrompts({ report }: { report: SignalReport }): JSX.El
         : undefined
     const promptDisabledReason = disabledReason ?? (askingAi ? 'Opening PostHog AI…' : undefined)
 
-    const ask =(question: string, source: InboxQuestionSource): void => {
+    const ask = (question: string, source: InboxQuestionSource): void => {
         if (!question || disabledReason || askingAi) {
             return
         }
