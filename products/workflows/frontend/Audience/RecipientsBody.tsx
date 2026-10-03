@@ -1,13 +1,12 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 
 import { recipientsLogic } from './recipientsLogic'
 import { RecipientsTable } from './RecipientsTable'
 
-export function RecipientsBody(): JSX.Element | null {
+export function RecipientsBody({ onClearSearch }: { onClearSearch: () => void }): JSX.Element | null {
     const { recipientsView } = useValues(recipientsLogic)
-    const { setSearch } = useActions(recipientsLogic)
 
     switch (recipientsView) {
         case 'error':
@@ -25,7 +24,7 @@ export function RecipientsBody(): JSX.Element | null {
                     title="No recipients match this search"
                     description="Check the spelling, or search for part of the address."
                     buttonText="Clear search"
-                    buttonOnClick={() => setSearch('')}
+                    buttonOnClick={onClearSearch}
                     buttonDataAttr="audience-recipients-clear-search"
                 />
             )

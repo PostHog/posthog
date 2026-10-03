@@ -7,7 +7,7 @@ import type { RecipientApi } from 'products/messaging/frontend/generated/api.sch
 import { RecipientCell } from './RecipientCell'
 import { RecipientLastSent } from './RecipientLastSent'
 import { RecipientPersonsSummary } from './RecipientPersonsSummary'
-import { RECIPIENTS_PAGE_SIZE, recipientsLogic } from './recipientsLogic'
+import { recipientsLogic } from './recipientsLogic'
 import { WIDE_RECIPIENTS_TABLE_ONLY } from './recipientsTableLayout'
 import { TopicStatusTag } from './TopicStatusTag'
 
@@ -75,10 +75,9 @@ export function RecipientsTable(): JSX.Element {
                 loading={pageLoading}
                 loadingSkeletonRows={8}
                 nouns={['recipient', 'recipients']}
-                emptyState="No more recipients"
+                emptyState="No recipients on this page"
                 pagination={{
                     controlled: true,
-                    pageSize: RECIPIENTS_PAGE_SIZE,
                     useUrl: false,
                     onForward: hasNextPage ? loadNextPage : undefined,
                     onBackward: hasPreviousPage ? loadPreviousPage : undefined,

@@ -248,15 +248,15 @@ export const RecipientsNarrow: Story = audienceTabStory('recipients', { sceneWid
 export const RecipientsEmpty: Story = audienceTabStory('recipients', {
     recipientsPage: { results: [], next_cursor: null },
 })
-export const RecipientsNoMatch: Story = audienceTabStory('recipients', {
-    recipientsPage: { results: [], next_cursor: null },
-    search: 'nobody@',
-})
+export const RecipientsNoMatch: Story = {
+    ...audienceTabStory('recipients', { recipientsPage: { results: [], next_cursor: null }, search: 'nobody@' }),
+    parameters: { testOptions: { waitForSelector: '[data-attr="audience-recipients-clear-search"]' } },
+}
 export const RecipientsError: Story = audienceTabStory('recipients', {
     recipientsPage: [500, { detail: 'The query took too long.' }],
 })
 export const RecipientsAccessDenied: Story = audienceTabStory('recipients', {
-    recipientsPage: [403, { detail: 'You need hog_flow viewer access to view recipients.' }],
+    recipientsPage: [403, { code: 'permission_denied', detail: 'You need hog_flow viewer access to view recipients.' }],
 })
 export const Topics: Story = audienceTabStory('topics')
 export const TopicsNarrow: Story = audienceTabStory('topics', { sceneWidth: 'narrow' })

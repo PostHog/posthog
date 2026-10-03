@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
@@ -10,7 +11,8 @@ import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
 export function AudienceRecipients(): JSX.Element {
     const { search, loadFailed, accessDenied } = useValues(recipientsLogic)
-    const { setSearch, retryLoadRecipients } = useActions(recipientsLogic)
+    const { setSearch, clearSearch, retryLoadRecipients } = useActions(recipientsLogic)
+    const searchInputRef = useRef<HTMLInputElement>(null)
 
     if (accessDenied) {
         return <AccessDenied reason="You need viewer access to Workflows to see recipients." inline />
@@ -22,6 +24,7 @@ export function AudienceRecipients(): JSX.Element {
                 type="search"
                 placeholder="Search by email address"
                 aria-label="Search recipients by email address"
+                inputRef={searchInputRef}
                 value={search}
                 onChange={setSearch}
                 className="max-w-100"
@@ -40,7 +43,12 @@ export function AudienceRecipients(): JSX.Element {
                     Couldn't load recipients. Search for part of an address to load fewer, or try again in a moment.
                 </LemonBanner>
             )}
-            <RecipientsBody />
+            <RecipientsBody
+                onClearSearch={() => {
+                    clearSearch()
+                    searchInputRef.current?.focus()
+                }}
+            />
         </div>
     )
 }
