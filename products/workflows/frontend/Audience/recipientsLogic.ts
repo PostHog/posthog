@@ -163,27 +163,6 @@ export const recipientsLogic = kea<recipientsLogicType>([
         retryLoadRecipients: true,
         openUnreachablePersons: true,
     }),
-    reducers({
-        search: ['', { setSearch: (_, { search }) => search, clearSearch: () => '' }],
-        lastRequest: [FIRST_PAGE, { loadAudienceRecipients: (_, request) => request }],
-        shownRequest: [FIRST_PAGE, { loadAudienceRecipientsSuccess: (shown, { payload }) => payload ?? shown }],
-        loadFailed: [
-            false,
-            {
-                loadAudienceRecipients: () => false,
-                loadAudienceRecipientsSuccess: () => false,
-                loadAudienceRecipientsFailure: () => true,
-            },
-        ],
-        accessDenied: [
-            false,
-            {
-                loadAudienceRecipients: () => false,
-                loadAudienceRecipientsSuccess: () => false,
-                loadAudienceRecipientsFailure: (_, { errorObject }) => isAccessDeniedError(errorObject ?? {}),
-            },
-        ],
-    }),
     loaders(() => ({
         page: [
             EMPTY_PAGE,
@@ -214,6 +193,27 @@ export const recipientsLogic = kea<recipientsLogicType>([
             },
         ],
     })),
+    reducers({
+        search: ['', { setSearch: (_, { search }) => search, clearSearch: () => '' }],
+        lastRequest: [FIRST_PAGE, { loadAudienceRecipients: (_, request) => request }],
+        shownRequest: [FIRST_PAGE, { loadAudienceRecipientsSuccess: (shown, { payload }) => payload ?? shown }],
+        loadFailed: [
+            false,
+            {
+                loadAudienceRecipients: () => false,
+                loadAudienceRecipientsSuccess: () => false,
+                loadAudienceRecipientsFailure: () => true,
+            },
+        ],
+        accessDenied: [
+            false,
+            {
+                loadAudienceRecipients: () => false,
+                loadAudienceRecipientsSuccess: () => false,
+                loadAudienceRecipientsFailure: (_, { errorObject }) => isAccessDeniedError(errorObject ?? {}),
+            },
+        ],
+    }),
     selectors({
         recipients: [
             (s) => [s.page, s.recipientsView],
