@@ -366,9 +366,6 @@ export interface subscriptionLogicActions {
     generatePreview: () => {
         value: true
     }
-    previewImageRenderFailed: () => {
-        value: true
-    }
     loadLastDelivery: () => any
     loadLastDeliveryFailure: (
         error: string,
@@ -481,6 +478,9 @@ export interface subscriptionLogicActions {
             limit: number | null
         }
         payload?: any
+    }
+    previewImageRenderFailed: () => {
+        value: true
     }
     replaceTeamsWebhook: () => {
         value: true
