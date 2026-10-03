@@ -59,6 +59,17 @@ if (url.pathname.startsWith('/mcp')) {
 
 `RequestProperties` (the parsed headers and query params for a request) is defined in `src/lib/request-properties.ts` and shared by both runtimes.
 
+### End user IP
+
+The PostHog API sees the Hono pod as the caller, so the activity log would record that pod's address.
+The end user IP travels as a signed header on each hop (`src/lib/client-ip-signature.ts`, the same HMAC format as Django's `verify_signed_client_ip`):
+
+1. The Worker removes any client-sent IP headers, signs `CF-Connecting-IP` with the key list of the target region, and sends `X-PostHog-Edge-Client-IP*` to Hono.
+2. Hono resolves the IP once per request (`src/hono/client-ip.ts`). A valid edge signature gives the signed IP. Otherwise Hono uses the rightmost `X-Forwarded-For` entry, which Envoy writes. When that entry is a published Cloudflare address, the request is Worker traffic without a valid signature, so Hono uses no IP.
+3. `ApiClient.fetch` signs that IP with a new timestamp on every API call and sends `X-PostHog-MCP-Client-IP*`. Django verifies it and uses it for the activity log only.
+
+Each hop has its own key list, and an empty list turns that hop off. `.env.example` names the variables. The `mcp_client_ip_resolutions_total` counter shows which source Hono used.
+
 ### Per-User State
 
 The Hono runtime keeps per-user session state (active project/organization, region, distinctId) in Redis, namespaced by `userHash` — a PBKDF2 hash of the API token (see `src/lib/utils`), ensuring:
@@ -90,27 +101,26 @@ There are three independent layers that emit signals about each MCP request:
 2. **Outbound API headers** — propagated when the MCP server calls PostHog's Django backend, so backend log lines and OTLP spans can correlate with the originating MCP request.
 3. **Wide structured logs** — single JSON record per request from the Worker itself (see [Wide Logging Pattern](#wide-logging-pattern) above).
 
-#### `$mcp_tool_call` event paths
+#### MCP Analytics SDK integration
 
-The canonical event is `$mcp_tool_call`.
-The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
-The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The public [event and property reference](https://posthog.com/docs/mcp-analytics/events) owns the shared wire contract.
+The [custom server integration guide](https://posthog.com/docs/mcp-analytics/custom-servers) documents the `PostHogMCP` API used by this Hono server.
 
-- **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
-- **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.
-- **`lib/posthog-mcp-analytics.ts`** — the [`@posthog/mcp-analytics`](https://github.com/PostHog/mcp-analytics) SDK. Property names are `$`-prefixed (`$mcp_session_id`, `$mcp_conversation_id`, …). This is the path most live traffic flows through today.
-
-Adding a new property to events means wiring it into the `McpCatIdentityProvider` interface and the property-builder in **all three** emitters, then sourcing the value on `requestProperties` (or pulling it from another DO-level source).
+The server uses one shared `PostHogMCP` client from `src/lib/posthog/client.ts`.
+The `src/hono/analytics.ts` module calls SDK helpers for initialization, tool calls, and tool listings.
+Direct tool calls and inner exec calls use the same `trackToolCall()` path.
+The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
+New `$mcp_*` events and properties belong in the SDK, not in this server.
 
 #### Three correlation identifiers
 
 Three identifiers travel with each request, each with a different lifecycle and a different consumer:
 
-| Identifier                                          | Source                                                                                                                                                                                                                                                                                     | Where it lands                                                                                                                                                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`sessionId`** (wrapper-app hint)                  | `?sessionId=` query param, set by integrators (setup wizard, sandbox, etc.)                                                                                                                                                                                                                | Resolved to a UUIDv7 via `SessionManager.getSessionUuid()` and stamped as `$session_id` / `$ai_session_id` on events — drives Session Replay and AI observability grouping. Only set when a wrapper supplies it.           |
-| **`mcpSessionId`** (transport session)              | `Mcp-Session-Id` HTTP header, server-minted on initialize per the [Streamable-HTTP MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http) and echoed by clients on every subsequent request                                                  | Stamped on `mcp_tool_call` events as `mcp_session_id` / `$mcp_session_id`, and forwarded to Django as `X-Posthog-Mcp-Session-Id` so backend structlog contextvars + OTLP span attributes (`mcp.session_id`) can correlate. |
-| **`mcpConversationId`** (agent-echoed conversation) | The `conversation_id` arg [injected into tool schemas](https://github.com/PostHog/mcp-analytics/pull/14) by `@posthog/mcp-analytics` when `enableConversationId: true`. The SDK mints a UUID and asks the agent to echo it on subsequent calls, so it persists across transport reconnects | Same plumbing as `mcpSessionId` — stamped on events and forwarded to Django as `X-Posthog-Mcp-Conversation-Id`.                                                                                                            |
+| Identifier                                          | Source                                                                                                                                                                                                                                                                                     | Where it lands                                                                                                                                                                                                                                                           |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **`sessionId`** (wrapper-app hint)                  | `?sessionId=` query param, set by integrators (setup wizard, sandbox, etc.)                                                                                                                                                                                                                | Resolved to a UUIDv7 via `SessionManager.getSessionUuid()` and stamped as `$session_id` on events — drives Session Replay grouping. `$ai_session_id` is never stamped, so session-target AI evaluations cannot fire on MCP traffic. Only set when a wrapper supplies it. |
+| **`mcpSessionId`** (transport session)              | `Mcp-Session-Id` HTTP header, server-minted on initialize per the [Streamable-HTTP MCP spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http) and echoed by clients on every subsequent request                                                  | Stamped on `mcp_tool_call` events as `mcp_session_id` / `$mcp_session_id`, and forwarded to Django as `X-Posthog-Mcp-Session-Id` so backend structlog contextvars + OTLP span attributes (`mcp.session_id`) can correlate.                                               |
+| **`mcpConversationId`** (agent-echoed conversation) | The `conversation_id` arg [injected into tool schemas](https://github.com/PostHog/mcp-analytics/pull/14) by `@posthog/mcp-analytics` when `enableConversationId: true`. The SDK mints a UUID and asks the agent to echo it on subsequent calls, so it persists across transport reconnects | Same plumbing as `mcpSessionId` — stamped on events and forwarded to Django as `X-Posthog-Mcp-Conversation-Id`.                                                                                                                                                          |
 
 Crucially, **`sessionId` and `mcpSessionId` are different concepts** and will not match for the same request. The wrapper-app `sessionId` is only set for a small fraction of traffic (mostly integrator-driven flows); the transport `mcpSessionId` is on essentially every authenticated request after initialize.
 

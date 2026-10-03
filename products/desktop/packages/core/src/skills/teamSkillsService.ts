@@ -5,6 +5,7 @@ import type {
 import {
   DISABLE_MODEL_INVOCATION_METADATA_KEY,
   type ExportedSkill,
+  isIgnoredSkillPath,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { SKILLS_WORKSPACE_CLIENT } from "./identifiers";
@@ -158,11 +159,25 @@ export class TeamSkillsService {
     name: string,
   ): Promise<ExportedSkill> {
     const detail = await client.getLlmSkillByName(name);
+    // A short body would silently replace an installed skill with truncated
+    // instructions, so refuse the install instead of writing it.
+    if (
+      detail.body_total_length != null &&
+      detail.body.length !== detail.body_total_length
+    ) {
+      throw new Error(
+        `Only part of "${name}" arrived from PostHog, so it was not installed. Try again.`,
+      );
+    }
+    // Ignored entries in legacy-published skills are dropped downstream
+    // anyway; skipping the fetch avoids one request per junk file.
     const files = await Promise.all(
-      detail.files.map(async (manifest) => {
-        const file = await client.getLlmSkillFile(name, manifest.path);
-        return { path: file.path, content: file.content };
-      }),
+      detail.files
+        .filter((manifest) => !isIgnoredSkillPath(manifest.path))
+        .map(async (manifest) => {
+          const file = await client.getLlmSkillFile(name, manifest.path);
+          return { path: file.path, content: file.content };
+        }),
     );
     return {
       name: detail.name,

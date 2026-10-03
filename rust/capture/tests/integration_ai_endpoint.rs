@@ -7,11 +7,12 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
-use capture::v0_request::{OverflowReason, ProcessedEvent};
+use capture::v0_request::{AiLanePredicate, OverflowReason, ProcessedEvent};
 use chrono::{DateTime, TimeZone, Utc};
 use common_ingestion_warnings::test_support::CollectingEmitter;
 use common_ingestion_warnings::{WarningEmitter, WarningType, CAPTURE_AI_EVENTS};
@@ -43,12 +44,8 @@ impl TimeSource for FixedTime {
 struct TestSink;
 
 #[async_trait]
-impl Event for TestSink {
-    async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
-        Ok(())
-    }
-
-    async fn send_batch(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for TestSink {
+    async fn publish_events(&self, _events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         Ok(())
     }
 }
@@ -72,13 +69,8 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -141,6 +133,10 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
+    setup_ai_test_router_with_predicate(AiLanePredicate::Allowlist)
+}
+
+fn setup_ai_test_router_with_predicate(ai_lane_predicate: AiLanePredicate) -> Router {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = TestSink;
@@ -152,7 +148,7 @@ fn setup_ai_test_router() -> Router {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -161,27 +157,30 @@ fn setup_ai_test_router() -> Router {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
         1_i64,
         false,
         0.0_f32,
-        26_214_400,       // 25MB default for AI endpoint
+        26_214_400, // 25MB default for AI endpoint
+        983_040,    // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        ai_lane_predicate,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -204,7 +203,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -216,14 +215,14 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         timesource,
         readiness,
         liveness,
-        Arc::new(TestSink),
+        Arc::new(OutputRegistry::single(TestSink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -231,12 +230,15 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
         None,
         None,
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,
@@ -685,6 +687,41 @@ async fn test_invalid_ai_event_type_returns_400() {
             response.status(),
             StatusCode::BAD_REQUEST,
             "Event type {event_name} should be rejected"
+        );
+    }
+}
+
+/// Under `CAPTURE_AI_LANE_PREDICATE=prefix` the endpoint accepts any `$ai_*`
+/// name and refuses the rest with a message naming the prefix rule, not the
+/// allowlist. `$ai_model` is still required either way.
+#[tokio::test]
+async fn prefix_predicate_accepts_any_ai_prefixed_name_on_the_ai_endpoint() {
+    let router = setup_ai_test_router_with_predicate(AiLanePredicate::Prefix);
+    let test_client = TestClient::new(router);
+    let token = Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3");
+
+    for event_name in ["$ai_generation", "$ai_unknown", "$ai_custom"] {
+        let form = create_ai_event_form(event_name, "test_user", json!({"$ai_model": "m"}));
+        let response = send_multipart_request(&test_client, form, token).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "Event type {event_name} should be accepted under prefix"
+        );
+    }
+
+    for event_name in ["$pageview", "ai_generation", "$aigeneration"] {
+        let form = create_ai_event_form(event_name, "test_user", json!({"$ai_model": "m"}));
+        let response = send_multipart_request(&test_client, form, token).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "Event type {event_name} should be rejected under prefix"
+        );
+        let body = response.text().await;
+        assert!(
+            body.contains("must start with '$ai_'"),
+            "rejection must name the prefix rule, got: {body}"
         );
     }
 }
@@ -1275,7 +1312,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -1284,27 +1321,30 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
         1_i64,
         false,
         0.0_f32,
-        26_214_400,       // 25MB default for AI endpoint
+        26_214_400, // 25MB default for AI endpoint
+        983_040,    // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -1943,7 +1983,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -1952,14 +1992,14 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         token_dropper,
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,             // concurrency_limit
         25 * 1024 * 1024, // event_size_limit
         false,            // enable_historical_rerouting
@@ -1967,12 +2007,15 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false,            // is_mirror_deploy
         0.0,              // verbose_sample_percent
         26_214_400,       // ai_max_sum_of_parts_bytes
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -1982,6 +2025,124 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
     );
 
     (router, sink_clone)
+}
+
+/// A real limiter whose local cache admits a key's first charge and limits
+/// every one after it. A threshold of `0` is what makes the second charge
+/// exceed the window with no Redis round trip and no clock, the same seam
+/// `integration_person_processing_matrix` uses for the event limiter; the tick
+/// is parked well past the requests so no background sync can race them.
+fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Ai;
+    cfg.ai_byte_limit_per_second = 0;
+    cfg.global_rate_limit_tick_interval_ms = 600_000;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+    let byte_limiter = Arc::new(
+        GlobalRateLimiter::new_ai_bytes(&cfg, vec![redis.clone()])
+            .expect("failed to build the AI byte limiter"),
+    );
+
+    let router = router(
+        timesource,
+        readiness,
+        liveness,
+        Arc::new(OutputRegistry::single(sink)),
+        redis,
+        None,
+        quota_limiter,
+        TokenDropper::default(),
+        None, // event_restriction_service
+        None, // recorder_handle
+        CaptureMode::Ai,
+        None,             // concurrency_limit
+        25 * 1024 * 1024, // event_size_limit
+        false,            // enable_historical_rerouting
+        1,                // historical_rerouting_threshold_days
+        false,            // is_mirror_deploy
+        0.0,              // verbose_sample_percent
+        26_214_400,       // ai_max_sum_of_parts_bytes
+        983_040,          // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
+        None,             // body_chunk_read_timeout_ms
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        Some(byte_limiter),
+        None,  // replay_overflow_limiter
+        None,  // v1_sink_router
+        8,     // capture_v1_scatter_gather_min_batch
+        None,  // ai_gateway_signing_secret
+        false, // ai_events_overflow_enabled
+        None,  // ingestion_warning_emitter
+    );
+
+    (router, sink_clone)
+}
+
+/// The byte budget reaches this endpoint. It builds its event at the handler and
+/// never enters either analytics pipeline, so the charge has to be wired here or
+/// a sender could spend unbounded bytes on `/i/v0/ai` while the same bytes are
+/// capped on `/i/v0/ai/batch`.
+///
+/// An over-budget event answers 200 with no accepted parts, the shape this
+/// handler already uses for the token dropper and for a `DropEvent` restriction:
+/// a rate drop is ops-imposed and never surfaces as a request failure.
+#[tokio::test]
+async fn test_ai_endpoint_byte_budget_drops_the_over_budget_event() {
+    let (router, sink) = setup_ai_test_router_with_byte_limiter();
+    let test_client = TestClient::new(router);
+    let token = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
+
+    let send = async |client: &TestClient| {
+        let form =
+            create_ai_event_form("$ai_generation", "test_user", json!({"$ai_model": "gpt-4"}));
+        send_multipart_request(client, form, Some(token)).await
+    };
+
+    // The limiter reads a cache miss as no prior data and fails open, so the
+    // first event for a token is always admitted.
+    let first = send(&test_client).await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let accepted: serde_json::Value = first.json().await;
+    assert!(
+        !accepted["accepted_parts"].as_array().unwrap().is_empty(),
+        "the first event is admitted and reports the parts it took"
+    );
+    assert_eq!(sink.get_events().await.len(), 1);
+
+    let second = send(&test_client).await;
+    assert_eq!(
+        second.status(),
+        StatusCode::OK,
+        "a rate drop is not a request failure"
+    );
+    let refused: serde_json::Value = second.json().await;
+    assert_eq!(
+        refused["accepted_parts"].as_array().unwrap().len(),
+        0,
+        "an over-budget event reports that nothing was accepted"
+    );
+    assert_eq!(
+        sink.get_events().await.len(),
+        1,
+        "the over-budget event must not reach the sink"
+    );
 }
 
 #[tokio::test]
@@ -2154,7 +2315,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
@@ -2163,14 +2324,14 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2178,12 +2339,15 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -2293,10 +2457,11 @@ async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
 const AI_OVERFLOW_TEST_TOKEN: &str = "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3";
 
 /// Variant of `setup_ai_test_router_with_capturing_sink` that wires a real
-/// `OverflowLimiter` into the router. Existing helpers still pass `None`; this
+/// `OverflowLimiter` into the router's AI lane — where AI-endpoint events land,
+/// so it is the limiter they consult. Existing helpers still pass `None`; this
 /// one opts in to exercise the governor path.
 fn setup_ai_test_router_with_overflow_limiter(
-    overflow_limiter: Arc<OverflowLimiter>,
+    ai_events_overflow_limiter: Arc<OverflowLimiter>,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
@@ -2310,7 +2475,7 @@ fn setup_ai_test_router_with_overflow_limiter(
     let redis = Arc::new(MockRedisClient::new());
 
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
 
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
@@ -2319,14 +2484,14 @@ fn setup_ai_test_router_with_overflow_limiter(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2334,18 +2499,21 @@ fn setup_ai_test_router_with_overflow_limiter(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
-        Some(overflow_limiter),
-        None,  // ai_events_overflow_limiter
-        None,  // replay_overflow_limiter
-        None,  // v1_sink_router
-        8,     // capture_v1_scatter_gather_min_batch
-        None,  // ai_gateway_signing_secret
-        false, // ai_events_overflow_enabled
-        None,  // ingestion_warning_emitter
+        None,             // overflow_limiter
+        Some(ai_events_overflow_limiter),
+        None, // ai_byte_rate_limiter
+        None, // replay_overflow_limiter
+        None, // v1_sink_router
+        8,    // capture_v1_scatter_gather_min_batch
+        None, // ai_gateway_signing_secret
+        true, // ai_events_overflow_enabled
+        None, // ingestion_warning_emitter
     );
 
     (router, sink_clone)
@@ -2459,14 +2627,14 @@ fn ai_router(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         None,
         quota_limiter,
         TokenDropper::default(),
         None,
         None, // recorder_handle
-        CaptureMode::Events,
+        CaptureMode::Ai,
         None,
         25 * 1024 * 1024,
         false,
@@ -2474,12 +2642,15 @@ fn ai_router(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
         None,
         None, // ai_events_overflow_limiter
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,
@@ -2501,7 +2672,7 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
     let redis =
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
         .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
     ai_router(redis, quota_limiter)
@@ -2512,7 +2683,7 @@ fn setup_ai_router_quota_limited_with_secret(token: &str) -> (Router, CapturingS
 fn setup_ai_router_with_secret() -> (Router, CapturingSink) {
     let redis = Arc::new(MockRedisClient::new());
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
     ai_router(redis, quota_limiter)
@@ -2629,7 +2800,7 @@ fn setup_ai_router_global_quota_limited_with_secret(token: &str) -> (Router, Cap
     let redis =
         Arc::new(MockRedisClient::new().zrangebyscore_ret(&events_key, vec![token.to_string()]));
     let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
+    cfg.capture_mode = CaptureMode::Ai;
     let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60));
     ai_router(redis, quota_limiter)
 }

@@ -1,16 +1,4 @@
 # serializer version: 1
-# name: TestAsyncDeletion.test_delete_cohortpeople
-  '''
-  SELECT count()
-  FROM cohortpeople
-  '''
-# ---
-# name: TestAsyncDeletion.test_delete_cohortpeople_version
-  '''
-  SELECT count()
-  FROM cohortpeople
-  '''
-# ---
 # name: TestAsyncDeletion.test_mark_deletions_done_groups
   '''
   
@@ -25,20 +13,10 @@
   '''
   
   SELECT DISTINCT team_id,
-                  $group_0
+                  properties.`$group_0`
   FROM events_json
   WHERE (team_id = 99999
-         AND $group_0 = 'foo')
-  '''
-# ---
-# name: TestAsyncDeletion.test_mark_deletions_done_groups[new_events_schema]
-  '''
-  
-  SELECT DISTINCT team_id,
-                  $group_0
-  FROM events_json
-  WHERE (team_id = 99999
-         AND $group_0 = 'foo')
+         AND properties.`$group_0` = 'foo')
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_groups_when_not_done
@@ -55,20 +33,10 @@
   '''
   
   SELECT DISTINCT team_id,
-                  $group_0
+                  properties.`$group_0`
   FROM events_json
   WHERE (team_id = 99999
-         AND $group_0 = 'foo')
-  '''
-# ---
-# name: TestAsyncDeletion.test_mark_deletions_done_groups_when_not_done[new_events_schema]
-  '''
-  
-  SELECT DISTINCT team_id,
-                  $group_0
-  FROM events_json
-  WHERE (team_id = 99999
-         AND $group_0 = 'foo')
+         AND properties.`$group_0` = 'foo')
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person
@@ -83,17 +51,6 @@
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_deletions_done_person.1
-  '''
-  
-  SELECT DISTINCT team_id,
-                  person_id
-  FROM events_json
-  WHERE (team_id = 99999
-         AND person_id = '00000000-0000-0000-0000-000000000000')
-    AND _timestamp <= '2024-01-01 00:00:00'
-  '''
-# ---
-# name: TestAsyncDeletion.test_mark_deletions_done_person[new_events_schema]
   '''
   
   SELECT DISTINCT team_id,
@@ -126,17 +83,6 @@
     AND _timestamp <= '2024-01-01 00:00:00'
   '''
 # ---
-# name: TestAsyncDeletion.test_mark_deletions_done_person_when_not_done[new_events_schema]
-  '''
-  
-  SELECT DISTINCT team_id,
-                  person_id
-  FROM events_json
-  WHERE (team_id = 99999
-         AND person_id = '00000000-0000-0000-0000-000000000000')
-    AND _timestamp <= '2024-01-01 00:00:00'
-  '''
-# ---
 # name: TestAsyncDeletion.test_mark_deletions_done_team_when_not_done
   '''
   
@@ -153,14 +99,6 @@
   WHERE team_id = 99999
   '''
 # ---
-# name: TestAsyncDeletion.test_mark_deletions_done_team_when_not_done[new_events_schema]
-  '''
-  
-  SELECT DISTINCT team_id
-  FROM events_json
-  WHERE team_id = 99999
-  '''
-# ---
 # name: TestAsyncDeletion.test_mark_team_deletions_done
   '''
   
@@ -170,14 +108,6 @@
   '''
 # ---
 # name: TestAsyncDeletion.test_mark_team_deletions_done.1
-  '''
-  
-  SELECT DISTINCT team_id
-  FROM events_json
-  WHERE team_id = 99999
-  '''
-# ---
-# name: TestAsyncDeletion.test_mark_team_deletions_done[new_events_schema]
   '''
   
   SELECT DISTINCT team_id

@@ -1,5 +1,7 @@
 import type { ApiClient, GroupType } from '@/api/client'
+import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
@@ -8,14 +10,15 @@ import {
     PostHogApiError,
     wrapError,
 } from '@/lib/errors'
-import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
-import type { Schemas } from '@/api/generated'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+// A personal API key keeps its value when its scopes change, and the cache is keyed by token, so
+// its scopes are read again after this delay. Reconnecting the client does not help: same token.
+export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
 // Entitlement-related fields shared by both org shapes we read from — the
@@ -60,6 +63,7 @@ export class StateManager {
                 scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
+                is_impersonated: false,
             }
         }
 
@@ -73,7 +77,14 @@ export class StateManager {
             throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
         }
 
-        const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
+        const { scope, scoped_teams, scoped_organizations, client_name, client_id } = introspectionResult.data
+
+        // Which OAuth application minted this token. Introspection is server-derived, so unlike
+        // the consumer header the caller cannot set it, which is what makes it usable as the
+        // first-party gate in `resolveEventSource`. Django gates on the same id set.
+        if (client_id) {
+            await this._cache.set('oauthClientId', client_id)
+        }
 
         const sanitizedClientName = sanitizeHeaderValue(client_name)
         if (sanitizedClientName) {
@@ -88,18 +99,39 @@ export class StateManager {
             scopes: scope ? scope.split(' ') : [],
             scoped_teams: scoped_teams ?? [],
             scoped_organizations: scoped_organizations ?? [],
+            is_impersonated: introspectionResult.data.is_impersonated === true,
         }
     }
 
     async getApiKey(): Promise<NonNullable<State['apiKey']>> {
-        let _apiKey = await this._cache.get('apiKey')
+        // An OAuth token gets a new value, and so a new cache entry, whenever its scopes change.
+        const refreshable = classifyAuthMethod(this._api.config.apiToken) !== 'oauth'
+        const [cached, fetchedAt] = await Promise.all([
+            this._cache.get('apiKey'),
+            refreshable ? this._cache.get('apiKeyFetchedAt') : undefined,
+        ])
 
-        if (!_apiKey) {
-            _apiKey = await this._fetchApiKey()
-            await this._cache.set('apiKey', _apiKey)
+        if (cached && (!refreshable || !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS))) {
+            return cached
         }
 
-        return _apiKey
+        try {
+            const apiKey = await this._fetchApiKey()
+            await Promise.all([
+                this._cache.set('apiKey', apiKey),
+                refreshable ? this._cache.set('apiKeyFetchedAt', Date.now()) : undefined,
+            ])
+            return apiKey
+        } catch (error) {
+            if (!cached) {
+                throw error
+            }
+            // A failed refresh must not end a live session. Every API call is authorized again
+            // server-side, so the last known scopes cannot grant access the key does not hold.
+            this._reportException(error, 'api_key_refresh_failed')
+            await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
+            return cached
+        }
     }
 
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
@@ -344,8 +376,7 @@ export class StateManager {
             return undefined
         }
 
-        // Use the non-throwing resolver: callers like `getEnvironmentPrompt` and
-        // consent checks treat "no org" as "skip", not as a hard error.
+        // Non-throwing: consent checks treat "no org" as "skip", not as an error.
         const orgId = await this._resolveOrganizationId()
         if (!orgId) {
             return undefined
@@ -393,6 +424,31 @@ export class StateManager {
     }
 
     /**
+     * Integration kinds (github, slack, ...) connected in the project, for the
+     * environment prompt. Returns undefined when the key lacks `integration:read`
+     * so the prompt renders nothing rather than a false "none connected".
+     */
+    async getOrFetchIntegrationKinds(projectId: string): Promise<string[] | undefined> {
+        const apiKey = await this.getApiKey()
+        if (!hasScope(apiKey.scopes, 'integration:read')) {
+            return undefined
+        }
+        return this.getOrFetchCached({
+            name: 'integration_kinds',
+            cacheKey: `integrationKinds:${projectId}` as const,
+            fetchedAtKey: `integrationKindsFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const result = await this._api.request<Schemas.PaginatedIntegrationConfigList>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
+                    query: { limit: 100 },
+                })
+                return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
+            },
+        })
+    }
+
+    /**
      * The third-party MCP tools this user can reach, from the gateway.
      *
      * Shorter TTL than the other cached entities: connecting a server is a deliberate
@@ -407,15 +463,6 @@ export class StateManager {
             fetcher: () => this._api.getGatewayTools(projectId),
             ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
         })
-    }
-
-    async getEnvironmentPrompt(): Promise<string | undefined> {
-        const [user, org, project] = await Promise.all([
-            this.getCachedOrFetchUser().catch(() => undefined),
-            this.getCachedOrFetchOrg().catch(() => undefined),
-            this.getCachedOrFetchProject().catch(() => undefined),
-        ])
-        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
     }
 
     /**

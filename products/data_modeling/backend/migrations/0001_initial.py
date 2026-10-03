@@ -12,7 +12,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ("data_warehouse", "0009_alter_externaldatasource_source_type"),
         ("posthog", "0923_add_quick_filters"),
     ]
 

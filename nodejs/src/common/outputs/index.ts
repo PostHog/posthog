@@ -8,6 +8,9 @@ export type EventOutput = typeof EVENTS_OUTPUT
 export const AI_EVENTS_OUTPUT = 'ai_events' as const
 export type AiEventOutput = typeof AI_EVENTS_OUTPUT
 
+export const FLAG_EVALUATIONS_OUTPUT = 'flag_evaluations' as const
+export type FlagEvaluationsOutput = typeof FLAG_EVALUATIONS_OUTPUT
+
 export const ASYNC_OUTPUT = 'async' as const
 export type AsyncOutput = typeof ASYNC_OUTPUT
 

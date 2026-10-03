@@ -1,4 +1,36 @@
+import type { BillingType } from '~/types'
+
 import { ThreadMessage } from './maxLogic'
+
+/**
+ * Whether a composer submission is the /ticket slash command.
+ */
+export function isTicketCommand(content: string): boolean {
+    const trimmed = content.trim()
+    return trimmed === '/ticket' || trimmed.startsWith('/ticket ')
+}
+
+/**
+ * Mirrors the paid-support entitlement in `canCreateTicket` (sidepanelTicketsLogic.ts), so /ticket does
+ * not create tickets for orgs the support panel would turn away. Keep the two in sync.
+ *
+ * Two differences from the panel are deliberate. The panel also admits an otherwise ineligible org on
+ * `isBillingIssue`, `isErrorReport`, and `hasSupportExemption`, which are set by the support-form and
+ * error-boundary entry points that carry those intents, and a chat thread reaches none of them. And the
+ * panel waits for `isBillingResolved` before turning anyone away, whereas a null `billing` reads as
+ * ineligible here, so an ineligible org gets no window while entitlement is still loading.
+ */
+export function canCreateSupportTicket(billing: BillingType | null, isCurrentOrganizationNew: boolean): boolean {
+    const hasActiveTrial =
+        billing?.trial?.status === 'active' &&
+        (billing.trial.target === 'boost' || billing.trial.target === 'scale' || billing.trial.target === 'enterprise')
+    return (
+        billing?.subscription_level === 'paid' ||
+        billing?.subscription_level === 'custom' ||
+        hasActiveTrial ||
+        isCurrentOrganizationNew
+    )
+}
 
 export interface TicketSummaryData {
     summary?: string
@@ -28,8 +60,9 @@ export function formatTicketConfirmationMessage(ticketId: string, responseTime: 
  * Extracts the text after "/ticket " from a message, if any.
  */
 function extractTicketText(content: string): string | undefined {
-    if (content.startsWith('/ticket ')) {
-        const text = content.slice('/ticket '.length).trim()
+    const trimmed = content.trim()
+    if (trimmed.startsWith('/ticket ')) {
+        const text = trimmed.slice('/ticket '.length).trim()
         return text || undefined
     }
     return undefined
@@ -52,7 +85,7 @@ export function getTicketPromptData(threadGrouped: ThreadMessage[], streamingAct
     const isInitialTicketPrompt =
         firstMessage?.type === 'human' &&
         'content' in firstMessage &&
-        firstMessage.content.startsWith('/ticket') &&
+        isTicketCommand(firstMessage.content) &&
         lastMessage?.type === 'ai' &&
         'content' in lastMessage &&
         lastMessage.content.includes("I'll help you create a support ticket")
@@ -91,7 +124,7 @@ export function getTicketSummaryData(
     let ticketCommandIndex = -1
     for (let i = threadGrouped.length - 1; i >= 0; i--) {
         const msg = threadGrouped[i]
-        if (msg?.type === 'human' && 'content' in msg && msg.content.startsWith('/ticket')) {
+        if (msg?.type === 'human' && 'content' in msg && isTicketCommand(msg.content)) {
             ticketCommandIndex = i
             break
         }
@@ -150,6 +183,7 @@ export function composeTicketBody({ note, summary }: { note: string; summary?: s
     return trimmedNote
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/utils/ticketMetadata.ts; this copy is deleted with the LangGraph runtime.
 /**
  * Appends the conversation and trace identifiers to a ticket body. Returns an empty string when
  * the body is empty, so metadata alone can never be submitted as a ticket.

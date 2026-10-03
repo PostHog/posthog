@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import * as chartPng from '@posthog/brand/hoggies/png/chart'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -19,6 +18,7 @@ import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -26,37 +26,30 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { DashboardsContent } from 'products/dashboards/frontend/components/DashboardsContent'
+import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 
-import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
-
-const HedgehogChart = pngHoggie(chartPng)
-
-const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
+import { DashboardsTableContainer } from './DashboardsTable'
 
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
+    emptyState: dashboardsEmptyState,
 }
 
 export function Dashboards(): JSX.Element {
+    const { searchParams } = useValues(router)
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
-
+    const templatesModalOpen = String(searchParams.templates) === '1'
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
             key: DashboardsTab.All,
             label: 'All dashboards',
         },
         { key: DashboardsTab.Yours, label: 'My dashboards' },
-        { key: DashboardsTab.Pinned, label: 'Pinned' },
-        {
-            key: DashboardsTab.Templates,
-            label: 'Templates',
-        },
     ]
 
     return (
@@ -64,6 +57,21 @@ export function Dashboards(): JSX.Element {
             <NewDashboardModal />
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
+            <LemonModal
+                title="Dashboard templates"
+                isOpen={templatesModalOpen}
+                onClose={() =>
+                    router.actions.push(urls.dashboards(), {
+                        ...searchParams,
+                        templates: undefined,
+                        templateFilter: undefined,
+                    })
+                }
+                width="min(1200px, calc(100vw - 3rem))"
+                data-attr="dashboard-templates-modal"
+            >
+                {templatesModalOpen && <DashboardTemplatesTable />}
+            </LemonModal>
             <DashboardTemplateEditor />
             <DashboardTemplateModal />
 
@@ -91,6 +99,14 @@ export function Dashboards(): JSX.Element {
                                     data-attr="new-dashboard"
                                     onClick={showNewDashboardModal}
                                     type="primary"
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        tooltip: 'View dashboard templates',
+                                        'aria-label': 'View dashboard templates',
+                                        'data-attr': 'view-dashboard-templates',
+                                        onClick: () =>
+                                            router.actions.push(urls.dashboards(), { ...searchParams, templates: '1' }),
+                                    }}
                                 >
                                     New dashboard
                                 </LemonButton>
@@ -100,34 +116,15 @@ export function Dashboards(): JSX.Element {
                 }
             />
             <LemonTabs
+                onChange={(newKey) => {
+                    setCurrentTab(newKey)
+                }}
                 activeKey={currentTab}
-                onChange={(newKey) => setCurrentTab(newKey)}
                 tabs={enabledTabs}
                 sceneInset
             />
 
-            <div>
-                {currentTab === DashboardsTab.Templates ? (
-                    <DashboardTemplatesTable />
-                ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
-                    <DashboardsContent />
-                ) : (
-                    <ProductIntroduction
-                        productName="Dashboards"
-                        thingName="dashboard"
-                        titleOverride="Your home for what you actually care about"
-                        description="Keep analytics, session replay, logs, and the rest of your PostHog stack in one place. Below are customer-favorite dashboards to get you started quickly. Or skip them and start blank, up to you."
-                        isEmpty={true}
-                        docsURL={DASHBOARD_DOCS_URL}
-                        customHog={HedgehogChart}
-                        hogLayout="responsive"
-                        useMainContentContainerQueries={true}
-                        contentClassName="max-w-[1000px]"
-                        actionElementOverride={<FeaturedTemplatesChooser />}
-                        mcpSurfaceKey="dashboards.create"
-                    />
-                )}
-            </div>
+            <div>{dashboardsLoading || dashboards.length > 0 || isFiltering ? <DashboardsTableContainer /> : null}</div>
         </SceneContent>
     )
 }

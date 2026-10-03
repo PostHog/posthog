@@ -16,6 +16,7 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
+from products.signals.backend.emission.steering import afetch_source_config
 from products.warehouse_sources.backend.facade.hooks import EmitSignalsActivityInputs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -41,10 +42,14 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         # `DataWarehouseTable.name` is the storage form (e.g. `<prefix><source_type>_<schema>`),
         # but HogQL exposes warehouse tables under the keys produced by `get_data_warehouse_table_name`
         # (e.g. `github.issues` or `github.<prefix>.<schema>`). Querying the storage name fails to resolve.
+        # Before the record fetch: fetchers record emission optimistically, so a failure after
+        # they return would permanently skip this batch on the Temporal retry.
+        source_config = await afetch_source_config(team.id, config.source_product, config.source_type)
         fetcher_context = {
             "table_name": get_data_warehouse_table_name(schema.source, schema.table.name),
             "last_synced_at": inputs.last_synced_at,
             "extra": inputs.properties_to_log,
+            "source_config": source_config,
         }
         records = await database_sync_to_async(config.record_fetcher, thread_sensitive=False)(
             team, config, fetcher_context
@@ -54,6 +59,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
             config=config,
             records=records,
             extra=inputs.properties_to_log,
+            source_config=source_config,
         )
 
 

@@ -36,18 +36,18 @@ export function DetailSection({
   const titleCluster = (
     <>
       <Icon size={14} weight="bold" className="shrink-0 text-gray-11" />
-      <span className="truncate font-semibold text-[13px] text-gray-12 tracking-[-0.01em]">
+      <span className="truncate font-semibold text-[14px] text-gray-12 tracking-[-0.01em]">
         {title}
       </span>
     </>
   );
 
   return (
-    <section className="flex min-w-0 flex-col rounded-(--radius-2) border border-(--gray-4) bg-(--color-panel-solid)">
+    <section className="flex min-w-0 flex-col rounded-sm border border-border bg-card">
       <header
         className={cn(
-          "flex select-none items-center gap-3 px-3.5",
-          open && "border-(--gray-4) border-b",
+          "flex select-none items-center gap-2 pr-2 pl-3 hover:bg-fill-hover",
+          open && "border-border border-b",
           collapsible ? "py-0" : "cursor-default py-2.5",
         )}
       >
@@ -56,7 +56,7 @@ export function DetailSection({
             type="button"
             onClick={toggle}
             aria-expanded={open}
-            className="flex min-w-0 flex-1 items-center gap-2 py-2.5 text-left"
+            className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
           >
             {titleCluster}
           </button>

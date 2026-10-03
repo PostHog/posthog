@@ -14,7 +14,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     should_notify,
 )
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.state_machine import AlertState
+from products.alerts_platform.backend.facade.lifecycle import AlertState
 
 NOW = datetime(2026, 7, 27, 12, 0, tzinfo=UTC)
 

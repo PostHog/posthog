@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconPencil, IconPlusSmall, IconX } from '@posthog/icons'
-import { LemonButton, LemonInputSelect } from '@posthog/lemon-ui'
+import { IconBolt, IconPencil, IconPerson, IconPlusSmall, IconX } from '@posthog/icons'
+import { LemonButton, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -14,6 +14,7 @@ import { PropertyDefinition, PropertyDefinitionType, PropertyType } from '~/type
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import { accountCustomPropertyDefinitionsLogic } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/accountCustomPropertyDefinitionsLogic'
+import { accountRelationshipDefinitionsLogic } from 'products/workflows/frontend/Workflows/hogflows/registry/triggers/accountRelationshipDefinitionsLogic'
 import {
     type EventTriggerConfig,
     type TriggerFrequencyOption,
@@ -22,7 +23,9 @@ import {
 import { workflowLogic } from 'products/workflows/frontend/Workflows/workflowLogic'
 
 const ACCOUNT_TAG_ADDED_EVENT = '$account_tag_added'
+const ACCOUNT_TAG_REMOVED_EVENT = '$account_tag_removed'
 const ACCOUNT_CUSTOM_PROPERTY_CHANGED_EVENT = '$account_custom_property_changed'
+const ACCOUNT_RELATIONSHIP_CHANGED_EVENT = '$account_relationship_changed'
 
 function getEventId(config: EventTriggerConfig): string | null {
     const [firstEvent] = config.filters?.events ?? []
@@ -38,23 +41,69 @@ export function getSelectedTags(config: EventTriggerConfig): string[] {
     return values.filter((tag: unknown): tag is string => typeof tag === 'string')
 }
 
-export function accountTagAddedFilters(tags: string[]): EventTriggerConfig['filters'] {
+const ACCOUNT_TAG_CHANGE_TYPES = ['added', 'removed'] as const
+export type AccountTagChangeType = (typeof ACCOUNT_TAG_CHANGE_TYPES)[number]
+
+export function getAccountTagChangeType(config: EventTriggerConfig): AccountTagChangeType | null {
+    const eventIds = (config.filters?.events ?? []).map((event: any) => event?.id)
+    const includesAdded = eventIds.includes(ACCOUNT_TAG_ADDED_EVENT)
+    const includesRemoved = eventIds.includes(ACCOUNT_TAG_REMOVED_EVENT)
+
+    if (includesAdded === includesRemoved) {
+        return null
+    }
+    return includesAdded ? 'added' : 'removed'
+}
+
+const accountTagChangedEvent = (changeType: AccountTagChangeType): any => ({
+    id: changeType === 'added' ? ACCOUNT_TAG_ADDED_EVENT : ACCOUNT_TAG_REMOVED_EVENT,
+    type: 'events',
+    name: changeType === 'added' ? 'Account tag added' : 'Account tag removed',
+})
+
+export function accountTagChangedFilters(
+    tags: string[],
+    existingFilters: EventTriggerConfig['filters'] = {},
+    changeType: AccountTagChangeType | null = getAccountTagChangeType({ type: 'event', filters: existingFilters })
+): EventTriggerConfig['filters'] {
+    const changeTypes: AccountTagChangeType[] = changeType ? [changeType] : ['added', 'removed']
+
     return {
-        events: [{ id: ACCOUNT_TAG_ADDED_EVENT, type: 'events', name: 'Account tag added' }],
-        properties: tags.length > 0 ? [{ key: 'tag', value: tags, operator: 'exact', type: 'event' }] : [],
+        ...existingFilters,
+        events: changeTypes.map(accountTagChangedEvent),
+        properties: [
+            ...(tags.length > 0 ? [{ key: 'tag', value: tags, operator: 'exact', type: 'event' }] : []),
+            ...(existingFilters.properties ?? []).filter((property: any) => property?.key !== 'tag'),
+        ],
     }
 }
 
-function StepTriggerConfigurationAccountTagAdded({ node }: { node: any }): JSX.Element {
+function isAccountTagChangedConfig(config: EventTriggerConfig): boolean {
+    if (config.type !== 'event') {
+        return false
+    }
+    const events = config.filters?.events ?? []
+    return (
+        events.length > 0 &&
+        events.every(
+            (event: any) =>
+                (event?.id === ACCOUNT_TAG_ADDED_EVENT || event?.id === ACCOUNT_TAG_REMOVED_EVENT) &&
+                !event?.properties?.length
+        )
+    )
+}
+
+function StepTriggerConfigurationAccountTagChanged({ node }: { node: any }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { tags, tagsLoading } = useValues(tagsModel)
     const config = node.data.config as EventTriggerConfig
     const selectedTags = getSelectedTags(config)
+    const changeType = getAccountTagChangeType(config)
 
     return (
         <div className="flex flex-col gap-2 w-full">
             <p className="mb-0 text-sm text-muted-alt">
-                This trigger runs when a tag is added to an account. Leave empty to run for any tag.
+                This trigger runs when a tag is added to or removed from an account. Leave empty to run for any tag.
             </p>
             <LemonField.Pure label="Tags">
                 <LemonInputSelect
@@ -67,10 +116,28 @@ function StepTriggerConfigurationAccountTagAdded({ node }: { node: any }): JSX.E
                     onChange={(value) =>
                         setWorkflowActionConfig(node.data.id, {
                             type: 'event',
-                            filters: accountTagAddedFilters(value),
+                            filters: accountTagChangedFilters(value, config.filters),
                         })
                     }
                     data-attr="account-tag-added-trigger-tags"
+                />
+            </LemonField.Pure>
+            <LemonField.Pure label="Change type" info="Limit this trigger to tags that were added or removed.">
+                <LemonSelect<AccountTagChangeType | null>
+                    value={changeType}
+                    placeholder="Any change type"
+                    allowClear
+                    options={[
+                        { label: 'Added', value: 'added' },
+                        { label: 'Removed', value: 'removed' },
+                    ]}
+                    onChange={(value) =>
+                        setWorkflowActionConfig(node.data.id, {
+                            type: 'event',
+                            filters: accountTagChangedFilters(selectedTags, config.filters, value),
+                        })
+                    }
+                    data-attr="account-tag-change-type-filter"
                 />
             </LemonField.Pure>
         </div>
@@ -78,18 +145,18 @@ function StepTriggerConfigurationAccountTagAdded({ node }: { node: any }): JSX.E
 }
 
 registerTriggerType({
-    value: 'account_tag_added',
-    label: 'Account tag added',
+    value: 'account_tag_changed',
+    label: 'Account tag changed',
     icon: <IconBolt />,
-    description: 'Trigger when a tag is added to an account',
+    description: 'Trigger when a tag is added to or removed from an account',
     group: 'Customer analytics',
     featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
-    matchConfig: (config) => config.type === 'event' && getEventId(config) === ACCOUNT_TAG_ADDED_EVENT,
+    matchConfig: isAccountTagChangedConfig,
     buildConfig: () => ({
         type: 'event',
-        filters: accountTagAddedFilters([]),
+        filters: accountTagChangedFilters([]),
     }),
-    ConfigComponent: StepTriggerConfigurationAccountTagAdded,
+    ConfigComponent: StepTriggerConfigurationAccountTagChanged,
 })
 
 // Account events carry no person (they use a synthetic distinct_id), so the generic person-keyed
@@ -445,5 +512,153 @@ registerTriggerType({
     }),
     ConfigComponent: StepTriggerConfigurationAccountCustomPropertyChanged,
     frequencyOptions: accountCustomPropertyFrequencyOptions,
+    frequencyDescription: 'Limit how often each account can enter this workflow',
+})
+
+const ONCE_PER_ACCOUNT_RELATIONSHIP_HASH =
+    "{concat(event.properties.account_id, '-', event.properties.relationship_name)}"
+const ONCE_PER_ACCOUNT_RELATIONSHIP_PER_DAY_HASH =
+    "{concat(event.properties.account_id, '-', event.properties.relationship_name, '-', formatDateTime(now(), '%Y-%m-%d'))}"
+
+export const accountRelationshipFrequencyOptions: TriggerFrequencyOption[] = [
+    { value: null, label: 'Every time the trigger fires' },
+    { value: ONCE_PER_ACCOUNT_RELATIONSHIP_HASH, label: 'Once per account and relationship' },
+    {
+        value: ONCE_PER_ACCOUNT_RELATIONSHIP_PER_DAY_HASH,
+        label: 'Once per account and relationship per calendar day',
+        fixedTtl: CALENDAR_DAY_TTL,
+    },
+]
+
+export function getSelectedRelationshipNames(config: EventTriggerConfig): string[] {
+    const nameProperty = (config.filters?.properties ?? []).find(
+        (property: any) => property?.key === 'relationship_name'
+    )
+    if (!nameProperty) {
+        return []
+    }
+    const values = Array.isArray(nameProperty.value) ? nameProperty.value : [nameProperty.value]
+    return values.filter((name: unknown): name is string => typeof name === 'string')
+}
+
+const RELATIONSHIP_CHANGE_TYPES = ['assigned', 'unassigned'] as const
+export type AccountRelationshipChangeType = (typeof RELATIONSHIP_CHANGE_TYPES)[number]
+
+function isAccountRelationshipChangeType(value: unknown): value is AccountRelationshipChangeType {
+    return typeof value === 'string' && RELATIONSHIP_CHANGE_TYPES.includes(value as AccountRelationshipChangeType)
+}
+
+export function getAccountRelationshipChangeType(config: EventTriggerConfig): AccountRelationshipChangeType | null {
+    const property = (config.filters?.properties ?? []).find((candidate: any) => candidate?.key === 'change_type')
+    const value = Array.isArray(property?.value) ? property.value[0] : property?.value
+    return isAccountRelationshipChangeType(value) ? value : null
+}
+
+export function accountRelationshipChangedFilters(
+    names: string[],
+    existingFilters: EventTriggerConfig['filters'] = {},
+    changeType: AccountRelationshipChangeType | null = getAccountRelationshipChangeType({
+        type: 'event',
+        filters: existingFilters,
+    })
+): EventTriggerConfig['filters'] {
+    return {
+        ...existingFilters,
+        events: [{ id: ACCOUNT_RELATIONSHIP_CHANGED_EVENT, type: 'events', name: 'Account relationship changed' }],
+        properties: [
+            ...(names.length > 0 ? [{ key: 'relationship_name', value: names, operator: 'exact', type: 'event' }] : []),
+            ...(changeType ? [{ key: 'change_type', value: changeType, operator: 'exact', type: 'event' }] : []),
+        ],
+    }
+}
+
+const RELATIONSHIP_TRIGGER_EVENT_TEMPLATES = [
+    '{event.properties.relationship_name}',
+    '{event.properties.change_type}',
+    '{event.properties.previous_user_id}',
+    '{event.properties.previous_user_email}',
+    '{event.properties.current_user_id}',
+    '{event.properties.current_user_email}',
+    '{event.properties.account_external_id}',
+    '{event.properties.account_name}',
+]
+
+function StepTriggerConfigurationAccountRelationshipChanged({ node }: { node: any }): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { definitions, definitionsLoading } = useValues(accountRelationshipDefinitionsLogic)
+    const config = node.data.config as EventTriggerConfig
+    const selectedNames = getSelectedRelationshipNames(config)
+    const changeType = getAccountRelationshipChangeType(config)
+
+    return (
+        <div className="flex flex-col gap-2 w-full">
+            <p className="mb-0 text-sm text-muted-alt">
+                This trigger runs when an account relationship is assigned or unassigned. Leave empty to run for any
+                relationship.
+            </p>
+            <LemonField.Pure label="Relationships">
+                <LemonInputSelect
+                    mode="multiple"
+                    value={selectedNames}
+                    loading={definitionsLoading}
+                    placeholder="Any relationship"
+                    options={definitions.map((definition) => ({ key: definition.name, label: definition.name }))}
+                    onChange={(value) =>
+                        setWorkflowActionConfig(node.data.id, {
+                            type: 'event',
+                            filters: accountRelationshipChangedFilters(value, config.filters),
+                        })
+                    }
+                    data-attr="account-relationship-changed-trigger-relationships"
+                />
+            </LemonField.Pure>
+            <LemonField.Pure
+                label="Change type"
+                info="Limit this trigger to relationships that were assigned or unassigned."
+            >
+                <LemonSelect<AccountRelationshipChangeType | null>
+                    value={changeType}
+                    placeholder="Any change type"
+                    allowClear
+                    options={[
+                        { label: 'Assigned', value: 'assigned' },
+                        { label: 'Unassigned', value: 'unassigned' },
+                    ]}
+                    onChange={(value) =>
+                        setWorkflowActionConfig(node.data.id, {
+                            type: 'event',
+                            filters: accountRelationshipChangedFilters(selectedNames, config.filters, value),
+                        })
+                    }
+                    data-attr="account-relationship-change-type-filter"
+                />
+            </LemonField.Pure>
+            <LemonField.Pure label="Available in steps" help="Reference the change from any step, filter, or condition">
+                <div className="flex flex-col gap-1">
+                    {RELATIONSHIP_TRIGGER_EVENT_TEMPLATES.map((template) => (
+                        <CodeSnippet key={template} compact thing="template">
+                            {template}
+                        </CodeSnippet>
+                    ))}
+                </div>
+            </LemonField.Pure>
+        </div>
+    )
+}
+
+registerTriggerType({
+    value: 'account_relationship_changed',
+    label: 'Account relationship changed',
+    icon: <IconPerson />,
+    description: 'Trigger when an account relationship is assigned or unassigned',
+    group: 'Customer analytics',
+    featureFlag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+    matchConfig: (config) => config.type === 'event' && getEventId(config) === ACCOUNT_RELATIONSHIP_CHANGED_EVENT,
+    buildConfig: () => ({
+        type: 'event',
+        filters: accountRelationshipChangedFilters([]),
+    }),
+    ConfigComponent: StepTriggerConfigurationAccountRelationshipChanged,
+    frequencyOptions: accountRelationshipFrequencyOptions,
     frequencyDescription: 'Limit how often each account can enter this workflow',
 })

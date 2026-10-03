@@ -10,10 +10,18 @@ from temporalio.converter import PayloadCodec
 class _RequiredSettings(typing.Protocol):
     """Protocol for required settings."""
 
-    TEMPORAL_SECRET_KEY: str | bytes
-    TEMPORAL_FALLBACK_SECRET_KEYS: collections.abc.Iterable[str | bytes]
-    TEST: bool
-    DEBUG: bool
+    # Read-only members, so frozen settings objects qualify; from_settings only reads them.
+    @property
+    def TEMPORAL_SECRET_KEY(self) -> str | bytes: ...
+
+    @property
+    def TEMPORAL_FALLBACK_SECRET_KEYS(self) -> collections.abc.Iterable[str | bytes]: ...
+
+    @property
+    def TEST(self) -> bool: ...
+
+    @property
+    def DEBUG(self) -> bool: ...
 
 
 def _load_as_bytes(raw: str | bytes, /, check_length: bool = True) -> bytes:

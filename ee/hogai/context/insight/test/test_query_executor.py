@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Any
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -40,15 +41,57 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.models import Organization, Team, User
 
+from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
     execute_and_format_query,
     get_example_prompt,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+class TestSQLResultBudgets(SimpleTestCase):
+    @parameterized.expand(["table", "fallback", "warnings"])
+    async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
+        response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}
+        if kind != "fallback":
+            response["columns"] = ["example"]
+        if kind == "warnings":
+            response["warnings"] = [{"type": "warehouse_sync", "message": "Sync is delayed. " * 100}]
+        context = InsightContext(
+            team=Team(id=1, organization=Organization()),
+            user=User(),
+            query=HogQLQuery(query="SELECT 1"),
+            max_sql_result_chars=2000,
+        )
+        with (
+            patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response),
+            patch("ee.hogai.context.insight.query_executor.capture_exception"),
+        ):
+            result = await context.execute_and_format(prompt_template="{{{results}}}", include_prompt_framing=False)
+        self.assertLessEqual(len(result), 2000)
+        self.assertIn("SQL result preview", result)
+        self.assertEqual(response["results"][0][0], "x" * 2000)
+        if kind == "fallback":
+            self.assertIn("JSON shown may be cut off", result)
+
+    def test_synchronous_execution_keeps_sql_budget(self) -> None:
+        runner = AssistantQueryExecutor(
+            team=Team(id=1, organization=Organization()),
+            user=User(),
+            utc_now_datetime=datetime.now(),
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS,
+        )
+        response = {"columns": ["example"], "results": [["x" * 2000] for _ in range(300)]}
+        with patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response):
+            result, used_fallback = runner.run_and_format_query(HogQLQuery(query="SELECT 1"))
+        self.assertLessEqual(len(result), SQLResultsFormatter.MAX_RESULT_CHARS)
+        self.assertFalse(used_fallback)
 
 
 class TestAssistantQueryExecutor(NonAtomicBaseTest):
@@ -56,7 +99,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -130,6 +173,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertFalse(used_fallback)
         self.assertIn("count\n100\n200", result)
         mock_process_query.assert_called_once()
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_arun_format_and_capture_hands_back_the_response(self, mock_process_query):
+        response = {"results": [{"count": 100}], "columns": ["count"]}
+        mock_process_query.return_value = response
+
+        query = AssistantHogQLQuery(query="SELECT count() FROM events")
+        result = await self.query_runner.arun_format_and_capture(query)
+
+        self.assertIsInstance(result.formatted, str)
+        self.assertFalse(result.fallback_used)
+        self.assertEqual(result.response, response)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_data_visualization_sql(self, mock_process_query):
@@ -234,10 +289,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         query = AssistantTrendsQuery(series=[])
 
-        with self.assertRaises(MaxToolRetryableError) as context:
+        with self.assertRaises(MaxToolFatalError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("API error message", str(context.exception))
+        self.assertEqual(str(context.exception), "API error message")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
@@ -309,7 +364,9 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("max execution time", str(context.exception))
+        self.assertEqual(str(context.exception), "Query has hit the max execution time before completing.")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
@@ -359,30 +416,45 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("Query hasn't completed in time", str(context.exception))
 
+    @parameterized.expand(
+        [
+            ("validation", "Unknown field: missing_column", None),
+            ("timeout", "Query timed out", "error"),
+            ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
+            ("warehouse_connection", "Warehouse connection failed", None),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_polling_with_error(self, mock_get_query_status, mock_process_query):
-        """Test async query polling that returns an error"""
-        # Initial response with incomplete query
+    async def test_async_query_polling_with_error(
+        self,
+        _name: str,
+        error_message: str,
+        error_code: str | None,
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
-        # Mock polling to return error
         mock_get_query_status.return_value = Mock(
             model_dump=lambda mode: {
                 "id": "test-query-id",
                 "complete": True,
                 "error": True,
-                "error_message": "Query failed with error",
+                "error_message": error_message,
+                "error_code": error_code,
             }
         )
 
         query = AssistantTrendsQuery(series=[])
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("Query failed with error", str(context.exception))
+        self.assertEqual(str(context.exception), error_message)
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
+        self.assertEqual(context.exception.error_type, "internal")
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -636,7 +708,7 @@ class TestAssistantQueryExecutorAsync(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     async def test_runs_in_async_context(self):
@@ -662,7 +734,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
-        with freeze_time("2025-01-20T12:00:00Z"):
+        with time_machine.travel("2025-01-20T12:00:00Z", tick=False):
             self.query_runner = AssistantQueryExecutor(self.team, datetime.now(), user=self.user)
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

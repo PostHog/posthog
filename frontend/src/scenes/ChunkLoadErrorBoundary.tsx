@@ -13,13 +13,14 @@ interface State {
 /**
  * Catches chunk-load failures from `React.lazy(() => import(...))` boundaries.
  * On a stale-deploy chunk-hash mismatch we reload once; if a reload was already
- * attempted in the last 20s we let the error bubble to the outer ErrorBoundary
- * rather than spinning forever. Non-chunk errors are re-thrown so the regular
- * error UI still renders.
+ * attempted in the last 20s we render `fallback` when given, or else let the error
+ * bubble to the outer ErrorBoundary rather than spinning forever. Non-chunk errors
+ * are re-thrown so the regular error UI still renders.
  */
 interface ChunkLoadErrorBoundaryProps {
     children: ReactNode
     reload?: () => void
+    fallback?: (error: unknown) => ReactNode
 }
 
 export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProps, State> {
@@ -61,6 +62,9 @@ export class ChunkLoadErrorBoundary extends Component<ChunkLoadErrorBoundaryProp
 
     override render(): ReactNode {
         const { error, surface } = this.state
+        if (error && surface && isChunkLoadError(error) && this.props.fallback) {
+            return this.props.fallback(error)
+        }
         if (error && (!isChunkLoadError(error) || surface)) {
             throw error
         }

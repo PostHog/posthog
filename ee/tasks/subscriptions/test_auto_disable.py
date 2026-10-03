@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -15,6 +15,7 @@ from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
     disable_invalid_subscription,
     send_notifications_for_disabled_subscription,
+    target_type_label,
     validate_re_enable,
 )
 from ee.tasks.subscriptions.failure_notifications import (
@@ -38,6 +39,7 @@ class TestValidateReEnable:
             ("email_with_integration_passes", "email", 42, None),
             ("slack_with_integration_passes", "slack", 42, None),
             ("slack_no_integration_rejected", "slack", None, "no integration configured"),
+            ("teams_passes", "teams", None, None),
             ("webhook_no_integration_rejected", "webhook", None, "this delivery channel is not currently supported"),
             ("webhook_with_integration_rejected", "webhook", 42, "this delivery channel is not currently supported"),
         ]
@@ -49,6 +51,22 @@ class TestValidateReEnable:
         else:
             assert result is not None
             assert expected in result
+
+
+class TestTargetTypeLabel:
+    @parameterized.expand(
+        [
+            # Every {target_type} placeholder in a disable reason runs through this, so a supported
+            # target has to render the name the user picked in the UI, not the stored value.
+            ("teams_reads_as_the_channel_name", "teams", "Microsoft Teams"),
+            ("email_reads_as_its_label", "email", "Email"),
+            ("none_renders_nothing", None, ""),
+            ("empty_renders_nothing", "", ""),
+            ("removed_target_falls_back_to_its_value", "webhook", "webhook"),
+        ]
+    )
+    def test_target_type_label(self, _label, target_type, expected):
+        assert target_type_label(target_type) == expected
 
 
 class TestDisableInvalidSubscription(APIBaseTest):
@@ -82,7 +100,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
         assert notification.target_id == str(self.user.id)
         assert notification.resource_id == str(sub.id)
         assert notification.title == "t was automatically disabled"
-        assert "slack integration disconnected" in notification.body
+        assert "Slack integration disconnected" in notification.body
         send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
 
     def test_compare_and_swap_no_op_when_already_disabled(self):
@@ -208,7 +226,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
         capture_mock.assert_called_once()
 
 
-@freeze_time("2026-08-01T12:00:00Z")
+@time_machine.travel("2026-08-01T12:00:00Z", tick=False)
 class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
     def test_sends_email_to_the_subscription_creator(self):
         subscription = Subscription.objects.create(

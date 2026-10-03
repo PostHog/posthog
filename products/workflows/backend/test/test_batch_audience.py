@@ -1,14 +1,15 @@
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
-from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
+from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
 from products.workflows.backend.services.batch_audience import (
+    audience_page_size,
     get_batch_audience_count,
     get_batch_audience_person_ids,
-    use_workflows_batch_audience_query,
 )
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
@@ -81,7 +82,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         collected: list[str] = []
         cursor = None
-        with patch("products.workflows.backend.services.batch_audience.PERSON_BATCH_SIZE", 2):
+        with override_settings(WORKFLOWS_PERSON_BATCH_SIZE=2):
             for _ in range(10):
                 page = get_batch_audience_person_ids(self.team, FILTERS, cursor=cursor, dedupe_key=dedupe_key)
                 collected.extend(page)
@@ -91,12 +92,9 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert collected == [_uuid(i) for i in expected_indices]
 
-    def test_use_flag_defaults_off_when_feature_enabled_raises(self):
-        # Batch sends are a critical path — a Redis/HyperCache blip that makes
-        # posthoganalytics.feature_enabled() throw must fall back to the legacy
-        # audience query, not 500 the preview endpoint or fail the resolver job.
-        with patch(
-            "products.workflows.backend.services.batch_audience.posthoganalytics.feature_enabled",
-            side_effect=RuntimeError("HyperCache is down"),
-        ):
-            assert use_workflows_batch_audience_query(self.team) is False
+    @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
+    def test_has_more_page_size_follows_the_audience_kind(self):
+        # A group audience pages through the flags-owned query with its own limit; comparing its
+        # page length against the person setting would stop after the first page.
+        assert audience_page_size(None) == 7
+        assert audience_page_size(0) == PERSON_BATCH_SIZE

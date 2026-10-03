@@ -2,10 +2,6 @@ import pytest
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
-    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
-    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 
@@ -35,21 +31,23 @@ def test_graphql_access_denied_is_non_retryable(error_message):
     )
 
 
-def test_payment_required_is_non_retryable():
-    error_message = _http_error_message(402, "Payment Required")
-    assert SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH in error_message
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Shopify GraphQL error: This app is not approved to access the Customer object. Access to "
+        "personally identifiable information (PII) like customer names, addresses, emails, phone "
+        "numbers is only available on Shopify, Advanced, and Plus plans. Learn more: "
+        "https://admin.shopify.com/store/example-store/settings/apps/development/123456789/configuration",
+        "Shopify GraphQL error: This app is not approved to access the Order object. Access to "
+        "personally identifiable information (PII) like customer names, addresses, emails, phone "
+        "numbers is only available on Shopify, Advanced, and Plus plans. Learn more: "
+        "https://admin.shopify.com/store/example-store/settings/apps/development/123456789/configuration",
+    ],
+)
+def test_graphql_pii_plan_restricted_is_non_retryable(error_message):
     patterns = ShopifySource().get_non_retryable_errors()
     assert any(pattern in error_message for pattern in patterns), (
-        f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
-    )
-
-
-def test_graphql_unauthorized_is_non_retryable():
-    error_message = _http_error_message(401, "Unauthorized")
-    assert SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH in error_message
-    patterns = ShopifySource().get_non_retryable_errors()
-    assert any(pattern in error_message for pattern in patterns), (
-        f"401 Unauthorized error '{error_message}' should match a non-retryable pattern"
+        f"GraphQL PII-plan-restricted error '{error_message}' should match a non-retryable pattern"
     )
 
 
@@ -65,6 +63,22 @@ def test_transient_graphql_errors_stay_retryable(error_message):
     patterns = ShopifySource().get_non_retryable_errors()
     assert not any(pattern in error_message for pattern in patterns), (
         f"transient error '{error_message}' should remain retryable"
+    )
+
+
+@pytest.mark.parametrize(
+    "status_code,reason",
+    [
+        (404, "Not Found"),
+    ],
+)
+def test_admin_api_store_not_found_is_non_retryable(status_code, reason):
+    # No live store answers at the configured address, so every retry re-reads the same 404 and
+    # the raw message hands the user back their own store URL instead of the fix.
+    error_message = _http_error_message(status_code, reason)
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"store-not-found error '{error_message}' should match a non-retryable pattern"
     )
 
 
@@ -92,6 +106,8 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
         "Shopify: internal error from request 500 Internal Server Error",
         'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
         "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
+        "Failed to retrieve Shopify access token: 500 Internal Server Error",
+        "Failed to retrieve Shopify access token: 429 Too Many Requests",
     ],
 )
 def test_exhausted_internal_retries_are_classified_as_retryable(error_message):

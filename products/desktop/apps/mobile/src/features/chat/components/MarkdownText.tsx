@@ -1,3 +1,4 @@
+import { parseObjectTags } from "@posthog/core/inbox/objectTags";
 import { useMemo } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { getCloudUrlFromRegion, useAuthStore } from "@/features/auth";
@@ -10,11 +11,12 @@ import { useThemeColors } from "@/lib/theme";
 import { CopyButton } from "./CopyButton";
 import { GithubRefChip } from "./GithubRefChip";
 import { MarkdownImage } from "./MarkdownImage";
+import { ObjectTagChip, ObjectTagPreviewProvider } from "./ObjectTagChip";
 import { PostHogRefChip } from "./PostHogRefChip";
 
 const IMAGE_LINE_PATTERN = /^!\[([^\]]*)\]\(([^)\s]+)\)\s*$/;
 const BARE_POSTHOG_REF_PATTERN =
-  /(https?:\/\/(?:app\.posthog\.com|(?:us|eu)\.posthog\.com|code\.posthog\.com|(?:www\.)?posthog\.com|localhost(?::\d+)?)\/[^\s<>()\]]+|\/(?:insights|project|organization|settings|feature_flags|experiments|dashboard|dashboards|replay|session_replay|recordings|error_tracking|task|inbox|automation)\b[^\s<>()\]]*)/g;
+  /(https?:\/\/(?:app\.posthog\.com|(?:us|eu)\.posthog\.com|code\.posthog\.com|(?:www\.)?posthog\.com|localhost(?::\d+)?)\/[^\s<>()\]]+|\/(?:insights|project|organization|settings|feature_flags|experiments|dashboard|dashboards|replay|session_replay|recordings|error_tracking|task|inbox)\b[^\s<>()\]]*)/g;
 
 interface MarkdownTextProps {
   content: string;
@@ -258,6 +260,23 @@ function renderPlainText(
   keyBase: string,
 ): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
+  for (const [i, segment] of parseObjectTags(text).entries()) {
+    const key = `${keyBase}-${i}`;
+    if (segment.type === "tag") {
+      nodes.push(<ObjectTagChip key={key} tag={segment.ref} />);
+    } else {
+      nodes.push(...renderUrlText(segment.value, posthogUrlOptions, key));
+    }
+  }
+  return nodes;
+}
+
+function renderUrlText(
+  text: string,
+  posthogUrlOptions: ParsePostHogUrlOptions,
+  keyBase: string,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null = null;
 
@@ -348,9 +367,10 @@ function renderInline(
       const githubRef = parseGithubIssueUrl(url);
       if (githubRef) {
         const isAutoLink = linkText === url;
-        const label = isAutoLink
-          ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-          : linkText;
+        const autoLinkLabel = githubRef.isReviewComment
+          ? `Comment on PR #${githubRef.number}`
+          : `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`;
+        const label = isAutoLink ? autoLinkLabel : linkText;
         nodes.push(
           <GithubRefChip
             key={match.index}
@@ -446,7 +466,7 @@ export function MarkdownText({
     [cloudRegion],
   );
 
-  return (
+  const rendered = (
     <View style={{ gap: 8 }}>
       {blocks.map((block, i) => {
         const key = `block-${i}`;
@@ -649,4 +669,6 @@ export function MarkdownText({
       })}
     </View>
   );
+
+  return <ObjectTagPreviewProvider>{rendered}</ObjectTagPreviewProvider>;
 }

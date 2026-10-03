@@ -3,11 +3,13 @@ import json
 import time
 import hashlib
 from datetime import UTC, datetime, timedelta
-from enum import Enum
-from typing import Any, Optional, cast
+from enum import Enum, StrEnum
+from http.cookiejar import DefaultCookiePolicy
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db.models import F
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -16,13 +18,16 @@ import jwt
 import requests
 import structlog
 from requests import JSONDecodeError
-from rest_framework.exceptions import NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.event_retention import (
     organization_events_retention_months,
     reconcile_organization_events_retention,
@@ -30,16 +35,58 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
+from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
+from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 
 logger = structlog.get_logger(__name__)
 
+# One pooled session for every call to the billing service. A bare requests.get opens a TCP
+# connection and a TLS handshake per call and closes them afterwards; the session keeps connections
+# open and reuses them. It rejects cookies because these are server-to-server calls that each carry
+# a bearer token for one organization, and a cookie set on one response must not ride along on
+# another organization's request.
+http_session = requests.Session()
+http_session.cookies.set_policy(DefaultCookiePolicy(allowed_domains=[]))
+
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signature"
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
+BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+# An export covers every project rather than the chart's top few, so it reads more and is
+# allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
+BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
+
+# Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
+# on its read-only billing status path for tokens without a user role.
+BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
+
+
+StartupProgramLabel = Literal["Startup", "YC"]
+
+
+class PrepaidCreditState(StrEnum):
+    NONE = "none"
+    PENDING = "pending"
+    ACTIVE = "active"
+    EXHAUSTED = "exhausted"
+    EXPIRED = "expired"
+
+
+class FundingStatusUnavailable(Exception):
+    pass
+
+
+_FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+
+
+@frozen
+class OrganizationFundingStatus:
+    startup_program_label: StartupProgramLabel | None
+    prepaid_credit_state: PrepaidCreditState
 
 
 class BillingAPIErrorCodes(Enum):
@@ -50,6 +97,21 @@ class BillingServiceOpenInvoicesError(Exception):
     def __init__(self, message: str):
         self.message = message
         super().__init__(message)
+
+
+class BillingManagedByPartnerError(PermissionDenied):
+    def __init__(self, partner: OAuthApplication) -> None:
+        partner_name = partner.name.strip() or "your partner"
+        super().__init__(
+            f"Billing for this organization is managed by {partner_name}. "
+            f"Contact {partner_name} to change your plan or payment details."
+        )
+
+
+def raise_if_billing_managed_by_partner(organization: Organization) -> None:
+    partner = get_billing_lock_partner(organization)
+    if partner is not None:
+        raise BillingManagedByPartnerError(partner)
 
 
 def _has_quota_limiting_markers(usage: dict | None) -> bool:
@@ -128,6 +190,9 @@ def build_billing_token(
         authorizer_actor = authorizer_actor or user
 
         payload["distinct_id"] = str(user.distinct_id)
+        # Billing's startup program checks read an email domain as evidence of who an applicant
+        # works for, and this is the only address it gets from us.
+        payload["email"] = user.email
         authorizer_role = _get_user_organization_role(authorizer_actor, organization)
 
         if authorizer_role:
@@ -185,14 +250,99 @@ def build_billing_provider_webhook_signature_headers(body: bytes) -> dict[str, s
     }
 
 
+BILLING_ORGANIZATION_ACCESS_DENIED = "You do not have access to Billing for this organization."
+
+
+def _raise_for_organization_error(res: requests.Response, *, map_not_found: bool = True) -> None:
+    """Turn billing's refusals on the organization routes into this API's own errors.
+
+    Only the machine-readable `code` crosses over, and it chooses one of the errors defined here.
+    Billing's body never reaches the caller: it is written for a different API, it renders through
+    the same error envelope this one uses, so re-raising it names billing's `type` field as the
+    offending parameter, and an upstream body can carry detail a caller should not see.
+
+    The body is read defensively for the same reason. A non-JSON error, from billing or from a
+    proxy in front of it, must not turn a mapped refusal into a 500.
+    """
+    from ee.api.billing import (  # noqa: PLC0415 - circular import
+        BILLING_GUIDANCE_ERRORS,
+        BillingQueryRejected,
+        BillingServiceError,
+    )
+
+    if res.status_code >= 500:
+        # A billing failure, including a response billing could not build. It is not the caller's
+        # to fix, so it never maps to a refusal that tells them to change the request.
+        logger.warning("billing_organization_error", upstream_status=res.status_code)
+        raise BillingServiceError()
+    if res.status_code not in (400, 403, 404):
+        return
+    try:
+        parsed = res.json()
+    except JSONDecodeError:
+        parsed = None
+    code = parsed.get("code") if isinstance(parsed, dict) else None
+    if res.status_code != 404 or map_not_found:
+        logger.warning("billing_organization_error", upstream_status=res.status_code, code=code)
+    if res.status_code == 403:
+        raise PermissionDenied(BILLING_ORGANIZATION_ACCESS_DENIED)
+    if res.status_code == 404:
+        if not map_not_found:
+            return
+        raise NotFound("Not found.")
+    if code in BILLING_GUIDANCE_ERRORS:
+        raise BILLING_GUIDANCE_ERRORS[code]()
+    raise BillingQueryRejected()
+
+
+class BillingServiceResponseError(Exception):
+    """Billing answered with a status code the caller does not accept."""
+
+    def __init__(self, status_code: int, body: Any) -> None:
+        # The message and the body keep the positions callers already read: see
+        # `_raise_billing_error` in ee/api/billing.py, which parses the status out of the message.
+        super().__init__(f"Billing service returned bad status code: {status_code}", "body:", body)
+        self.status_code = status_code
+        self.body = body
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
         try:
-            response = res.json()
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", response)
+            body: Any = res.json()
         except JSONDecodeError:
-            raise Exception(f"Billing service returned bad status code: {res.status_code}", f"body:", res.text)
+            # A body that is not JSON, such as the empty body of a proxy timeout, is still the
+            # answer the caller has to report. Read it as text, so the decode failure does not
+            # become the reported cause of the error.
+            body = res.text
+
+        raise BillingServiceResponseError(res.status_code, body)
+
+
+def _parse_funding_status(data: object) -> OrganizationFundingStatus:
+    if not isinstance(data, dict):
+        raise FundingStatusUnavailable("Billing returned an invalid funding status response")
+
+    if "startup_program_label" not in data:
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
+    raw_startup_program_label = data.get("startup_program_label")
+    if raw_startup_program_label not in (None, "Startup", "YC"):
+        raise FundingStatusUnavailable("Billing returned an invalid startup program label")
+    startup_program_label = cast(StartupProgramLabel | None, raw_startup_program_label)
+
+    raw_prepaid_credit_state = data.get("prepaid_credit_state")
+    if not isinstance(raw_prepaid_credit_state, str):
+        raise FundingStatusUnavailable("Billing returned an invalid prepaid credit state")
+    try:
+        prepaid_credit_state = PrepaidCreditState(raw_prepaid_credit_state)
+    except ValueError as error:
+        raise FundingStatusUnavailable("Billing returned an invalid prepaid credit state") from error
+
+    return OrganizationFundingStatus(
+        startup_program_label=startup_program_label,
+        prepaid_credit_state=prepaid_credit_state,
+    )
 
 
 class BillingManager:
@@ -239,6 +389,17 @@ class BillingManager:
 
         response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
 
+        usage_summary = response.get("usage_summary") or {}
+        if organization.usage:
+            for usage_key, usage in usage_summary.items():
+                # both dicts carry non-usage entries, e.g. "period" is a list
+                org_usage = organization.usage.get(usage_key)
+                if not isinstance(org_usage, dict) or not isinstance(usage, dict):
+                    continue
+                todays_usage = org_usage.get("todays_usage")
+                if todays_usage is not None:
+                    usage["todays_usage"] = todays_usage
+
         # Extend the products with accurate usage_limit info
         for product in response["products"]:
             usage_key = product.get("usage_key")
@@ -249,12 +410,8 @@ class BillingManager:
             billing_reported_usage = usage.get("usage") or 0
             current_usage = billing_reported_usage
 
-            product_usage: dict[str, Any] = {}
-            if organization and organization.usage:
-                product_usage = organization.usage.get(usage_key) or {}
-
-            if product_usage.get("todays_usage"):
-                todays_usage = product_usage["todays_usage"]
+            if usage.get("todays_usage"):
+                todays_usage = usage["todays_usage"]
                 current_usage = billing_reported_usage + todays_usage
 
             product["current_usage"] = current_usage
@@ -265,7 +422,7 @@ class BillingManager:
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
     ) -> None:
-        res = requests.patch(
+        res = http_session.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
             json=data,
@@ -274,7 +431,7 @@ class BillingManager:
         handle_billing_service_error(res)
 
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/available_product_features",
             headers=self.get_auth_headers(organization),
         )
@@ -361,7 +518,7 @@ class BillingManager:
             capture_exception(e, {"organization_id": organization.id})
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -372,13 +529,51 @@ class BillingManager:
         return res.json()
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/billing/deactivate",
             headers=self.get_auth_headers(organization),
             json={"products": products},
         )
 
         handle_billing_service_error(res)
+
+    def get_funding_status(self, organization: Organization) -> OrganizationFundingStatus:
+        cache_key = f"organization_funding_status:{organization.id}"
+        try:
+            cached_status = cache.get(cache_key)
+        except Exception:
+            logger.warning("funding_status_cache_read_failed", exc_info=True)
+            cached_status = None
+
+        if cached_status == _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE:
+            raise FundingStatusUnavailable("Could not resolve organization funding status")
+        if cached_status is not None:
+            return _parse_funding_status(cached_status)
+
+        try:
+            response = http_session.get(
+                f"{BILLING_SERVICE_URL}/api/billing/funding-status/",
+                headers=self.get_auth_headers(organization),
+                timeout=5,
+            )
+            handle_billing_service_error(response, valid_codes=(200,))
+            raw_status = response.json()
+            funding_status = _parse_funding_status(raw_status)
+        except Exception as error:
+            try:
+                cache.set(cache_key, _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE, timeout=5)
+            except Exception:
+                logger.warning("funding_status_failure_cache_write_failed", exc_info=True)
+            if isinstance(error, FundingStatusUnavailable):
+                raise
+            raise FundingStatusUnavailable("Could not resolve organization funding status") from error
+
+        try:
+            cache.set(cache_key, raw_status, timeout=30)
+        except Exception:
+            logger.warning("funding_status_cache_write_failed", exc_info=True)
+
+        return funding_status
 
     def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
         products = self.get_default_products(organization)
@@ -429,7 +624,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
             params=query_params,
@@ -447,7 +642,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/billing/portal",
             headers=self.get_auth_headers(organization),
         )
@@ -465,7 +660,7 @@ class BillingManager:
         if self.license and organization:
             headers = self.get_auth_headers(organization)
 
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
@@ -624,8 +819,142 @@ class BillingManager:
             headers["X-PostHog-Actor-IP"] = self.ip_address
         return headers
 
+    def organization_api_headers(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, str]:
+        """Headers for billing's /api/v2/billing/ routes: the PostHog-minted access token carrying the
+        caller's grants, plus the end-user IP as on every other call."""
+        headers = {"Authorization": f"Bearer {mint_billing_access_token(organization, grants, self.license)}"}
+        if self.ip_address:
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        return headers
+
+    def _organization_get(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        path: str,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """One read of billing's organization API routes, with the envelope removed. Billing's own refusals
+        come back as the matching DRF errors, so the caller sees why."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{path}",
+            headers=self.organization_api_headers(organization, grants),
+            params=params or None,
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        _raise_for_organization_error(res)
+        handle_billing_service_error(res, valid_codes=(200,))
+        data = res.json()
+        data.pop("status", None)
+        data.pop("customer_id", None)
+        return data
+
+    def get_organization_subscription(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "subscription/")
+
+    def get_organization_features(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "features/")
+
+    def get_organization_products(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        *,
+        include_plans: bool = False,
+        product_key: str | None = None,
+    ) -> dict[str, Any]:
+        path = f"products/{product_key}/" if product_key else "products/"
+        return self._organization_get(organization, grants, path, {"include_plans": "true"} if include_plans else None)
+
+    def get_organization_products_summary(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        # Billing serves this as products/catalog/, the name it shipped with.
+        return self._organization_get(organization, grants, "products/catalog/")
+
+    def get_organization_usage(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "usage/")
+
+    def get_organization_usage_status(
+        self, organization: Organization, grants: EffectiveBillingGrants
+    ) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "usage/status/")
+
+    def get_organization_spend(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "spend/")
+
+    def get_organization_forecast(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "forecast/")
+
+    def get_organization_export(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> requests.Response:
+        """Stream a usage or spend CSV from billing's organization export route, with the export
+        timeout. Returns the response rather than parsed data, so the file streams through."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/export/",
+            headers=self.organization_api_headers(organization, grants),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        # A 404 here means billing lacks the route, so it stays a server error rather than "not found".
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        return res
+
+    def get_organization_invoices(
+        self,
+        organization: Organization,
+        grants: EffectiveBillingGrants,
+        *,
+        cursor: str | None = None,
+        limit: int | None = None,
+        status: str | None = None,
+    ) -> dict[str, Any]:
+        params = {key: value for key, value in (("cursor", cursor), ("limit", limit), ("status", status)) if value}
+        return self._organization_get(organization, grants, "invoices/", params)
+
+    def get_organization_invoice_pdf_url(
+        self, organization: Organization, grants: EffectiveBillingGrants, invoice_id: str
+    ) -> str:
+        url = self._organization_get(organization, grants, f"invoices/{invoice_id}/pdf-url/").get("url")
+        if not url:
+            raise NotFound(f"No document for invoice {invoice_id}.")
+        return url
+
+    def get_organization_limits(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "limits/")
+
+    def get_organization_projects(self, organization: Organization, grants: EffectiveBillingGrants) -> dict[str, Any]:
+        return self._organization_get(organization, grants, "projects/")
+
+    def get_organization_timeseries(
+        self, organization: Organization, grants: EffectiveBillingGrants, kind: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The usage or spend timeseries copy. GET first, then POST when the query string is too long
+        for the organization's teams map, as the root usage and spend reads do."""
+        url = f"{BILLING_SERVICE_URL}/api/v2/billing/{kind}/timeseries/"
+        headers = self.organization_api_headers(organization, grants)
+        res = http_session.get(
+            url, headers=headers, params=self._to_query_params(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
+        )
+        if res.status_code in (414, 431):
+            res = http_session.post(
+                url, headers=headers, json=self._to_post_body(params), timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT
+            )
+        # A 404 here means the route is missing rather than the resource, so it stays a server error.
+        _raise_for_organization_error(res, map_not_found=False)
+        handle_billing_service_error(res, valid_codes=(200,))
+        data = res.json()
+        data.pop("status", None)
+        data.pop("customer_id", None)
+        return data
+
     def get_invoices(self, organization: Organization, status: str | None):
-        res = requests.get(
+        res = http_session.get(
             # TODO(@zach): update this to /api/invoices
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
@@ -639,7 +968,7 @@ class BillingManager:
         return data
 
     def credits_overview(self, organization: Organization):
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/credits/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -649,7 +978,7 @@ class BillingManager:
         return res.json()
 
     def purchase_credits(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/credits/purchase",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -667,7 +996,7 @@ class BillingManager:
         would swallow 404 (endpoint not deployed) and 401 (auth failure) as success and record an
         error body as a synced credit, hence the explicit (200,).
         """
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/signals/dispute-pr",
             # The service_action claim is required by billing: it distinguishes this
             # backend-minted token from ones minted for user-initiated billing calls,
@@ -682,7 +1011,7 @@ class BillingManager:
         return res.json()
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/activate",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -695,7 +1024,7 @@ class BillingManager:
         return res.json()
 
     def cancel_trial(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/trials/cancel",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -716,7 +1045,10 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
+            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
         """
+        raise_if_billing_managed_by_partner(organization)
+
         # Validate that organization has the integration if billing_provider is specified
         if billing_provider:
             from posthog.models import OrganizationIntegration
@@ -731,7 +1063,7 @@ class BillingManager:
 
         data = {"billing_provider": billing_provider}
 
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize",
             headers=self.get_auth_headers(organization, billing_provider),
             json=data,
@@ -741,8 +1073,20 @@ class BillingManager:
 
         return res.json()
 
+    def authorize_with_shared_payment_token(self, organization: Organization, shared_payment_token: str) -> None:
+        raise_if_billing_managed_by_partner(organization)
+
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/activate/authorize",
+            headers=self.get_auth_headers(organization),
+            json={"shared_payment_token": shared_payment_token},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200, 201))
+
     def authorize_status(self, organization: Organization, data: dict[str, Any]):
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/status",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -766,7 +1110,7 @@ class BillingManager:
         Returns:
             Response from billing service with success status
         """
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/activate/authorize/uninstall",
             headers=self.get_auth_headers(organization),
             json={"billing_provider": billing_provider.value},
@@ -786,7 +1130,7 @@ class BillingManager:
         return res.json()
 
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/subscription/switch-plan/",
             headers=self.get_auth_headers(organization),
             json=data,
@@ -798,7 +1142,7 @@ class BillingManager:
         return res.json()
 
     def apply_startup_program(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/startups/apply",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -808,7 +1152,7 @@ class BillingManager:
         return res.json()
 
     def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
             headers=self.get_auth_headers(organization),
@@ -818,7 +1162,7 @@ class BillingManager:
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:
-        res = requests.get(
+        res = http_session.get(
             f"{BILLING_SERVICE_URL}/api/coupons/overview",
             headers=self.get_auth_headers(organization),
         )
@@ -826,11 +1170,53 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def get_billing_status_for_alerts(self, organization: Organization) -> dict[str, Any]:
+        """Read billing status for billing alert evaluation.
+
+        Evaluation runs as a backend job without an acting user, so the token carries the
+        billing alerts service_action claim instead of a user role claim.
+        """
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization, service_action=BILLING_ALERTS_EVALUATION_SERVICE_ACTION),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
+        handle_billing_service_error(res)
+        return res.json()
+
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_with_post_fallback(organization, "/api/v2/usage/", params)
 
+    def get_spend_csv(self, organization: Organization, params: dict[str, Any]) -> requests.Response:
+        """Stream the spend breakdown as CSV. See get_usage_csv."""
+        return self._get_csv(organization, "/api/v2/spend/export/", params)
+
+    def get_usage_csv(self, organization: Organization, params: dict[str, Any]) -> requests.Response:
+        """Stream the usage breakdown as CSV.
+
+        Returns the response rather than parsed data: the body is a file passed through to the
+        browser, and buffering it here would stop it streaming.
+        """
+        return self._get_csv(organization, "/api/v2/usage/export/", params)
+
+    def _get_csv(self, organization: Organization, path: str, params: dict[str, Any]) -> requests.Response:
+        """GET a streamed CSV from billing with the export timeout, BILLING_EXPORT_REQUEST_TIMEOUT."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}{path}",
+            headers=self.get_auth_headers(organization),
+            params=self._to_query_params(params),
+            timeout=BILLING_EXPORT_REQUEST_TIMEOUT,
+            stream=True,
+        )
+        handle_billing_service_error(res)
+        return res
+
     def get_spend_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         return self._request_with_post_fallback(organization, "/api/v2/spend/", params)
+
+    def get_usage_team_options(self, organization: Organization) -> dict[str, Any]:
+        """The project ids that have appeared in the organization's usage reports, for the project filter."""
+        return self._request_with_post_fallback(organization, "/api/v2/usage/team_options/", {})
 
     def _request_with_post_fallback(
         self, organization: Organization, path: str, params: dict[str, Any]
@@ -846,7 +1232,12 @@ class BillingManager:
         url = f"{BILLING_SERVICE_URL}{path}"
         headers = self.get_auth_headers(organization)
 
-        res = requests.get(url, headers=headers, params=self._to_query_params(params))
+        res = http_session.get(
+            url,
+            headers=headers,
+            params=self._to_query_params(params),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
 
         if res.status_code in (414, 431):
             logger.info(
@@ -855,7 +1246,12 @@ class BillingManager:
                 status_code=res.status_code,
                 organization_id=str(organization.id),
             )
-            res = requests.post(url, headers=headers, json=self._to_post_body(params))
+            res = http_session.post(
+                url,
+                headers=headers,
+                json=self._to_post_body(params),
+                timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+            )
 
         handle_billing_service_error(res)
         return res.json()
@@ -927,7 +1323,7 @@ class BillingManager:
             "Content-Type": "application/json",
         }
 
-        res = requests.post(
+        res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
             headers=headers,
             data=body,

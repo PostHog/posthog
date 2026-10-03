@@ -16,6 +16,7 @@ import {
 import { useState } from "react";
 import { ReplaceSkillDialog } from "./ReplaceSkillDialog";
 import { SkillFileTree } from "./SkillFileTree";
+import { SkillBodySkeleton } from "./SkillSkeletons";
 import { isSkillExistsError, skillErrorDescription } from "./skillErrors";
 import {
   installsFormatter,
@@ -144,9 +145,7 @@ export function MarketplaceSkillPanel({
 
       <Box className="min-h-0 flex-1">
         {isLoading ? (
-          <Box p="3">
-            <Text className="text-[12px] text-gray-9">Loading...</Text>
-          </Box>
+          <SkillBodySkeleton />
         ) : selected?.content == null ? (
           <Box p="3">
             <Text className="text-[12px] text-gray-9">

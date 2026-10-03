@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from functools import cache
-from ipaddress import IPv6Address, collapse_addresses, ip_network
+from ipaddress import IPv4Network, IPv6Address, IPv6Network, collapse_addresses, ip_network
 
 from products.web_analytics.backend.hogql_queries.bot_ip_networks import (
     AHREFSBOT_NETWORKS,
@@ -130,7 +130,7 @@ BOT_IP_DEFINITIONS: dict[str, BotIPDefinition] = {
 _IPV4_MAPPED_OFFSET = 96
 
 
-def _ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
+def ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, ...]], ...]:
     groups: dict[int, list[str]] = {}
     for cidr in cidrs:
         network = ip_network(cidr)
@@ -147,13 +147,13 @@ def _ipv6_prefix_groups(cidrs: tuple[str, ...]) -> tuple[tuple[int, tuple[str, .
 @cache
 def bot_ip_prefix_groups_by_definition() -> tuple[tuple[str, tuple[tuple[int, tuple[str, ...]], ...]], ...]:
     """Per-definition (prefixlen, network addresses) groups, for labeled lookups (bot name etc.)."""
-    return tuple((key, _ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
+    return tuple((key, ipv6_prefix_groups(definition.networks)) for key, definition in BOT_IP_DEFINITIONS.items())
 
 
 @cache
 def merged_bot_ip_prefix_groups() -> tuple[tuple[int, tuple[str, ...]], ...]:
     """(prefixlen, network addresses) groups across all definitions, for the boolean is-bot check."""
     all_networks = [ip_network(cidr) for definition in BOT_IP_DEFINITIONS.values() for cidr in definition.networks]
-    v4 = collapse_addresses(n for n in all_networks if n.version == 4)
-    v6 = collapse_addresses(n for n in all_networks if n.version == 6)
-    return _ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))
+    v4 = collapse_addresses(n for n in all_networks if isinstance(n, IPv4Network))
+    v6 = collapse_addresses(n for n in all_networks if isinstance(n, IPv6Network))
+    return ipv6_prefix_groups(tuple(str(n) for n in [*v4, *v6]))

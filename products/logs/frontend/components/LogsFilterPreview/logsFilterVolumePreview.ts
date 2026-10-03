@@ -1,5 +1,5 @@
-import { dataColorVars } from 'lib/colors'
-import { SparklineTimeSeries } from 'lib/components/Sparkline'
+import type { Series } from '@posthog/quill-charts'
+
 import { dayjs } from 'lib/dayjs'
 
 import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
@@ -18,6 +18,11 @@ export const SPARKLINE_ROW_LIMIT = 1000
 
 export type LogsFilterPreviewMetric = 'count' | 'bytes'
 
+/** How far back the preview query looks. Doubles as the `-{lookback}` relative date_from. */
+export type LogsFilterPreviewLookback = '1h' | '24h'
+
+export const DEFAULT_PREVIEW_LOOKBACK: LogsFilterPreviewLookback = '24h'
+
 export interface LogsFilterPreviewPoint {
     time: string
     service: string
@@ -25,9 +30,14 @@ export interface LogsFilterPreviewPoint {
     bytes_uncompressed?: number
 }
 
+/** The collapsed "Others" row reads as an aggregate rather than as another service. Resolved to a
+ *  canvas-usable color by the chart — a bar fill can't take `var(--…)`. */
+export const OTHER_BREAKDOWN_COLOR = 'var(--muted)'
+
 export interface LogsFilterPreviewSeriesData {
+    /** Raw bucket timestamps, one per bar. The chart's time axis formats them for display. */
     labels: string[]
-    series: SparklineTimeSeries[]
+    series: Series[]
     total: number
     /** Width of one bar/bucket in seconds; needed to translate a per-second rate limit into per-bucket units. */
     bucketSeconds: number
@@ -69,31 +79,32 @@ export function buildSparklineSeries(
         bucketTotals.set(point.time, (bucketTotals.get(point.time) ?? 0) + value)
         total += value
     }
-    const labels = timeOrder.map((t) => dayjs(t).format('D MMM HH:mm'))
     // Sorted by volume so colours track the biggest talkers, but deliberately not sliced: the
     // backend already folded everything past the top N into one bucket, ranked by this same metric.
     // Slicing again here would re-collapse the collapsed row and label it as a single service.
     const ranked = Array.from(serviceTotals.entries()).sort(([, a], [, b]) => b - a)
     const valuesFor = (service: string): number[] => timeOrder.map((t) => byService.get(service)?.get(t) ?? 0)
-    const series: SparklineTimeSeries[] = ranked
+    // No explicit colour: the chart assigns the data palette by series index, which is what the
+    // volume ranking above is for.
+    const series: Series[] = ranked
         .filter(([service]) => service !== OTHER_BREAKDOWN_VALUE)
-        .map(([service], index) => ({
-            name: service,
-            color: dataColorVars[index % dataColorVars.length],
-            values: valuesFor(service),
+        .map(([service]) => ({
+            key: service,
+            label: service,
+            data: valuesFor(service),
         }))
     if (serviceTotals.has(OTHER_BREAKDOWN_VALUE)) {
-        // Last and muted, so it reads as an aggregate rather than as another service.
         series.push({
-            name: OTHER_BREAKDOWN_LABEL,
-            color: 'muted',
-            values: valuesFor(OTHER_BREAKDOWN_VALUE),
+            key: OTHER_BREAKDOWN_VALUE,
+            label: OTHER_BREAKDOWN_LABEL,
+            color: OTHER_BREAKDOWN_COLOR,
+            data: valuesFor(OTHER_BREAKDOWN_VALUE),
         })
     }
     const bucketSeconds = timeOrder.length >= 2 ? dayjs(timeOrder[1]).diff(dayjs(timeOrder[0]), 'second') : 0
     const chartMax = Math.max(0, ...Array.from(bucketTotals.values()))
     return {
-        labels,
+        labels: timeOrder,
         series,
         total,
         bucketSeconds,

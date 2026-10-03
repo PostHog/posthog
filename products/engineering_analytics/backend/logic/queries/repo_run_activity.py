@@ -10,8 +10,8 @@ go green for this commit, and how long did its CI take":
 - ``duration_seconds`` = wall-clock from the first workflow start to the last workflow finish, and only
   once **every** workflow settled — while any is still running the commit's CI isn't done, so duration is
   null (the point drops off the scatter and feeds the in-flight band instead), mirroring the per-run chart.
-- ``conclusion`` = the commit's overall verdict: red if **any** workflow decisively failed
-  (``failure`` / ``timed_out``), else '' (still in flight) if any hasn't settled, else ``success`` when at
+- ``conclusion`` = the commit's overall verdict: red if **any** workflow decisively failed,
+  else '' (still in flight) if any hasn't settled, else ``success`` when at
   least one passed, else ``neutral`` (only cancelled/skipped). One decisive failure turns the commit red,
   matching how a human reads a broken default branch.
 
@@ -31,6 +31,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 
 # One point per commit, so the cap is in commits (not runs) — comfortably above the busiest window's
 # default-branch commit count while bounding the wire size. Newest commits win when the cap is hit.
@@ -40,7 +41,7 @@ _SELECT = f"""
     SELECT
         max(w.id) AS run_id,
         multiIf(
-            countIf(w.status = 'completed' AND w.conclusion IN ('failure', 'timed_out')) > 0, 'failure',
+            countIf(w.status = 'completed' AND w.conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) > 0, 'failure',
             countIf(w.status != 'completed') > 0, '',
             countIf(w.conclusion = 'success') > 0, 'success',
             'neutral'

@@ -2,8 +2,11 @@ import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { reconcileById } from 'lib/utils/objects'
+
+import { signalsScoutRunsEmissionReports, signalsScoutRunsEmissions } from 'products/signals/frontend/generated/api'
 
 import {
     LinkedSignalReport,
@@ -197,8 +200,9 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     }
                     // allSettled, not all: one failed run's fetch (transient 500, deleted run)
                     // shouldn't discard every other run's findings — surface the partial set.
+                    const projectId = String(ApiConfig.getCurrentProjectId())
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissions(run.run_id))
+                        runs.map((run) => signalsScoutRunsEmissions(projectId, run.run_id))
                     )
                     const fulfilled = settled.filter(
                         (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
@@ -210,7 +214,14 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     if (fulfilled.length === 0) {
                         throw new Error('Failed to load scout emissions')
                     }
-                    return fulfilled.flatMap((result) => result.value)
+                    // Reconcile by id so emissions unchanged across polls keep their reference —
+                    // `ScoutEmissionCard` is memoized, and fresh references every poll re-render
+                    // every card's markdown on an idle page.
+                    return reconcileById(
+                        values.emissions,
+                        fulfilled.flatMap((result) => result.value),
+                        (emission) => emission.id
+                    )
                 },
             },
         ],
@@ -232,10 +243,11 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                     // all). source_id is `run:<run_id>:finding:<id>`, so prior links for a run are the
                     // ones prefixed with its run_id.
                     const previous = values.emissionReports
+                    const projectId = String(ApiConfig.getCurrentProjectId())
                     const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
+                        runs.map((run) => signalsScoutRunsEmissionReports(projectId, run.run_id))
                     )
-                    return runs.flatMap((run, index) => {
+                    const merged = runs.flatMap((run, index) => {
                         const result = settled[index]
                         if (result.status === 'fulfilled') {
                             return result.value
@@ -243,6 +255,10 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                         const prefix = `run:${run.run_id}:`
                         return previous.filter((link) => link.source_id.startsWith(prefix))
                     })
+                    // This loader re-runs on every 60s runs-window poll while a recent finding is
+                    // unlinked. Reconcile so unchanged links keep their reference — a fresh
+                    // `report` object per poll defeats the memo on every emission card.
+                    return reconcileById(previous, merged, (link) => link.source_id)
                 },
             },
         ],
@@ -259,11 +275,14 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                         return []
                     }
                     const settled = await Promise.allSettled(touched.map(({ id }) => api.signalReports.get(id)))
-                    return settled
+                    const fetched = settled
                         .filter(
                             (result): result is PromiseFulfilledResult<SignalReport> => result.status === 'fulfilled'
                         )
                         .map((result) => result.value)
+                    // Same identity contract as the emissions loaders: unchanged reports across
+                    // polls keep their reference so memoized cards don't re-render.
+                    return reconcileById(values.scoutReports, fetched, (report) => report.id)
                 },
             },
         ],

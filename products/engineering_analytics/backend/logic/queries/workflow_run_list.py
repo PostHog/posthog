@@ -10,12 +10,13 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import WorkflowRunDetail
+from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope, WorkflowRunDetail
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._run_detail import RUN_DETAIL_COLUMNS, to_run_detail
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
     date_to_filter_clause,
+    run_scope_filter_clause,
 )
 
 # Safety bound on the runs list (mirrors the PR table's cap philosophy).
@@ -26,7 +27,7 @@ _SELECT = f"""
         {RUN_DETAIL_COLUMNS}
     FROM __RUNS_SOURCE__ AS r
     WHERE repo_owner = {{repo_owner}} AND repo_name = {{repo_name}} AND workflow_name = {{workflow_name}}
-        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
+        AND run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__ __RUN_SCOPE__
     ORDER BY run_started_at DESC, run_attempt DESC
     LIMIT {_LIMIT}
 """
@@ -41,6 +42,7 @@ def query_workflow_run_list(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None = None,
+    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> list[WorkflowRunDetail]:
     placeholders: dict[str, ast.Expr] = {
         "repo_owner": ast.Constant(value=repo_owner),
@@ -53,7 +55,8 @@ def query_workflow_run_list(
     response = curated.run(
         _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)
-        .replace("__BRANCH__", branch_clause),
+        .replace("__BRANCH__", branch_clause)
+        .replace("__RUN_SCOPE__", run_scope_filter_clause(run_scope)),
         query_type="engineering_analytics.workflow_run_list",
         placeholders=placeholders,
     )

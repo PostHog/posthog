@@ -15,7 +15,11 @@ const authState = {
   >,
   currentOrgId: null as string | null,
   currentProjectId: null as number | null,
-  hasCodeAccess: null,
+  desktopAccess: {
+    projectId: null as number | null,
+    status: "unchecked" as const,
+    reason: null as "startup_plan" | "prepaid_credits" | null,
+  },
   needsScopeReauth: false,
 };
 
@@ -61,7 +65,11 @@ describe("ScopeReauthPrompt", () => {
     authState.status = "anonymous";
     authState.cloudRegion = null;
     authState.currentProjectId = null;
-    authState.hasCodeAccess = null;
+    authState.desktopAccess = {
+      projectId: null,
+      status: "unchecked",
+      reason: null,
+    };
     authState.needsScopeReauth = false;
   });
 

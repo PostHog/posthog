@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardTileIdOrNew, DashboardType } from '~/types'
 
 export interface ButtonTileForm {
     url: string
@@ -17,15 +17,12 @@ export interface ButtonTileForm {
 }
 
 export interface ButtonTileCardModalProps {
-    dashboard: DashboardType<QueryBasedInsightModel>
-    buttonTileId: number | 'new'
+    dashboard: DashboardType
+    buttonTileId: DashboardTileIdOrNew
     onClose: () => void
 }
 
-const getExistingButtonTile = (
-    dashboard: DashboardType<QueryBasedInsightModel>,
-    buttonTileId: number
-): ButtonTileForm => {
+const getExistingButtonTile = (dashboard: DashboardType, buttonTileId: number): ButtonTileForm => {
     const tile = dashboard.tiles?.find((t) => t.id === buttonTileId)
     if (tile?.button_tile) {
         return {
@@ -141,15 +138,15 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
 
             posthog.capture('dashboard button tile saved', {
                 dashboard_id: props.dashboard.id,
-                button_tile_id: props.buttonTileId === 'new' ? null : props.buttonTileId,
-                is_new: props.buttonTileId === 'new',
+                button_tile_id: props.buttonTileId,
+                is_new: props.buttonTileId === null,
                 url_type: buttonTile.url.startsWith('/') ? 'pathname' : 'full_url',
             })
         },
     })),
     forms(({ props, actions }) => ({
         buttonTile: {
-            defaults: (props.buttonTileId && props.buttonTileId !== 'new'
+            defaults: (props.buttonTileId !== null
                 ? getExistingButtonTile(props.dashboard, props.buttonTileId)
                 : {
                       url: '',
@@ -178,7 +175,7 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
                     transparent_background: t.transparent_background,
                 }))
 
-                if (props.buttonTileId === 'new') {
+                if (props.buttonTileId === null) {
                     actions.updateDashboard({
                         id: props.dashboard.id,
                         tiles: [{ button_tile: buttonTileFields, transparent_background }],

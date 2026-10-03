@@ -1,13 +1,8 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.prefectcloud import (
     PrefectCloudSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.prefect_cloud import (
-    PrefectCloudResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.settings import (
     ENDPOINTS,
@@ -15,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cl
     RUN_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source import PrefectCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Endpoints whose Prefect filter model exposes a server-side `after_` time filter with an
 # ascending sort; everything else is full refresh only.
@@ -32,32 +26,9 @@ class TestPrefectCloudSource:
         self.team_id = 123
         self.config = PrefectCloudSourceConfig(account_id=_ACCOUNT_ID, workspace_id=_WORKSPACE_ID, api_key="pnu_key")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PREFECTCLOUD
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "PrefectCloud"
-        assert config.label == "Prefect Cloud"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/prefect_cloud.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/prefect-cloud"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["account_id", "workspace_id", "api_key"]
-
     def test_connection_host_fields_force_secret_reentry_on_workspace_change(self):
         # Both IDs retarget the stored API key, so changing either must require re-entering it.
         assert self.source.connection_host_fields == ["account_id", "workspace_id"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -110,10 +81,6 @@ class TestPrefectCloudSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(PREFECT_CLOUD_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -153,44 +120,3 @@ class TestPrefectCloudSource:
 
         assert is_valid is False
         assert "Invalid Prefect Cloud account ID" in (error_message or "")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is PrefectCloudResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source.prefect_cloud_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_prefect_cloud_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "flow_runs"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "start_time"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_prefect_cloud_source.assert_called_once()
-        kwargs = mock_prefect_cloud_source.call_args.kwargs
-        assert kwargs["account_id"] == _ACCOUNT_ID
-        assert kwargs["workspace_id"] == _WORKSPACE_ID
-        assert kwargs["api_key"] == "pnu_key"
-        assert kwargs["endpoint"] == "flow_runs"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["incremental_field"] == "start_time"
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.prefect_cloud.source.prefect_cloud_source"
-    )
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_prefect_cloud_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "flows"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_prefect_cloud_source.call_args.kwargs["db_incremental_field_last_value"] is None

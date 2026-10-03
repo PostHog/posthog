@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
@@ -13,12 +13,13 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { useSparklineData } from '../../hooks/use-sparkline-data'
-import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION, sourceDisplay } from '../../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
-import { AssigneeSelect } from '../Assignee/AssigneeSelect'
+import { QuillAssigneeSelect } from '../Assignee/QuillAssigneeSelect'
 import { StatusIndicator } from '../Indicators'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
+import { IssueSeveritySelect } from '../IssueSeveritySelect'
+import { IssueSeverityTag } from '../IssueSeverityTag'
 import { IssueStatusSelect } from '../IssueStatusSelect'
 import { RuntimeIcon } from '../RuntimeIcon'
 import { CustomSeparator } from '../TableColumns'
@@ -42,15 +43,6 @@ export function ErrorTrackingIssueListHeader(): JSX.Element {
     )
 }
 
-function prefetchIssueScene(issue: ErrorTrackingIssue): void {
-    const issueLogic = errorTrackingIssueSceneLogic({
-        id: issue.id,
-        timestamp: issue.last_seen,
-    })
-    issueLogic.mount()
-    issueLogic.actions.setIssue(issue)
-}
-
 export function ErrorTrackingIssueListRow({
     issue,
     orderBy = 'last_seen',
@@ -60,7 +52,8 @@ export function ErrorTrackingIssueListRow({
     orderBy?: string
     canMutateIssues?: boolean
 }): JSX.Element {
-    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
+    const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const runtime = getRuntimeFromLib(issue.library)
     const sparklineKey = issue.id ?? 'issue-unknown'
     const sparklineData = useSparklineData(issue.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
@@ -82,11 +75,7 @@ export function ErrorTrackingIssueListRow({
             )}
         >
             <div className="flex min-w-0 flex-col gap-0.5">
-                <Link
-                    to={issueUrl}
-                    className="flex items-center gap-2 text-sm text-primary"
-                    onClick={() => prefetchIssueScene(issue)}
-                >
+                <Link to={issueUrl} className="flex items-center gap-2 text-sm text-primary">
                     <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.75rem" />
                     <span className="line-clamp-1 font-semibold">{issue.name || 'Unknown Type'}</span>
                 </Link>
@@ -112,14 +101,24 @@ export function ErrorTrackingIssueListRow({
                     )}
                     <CustomSeparator />
                     {canMutateIssues ? (
-                        <AssigneeSelect
+                        <IssueSeveritySelect
+                            severity={issue.severity}
+                            onChange={(severity) => updateIssueSeverity(issue.id, severity)}
+                            loading={severityUpdateInFlightIds.includes(issue.id)}
+                        />
+                    ) : (
+                        <IssueSeverityTag severity={issue.severity} />
+                    )}
+                    <CustomSeparator />
+                    {canMutateIssues ? (
+                        <QuillAssigneeSelect
                             assignee={issue.assignee}
                             onChange={(assignee) => updateIssueAssignee(issue.id, assignee)}
                         >
                             {(anyAssignee) => (
-                                <div
+                                <button
+                                    type="button"
                                     className="ml-1 flex cursor-pointer items-center rounded p-[0.1rem] text-xs text-secondary hover:bg-fill-button-tertiary-hover"
-                                    role="button"
                                 >
                                     <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
                                     <AssigneeLabelDisplay
@@ -129,9 +128,9 @@ export function ErrorTrackingIssueListRow({
                                         placeholder="Unassigned"
                                     />
                                     <IconChevronDown />
-                                </div>
+                                </button>
                             )}
-                        </AssigneeSelect>
+                        </QuillAssigneeSelect>
                     ) : (
                         <AssigneeResolver assignee={issue.assignee}>
                             {({ assignee: resolvedAssignee }) => (

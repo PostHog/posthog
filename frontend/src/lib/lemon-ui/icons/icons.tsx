@@ -427,6 +427,23 @@ export function IconTableChart(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Donut chart. Built like `IconPieChart`, which sits next to it in the chart type picker: a thin
+ *  outlined body with a quarter cut out, and that quarter drawn again offset outwards.
+ *  `@posthog/icons` has no donut glyph. */
+export function IconDonutChart(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M18.5 13A7.5 7.5 0 1 1 11 5.5V9.6A3.4 3.4 0 1 0 14.4 13Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+            />
+            <path d="M12.7 3.8A7.5 7.5 0 0 1 20.2 11.3H16.1A3.4 3.4 0 0 0 12.7 7.9Z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
 /*
  * Insight type icon set. Drawn at the same visual weight as the left-nav icon family
  * (~1.5-1.75 unit strokes, slim bars). Series blue is the base color; glyphs with several
@@ -623,6 +640,26 @@ export function Icon123(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** A navigation arrow under an arc, for the self-driving product. Sized like the @posthog/icons glyphs. */
+export function IconSelfDriving(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase width="100%" height={undefined} {...props}>
+            <path
+                d="M3.31 15.16A9.25 9.25 0 1 1 20.69 15.16"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+            />
+            <path
+                d="M12 8.25 17 20.5 12 17.75 7 20.5Z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Groups icon. */
 export function IconCohort(props: LemonIconProps): JSX.Element {
     return (
@@ -763,6 +800,14 @@ export function IconTrendingFlatDown(props: LemonIconProps): JSX.Element {
 }
 
 /** Material Design Trending Down icon. */
+export function IconTrendingUp(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path d="m16 6 2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z" fill="currentColor" />
+        </LemonIconBase>
+    )
+}
+
 export function IconTrendingDown(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>

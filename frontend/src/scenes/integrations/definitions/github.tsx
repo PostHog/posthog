@@ -29,7 +29,7 @@ export const GitHub = defineIntegration(
             'Link pull requests and issues to PostHog',
             'Attribute code changes across your repositories',
         ],
-        docsUrl: 'https://posthog.com/docs/error-tracking/integrations',
+        docsUrl: 'https://posthog.com/docs/libraries/github',
     },
     GithubIntegration
 )

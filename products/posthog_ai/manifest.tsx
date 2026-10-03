@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'PostHog AI',
@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             iconType: 'task',
             // Master/detail with internally-scrolling columns — the scene fills the viewport height.
             layout: 'app-full-scene-height',
+            docsHref: 'https://posthog.com/docs/posthog-desktop/tasks',
         },
     },
     routes: {
@@ -36,7 +37,7 @@ export const manifest: ProductManifest = {
             name: 'Task',
             iconType: 'task',
             href: () => urls.taskTracker(),
-            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'],
+            iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
             filterKey: 'task',
             flag: FEATURE_FLAGS.TASKS,
         },
@@ -49,7 +50,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             type: 'task',
             iconType: 'task',
-            iconColor: ['var(--product-tasks-light)', 'var(--product-tasks-dark)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
             href: urls.taskTracker(),
             sceneKey: 'TaskTracker',
             flag: FEATURE_FLAGS.TASKS,

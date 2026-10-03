@@ -1,8 +1,9 @@
 import { GearSix } from "@phosphor-icons/react";
+import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
 
 interface ConfigureItemProps {
-  onClick: () => void;
+  onClick: MouseEventHandler<Element>;
   depth?: number;
 }
 

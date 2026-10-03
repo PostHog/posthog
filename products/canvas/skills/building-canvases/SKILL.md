@@ -1,12 +1,13 @@
 ---
 name: building-canvases
 description: >
-  Create or edit a PostHog canvas — a sandboxed browser application (data board, document, form,
-  small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use when
-  a task asks to build, generate, update, or fix a canvas, or when a canvas id is given as the
-  publish target. Covers resolving or creating the target canvas, choosing an implementation
-  approach (React + Quill vs plain HTML/browser APIs), the read → edit → validate → publish →
-  build loop, and which companion canvas skills to load for the details.
+  Create or edit a PostHog freeform canvas — a sandboxed browser application (data board, document,
+  form, small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use
+  when a task asks to build, generate, update, or fix a standalone canvas app, or when a freeform
+  canvas id is given as the publish target. For grid/home canvases, widget placements, or reusable
+  components, use composing-grid-canvases instead. Covers resolving or creating the target canvas,
+  choosing an implementation approach (React + Quill vs plain HTML/browser APIs), the read → edit →
+  validate → publish → build loop, and which companion canvas skills to load for the details.
 ---
 
 # Building canvases
@@ -19,6 +20,13 @@ saves it.
 Canvas work can start from any ordinary task. A dedicated canvas mode or pre-created canvas is
 not required. When the user asks for a board, document, form, visualization, or small app that
 should live in PostHog, treat that as a canvas request and follow this skill.
+
+This skill owns `freeform` canvases (standalone apps). Two other canvas kinds exist: `grid`
+canvases (widget grids, including the user's home canvas) and `component` canvases (reusable
+widgets grids place). When the target is a grid or home canvas, a placement, or a reusable
+widget/component, load `composing-grid-canvases` instead — it owns the store search → configure →
+fork → build ladder and the layout patch loop. Authoring a component's source still uses the
+implementation companions below.
 
 ## Resolve the target canvas
 
@@ -47,8 +55,9 @@ implementation contracts. Load every companion that applies before writing sourc
   `<canvas>`, or WebGL work where application components add no useful structure. It owns semantic
   markup, direct browser APIs, animation cleanup, and non-Quill theming.
 - **`querying-canvas-data`** whenever the canvas reads PostHog data, captures events, or navigates.
-  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, and declared
-  data capabilities. Load it alongside either implementation skill when data is involved.
+  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, progressive
+  per-query loading, and declared data capabilities. Load it alongside either implementation skill
+  when data is involved.
 - **`validating-and-publishing-canvases`** for every canvas. It owns project shape, capability
   declarations, validation diagnostics, guarded publishes, drafts, builds, and conflict recovery.
 
@@ -58,13 +67,76 @@ graphics code owns a canvas element, or a mostly static page can mount one inter
 This is a judgment call, not a persisted mode — ask the user only when the choice changes a
 user-visible requirement you cannot infer.
 
+## Blocks
+
+A canvas can contain premade blocks: numbers, goals, trends, top lists, funnels, retention, saved insights, live event feeds, SQL tables, filters, compare and refresh controls, and callouts.
+They are React components in `src/blocks/` that people drag into the canvas in the desktop app, so they are part of your source.
+Read [references/blocks.md](references/blocks.md) before you change a canvas that has `src/blocks/runtime.tsx`.
+
+## Params
+
+Expose the values a person may want to change as params. They can then change them in the desktop editor without a new task.
+Params are optional, but add them to each panel, card, or tool that has values worth changing: titles, copy, events, properties, thresholds, limits, colors.
+Params need React components. A plain HTML canvas has no params.
+
+1. Put each panel in its own component. The component takes these values as props, with defaults.
+2. Spread `editable(name, props, params)` from `@posthog/canvas-sdk` on the root element of the component. `name` is the component name. `params` maps each prop name to its field.
+3. Use the component with literal props, for example `<SignupFunnel blockId="b-k3m9x2" title="Signup" windowDays={14} />`. The editor writes changes into these props, so do not compute them inline.
+4. Give each use a unique `blockId` prop, for example `<SignupFunnel blockId="b-k3m9x2" … />`, so a person can point the agent at one card. Use only letters, digits, `_`, `-`, `.`, and `:`, or the editor ignores the ID. In a list, build it from a stable key of the item: ``blockId={`kpi-${item.id}`}``.
+
+```tsx
+import { editable } from '@posthog/canvas-sdk'
+
+export function SignupFunnel(props: { blockId?: string; title?: string; steps?: string[]; windowDays?: number }) {
+  const { title = 'Signup funnel', steps = ['$pageview', 'signed_up'], windowDays = 14 } = props
+  return (
+    <Card
+      {...editable('SignupFunnel', props, {
+        title: { type: 'text', label: 'Title', default: 'Signup funnel' },
+        steps: { type: 'events', label: 'Steps', default: ['$pageview', 'signed_up'] },
+        windowDays: { type: 'number', label: 'Conversion window (days)', min: 1, max: 90, default: 14 },
+      })}
+    >
+      …
+    </Card>
+  )
+}
+```
+
+Field types: `text`, `longtext`, `number` (`min`, `max`, `step`; with both `min` and `max` the editor shows a slider), `boolean`, `select` (`options`: strings or `{ value, label }`), `event`, `events`, `property`, `insight` (a saved insight's short id), `color`. Each field can also have a `description`.
+Give each field the same `default` as its prop default, for example `{ type: "boolean", label: "Show legend", default: true }`. The editor shows `default` when the prop is not set.
+A `color` param defaults to a theme token such as `var(--primary)`, so the canvas follows light and dark mode until a person picks a hex in the editor.
+Pass only JSON values (strings, numbers, booleans, string arrays) through params. Keep functions and query results out of them.
+
+## Images
+
+Use public media library URLs for images in a canvas. Call `posthog:media-images-list` with
+`purpose="canvas"` first and reuse a suitable image when one already exists.
+
+To add a local image:
+
+1. Call `posthog:media-image-upload-start` with the file name and `purpose="canvas"`.
+2. From a shell, POST the file to the returned `upload_url` as multipart form data. Include every
+   returned `form_fields` entry and put the file part last.
+3. Call `posthog:media-image-upload-complete` with the returned id and use its permanent `url` as
+   the image `src`.
+4. Add the URL's exact origin to `project.capabilities.network.origins`. Canvas validation checks
+   this declaration, and the published artifact uses it in its Content Security Policy.
+
+Canvas media URLs are public and do not require authentication. Never upload secrets, credentials,
+customer data, or sensitive screenshots. Images must be under 4 MB and decode as PNG, JPEG, GIF,
+WebP, AVIF, or BMP. Never base64-encode image bytes into a tool call.
+
 ## Common request patterns
 
 Use these as routing examples, not fixed templates:
 
 - **Product dashboard, web analytics board, or metric explorer:** React + Quill plus data querying.
 - **Checklist, form, or lightweight workflow:** React + Quill, plus data querying for PostHog reads,
-  event capture, or navigation. Do not imply persistence that the available APIs do not provide.
+  event capture, or navigation. For a checklist or runbook specifically, start from the worked
+  example in `building-react-quill-canvases` (`references/checklist-example.md`) — team-shared
+  progress via per-step `ph.state` keys. Do not imply persistence that the available APIs do not
+  provide.
 - **Document or narrative report:** HTML for a mostly static reading experience; React + Quill plus
   data querying when it needs live PostHog data, filters, or application-like interactions.
 - **Generative graphic or animation:** HTML and browser graphics APIs. Add React only when it
@@ -79,26 +151,32 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    Remember `current_version_id` — your publish must be guarded on it.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
    the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
-   fetch or your own PostHog client), and
+   fetch or your own PostHog client), make every figure verifiable — an insight-backed metric
+   links its saved insight in PostHog, an ad-hoc query shows the exact query that ran, per that
+   skill's "Verifiability" section — and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
-   ad-hoc queries) — the host enforces these at runtime and validation rejects undeclared calls.
+   ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at
+   runtime and validation rejects undeclared calls.
 3. Follow `validating-and-publishing-canvases`: validate with `canvas-validate-create` as often as
    needed and fix every error-severity diagnostic.
-4. Save the project — which tool depends on whether the canvas is already live:
+4. Save the project by publishing it — publishing is the default and goes live at once:
    - **First version** (`current_version_id` is null): publish the complete project with
      `canvas-publish-create`, passing `expected_current_version_id: null`.
-   - **Already live** (`current_version_id` is set): stage the complete project as a draft with
-     `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
-     promote yourself only when the user explicitly asked to make the change live.
+   - **Already live** (`current_version_id` is set): send only the edits with `canvas-edit-create`, using `str_replace` operations for changes inside a file.
+     Pass the live `current_version_id` as `expected_current_version_id`.
+     Publish the complete project with `canvas-publish-create` only to replace the whole project.
+   - Stage a draft with `canvas-draft-create` only when the user asked for a draft, a preview, or
+     a review step before going live.
      Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
-5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
+5. **Wait for the build** — drafts and publishes alike queue one. A publish or edit response
+   already carries `build.build_status`; use it when it is `ready` or `failed`. Otherwise poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
    read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.
 
-Save once per requested change, when the canvas is ready — not after every micro-edit. When you
-staged a draft, end your reply by saying a draft is ready to preview and promote; the
+Save once per requested change, when the canvas is ready — not after every micro-edit. When the
+user asked for a draft, end your reply by saying a draft is ready to preview and promote; the
 `validating-and-publishing-canvases` skill covers the draft → build → preview → promote flow.
 
 End your reply by naming the channel the canvas is in and linking it with the `url` field the
@@ -121,6 +199,19 @@ That field is the only valid link to a canvas — never construct one yourself; 
   `canvases-actions-retrieve` tool and follow each verb's `usage` (payload/result shape,
   behavior, and the confirmation copy it warrants) before wiring it.
 
+- **`ph.connectors.call(provider, tool, args)`** — read live third-party data (GitHub, or any
+  MCP store server) with the VIEWER's own connection at view time. Never call GitHub, Calendly,
+  or another service yourself and paste the result into the source: that snapshot is stale on
+  publish and shows every viewer the author's data. Declare each provider and tool in
+  `capabilities.connectors`; discover them with the `canvas-connectors-retrieve` tool. See
+  `querying-canvas-data` for the result and not-connected handling.
+- **`ph.agent.request(prompt)`** — ask the canvas's authoring agent for a change, with the viewer's
+  approval. Declare `agentRequests: true` in `capabilities.posthog`. Call it only from a direct
+  click or form submission — the host shows the exact prompt and asks the viewer to accept before
+  spending compute, and rejects calls made during render, mount, or polling. The agent publishes
+  the change as a new version; a non-creator's request is filed in the authoring task's thread
+  instead of starting a run.
+
 ## Source-project shape
 
 - Keep `index.html` as the entry shell returned by the source tool.
@@ -128,7 +219,8 @@ That field is the only valid link to a canvas — never construct one yourself; 
   relative TypeScript, TSX, JavaScript, JSON, SVG, CSS, and admitted asset files from the project.
 - Self-contained module workers may be imported with `./worker.ts?worker`. A worker must not import
   another local module.
-- Binary assets belong in the project's `assets` map as base64 content with an admitted content type.
-  PNG, JPEG, GIF, WebP, AVIF, WOFF/WOFF2, WebAssembly, and generic octet-stream assets are supported.
+- Use the public media library flow above for images. Other binary assets belong in the project's
+  `assets` map as base64 content with an admitted content type. WOFF/WOFF2, WebAssembly, and generic
+  octet-stream assets are supported.
 - Keep the platform dependency map exactly as returned. Do not add npm packages; local relative
   imports are project files, while bare imports remain limited to the platform-pinned set.

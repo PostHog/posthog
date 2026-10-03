@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
@@ -8,7 +9,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { experimentLogic, getSectionMetricUuids } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
 import { isMetricThresholdCueVisible } from 'scenes/experiments/ExperimentMetricThreshold'
 import {
@@ -17,8 +18,6 @@ import {
     getExposureEventAndProperty,
     resolvedExposureEvent,
 } from 'scenes/experiments/exposureContract'
-import { METRIC_CONTEXTS, experimentMetricModalLogic } from 'scenes/experiments/Metrics/experimentMetricModalLogic'
-import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
@@ -26,9 +25,15 @@ import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/s
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
+import {
+    METRIC_CONTEXTS,
+    experimentMetricModalLogic,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { sharedMetricDetailsModalLogic } from 'products/experiments/frontend/modals/SharedMetricDetailsModal/sharedMetricDetailsModalLogic'
+
 import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
-import { getMetricTag } from './utils'
+import { MetricTypeTag } from './MetricTypeTag'
 
 const MAX_BREAKDOWNS = 3
 
@@ -232,8 +237,9 @@ export const MetricHeader = ({
     const metricUuid = metric.uuid
     const sectionUuids =
         (isPrimaryMetric ? experiment.primary_metrics_ordered_uuids : experiment.secondary_metrics_ordered_uuids) ?? []
-    // An experiment still has to measure something, so the last primary metric can't leave.
-    const isLastPrimaryMetric = isPrimaryMetric && sectionUuids.length <= 1
+    // An experiment still has to measure something, so the last primary metric can't leave. Counted
+    // from the metrics themselves, because the ordering array is a display hint that can hold stale uuids.
+    const isLastPrimaryMetric = isPrimaryMetric && getSectionMetricUuids(experiment, false).length <= 1
 
     const handleMoveSection = (): void => {
         // The menu item only renders when the metric has a uuid.
@@ -264,7 +270,14 @@ export const MetricHeader = ({
                         </div>
                     </div>
                     {!readOnly && (
-                        <div className="flex flex-shrink-0 gap-1">
+                        <div
+                            className={clsx(
+                                'flex flex-shrink-0 gap-1 transition-opacity',
+                                menuVisible
+                                    ? 'opacity-100'
+                                    : 'opacity-0 group-hover/metric-cell:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100'
+                            )}
+                        >
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
@@ -363,9 +376,7 @@ export const MetricHeader = ({
                                 Recalculating
                             </LemonTag>
                         ))}
-                    <LemonTag type="muted" size="small">
-                        {getMetricTag(metric)}
-                    </LemonTag>
+                    <MetricTypeTag metric={metric} />
                     {isMetricThresholdCueVisible(metric) && (
                         <Tooltip
                             title={`Reports the percentage of users whose value reaches or exceeds ${metric.threshold}.`}

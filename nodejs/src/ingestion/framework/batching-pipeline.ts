@@ -54,8 +54,10 @@ export type AfterBatchStep<TOutput, COutput, CBatch, R extends string = never> =
     input: AfterBatchInput<TOutput, COutput, CBatch, R>
 ) => Promise<PipelineResult<AfterBatchOutput<TOutput, COutput, CBatch, R>>>
 
-export interface BatchResult<T> {
+export interface BatchResult<T, CBatch = unknown> {
     elements: T
+    /** The batch's context: the caller's feed() contribution merged over the beforeBatch hooks' output. */
+    batchContext: CBatch
     sideEffects?: Promise<unknown>[]
 }
 
@@ -67,8 +69,8 @@ const BATCHING_PIPELINE_DEFAULTS: BatchingPipelineOptions = {
     concurrentBatches: 1,
 }
 
-interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
-    batchContext: CBatch & { batchId: number }
+interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed extends object = object> {
+    batchContext: CBatch & CFeed & { batchId: number }
     messageIds: number[]
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>
@@ -106,6 +108,9 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never> {
  * - CBatch: opaque batch context passed to hooks
  * - COutput: context type returned by the sub-pipeline.
  *   Must extend BatchingContext (messageId flows through the sub-pipeline).
+ * - CFeed: batch context supplied by the caller of feed(), returned verbatim
+ *   on the completed batch's `BatchResult.batchContext` — the channel for
+ *   correlating a completed batch back to its feed() call.
  */
 export class BatchingPipeline<
     TInput,
@@ -114,6 +119,7 @@ export class BatchingPipeline<
     CBatchOutput,
     COutput extends BatchingContext,
     R extends string = never,
+    CFeed extends object = Record<never, never>,
 > {
     private nextBatchId = 0
     private nextMessageId = 0
@@ -121,9 +127,12 @@ export class BatchingPipeline<
     // pushes its elements into the sub-pipeline; lets the pump tell a feed that
     // raced its pull apart from genuinely vanished messages.
     private feedEpoch = 0
-    private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R>>()
+    private batches = new Map<number, TrackedBatch<TOutput, CBatchOutput, COutput, R, CFeed>>()
     private messageIdToBatchId = new Map<number, number>()
-    private completedResults: BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>>[] = []
+    private completedResults: BatchResult<
+        ChunkPipelineResultWithContext<TOutput, COutput, R>,
+        CBatchOutput & CFeed & { batchId: number }
+    >[] = []
 
     // With concurrentBatches > 1, callers (e.g. HTTP request handlers in the
     // ingestion API server) invoke feed()/next() concurrently, but the
@@ -162,16 +171,19 @@ export class BatchingPipeline<
         this.options = { ...BATCHING_PIPELINE_DEFAULTS, ...options }
     }
 
-    feed(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+    feed(elements: OkResultWithContext<TInput, CInput>[], batchContext: CFeed): Promise<FeedResult> {
         // Serialize so buffer order always matches batchId order: without this,
         // the await on beforePipeline between batchId assignment and
         // subPipeline.feed() lets two concurrent feeds enter the buffer inverted.
         // With one concurrent batch the caller is already sequential, so the
         // mutex is uncontended.
-        return this.feedLimit(() => this.feedSerialized(elements))
+        return this.feedLimit(() => this.feedSerialized(elements, batchContext))
     }
 
-    private async feedSerialized(elements: OkResultWithContext<TInput, CInput>[]): Promise<FeedResult> {
+    private async feedSerialized(
+        elements: OkResultWithContext<TInput, CInput>[],
+        feedContext: CFeed
+    ): Promise<FeedResult> {
         // An empty feed has no messages that could ever complete a batch:
         // completion is only detected in pump()'s result loop, so registering a
         // zero-message batch would occupy a concurrentBatches slot forever and
@@ -246,8 +258,11 @@ export class BatchingPipeline<
         // Registration and the buffer push happen in one synchronous block, and
         // feedEpoch records that it happened — the pump uses it to distinguish
         // "a feed landed during my pull" from genuinely lost messages.
+        // The caller's feed context is merged here rather than routed through the
+        // beforeBatch hooks, so a hook that rebuilds the batch context cannot
+        // drop it.
         this.batches.set(batchId, {
-            batchContext,
+            batchContext: { ...batchContext, ...feedContext },
             messageIds,
             inflight,
             results: new Map(),
@@ -259,7 +274,10 @@ export class BatchingPipeline<
         return { ok: true }
     }
 
-    next(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    next(): Promise<BatchResult<
+        ChunkPipelineResultWithContext<TOutput, COutput, R>,
+        CBatchOutput & CFeed & { batchId: number }
+    > | null> {
         // Serialize so exactly one caller pumps the sub-pipeline at a time,
         // restoring the single-caller assumption the stages were written under.
         // With one concurrent batch the caller is already sequential, so the
@@ -268,7 +286,10 @@ export class BatchingPipeline<
         return this.pumpLimit(() => this.pump())
     }
 
-    private async pump(): Promise<BatchResult<ChunkPipelineResultWithContext<TOutput, COutput, R>> | null> {
+    private async pump(): Promise<BatchResult<
+        ChunkPipelineResultWithContext<TOutput, COutput, R>,
+        CBatchOutput & CFeed & { batchId: number }
+    > | null> {
         // Re-check after acquiring the pump: a previous pump iteration may have
         // completed additional batches while this caller was waiting.
         if (this.completedResults.length > 0) {
@@ -335,7 +356,11 @@ export class BatchingPipeline<
 
                     const afterSideEffects = afterResult.context.sideEffects
                     const sideEffects = [...batch.beforeSideEffects, ...afterSideEffects]
-                    this.completedResults.push({ elements: afterResult.result.value.elements, sideEffects })
+                    this.completedResults.push({
+                        elements: afterResult.result.value.elements,
+                        batchContext: batch.batchContext,
+                        sideEffects,
+                    })
                 }
             }
 

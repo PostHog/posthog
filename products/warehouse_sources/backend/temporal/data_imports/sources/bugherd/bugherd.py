@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -125,6 +126,80 @@ def _resource(
     }
 
 
+def _chained_fanout_resource(
+    config: BugherdEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> Iterable[Any]:
+    """Build a Projects -> Tasks -> child resource chain and return the child."""
+    chained = config.chained_fanout
+    assert chained is not None
+    middle_config = BUGHERD_ENDPOINTS[chained.parent_name]
+    root_fanout = middle_config.fanout
+    if root_fanout is None:
+        raise ValueError(f"'{chained.parent_name}' does not fan out from a top-level endpoint")
+    root_config = BUGHERD_ENDPOINTS[root_fanout.parent_name]
+
+    root_resource: EndpointResource = {
+        "name": root_config.name,
+        "table_name": root_config.name,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": root_config.path,
+            "data_selector": root_config.data_selector,
+            "paginator": _list_paginator(root_config),
+        },
+        "table_format": "delta",
+    }
+    middle_resource: EndpointResource = {
+        "name": middle_config.name,
+        "table_name": middle_config.name,
+        "write_disposition": "replace",
+        "endpoint": {
+            "path": middle_config.path,
+            "data_selector": middle_config.data_selector,
+            "paginator": _list_paginator(middle_config),
+            "params": {
+                root_fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": root_config.name,
+                    "field": root_fanout.resolve_field,
+                },
+            },
+        },
+        "table_format": "delta",
+    }
+    child_resource: EndpointResource = {
+        "name": config.name,
+        "table_name": config.name,
+        "write_disposition": "replace",
+        "include_from_parent": chained.include_from_parent,
+        "endpoint": {
+            "path": config.path,
+            "data_selector": config.data_selector,
+            "paginator": _list_paginator(config),
+            "params": {
+                param: {"type": "resolve", "resource": middle_config.name, "field": field_name}
+                for param, field_name in chained.resolve_fields.items()
+            },
+            # A task removed between its Tasks page and this fetch must not sink the run.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+        "table_format": "delta",
+    }
+
+    return build_chained_resource(
+        resources=[root_resource, middle_resource, child_resource],
+        child_name=config.name,
+        parent_name=middle_config.name,
+        parent_field_renames=chained.parent_field_renames,
+        client_config=client_config,
+        team_id=team_id,
+        job_id=job_id,
+    )
+
+
 def _make_source_response(config: BugherdEndpointConfig, items_fn: Callable[[], Iterable[Any]]) -> SourceResponse:
     primary_keys = config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
     return SourceResponse(
@@ -162,6 +237,9 @@ def bugherd_source(
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(BugherdResumeConfig(page=int(state["page"])))
+
+    if config.chained_fanout is not None:
+        return _make_source_response(config, lambda: _chained_fanout_resource(config, client_config, team_id, job_id))
 
     if config.fanout is not None:
         parent_config = BUGHERD_ENDPOINTS[config.fanout.parent_name]

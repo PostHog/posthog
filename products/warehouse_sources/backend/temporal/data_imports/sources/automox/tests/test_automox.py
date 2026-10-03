@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.automox.au
     AutomoxResumeConfig,
     AutomoxRetryableError,
     _build_url,
+    _flatten_device_inventory,
     _incremental_param_value,
     automox_source,
     get_rows,
@@ -415,6 +416,213 @@ class TestGetRows:
                 [[]],
                 orgs_body=[{"id": 123, "name": "Org A"}],
             )
+
+
+def _inventory_reading(name: str, value: Any, reading_type: str = "string") -> dict[str, Any]:
+    return {
+        "name": name,
+        "friendly_name": name.replace("_", " ").title(),
+        "description": f"{name} reading",
+        "collected_at": "2026-02-13T19:33:40+00:00",
+        "type": reading_type,
+        "value": value,
+        "tags": ["system"],
+    }
+
+
+INVENTORY_BODY = {
+    "categories": {
+        "Hardware": {
+            "sub_categories": {
+                "Hardware": {"data": [_inventory_reading("board_serial", "SN-1")]},
+                "CPU": {"data": [_inventory_reading("cpu_info", [{"model": "amd64"}], "data_records")]},
+            }
+        }
+    }
+}
+
+
+class TestFlattenDeviceInventory:
+    def test_emits_a_row_per_reading(self) -> None:
+        rows = _flatten_device_inventory(INVENTORY_BODY)
+        assert [(r["category"], r["sub_category"], r["name"]) for r in rows] == [
+            ("Hardware", "Hardware", "board_serial"),
+            ("Hardware", "CPU", "cpu_info"),
+        ]
+        assert rows[0]["value"] == "SN-1"
+        assert rows[0]["collected_at"] == "2026-02-13T19:33:40+00:00"
+
+    def test_record_values_are_stored_as_json(self) -> None:
+        # A reading's value is a string on most attributes and a list of records on others, so a
+        # raw value would give the column a different type depending on which devices synced.
+        rows = _flatten_device_inventory(INVENTORY_BODY)
+        assert rows[1]["value"] == json.dumps([{"model": "amd64"}])
+
+    def test_accepts_the_documented_nested_categories_level(self) -> None:
+        # The API reference nests a second `Categories` level that the example responses omit.
+        payload = {"categories": {"Categories": INVENTORY_BODY["categories"]}}
+        assert len(_flatten_device_inventory(payload)) == 2
+
+    def test_accepts_a_list_payload(self) -> None:
+        assert len(_flatten_device_inventory([INVENTORY_BODY])) == 2
+
+    @parameterized.expand(
+        [
+            ("empty_body", {}),
+            ("null_categories", {"categories": None}),
+            ("category_without_sub_categories", {"categories": {"Hardware": {}}}),
+            ("sub_category_without_data", {"categories": {"Hardware": {"sub_categories": {"CPU": {}}}}}),
+            (
+                "reading_without_name",
+                {"categories": {"Hardware": {"sub_categories": {"CPU": {"data": [{"value": "x"}]}}}}},
+            ),
+        ]
+    )
+    def test_unusable_payloads_yield_no_rows(self, _name: str, payload: Any) -> None:
+        # Automox varies which categories a device reports by OS and by the customer's tier, so an
+        # absent branch must be skipped rather than crash the sync.
+        assert _flatten_device_inventory(payload) == []
+
+
+class TestFanOutAndUnpaginatedEndpoints:
+    @staticmethod
+    def _drive(
+        endpoint: str,
+        manager: _FakeResumableManager,
+        monkeypatch: Any,
+        routes: dict[str, list[Any]],
+        organization_id: str | None = "123",
+        orgs_body: list[dict] | None = None,
+    ) -> tuple[list[dict], list[str]]:
+        """Drive ``get_rows`` with canned page bodies routed by URL path."""
+        requested: list[str] = []
+
+        def fake_fetch_json(session: Any, url: str, logger: Any) -> Any:
+            requested.append(url)
+            parsed = urlparse(url)
+            if parsed.path == "/api/orgs":
+                return orgs_body if orgs_body is not None else ORGS_BODY
+            pages = routes.get(parsed.path)
+            if pages is None:
+                raise AssertionError(f"unexpected request: {url}")
+            index = int(parse_qs(parsed.query).get("page", ["0"])[0])
+            if index < len(pages):
+                return pages[index]
+            # Past the last canned page, answer in the same shape the endpoint uses.
+            return {"data": []} if pages and isinstance(pages[0], dict) and "data" in pages[0] else []
+
+        monkeypatch.setattr(automox, "_fetch_json", fake_fetch_json)
+        monkeypatch.setattr(automox, "make_tracked_session", lambda **kwargs: MagicMock())
+
+        rows: list[dict] = []
+        for page in get_rows(
+            api_key="key",
+            organization_id=organization_id,
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(page)
+        return rows, requested
+
+    @staticmethod
+    def _inventory_routes(*device_uuids: str) -> dict[str, list[Any]]:
+        routes: dict[str, list[Any]] = {
+            "/api/servers": [[{"id": index, "uuid": uuid} for index, uuid in enumerate(device_uuids, start=1)]]
+        }
+        for uuid in device_uuids:
+            routes[f"/api/device-details/orgs/uuid-123/devices/{uuid}/inventory"] = [INVENTORY_BODY]
+        return routes
+
+    def test_device_inventory_calls_each_device_and_injects_parent_columns(self, monkeypatch: Any) -> None:
+        # Readings aggregate across every device, so each row needs the device identifiers: they
+        # join the table back to devices and complete the primary key.
+        manager = _FakeResumableManager()
+        rows, urls = self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1", "dev-2"))
+
+        inventory_urls = [u for u in urls if "/inventory" in u]
+        assert [urlparse(u).path for u in inventory_urls] == [
+            "/api/device-details/orgs/uuid-123/devices/dev-1/inventory",
+            "/api/device-details/orgs/uuid-123/devices/dev-2/inventory",
+        ]
+        assert len(rows) == 4
+        assert {(r["device_uuid"], r["device_id"]) for r in rows} == {("dev-1", 1), ("dev-2", 2)}
+
+    def test_device_inventory_sends_no_pagination_params(self, monkeypatch: Any) -> None:
+        # The endpoint returns the whole tree and documents no page/limit params; sending them and
+        # paging on a short page would re-request the same payload forever.
+        manager = _FakeResumableManager()
+        _, urls = self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1"))
+        inventory_urls = [u for u in urls if "/inventory" in u]
+        assert len(inventory_urls) == 1
+        assert _query(inventory_urls[0]) == {}
+
+    def test_device_inventory_requires_an_org_uuid(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        with pytest.raises(AutomoxOrganizationError, match=ORG_NOT_FOUND_ERROR):
+            self._drive(
+                "device_inventory",
+                manager,
+                monkeypatch,
+                self._inventory_routes("dev-1"),
+                orgs_body=[{"id": 123, "name": "Org A"}],
+            )
+
+    def test_fan_out_state_advances_past_each_finished_parent(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1", "dev-2"))
+        assert manager.saved == [
+            AutomoxResumeConfig(page=0, parent_page=0, parent_index=1),
+            AutomoxResumeConfig(page=0, parent_page=0, parent_index=2),
+        ]
+
+    def test_fan_out_resume_skips_parents_already_walked(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager(AutomoxResumeConfig(page=0, parent_page=0, parent_index=1))
+        rows, urls = self._drive("device_inventory", manager, monkeypatch, self._inventory_routes("dev-1", "dev-2"))
+        assert [urlparse(u).path for u in urls if "/inventory" in u] == [
+            "/api/device-details/orgs/uuid-123/devices/dev-2/inventory"
+        ]
+        assert {r["device_uuid"] for r in rows} == {"dev-2"}
+
+    def test_remediation_issues_paginate_per_action_set(self, monkeypatch: Any) -> None:
+        page_size = AUTOMOX_ENDPOINTS["remediation_issues"].page_size
+        full_page = {"data": [{"id": i, "issue_type": "unknown-host"} for i in range(page_size)]}
+        last_page = {"data": [{"id": page_size, "issue_type": "unknown-host"}]}
+        manager = _FakeResumableManager()
+        rows, urls = self._drive(
+            "remediation_issues",
+            manager,
+            monkeypatch,
+            {
+                "/api/orgs/123/remediations/action-sets": [{"data": [{"id": 17194}]}],
+                "/api/orgs/123/remediations/action-sets/17194/issues": [full_page, last_page],
+            },
+        )
+
+        issue_urls = [u for u in urls if u.endswith("issues") or "/issues?" in u]
+        assert [_query(u)["page"] for u in issue_urls] == [["0"], ["1"]]
+        assert len(rows) == page_size + 1
+        # The issue id is only unique within its action set, so the action set id completes the key.
+        assert all(row["action_set_id"] == 17194 for row in rows)
+        # Mid-parent state points at the next child page, then advances past the finished parent.
+        assert manager.saved == [
+            AutomoxResumeConfig(page=1, parent_page=0, parent_index=0),
+            AutomoxResumeConfig(page=0, parent_page=0, parent_index=1),
+        ]
+
+    def test_policy_stats_sends_the_org_param_and_no_pagination(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        rows, urls = self._drive(
+            "policy_stats",
+            manager,
+            monkeypatch,
+            {"/api/policystats": [[{"organization_id": 123, "policy_id": 270658, "compliant": 2}]]},
+        )
+        stats_urls = [u for u in urls if "/policystats" in u]
+        assert len(stats_urls) == 1
+        assert _query(stats_urls[0]) == {"o": ["123"]}
+        assert rows == [{"organization_id": 123, "policy_id": 270658, "compliant": 2}]
+        assert manager.saved == []
 
 
 class TestAutomoxSourceResponse:

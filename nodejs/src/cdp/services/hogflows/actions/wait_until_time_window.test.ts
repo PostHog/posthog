@@ -5,7 +5,8 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronPerson } from '~/cdp/types'
 
 import { findActionByType } from '../hogflow-utils'
-import { getWaitUntilTime, resolveTimezone } from './wait_until_time_window'
+import { resolveTimezone } from './timezone'
+import { getWaitUntilTime } from './wait_until_time_window'
 
 describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
     let action: Extract<HogFlowAction, { type: 'wait_until_time_window' }>

@@ -1,3 +1,10 @@
+"""Facade for insight alerts.
+
+Reads and writes other products need on the insight-alert model, in ids and plain values.
+Destination configuration lives in `facade.destinations`, email in `facade.email`, the
+lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduling`.
+"""
+
 import uuid
 from collections.abc import Collection
 from datetime import datetime, timedelta
@@ -11,28 +18,28 @@ import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
-from products.alerts.backend.destination_configs import (
-    DESTINATION_TEMPLATE_IDS,
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-    build_alert_destination_config,
-    validate_destination_data,
-)
-from products.alerts.backend.destinations import (
-    create_alert_destination_hog_functions,
-    soft_delete_alert_destinations,
-    soft_delete_all_alert_destinations,
-)
-from products.alerts.backend.email_notifications import send_alert_email
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    MAX_CONCURRENT_MODEL_CALLS,
+    MAX_PROMPT_POINTS,
+    LLMDetectorError,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
+from products.alerts.backend.llm_detector_limits import (
+    LLMAlertRefusal,
+    LLMAlertWrite,
+    admit_llm_alert_write,
+    is_llm_detector_config,
+    llm_detector_access_error,
+)
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +74,20 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     # ids to ids and returns no row data.
     # nosemgrep: idor-lookup-without-team
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
+
+
+def delete_insight_alerts(insight_ids: Collection[int]) -> None:
+    """Delete the alerts pointing at the given insights.
+
+    Call this inside the transaction that deletes or hides the insights themselves, so an
+    insight can never come back without its alerts. Rows go one at a time rather than through a
+    queryset delete, because a queryset delete never calls ``AlertConfiguration.delete()``, and
+    ModelActivityMixin hangs its per-row activity logging off that override.
+    """
+    # Caller-supplied ids that are already team-scoped by the caller's own query.
+    # nosemgrep: idor-lookup-without-team
+    for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
+        alert.delete()
 
 
 def snooze_alert_from_slack(
@@ -157,21 +178,16 @@ def snooze_alert_from_slack(
 
 
 __all__ = [
-    "DESTINATION_TEMPLATE_IDS",
-    "AlertDestinationData",
-    "AlertDestinationValidationError",
-    "AlertScheduleRestriction",
-    "DestinationType",
-    "SLACK_SNOOZE_MAX_DAYS",
-    "SlackSnoozeOutcome",
-    "build_alert_destination_config",
-    "create_alert_destination_hog_functions",
-    "get_alert_team_id",
-    "insight_ids_with_alerts",
-    "snooze_alert_from_slack",
-    "soft_delete_alert_destinations",
-    "soft_delete_all_alert_destinations",
-    "send_alert_email",
-    "validate_destination_data",
-    "validate_and_normalize_schedule_restriction",
+    "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
+    "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
+    "MAX_CONCURRENT_MODEL_CALLS",
+    "MAX_PROMPT_POINTS",
+    "LLMAlertRefusal",
+    "LLMAlertWrite",
+    "LLMDetectorError",
+    "LLMDetectorMisconfiguredError",
+    "LLMDetectorUnavailableError",
+    "admit_llm_alert_write",
+    "is_llm_detector_config",
+    "llm_detector_access_error",
 ]

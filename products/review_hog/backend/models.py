@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils.functional import Promise
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
@@ -6,6 +7,7 @@ from posthog.models.utils import UUIDModel
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     FindingOutcomeArtefact,
+    ResolutionRunArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
@@ -61,16 +63,18 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # turn START. Read paths pairing stats/links with the completed turn's findings anchor here, so an
     # in-flight or crashed turn's metadata never splices onto the previous turn's findings.
     completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Only a successful publish or no-findings turn suppresses automatic retries.
+    automatic_reviewed_head_sha = models.CharField(max_length=64, null=True, blank=True)
     # The urgency threshold the last COMPLETED turn's body/publish gated on — stamped at finalize
     # (alongside `run_count` / `completed_head_sha`) from the same resolve snapshot both consumed,
     # so the detail view buckets published vs held-back findings truthfully even when the acting
     # user's settings later change. Null for pre-column turns (readers fall back to the viewer's
     # own setting as an approximation).
     run_urgency_threshold = models.CharField(max_length=20, null=True, blank=True)
-    # Idempotency watermark — the head the review was last *published* to GitHub for (distinct from
-    # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
-    # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
+    # Latest published head for outcome tracking and compatibility reads.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # Each mode has its own marker so a Flash review cannot suppress Full publication.
+    published_heads_by_mode = models.JSONField(null=True, blank=True)
     # The urgency threshold in force at each publish, keyed by the `run_index` that published, as
     # `{"1": "consider", "2": "must_fix"}`. Outcome classification reconstructs the published finding
     # set from this, since the user's live setting can change after publish. Keyed per turn rather
@@ -103,14 +107,20 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     signal_report_id = models.UUIDField(null=True, blank=True)
     # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
-    # Reviewer-model experiment assignment, drawn once at creation and sticky for the report's life
-    # (see `REVIEW_EXPERIMENT_ARMS`). Adapter/model/effort/permission-mode persist as one bundle
-    # because a model without its adapter can't be routed. NULL on pre-experiment rows; reads
-    # resolve through `resolve_review_arm`, which falls back to the REVIEW_* pins.
+    # The reviewer arm, chosen once at creation from the report's tier (see `REVIEW_ARMS_BY_TIER`)
+    # and sticky for the report's life. Adapter/model/effort/permission-mode persist as one bundle
+    # because a model without its adapter can't be routed. NULL on rows created before arms were
+    # persisted; reads resolve through `resolve_review_arm`, which falls back to the REVIEW_* pins.
     review_runtime_adapter = models.CharField(max_length=32, null=True, blank=True)
     review_model = models.CharField(max_length=128, null=True, blank=True)
     review_reasoning_effort = models.CharField(max_length=32, null=True, blank=True)
     review_initial_permission_mode = models.CharField(max_length=32, null=True, blank=True)
+    # The routing bucket the arm was chosen from (a `ReviewTier` value) and, for agent PRs, the
+    # Signals priority ("P0".."P4") that placed it there. Stamped with the arm at creation; a
+    # person's trigger can lift the tier later, never lower it. The priority is the value the
+    # decision used, kept because the report's judgment can change afterwards. NULL on pre-tier rows.
+    review_tier = models.CharField(max_length=32, null=True, blank=True)
+    review_signal_priority = models.CharField(max_length=4, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -150,12 +160,18 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
         ]
 
 
+def review_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
+    # Callable so growing the enum doesn't generate a no-op migration.
+    return list(ReviewReportArtefact.ArtefactType.choices)
+
+
 class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
-    """Append-only work log for a `ReviewReport`.
+    """Work log for a `ReviewReport`, with append-only completed turns.
 
     Mirrors Signals' `SignalReportArtefact` funnel — the row's type is derived from the content
     model's class and attribution maps to `created_by` / `task` columns — but owns its own types
     and has no auto-start side effects.
+    Deduplication can retire superseded findings and verdicts from an unfinished turn.
     """
 
     class ArtefactType(models.TextChoices):
@@ -166,6 +182,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         FINDING_OUTCOME = "finding_outcome"
         # The resolution stage's per-thread ruling (latest row per thread_id wins).
         THREAD_VERDICT = "thread_verdict"
+        # One resolution run's opening work-list; the newest row is the report's latest run.
+        RESOLUTION_RUN = "resolution_run"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -197,7 +215,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     # db_constraint=False keeps the migration lock-free on hot posthog_team.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
-    type = models.CharField(max_length=100, choices=ArtefactType)
+    type = models.CharField(max_length=100, choices=review_report_artefact_type_choices)
     content = models.TextField()
     # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
     # parsing every historical row. Null when the content model carries no head_sha.
@@ -283,6 +301,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
+    def append_resolution_run(
+        cls, *, team_id: int, report_id: str, content: ResolutionRunArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `resolution_run` (one per run, at prepare; the newest row is the latest run)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
     def add_log(
         cls, *, team_id: int, report_id: str, content: ReviewLogArtefactContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
@@ -356,6 +381,9 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     StamphogRepoConfig covering the PR's repository.
     `resolve_comments` is the resolution stage's opt-out (default on — reviewing includes resolving):
     when on, every published review of the user's PRs chains into the resolution stage.
+    `review_authored_prs` opts into automatic Flash reviews of the user's own PRs independently of
+    the inbox and label triggers. `flash_reasoning_effort` also applies to manually requested Flash
+    reviews, so disabling the automatic trigger preserves that preference.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -363,6 +391,10 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         CONSIDER = "consider"  # "All issues"
         SHOULD_FIX = "should_fix"
         MUST_FIX = "must_fix"
+
+    class FlashReasoningEffort(models.TextChoices):
+        MEDIUM = "medium", "Medium"
+        XHIGH = "xhigh", "Extra high"
 
     # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
     # table takes no lock on the parents (app-level enforcement only).
@@ -372,6 +404,15 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     resolve_comments = models.BooleanField(default=True, db_default=True)
+    # Opt-out of the clean-review media in the PR status comment ("Nothing worth raising this time").
+    celebrate_clean_reviews = models.BooleanField(default=True, db_default=True)
+    review_authored_prs = models.BooleanField(default=False, db_default=False)
+    flash_reasoning_effort = models.CharField(
+        max_length=10,
+        choices=FlashReasoningEffort.choices,
+        default=FlashReasoningEffort.MEDIUM,
+        db_default=FlashReasoningEffort.MEDIUM.value,
+    )
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,

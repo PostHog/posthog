@@ -16,7 +16,6 @@ import {
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonDropdown,
@@ -29,8 +28,9 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/AccountAssignmentFilter'
+import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -49,18 +49,22 @@ import { tagsModel } from '~/models/tagsModel'
 import { PropertyFilterType } from '~/types'
 
 import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
-import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_analytics/frontend/components/Accounts/accountsCustomPropertyFilters'
+import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from 'products/customer_analytics/frontend/components/Accounts/accountsPropertyFilters'
 // Side-effect imports: register product-specific trigger types
 import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
+import { HogFlowEventFilters, HogFlowPropertyFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
+import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
+import { batchTriggerLogic, getAudienceDedupeKey, hogFlowSendsEmail } from './batchTriggerLogic'
+import { ConversionGoalEditor } from './components/ConversionGoalEditor'
+import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitPicker'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
+import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 
 type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 type EventTriggerConfig = {
@@ -83,9 +87,9 @@ type TriggerOptionItem = {
 }
 
 function getTriggerDisplayType(type: string, config: any): string {
-    if (type !== 'event') {
-        return type
-    }
+    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
+    // one claims this config, not the type itself. Types owned by a single tile fall through to the
+    // type, which is that tile's value.
     const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
     return match ? match.value : type
 }
@@ -349,6 +353,9 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             {registeredMatch?.ConfigComponent ? (
                 <>
                     <registeredMatch.ConfigComponent node={node} />
+                    {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
+                        <TriggerVolumeEstimate action={node.data} />
+                    ) : null}
                     {registeredMatch.frequencyOptions ? (
                         <>
                             <LemonDivider />
@@ -372,7 +379,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                         users, use a batch trigger instead.
                     </p>
                     <LemonField.Pure error={validationResult?.errors?.schedule}>
-                        <RecurringSchedulePicker />
+                        <WorkflowRecurringSchedulePicker />
                     </LemonField.Pure>
                 </div>
             ) : node.data.config.type === 'batch' ? (
@@ -380,6 +387,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
             ) : node.data.config.type === 'tracking_pixel' ? (
                 <StepTriggerConfigurationTrackingPixel action={node.data} config={node.data.config} />
             ) : null}
+            <SendingRateLimitSection />
         </div>
     )
 }
@@ -393,6 +401,7 @@ function StepTriggerConfigurationEvents({
 }): JSX.Element {
     const { setWorkflowActionConfig } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const validationResult = actionValidationErrorsById[action.id]
     const filterTestAccounts = config.filters?.filter_test_accounts ?? false
 
@@ -408,12 +417,35 @@ function StepTriggerConfigurationEvents({
                     setFilters={(filters) =>
                         setWorkflowActionConfig(action.id, {
                             type: 'event',
-                            filters: { ...filters, filter_test_accounts: filterTestAccounts },
+                            // The event filter only returns events/actions, so carry the global
+                            // property array through or an event edit drops it.
+                            filters: {
+                                ...filters,
+                                properties: config.filters?.properties,
+                                filter_test_accounts: filterTestAccounts,
+                            },
                         })
                     }
                     filtersKey={`workflow-trigger-${action.id}`}
                     typeKey="workflow-trigger"
                     buttonCopy="Add trigger event"
+                />
+            </LemonField.Pure>
+
+            <LemonField.Pure
+                label="Additional filters"
+                info="These filters apply to every trigger event above. Use them for conditions shared across all events, such as a SQL expression."
+            >
+                <HogFlowPropertyFilters
+                    filters={config.filters ?? {}}
+                    setFilters={(filters) =>
+                        setWorkflowActionConfig(action.id, {
+                            type: 'event',
+                            filters: { ...config.filters, properties: filters?.properties ?? [] },
+                        })
+                    }
+                    filtersKey={`workflow-trigger-${action.id}`}
+                    buttonCopy="Add filter"
                 />
             </LemonField.Pure>
 
@@ -426,6 +458,10 @@ function StepTriggerConfigurationEvents({
                     })
                 }
             />
+
+            {featureFlags[FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE] ? (
+                <TriggerVolumeEstimate action={action} />
+            ) : null}
 
             <LemonDivider />
             <FrequencySection />
@@ -514,12 +550,31 @@ function StepTriggerConfigurationManual(): JSX.Element {
     )
 }
 
+function WorkflowRecurringSchedulePicker(): JSX.Element {
+    const { scheduleState, scheduleStartsAt, scheduleTimezone, isScheduleRepeating } = useValues(workflowLogic)
+    const { setScheduleState, setScheduleStartsAtFromPicker, setScheduleTimezone, setScheduleRepeating } =
+        useActions(workflowLogic)
+
+    return (
+        <RecurringSchedulePicker
+            state={scheduleState}
+            startsAt={scheduleStartsAt}
+            timezone={scheduleTimezone}
+            repeating={isScheduleRepeating}
+            onStateChange={setScheduleState}
+            onStartsAtChange={setScheduleStartsAtFromPicker}
+            onTimezoneChange={setScheduleTimezone}
+            onRepeatingChange={setScheduleRepeating}
+        />
+    )
+}
+
 function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; filters: any }): JSX.Element | null {
     const { workflow } = useValues(workflowLogic)
     const isAccountAudience = filters?.audience_type === 'accounts'
     // Account audiences carry no person, so email dedup never applies to them.
     const dedupeKey = isAccountAudience ? undefined : getAudienceDedupeKey(workflow)
-    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey })
+    const logic = batchTriggerLogic({ id: actionId, filters, dedupeKey, sendsEmail: hogFlowSendsEmail(workflow) })
     const { blastRadiusLoading, blastRadius, blastRadiusError } = useValues(logic)
 
     if (blastRadiusLoading) {
@@ -560,9 +615,11 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
                 </div>
                 {exceeded && limit != null && (
                     <div className="text-danger text-xs">
-                        Batch size exceeds the limit of {humanFriendlyNumber(limit)}{' '}
-                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow your audience. This limit will
-                        be loosened in the future.
+                        Your audience is above this project's batch limit of {humanFriendlyNumber(limit)}{' '}
+                        {isAccountAudience ? 'accounts' : 'users'}. Add filters to narrow it.
+                        {hogFlowSendsEmail(workflow)
+                            ? ' The limit rises as the project builds a clean sending history.'
+                            : ''}
                     </div>
                 )}
             </div>
@@ -577,7 +634,7 @@ function BatchScheduleSection(): JSX.Element {
         <>
             <LemonDivider />
             <LemonLabel showOptional>Schedule</LemonLabel>
-            <RecurringSchedulePicker />
+            <WorkflowRecurringSchedulePicker />
         </>
     )
 }
@@ -599,7 +656,11 @@ function StepTriggerBatchAccountFilters({
         partialSetWorkflowActionConfig(actionId, { filters: { ...filters, ...update } })
     }
 
-    const assignedToUserIds = filters.assigned_to_user_ids ?? []
+    const { status: assignmentStatus, assignedToUserIds } = parseAccountAssignmentFilter(filters)
+
+    const setAssignmentFilter = (status: AssignmentStatus, userIds: number[]): void => {
+        setFilters(createAccountAssignmentFilterUpdate(status, userIds))
+    }
 
     return (
         <div className="flex flex-col gap-2">
@@ -619,33 +680,18 @@ function StepTriggerBatchAccountFilters({
                     placeholder="Filter by tags"
                     data-attr="workflows-batch-account-tags-filter"
                 />
-                <LemonDropdown
-                    closeOnClickInside={false}
-                    overlay={
-                        <div className="p-2 min-w-64 flex flex-col gap-2">
-                            <LemonCheckbox
-                                checked={!!filters.all_roles_unassigned}
-                                onChange={(all_roles_unassigned) => setFilters({ all_roles_unassigned })}
-                                label="Unassigned only"
-                                data-attr="workflows-batch-account-unassigned-filter"
-                            />
-                            <LemonDivider className="my-0" />
-                            <MemberSelectMultiple
-                                idKey="id"
-                                value={assignedToUserIds}
-                                onChange={(users) => setFilters({ assigned_to_user_ids: users.map((user) => user.id) })}
-                            />
-                        </div>
-                    }
-                >
-                    <LemonButton type="secondary" size="small" data-attr="workflows-batch-account-assigned-filter">
-                        {filters.all_roles_unassigned
-                            ? 'Unassigned'
-                            : assignedToUserIds.length === 0
-                              ? 'Assigned to anyone'
-                              : `Assigned to ${assignedToUserIds.length} ${assignedToUserIds.length === 1 ? 'person' : 'people'}`}
-                    </LemonButton>
-                </LemonDropdown>
+                <AccountAssignmentFilter
+                    assignedToUserIds={assignedToUserIds}
+                    status={assignmentStatus}
+                    onAssignedToUserIdsChange={(userIds) => setAssignmentFilter('assigned', userIds)}
+                    onStatusChange={(status) => setAssignmentFilter(status, assignedToUserIds)}
+                    dataAttrs={{
+                        trigger: 'workflows-batch-account-assigned-filter',
+                        unassigned: 'workflows-batch-account-unassigned-filter',
+                        assigned: 'workflows-batch-account-assigned-status-filter',
+                        all: 'workflows-batch-account-all-assignment-filter',
+                    }}
+                />
             </div>
             {customPropertyTaxonomicOptions.length > 0 && (
                 <PropertyFilters
@@ -924,8 +970,6 @@ function ConversionGoalSection(): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
 
-    const conversionEventFilters = workflow.conversion?.events?.[0]?.filters ?? {}
-
     return (
         <div className="flex flex-col py-2 w-full">
             <span className="flex gap-1 items-center">
@@ -940,42 +984,35 @@ function ConversionGoalSection(): JSX.Element {
                 considered converted.
             </p>
 
-            <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1 items-start">
-                    <LemonLabel>Detect conversion from property changes</LemonLabel>
-                    <PropertyFilters
-                        buttonText="Add property conversion"
-                        buttonClassName="grow-0"
-                        propertyFilters={workflow.conversion?.filters ?? []}
-                        taxonomicGroupTypes={[
-                            TaxonomicFilterGroupType.PersonProperties,
-                            TaxonomicFilterGroupType.HogQLExpression,
-                        ]}
-                        onChange={(filters) => setWorkflowValue('conversion', { ...workflow.conversion, filters })}
-                        pageKey="workflow-conversion-properties"
-                        hideBehavioralCohorts
-                        operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
-                        logicalRowDivider
-                    />
-                </div>
-
-                <div className="flex flex-col gap-1 items-start w-full">
-                    <LemonLabel>Detect conversion from events</LemonLabel>
-                    <HogFlowEventFilters
-                        filtersKey="workflow-conversion-events"
-                        filters={conversionEventFilters}
-                        setFilters={(newFilters) =>
-                            setWorkflowValue('conversion', {
-                                ...workflow.conversion,
-                                events: newFilters ? [{ filters: newFilters }] : undefined,
-                            })
-                        }
-                        typeKey="workflow-conversion-event"
-                        buttonCopy="Add event"
-                    />
-                </div>
-            </div>
+            <ConversionGoalEditor
+                conversion={workflow.conversion}
+                onChange={(conversion) => setWorkflowValue('conversion', conversion)}
+                pageKey="workflow-conversion"
+            />
         </div>
+    )
+}
+
+function SendingRateLimitSection(): JSX.Element | null {
+    const { setWorkflowValue } = useActions(workflowLogic)
+    const { workflow } = useValues(workflowLogic)
+
+    const rateLimit = workflow.email_sending_rate_limit ?? null
+
+    const hasEmailAction = workflow.actions.some((action) => action.type === 'function_email')
+    // Stay visible while a limit is set even without an email step, so it can still be removed.
+    if (!hasEmailAction && !rateLimit) {
+        return null
+    }
+
+    return (
+        <>
+            <LemonDivider />
+            <EmailSendingRateLimitPicker
+                value={rateLimit}
+                onChange={(value) => setWorkflowValue('email_sending_rate_limit', value)}
+            />
+        </>
     )
 }
 

@@ -17,6 +17,7 @@ import IconFileUpload from 'public/services/file-upload.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { storageProviderFromUrl } from '../storageProvider'
 import { supportsDirectQuery } from './forms/schemaGroupingUtils'
 // eslint-disable-next-line import/no-cycle
 import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
@@ -27,19 +28,7 @@ import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
  * @param url
  */
 export function mapUrlToProvider(url: string | undefined): string {
-    if (!url) {
-        return 'BlushingHog'
-    }
-    if (url.includes('amazonaws.com')) {
-        return 'aws'
-    } else if (url.startsWith('https://storage.googleapis.com')) {
-        return 'google-cloud'
-    } else if (url.includes('.blob.')) {
-        return 'azure'
-    } else if (url.includes('.r2.cloudflarestorage.com')) {
-        return 'cloudflare-r2'
-    }
-    return 'BlushingHog'
+    return storageProviderFromUrl(url) ?? 'BlushingHog'
 }
 
 export function mapUrlToSourceName(url: string): string {
@@ -141,15 +130,22 @@ export function SourceIcon({
         return component ?? null
     }, [availableSources, engine, type])
 
+    const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
+
     if (availableSourcesLoading || !availableSources) {
-        return <LemonSkeleton />
+        // A bare LemonSkeleton defaults to w-full, so it balloons to fill its container while the
+        // source configs load. Constrain it to the icon's footprint so the placeholder matches.
+        return (
+            // eslint-disable-next-line react/forbid-dom-props
+            <div className="shrink-0" style={{ width: sizePx, height: sizePx }}>
+                <LemonSkeleton className="w-full h-full rounded" />
+            </div>
+        )
     }
 
     if (!icon) {
         return null
     }
-
-    const sizePx = sizePxProps ?? SIZE_PX_MAP[size]
 
     if (disableTooltip) {
         return (

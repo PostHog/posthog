@@ -69,7 +69,7 @@ Only two field types still lack a generic renderer (disable submit): `ssh-tunnel
 `DynamicSourceSetup` opportunistically; don't add new ones.
 
 Supported OAuth `kind` values (posthog `OauthIntegration.supported_kinds`,
-`posthog/models/integration.py`): `slack, salesforce, hubspot, google-ads,
+`posthog/models/integration/oauth.py`): `slack, salesforce, hubspot, google-ads,
 google-analytics, google-search-console, google-sheets, snapchat, linkedin-ads,
 reddit-ads, tiktok-ads, bing-ads, meta-ads, intercom, linear, clickup, jira,
 pinterest-ads, stripe` (+ `github` via App install). **A source not in this list
@@ -108,7 +108,7 @@ source-list-relevant is a place you must add the new product. The canonical list
 
 ### Type gates (every source)
 
-1. `packages/shared/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
+1. `packages/agent/packages/agent-contracts/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
 2. `packages/api-client/src/posthog-client.ts` — add to `SignalSourceConfig.source_product` union; add a new `source_type` value only if the record type isn't already `issue`/`ticket`.
 
 ### Live UI path (every source)
@@ -145,7 +145,7 @@ service, symbol, or router — do not clone `linear.ts`/`linear-integration.rout
 
 ### Verify
 
-- `pnpm --filter @posthog/shared build` after touching `inbox-types.ts` (it's a published type).
+- `pnpm --filter @posthog/shared... build` after touching `inbox-types.ts` (it's a published type).
 - `pnpm typecheck` (whole repo — the unions are consumed across packages).
 - `biome lint packages/core packages/ui` — zero `noRestrictedImports`, imports ordered.
 

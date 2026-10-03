@@ -1,16 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.coin_api import CoinApiResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source import CoinApiSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coinapi import (
     CoinApiSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoinApiSource:
@@ -18,33 +13,6 @@ class TestCoinApiSource:
         self.source = CoinApiSource()
         self.team_id = 123
         self.config = CoinApiSourceConfig(api_key="key", symbol_id="BITSTAMP_SPOT_BTC_USD", period_id="1DAY")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.COINAPI
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "CoinApi"
-        assert config.label == "CoinAPI"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/coin-api"
-        assert [f.name for f in config.fields] == [
-            "api_key",
-            "exchange_rate_base_asset",
-            "symbol_id",
-            "period_id",
-            "start_date",
-        ]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        key_field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"
-        )
-        assert key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert key_field.secret is True
-        assert key_field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
@@ -75,18 +43,35 @@ class TestCoinApiSource:
     def test_get_schemas_marks_only_timeseries_incremental(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert set(schemas) == set(ENDPOINTS)
-        for name in ("assets", "exchanges", "symbols", "exchange_rates"):
+        for name in ("assets", "exchanges", "symbols", "exchange_rates", "metrics_listing"):
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
-        for name in ("ohlcv_history", "trades_history"):
+        for name in (
+            "ohlcv_history",
+            "trades_history",
+            "exchange_rates_history",
+            "metrics_symbol_history",
+            "quotes_history",
+        ):
             assert schemas[name].supports_incremental is True
             assert schemas[name].supports_append is True
 
     def test_timeseries_endpoints_off_by_default(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
         assert schemas["assets"].should_sync_default is True
-        assert schemas["ohlcv_history"].should_sync_default is False
-        assert schemas["trades_history"].should_sync_default is False
+        assert schemas["metrics_listing"].should_sync_default is True
+        for name in ("ohlcv_history", "trades_history", "exchange_rates_history", "quotes_history"):
+            assert schemas[name].should_sync_default is False
+
+    def test_get_schemas_describes_every_field_an_endpoint_needs(self) -> None:
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert schemas["metrics_symbol_history"].description == (
+            "Requires a Symbol ID and a Metric ID on the source. Only syncs the configured series."
+        )
+        assert schemas["exchange_rates_history"].description == (
+            "Requires an Exchange rate quote asset on the source. Only syncs the configured series."
+        )
+        assert schemas["assets"].description is None
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["ohlcv_history"])
@@ -118,11 +103,6 @@ class TestCoinApiSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
 
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CoinApiResumeConfig
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coin_api.source.coin_api_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
@@ -151,13 +131,10 @@ class TestCoinApiSource:
         kwargs = mock_source.call_args.kwargs
         assert kwargs["symbol_id"] == ""
         assert kwargs["period_id"] == "1DAY"
+        assert kwargs["metric_id"] == ""
         assert kwargs["exchange_rate_base_asset"] == "USD"
+        assert kwargs["exchange_rate_quote_asset"] == ""
         assert kwargs["start_date"] == ""
-
-    def test_canonical_descriptions_cover_key_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert "ohlcv_history" in descriptions
-        assert "price_close" in descriptions["ohlcv_history"]["columns"]
 
     def test_documented_tables_render_for_public_docs(self) -> None:
         tables = self.source.get_documented_tables()

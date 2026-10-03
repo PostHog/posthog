@@ -37,9 +37,12 @@ export function useGatewayConfig() {
     allowMemberAgentAccess: config?.allow_member_agent_access ?? true,
     /** Whether untouched (row-less) catalog servers are enabled for the team. */
     defaultServersEnabled: config?.default_servers_enabled ?? true,
+    // Default to false until config loads (or if the request fails): an
+    // unconfirmed member must not send agent_scope, which the backend rejects
+    // with 403 when they can't manage agent access.
     canManageAgentAccess:
       (config?.is_admin ?? false) ||
-      (config?.allow_member_agent_access ?? true),
+      (config?.allow_member_agent_access ?? false),
     updateSettings: updateSettingsMutation.mutate,
   };
 }

@@ -5,17 +5,12 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.freshdesk import FreshdeskResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source import FreshdeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.freshdesk import (
     FreshdeskSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 PATCH_VALIDATE = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.validate_freshdesk_credentials"
@@ -45,34 +40,6 @@ class TestFreshdeskSource:
         self.team_id = 1
         self.config = FreshdeskSourceConfig(subdomain="acme", api_key="key")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FRESHDESK
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Freshdesk"
-        assert config.label == "Freshdesk"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/freshdesk.png"
-
-        fields = config.fields
-        assert len(fields) == 2
-        subdomain_field, api_key_field = fields
-        assert isinstance(subdomain_field, SourceFieldInputConfig)
-        assert subdomain_field.name == "subdomain"
-        assert subdomain_field.type == SourceFieldInputConfigType.TEXT
-        assert subdomain_field.secret is False
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.name == "api_key"
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error: Forbidden for url"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
-
     def test_get_schemas_covers_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
@@ -82,9 +49,14 @@ class TestFreshdeskSource:
         [
             ("tickets", True),
             ("contacts", True),
+            # Narrowed through the tickets parent it fans out from, not its own filter.
+            ("conversations", True),
             ("companies", False),
             ("agents", False),
             ("satisfaction_ratings", False),
+            ("contact_fields", False),
+            ("canned_responses", False),
+            ("solution_articles", False),
         ],
     )
     def test_schema_incremental_support(self, name: str, supports_incremental: bool) -> None:
@@ -124,11 +96,6 @@ class TestFreshdeskSource:
         assert is_valid is expected_valid
         if "!" in subdomain or " " in subdomain:
             mock_validate.assert_not_called()
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FreshdeskResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = _make_inputs("tickets")

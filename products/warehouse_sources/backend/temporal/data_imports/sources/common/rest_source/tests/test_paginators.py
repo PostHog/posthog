@@ -53,6 +53,20 @@ class TestHeaderLinkPaginator:
         p.update_state(resp)
         assert p.has_next_page is False
 
+    def test_resolves_relative_next_link_against_response_url(self) -> None:
+        # Ably returns its next link as a relative path (e.g. `./stats?...`). Without
+        # resolving it against the response URL, `requests` gets a schemeless URL and
+        # raises MissingSchema, so the sync dies after page one.
+        p = HeaderLinkPaginator()
+        resp = _make_response()
+        resp.url = "https://rest.ably.io/stats?unit=hour"
+        resp.headers["Link"] = '<./stats?start=1&unit=hour&direction=forwards>; rel="next"'
+        p.update_state(resp)
+        assert p.has_next_page is True
+        req = Request(method="GET", url="https://rest.ably.io/stats")
+        p.update_request(req)
+        assert req.url == "https://rest.ably.io/stats?start=1&unit=hour&direction=forwards"
+
 
 class TestJSONResponsePaginator:
     def test_follows_next_url(self) -> None:
@@ -63,6 +77,16 @@ class TestJSONResponsePaginator:
         req = Request(method="GET", url="https://api.example.com/page1")
         p.update_request(req)
         assert req.url == "https://api.example.com/page2"
+
+    def test_resolves_relative_next_url_against_response_url(self) -> None:
+        p = JSONResponsePaginator(next_url_path="next")
+        resp = _make_response({"next": "/v2/items?page=2", "data": []})
+        resp.url = "https://api.example.com/v2/items?page=1"
+        p.update_state(resp)
+        assert p.has_next_page is True
+        req = Request(method="GET", url="https://api.example.com/v2/items")
+        p.update_request(req)
+        assert req.url == "https://api.example.com/v2/items?page=2"
 
     def test_stops_when_next_is_null(self) -> None:
         p = JSONResponsePaginator(next_url_path="next")
@@ -148,6 +172,20 @@ class TestJSONResponseCursorPaginator:
         resp = _make_response({"meta": {"next_cursor": None}})
         p.update_state(resp)
         assert p.has_next_page is False
+
+    def test_repeated_cursor_guard_is_opt_in(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="next_cursor")
+        response = _make_response({"next_cursor": "same-cursor"})
+        p.update_state(response)
+        p.update_state(response)
+        assert p.has_next_page is True
+
+    def test_can_raise_when_cursor_does_not_advance(self) -> None:
+        p = JSONResponseCursorPaginator(cursor_path="next_cursor", raise_on_repeated_cursor=True)
+        response = _make_response({"next_cursor": "same-cursor"})
+        p.update_state(response)
+        with pytest.raises(ValueError, match="not advancing"):
+            p.update_state(response)
 
 
 class TestOffsetPaginator:

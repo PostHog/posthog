@@ -1,0 +1,288 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.EvaluationsPreview {
+    --evaluations-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden selected-evaluation state. Direct children so `:checked ~` reaches every card.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__list,
+    &__stats,
+    &__feed {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Per-evaluation content is stacked on one grid cell and crossfaded, so switching
+    // never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-accuracy,
+    &__when-links,
+    &__when-sentiment {
+        @include preview-swap-hidden;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.5rem;
+        cursor: pointer;
+        user-select: none;
+        border: 1px solid transparent;
+        border-radius: var(--radius);
+        transition:
+            background-color 150ms ease,
+            border-color 150ms ease;
+    }
+
+    &__row:hover {
+        background: var(--color-bg-fill-highlight-50);
+    }
+
+    &__vradio {
+        position: relative;
+        flex-shrink: 0;
+        width: 12px;
+        height: 12px;
+        border: 1.5px solid var(--evaluations-preview-accent);
+        border-radius: 50%;
+
+        &::after {
+            position: absolute;
+            inset: 2px;
+            content: '';
+            background: var(--evaluations-preview-accent);
+            border-radius: 50%;
+            transition: transform 150ms ease;
+            transform: scale(0);
+        }
+    }
+
+    &__name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    // "Running" only lights up on the selected row; the others stay muted.
+    &__running {
+        display: flex;
+        gap: 0.3125rem;
+        align-items: center;
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    &__running-dot {
+        width: 6px;
+        height: 6px;
+        background: var(--color-border-primary);
+        border-radius: 50%;
+    }
+
+    &__hint {
+        padding: 0 0.75rem 0.625rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__stats {
+        padding: 0.625rem 0.75rem;
+    }
+
+    &__spark-value {
+        @include preview-accent-text(var(--evaluations-preview-accent));
+    }
+
+    &__chart {
+        display: block;
+        width: 100%;
+        height: 40px;
+        margin-top: 0.375rem;
+    }
+
+    &__bar {
+        opacity: 0.55;
+        fill: var(--evaluations-preview-accent);
+    }
+
+    // The most recent day reads as "live": full strength and breathing.
+    &__bar:last-child {
+        opacity: 1;
+        animation: EvaluationsPreview__breathe 1.8s ease-in-out infinite;
+    }
+
+    &__feed {
+        display: flex;
+        flex-direction: column;
+    }
+
+    &__verdict-row + &__verdict-row {
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &__verdict {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+    }
+
+    &__mark {
+        flex-shrink: 0;
+        width: 16px;
+        height: 16px;
+        font-size: 0.625rem;
+        font-weight: 700;
+        line-height: 16px;
+        text-align: center;
+        border-radius: 50%;
+
+        &--pass {
+            color: var(--color-green-700);
+            background: color-mix(in oklab, var(--color-green-500) 18%, transparent);
+        }
+
+        &--fail {
+            color: var(--color-red-700);
+            background: color-mix(in oklab, var(--color-red-500) 18%, transparent);
+        }
+    }
+
+    &__verdict-text {
+        overflow: hidden;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    @include preview-sparkline;
+}
+
+// Selected evaluation, driven purely by the hidden radios.
+
+#evaluations-preview-accuracy:checked ~ * .EvaluationsPreview__when-accuracy,
+#evaluations-preview-links:checked ~ * .EvaluationsPreview__when-links,
+#evaluations-preview-sentiment:checked ~ * .EvaluationsPreview__when-sentiment {
+    @include preview-swap-visible;
+}
+
+#evaluations-preview-accuracy:checked ~ .EvaluationsPreview__list .EvaluationsPreview__row--accuracy,
+#evaluations-preview-links:checked ~ .EvaluationsPreview__list .EvaluationsPreview__row--links,
+#evaluations-preview-sentiment:checked ~ .EvaluationsPreview__list .EvaluationsPreview__row--sentiment {
+    background: color-mix(in oklab, var(--evaluations-preview-accent) 8%, transparent);
+    border-color: color-mix(in oklab, var(--evaluations-preview-accent) 40%, transparent);
+
+    // "Running" lights up on the selected row only.
+    .EvaluationsPreview__running {
+        color: var(--color-green-700);
+    }
+
+    .EvaluationsPreview__running-dot {
+        background: var(--color-green-500);
+        animation: EvaluationsPreview__pulse 1.6s ease-in-out infinite;
+    }
+}
+
+#evaluations-preview-accuracy:checked ~ .EvaluationsPreview__list .EvaluationsPreview__vradio--accuracy::after,
+#evaluations-preview-links:checked ~ .EvaluationsPreview__list .EvaluationsPreview__vradio--links::after,
+#evaluations-preview-sentiment:checked ~ .EvaluationsPreview__list .EvaluationsPreview__vradio--sentiment::after {
+    transform: scale(1);
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the row they label
+// needs a visible focus indicator (WCAG 2.4.7).
+#evaluations-preview-accuracy:focus-visible ~ .EvaluationsPreview__list .EvaluationsPreview__row--accuracy,
+#evaluations-preview-links:focus-visible ~ .EvaluationsPreview__list .EvaluationsPreview__row--links,
+#evaluations-preview-sentiment:focus-visible ~ .EvaluationsPreview__list .EvaluationsPreview__row--sentiment {
+    outline: 2px solid var(--evaluations-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the next evaluation's radio until the default selection changes.
+.EvaluationsPreview:not(.EvaluationsPreview--static)
+    #evaluations-preview-accuracy:checked
+    ~ .EvaluationsPreview__list
+    .EvaluationsPreview__vradio--links {
+    animation: EvaluationsPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes EvaluationsPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--evaluations-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--evaluations-preview-accent) 20%, transparent);
+    }
+}
+
+@keyframes EvaluationsPreview__pulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-green-500) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-green-500) 0%, transparent);
+    }
+}
+
+@keyframes EvaluationsPreview__breathe {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+}
+
+@include preview-motion-guards('EvaluationsPreview');

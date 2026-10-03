@@ -14,6 +14,8 @@ def _get_source_name(source: dict) -> str:
     kind = source.get("kind", "")
     if kind == "ExperimentDataWarehouseNode":
         return source.get("table_name") or "Table"
+    if kind == "ExperimentExposureNode":
+        return "Exposure"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 
@@ -44,6 +46,20 @@ def get_default_metric_title(metric_dict: dict) -> str:
 
 
 logger = logging.getLogger(__name__)
+
+# A legacy metric nests its query under a kind-specific key: ExperimentTrendsQuery under
+# `count_query`, ExperimentFunnelsQuery under `funnels_query`.
+LEGACY_METRIC_QUERY_KEYS = ("count_query", "funnels_query")
+
+
+def apply_metric_date_range(metric: dict[str, Any], date_range: dict[str, Any]) -> None:
+    """Overwrite a legacy metric's nested query date range in place.
+
+    Only a query that already carries a date range is rewritten, so the stored shape of a metric
+    without one is preserved."""
+    for key in LEGACY_METRIC_QUERY_KEYS:
+        if metric.get(key, {}).get("dateRange"):
+            metric[key]["dateRange"] = date_range
 
 
 def refresh_action_names_in_metric(
@@ -107,6 +123,22 @@ def refresh_action_names_in_metric(
             extra={"team_id": team.id, "query_kind": query.get("kind") if query else None},
         )
         return query
+
+
+def without_action_names(obj: Any) -> Any:
+    """Copy of a metric query without the ActionsNode names.
+
+    The name is a label that `refresh_action_names_in_metric` rewrites on read, so two queries that
+    differ only in these names define the same metric.
+    """
+    if isinstance(obj, dict):
+        is_actions_node = obj.get("kind") == "ActionsNode"
+        return {
+            key: without_action_names(value) for key, value in obj.items() if not (is_actions_node and key == "name")
+        }
+    if isinstance(obj, list):
+        return [without_action_names(item) for item in obj]
+    return obj
 
 
 def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:

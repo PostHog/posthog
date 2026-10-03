@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 
@@ -21,10 +22,11 @@ class FeatureRequestPriority(models.TextChoices):
 
 class FeatureRequestHistorySource(models.TextChoices):
     MANUAL = "manual", "Manual"
+    GITHUB = "github", "GitHub"
 
 
 class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=200)
     display_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -45,9 +47,9 @@ class FeatureRequestProductArea(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequest(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     title = models.CharField(max_length=400)
-    description = models.TextField()
+    description = models.TextField(blank=True, default="")
     status = models.CharField(
         max_length=32,
         choices=FeatureRequestStatus.choices,
@@ -79,8 +81,32 @@ class FeatureRequest(TeamScopedRootMixin, UUIDModel):
         ordering = ["-updated_at", "-created_at", "-id"]
 
 
+class FeatureRequestGitHubLink(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    feature_request = models.OneToOneField(FeatureRequest, on_delete=models.CASCADE, related_name="github_link")
+    integration = models.ForeignKey(
+        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    installation_id = models.CharField(max_length=255)
+    repository = models.CharField(max_length=255)
+    issue_number = models.PositiveIntegerField()
+    issue_title = models.TextField(blank=True, default="")
+    issue_state = models.CharField(max_length=16, default="open")
+    issue_state_reason = models.CharField(max_length=32, blank=True, default="")
+    github_updated_at = models.DateTimeField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    sync_enabled = models.BooleanField(default=True)
+    sync_enabled_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    status_before_github_close = models.CharField(max_length=32, null=True, blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["installation_id", "repository", "issue_number"])]
+
+
 class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
@@ -108,7 +134,7 @@ class FeatureRequestHistory(TeamScopedRootMixin, UUIDModel):
 
 
 class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,
@@ -119,7 +145,18 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="feature_request_links",
     )
+    unlinked_at = models.DateTimeField(null=True, blank=True)
+    unlinked_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -130,8 +167,46 @@ class FeatureRequestAccountLink(TeamScopedRootMixin, UUIDModel):
         ]
 
 
+class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    account_link = models.ForeignKey(
+        FeatureRequestAccountLink,
+        on_delete=models.CASCADE,
+        related_name="evidence",
+    )
+    summary = models.TextField(blank=True, default="")
+    customer_quote = models.TextField(blank=True, default="")
+    source = models.CharField(max_length=200)
+    source_url = models.URLField(max_length=2000, blank=True, default="")
+    requested_on = models.DateField(null=True, blank=True)
+    image_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    updated_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = [models.F("requested_on").desc(nulls_last=True), "-created_at", "-id"]
+
+
 class FeatureRequestProductAreaLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     feature_request = models.ForeignKey(
         FeatureRequest,
         on_delete=models.CASCADE,

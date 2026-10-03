@@ -1,5 +1,6 @@
 from typing import cast
 
+from drf_spectacular.utils import extend_schema
 from posthoganalytics import capture_exception
 from rest_framework import serializers, status
 from rest_framework.decorators import action
@@ -20,8 +21,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import AccessControlLevelResource, UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevelResource, UserAccessControl
 from products.revenue_analytics.backend.joins import ensure_person_join_for_team, remove_person_join_for_team
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
@@ -103,7 +104,13 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
 
 class RevenueAnalyticsJoinSerializer(serializers.Serializer):
-    enabled = serializers.BooleanField(required=True)
+    enabled = serializers.BooleanField(
+        required=True, help_text="True creates the person join for the project, false removes it."
+    )
+
+
+class RevenueAnalyticsJoinResponseSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="What the request did, for display.")
 
 
 class RevenueAnalyticsJoinViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
@@ -111,7 +118,11 @@ class RevenueAnalyticsJoinViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
 
-    def create(self, request: Request, **kwargs):
+    @extend_schema(
+        request=RevenueAnalyticsJoinSerializer,
+        responses={200: RevenueAnalyticsJoinResponseSerializer},
+    )
+    def create(self, request: Request, **kwargs) -> Response:
         _assert_revenue_analytics_access(self.team, cast(User, request.user), "editor")
 
         serializer = RevenueAnalyticsJoinSerializer(data=request.data)

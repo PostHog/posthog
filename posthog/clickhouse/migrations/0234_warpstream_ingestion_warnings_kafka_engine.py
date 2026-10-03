@@ -1,7 +1,7 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.ingestion_warnings.sql import INGESTION_WARNINGS_WS_MV_SQL, KAFKA_INGESTION_WARNINGS_WS_TABLE_SQL
+from posthog.run_mode import run_mode
 
 # Migration to create a WarpStream Kafka engine table for clickhouse_ingestion_warnings.
 #
@@ -18,7 +18,7 @@ from posthog.models.ingestion_warnings.sql import INGESTION_WARNINGS_WS_MV_SQL, 
 
 operations = (
     []
-    if settings.CLOUD_DEPLOYMENT not in ("US", "EU", "DEV")
+    if not run_mode().is_deployed_cloud
     else [
         run_sql_with_exceptions(
             KAFKA_INGESTION_WARNINGS_WS_TABLE_SQL(),

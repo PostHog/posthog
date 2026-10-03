@@ -1,7 +1,7 @@
 import datetime as dt
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, _create_event
 
 from posthog.schema import (
@@ -25,8 +25,8 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     FOCUSED_SURFACING_THRESHOLD,
     SETTLE_INTERVAL,
     SWEEP_EVENTS_LOOKBACK,
-    BackfillCandidateQuery,
     ScannerCandidateQuery,
+    WindowedCandidateQuery,
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
@@ -187,11 +187,57 @@ def test_surfacing_score_predicate_emits_threshold(mode, expected_threshold):
     assert isinstance(expr.right, ast.Constant) and expr.right.value == expected_threshold
 
 
+# Whether the narrow events window can cost this query candidates (needs a team, no ClickHouse).
+
+
+def _positive_event_filter() -> EventPropertyFilter:
+    return EventPropertyFilter(key="$host", value=["app.example.com"], operator=PropertyOperator.EXACT, type="event")
+
+
+@pytest.mark.parametrize(
+    "make_query, expected",
+    [
+        (lambda: RecordingsQuery(properties=[_positive_event_filter()]), True),
+        # Negative filters are enforced unbounded, so the events window never costs them anything.
+        (
+            lambda: RecordingsQuery(
+                properties=[
+                    EventPropertyFilter(
+                        key="$host", value=["internal.example.com"], operator=PropertyOperator.IS_NOT, type="event"
+                    )
+                ]
+            ),
+            False,
+        ),
+        (lambda: RecordingsQuery(), False),
+    ],
+)
+@pytest.mark.django_db
+def test_matches_on_events_tracks_positive_event_filters(make_query, expected: bool, team) -> None:
+    # A false negative here silently retires the deep pass for that scanner, and the stragglers it
+    # exists to catch are then never observed at all.
+    assert _make_query(team=team, query=make_query()).matches_on_events() is expected
+
+
+@pytest.mark.django_db
+def test_matches_on_events_covers_test_account_filters(team) -> None:
+    # Team config routes through a second builder that a naive implementation would never consult.
+    team.test_account_filters = [{"key": "$host", "value": ["app.example.com"], "operator": "exact", "type": "event"}]
+    team.save()
+    query = RecordingsQuery(filter_test_accounts=True)
+
+    assert _make_query(team=team, query=query).matches_on_events() is True
+
+
 # Integration: actual ClickHouse query.
 
 
-@freeze_time(_FROZEN_TIME)
 class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -740,8 +786,12 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         ).run()
 
 
-@freeze_time(_FROZEN_TIME)
-class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+class TestWindowedCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel(_FROZEN_TIME, tick=False):
+            yield
+
     def setup_method(self, _method) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
@@ -757,12 +807,13 @@ class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         )
 
     @staticmethod
-    def _query(*, team, window_start: dt.datetime, window_end: dt.datetime, **kwargs) -> BackfillCandidateQuery:
-        return BackfillCandidateQuery(
+    def _query(*, team, window_start: dt.datetime, window_end: dt.datetime, **kwargs) -> WindowedCandidateQuery:
+        return WindowedCandidateQuery(
             team=team,
             query=kwargs.pop("query", RecordingsQuery()),
             window_start=window_start,
             window_end=window_end,
+            query_type=kwargs.pop("query_type", "ReplayVisionBackfillCandidateQuery"),
             sampling_rate=kwargs.pop("sampling_rate", 1.0),
             sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
             **kwargs,
@@ -792,7 +843,8 @@ class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             team.id, "after-window", window_end + dt.timedelta(minutes=1), window_end + dt.timedelta(minutes=30)
         )
 
-        assert self._query(team=team, window_start=window_start, window_end=window_end).count() == 6
+        counted = self._query(team=team, window_start=window_start, window_end=window_end)
+        assert counted.count(query_type="ReplayVisionBackfillCountQuery") == 6
 
         walked: list[str] = []
         cursor_end, cursor_sid = None, None

@@ -26,6 +26,7 @@ import {
     buildSurveyExampleInvocationGlobals,
     getSurveyNotificationFilters,
     getSurveyIdBasedResponseKey,
+    surveyEmitsPartialSentEvents,
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
@@ -112,7 +113,7 @@ export type OpenSurveyNotificationDialogPayload = {
     notification?: HogFunctionType | null
     intent?: SurveyNotificationModalIntent
 }
-type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses'>
+type SurveyNotificationContext = Pick<Survey, 'id' | 'name' | 'questions' | 'enable_partial_responses' | 'type'>
 type SurveyNotificationFormErrors = Partial<Record<Exclude<keyof SurveyNotificationForm, 'responseFilters'>, string>>
 
 const MAX_EXAMPLE_QUESTIONS = 3
@@ -450,7 +451,7 @@ async function buildSurveyNotificationPayload({
             template,
             destination: form.destination,
             surveyId: survey.id,
-            enablePartialResponses: survey.enable_partial_responses ?? false,
+            emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
             form,
         })
     }
@@ -470,7 +471,7 @@ async function buildSurveyNotificationPayload({
         destination: form.destination,
         surveyName: survey.name,
         surveyId: survey.id,
-        enablePartialResponses: survey.enable_partial_responses ?? false,
+        emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
         form,
     })
 }
@@ -704,14 +705,14 @@ function createSurveyNotificationPayload({
     destination,
     surveyName,
     surveyId,
-    enablePartialResponses,
+    emitsPartialSentEvents,
     form,
 }: {
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyName?: string | null
     surveyId: string
-    enablePartialResponses: boolean
+    emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const destinationOption = DESTINATION_OPTIONS.find((option) => option.value === destination)
@@ -771,7 +772,7 @@ function createSurveyNotificationPayload({
         inputs_schema: template.inputs_schema,
         filters: getSurveyNotificationFilters(
             surveyId,
-            enablePartialResponses,
+            emitsPartialSentEvents,
             buildResponseFilterProperties(form.responseFilters)
         ),
         hog: template.code,
@@ -847,14 +848,14 @@ function updateSurveyNotificationPayload({
     template,
     destination,
     surveyId,
-    enablePartialResponses,
+    emitsPartialSentEvents,
     form,
 }: {
     notification: HogFunctionType
     template: HogFunctionTemplateType
     destination: DestinationKey
     surveyId: string
-    enablePartialResponses: boolean
+    emitsPartialSentEvents: boolean
     form: SurveyNotificationForm
 }): Partial<HogFunctionType> {
     const payload = createSurveyNotificationPayload({
@@ -862,7 +863,7 @@ function updateSurveyNotificationPayload({
         destination,
         surveyName: null,
         surveyId,
-        enablePartialResponses,
+        emitsPartialSentEvents,
         form,
     })
 
@@ -908,7 +909,7 @@ function createCopiedSurveyNotificationPayload({
         destination,
         surveyName: survey.name,
         surveyId: survey.id,
-        enablePartialResponses: survey.enable_partial_responses ?? false,
+        emitsPartialSentEvents: surveyEmitsPartialSentEvents(survey),
         form,
     })
 
@@ -931,7 +932,7 @@ function createCopiedSurveyNotificationPayload({
         masking: notification.masking,
         filters: getSurveyNotificationFilters(
             survey.id,
-            survey.enable_partial_responses ?? false,
+            surveyEmitsPartialSentEvents(survey),
             buildResponseFilterProperties(form.responseFilters)
         ),
         hog: remapSurveyResponseProperties(notification.hog, survey) ?? template.code,

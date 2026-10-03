@@ -16,6 +16,7 @@ use crate::json::{
     as_array_mut, as_object, as_object_mut, as_small_uint, as_str, key, parse_untrusted,
     reject_if_too_deep, string_value,
 };
+use crate::json_ld::scrub_json_ld_payload;
 use crate::text::scrub_text;
 use crate::url::scrub_url;
 use crate::value::{scrub_console_plugin, scrub_generic_field, scrub_network_plugin};
@@ -37,6 +38,7 @@ pub const SOURCE_ADOPTED_STYLESHEET: u8 = 15;
 
 pub const NETWORK_PLUGIN: &str = "rrweb/network@1";
 pub const CONSOLE_PLUGIN: &str = "rrweb/console@1";
+pub(crate) const JSON_LD_EVENT_TAG: &str = "$json_ld";
 
 /// Panic backstop for the anyhow-based entry points (see [`crate::unwind`]).
 fn contain_panics<T>(f: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -240,6 +242,21 @@ pub fn route_data(
             }
         }
         Some(TYPE_CUSTOM) => match as_object_mut(data) {
+            Some(data) if data.get("tag").and_then(as_str) == Some(JSON_LD_EVENT_TAG) => {
+                let mut changed = scrub_json_ld_payload(data);
+                if let Some(href) = data.get("href") {
+                    if let Some(href) = as_str(href) {
+                        if let Some(scrubbed) = scrub_url(ctx, href) {
+                            data.insert(key("href"), string_value(scrubbed));
+                            changed = true;
+                        }
+                    } else {
+                        data.remove("href");
+                        changed = true;
+                    }
+                }
+                Ok(changed)
+            }
             Some(data) => Ok(scrub_generic_field(ctx, data, "payload")),
             None => Ok(false),
         },

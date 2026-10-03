@@ -46,10 +46,7 @@ def snowflake_env_vars_are_set():
     return True
 
 
-SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.skipif(
-    not snowflake_env_vars_are_set(),
-    reason="Snowflake required env vars are not set",
-)
+SKIP_IF_MISSING_REQUIRED_ENV_VARS = pytest.mark.requires_vendor_credentials(check=snowflake_env_vars_are_set)
 
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",
@@ -461,7 +458,6 @@ async def assert_clickhouse_records_in_snowflake(
         model_name=model_name,
         team_id=team_id,
         full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
         fields=fields,
         filters=filters,
         destination_default_fields=snowflake_default_fields(),
@@ -515,6 +511,9 @@ async def assert_clickhouse_records_in_snowflake(
         inserted_records = remove_duplicates_from_records(inserted_records, primary_key)
 
     assert inserted_records, "No records were inserted into Snowflake"
+    if model_name == "events" and fields is None and expected_fields is None:
+        assert "person_id" in inserted_records[0]
+
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
     inserted_column_names.sort()

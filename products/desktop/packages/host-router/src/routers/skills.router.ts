@@ -18,6 +18,7 @@ import {
   resolveSkillDependenciesOutput,
   saveSkillFileInput,
   saveSkillManifestInput,
+  setSkillEnabledInput,
   skillContentsInput,
   skillContentsOutput,
   skillPathOutput,
@@ -111,6 +112,13 @@ export const skillsRouter = router({
         .get<SkillsService>(SKILLS_SERVICE)
         .deleteSkill(input.skillPath),
     ),
+  setEnabled: publicProcedure
+    .input(setSkillEnabledInput)
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<SkillsService>(SKILLS_SERVICE)
+        .setSkillEnabled(input.skillPath, input.enabled),
+    ),
   export: publicProcedure
     .input(exportSkillInput)
     .output(exportSkillOutput)
@@ -140,6 +148,13 @@ export const skillsRouter = router({
     }
   }),
   marketplace: router({
+    popular: publicProcedure
+      .output(marketplaceSearchOutput)
+      .query(({ ctx }) =>
+        ctx.container
+          .get<SkillsMarketplaceService>(SKILLS_MARKETPLACE_SERVICE)
+          .popular(),
+      ),
     search: publicProcedure
       .input(marketplaceSearchInput)
       .output(marketplaceSearchOutput)

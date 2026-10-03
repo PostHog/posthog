@@ -108,8 +108,6 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                         return []
                     }
 
-                    const teamNamesById = new Map(org.teams.map((t) => [t.id, t.name]))
-
                     const perTeamItems = await Promise.all(
                         org.teams.map(async (team): Promise<PipelineItem[]> => {
                             const items: PipelineItem[] = []
@@ -123,6 +121,7 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 )
                                 const hfs: HogFunctionMinimalApi[] = [
                                     ...initial.results,
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                                     ...(await api.loadPaginatedResults<HogFunctionMinimalApi>(initial.next ?? null)),
                                 ]
                                 for (const hf of hfs) {
@@ -138,6 +137,7 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                                 console.warn(`Failed to load hog functions for team ${team.id}`, e)
                             }
                             try {
+                                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                                 const pcs = await api.loadPaginatedResults<PluginDestinationConfig>(
                                     `api/projects/${team.id}/pipeline_destination_configs/?limit=100`
                                 )
@@ -153,29 +153,32 @@ export const pipelineNotificationsLogic = kea<pipelineNotificationsLogicType>([
                             } catch (e) {
                                 console.warn(`Failed to load plugin destinations for team ${team.id}`, e)
                             }
+                            try {
+                                const initial: PaginatedBatchExportListApi = await batchExportsList(String(team.id), {
+                                    limit: 100,
+                                })
+                                const bes: BatchExportApi[] = [
+                                    ...initial.results,
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                                    ...(await api.loadPaginatedResults<BatchExportApi>(initial.next ?? null)),
+                                ]
+                                for (const be of bes) {
+                                    items.push({
+                                        id: `batch_export:${be.id}`,
+                                        name: displayName(be.name),
+                                        kind: 'batch_export',
+                                        teamId: team.id,
+                                        teamName: team.name,
+                                    })
+                                }
+                            } catch (e) {
+                                console.warn(`Failed to load batch exports for team ${team.id}`, e)
+                            }
                             return items
                         })
                     )
 
-                    let batchExportItems: PipelineItem[] = []
-                    try {
-                        const initial: PaginatedBatchExportListApi = await batchExportsList(org.id, { limit: 100 })
-                        const bes: BatchExportApi[] = [
-                            ...initial.results,
-                            ...(await api.loadPaginatedResults<BatchExportApi>(initial.next ?? null)),
-                        ]
-                        batchExportItems = bes.map<PipelineItem>((be) => ({
-                            id: `batch_export:${be.id}`,
-                            name: displayName(be.name),
-                            kind: 'batch_export',
-                            teamId: be.team_id,
-                            teamName: teamNamesById.get(be.team_id) ?? '',
-                        }))
-                    } catch (e) {
-                        console.warn('Failed to load batch exports', e)
-                    }
-
-                    const items = [...perTeamItems.flat(), ...batchExportItems]
+                    const items = perTeamItems.flat()
                     return items.sort(
                         (a, b) =>
                             a.teamName.localeCompare(b.teamName) ||

@@ -37,6 +37,10 @@ const config: StorybookConfig = {
   async viteFinal(config) {
     return mergeConfig(config, {
       plugins: [tailwindcss(), react()],
+      // The brand hoggie modules locate their PNGs with
+      // `new URL("./x.png", import.meta.url)`. Pre-bundling moves the module
+      // into the deps cache, where that URL 404s, so serve it from node_modules.
+      optimizeDeps: { exclude: ["@posthog/brand"] },
       resolve: {
         alias: [
           {
@@ -79,21 +83,35 @@ const config: StorybookConfig = {
             find: "@posthog/agent/adapters/claude/permissions/permission-options",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/claude/permissions/permission-options.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/claude/permissions/permission-options.js",
             ),
           },
           {
             find: "@posthog/agent/adapters/claude/conversion/tool-use-to-acp",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/claude/conversion/tool-use-to-acp.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/claude/conversion/tool-use-to-acp.js",
             ),
           },
           {
             find: "@posthog/agent/adapters/claude/questions/utils",
             replacement: path.resolve(
               __dirname,
-              "../../../packages/agent/dist/adapters/claude/questions/utils.js",
+              "../../../../../packages/agent/packages/agent/dist/adapters/claude/questions/utils.js",
+            ),
+          },
+          {
+            find: "@posthog/agent/adapters/reasoning-effort",
+            replacement: path.resolve(
+              __dirname,
+              "../../../../../packages/agent/packages/agent/dist/adapters/reasoning-effort.js",
+            ),
+          },
+          {
+            find: "@posthog/agent/gateway-models",
+            replacement: path.resolve(
+              __dirname,
+              "../../../../../packages/agent/packages/agent/dist/gateway-models.js",
             ),
           },
           {
@@ -111,6 +129,10 @@ const config: StorybookConfig = {
           {
             find: /^(node:)?fs$/,
             replacement: path.resolve(__dirname, "./mocks/node-fs.ts"),
+          },
+          {
+            find: /^(node:)?url$/,
+            replacement: path.resolve(__dirname, "./mocks/node-url.ts"),
           },
           { find: /^(node:)?path$/, replacement: "pathe" },
           // Resolve the remaining @posthog/* workspace packages to source, exactly

@@ -116,4 +116,46 @@ describe("TabbedPanel", () => {
     expect(screen.getByTestId("logs-content")).toBeInTheDocument();
     expect(screen.queryByTestId("review-content")).not.toBeInTheDocument();
   });
+
+  it("unmounts the least recently used tab after five visited tabs", () => {
+    const tabs: PanelContent["tabs"] = Array.from(
+      { length: 6 },
+      (_, index) => ({
+        id: `tab-${index}`,
+        label: `Tab ${index}`,
+        data: { type: "logs" },
+        component: <div data-testid={`tab-content-${index}`} />,
+      }),
+    );
+    const panelContent = (activeTabId: string): PanelContent => ({
+      id: "main",
+      activeTabId,
+      showTabs: false,
+      tabs,
+    });
+    const { rerender } = render(
+      <Theme>
+        <TabbedPanel
+          panelId="main"
+          mountScopeKey="task-a"
+          content={panelContent("tab-0")}
+        />
+      </Theme>,
+    );
+
+    for (let index = 1; index < tabs.length; index++) {
+      rerender(
+        <Theme>
+          <TabbedPanel
+            panelId="main"
+            mountScopeKey="task-a"
+            content={panelContent(`tab-${index}`)}
+          />
+        </Theme>,
+      );
+    }
+
+    expect(screen.queryByTestId("tab-content-0")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId(/^tab-content-/)).toHaveLength(5);
+  });
 });

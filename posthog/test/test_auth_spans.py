@@ -76,7 +76,7 @@ class TestAuthSpans(BaseTest):
             (
                 "jwt_no_authorization_header",
                 lambda factory: factory.get("/api/users/@me/"),
-                lambda req: JwtAuthentication.authenticate(req),
+                lambda req: JwtAuthentication().authenticate(req),
                 "posthog.auth.jwt",
             ),
             (

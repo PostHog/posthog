@@ -1,0 +1,83 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "Emails": {
+        "description": "Emails sent through Nuntly, one row per send attempt.",
+        "docs_url": "https://nuntly.com/docs/api-reference/emails/list-emails",
+        "columns": {
+            "id": "Unique identifier for the email.",
+            "from": "Sender email address.",
+            "to": "Recipient email address, or a list of recipient addresses.",
+            "subject": "Email subject line.",
+            "status": "Current delivery status (queued, scheduled, processed, failed, sending, sent, delivered, bounced, complained, canceled, rejected).",
+            "createdAt": "When the email was created, in ISO 8601 format.",
+            "scheduledAt": "When the email is scheduled to send, in ISO 8601 format, if scheduled.",
+        },
+    },
+    "Messages": {
+        "description": "Inbound email messages received into a Nuntly inbox.",
+        "docs_url": "https://nuntly.com/docs/api-reference/messages/list-messages",
+        "columns": {
+            "id": "Unique identifier for the message.",
+            "createdAt": "When the message record was created, in ISO 8601 format.",
+            "inboxId": "Identifier of the inbox the message was received into, if any.",
+            "threadId": "Identifier of the thread the message belongs to.",
+            "messageId": "The message's RFC 5322 Message-ID header.",
+            "from": "Sender email address, in RFC 5322 format.",
+            "to": "Recipient email addresses.",
+            "cc": "CC'd email addresses, if any.",
+            "bcc": "BCC'd email addresses, if any.",
+            "replyTo": "Reply-To email addresses, if any.",
+            "subject": "Message subject line.",
+            "receivedAt": "When the message was received, in ISO 8601 format.",
+            "status": "Processing status (received, sent, discarded, failed).",
+            "labels": "Labels applied to the message.",
+            "attachmentCount": "Number of attachments on the message.",
+        },
+    },
+    "Inboxes": {
+        "description": "Inboxes configured to receive inbound email on a Nuntly domain.",
+        "docs_url": "https://nuntly.com/docs/api-reference/inboxes/list-inboxes",
+        "columns": {
+            "id": "Unique identifier for the inbox.",
+            "createdAt": "When the inbox was created, in ISO 8601 format.",
+            "updatedAt": "When the inbox was last updated, in ISO 8601 format.",
+            "domainId": "Identifier of the domain the inbox receives mail on.",
+            "domainName": "Name of the domain the inbox receives mail on.",
+            "address": "The inbox's full email address.",
+            "name": "Human-readable name for the inbox, if set.",
+            "namespaceId": "Identifier of the namespace the inbox belongs to, if any.",
+            "namespaceName": "Name of the namespace the inbox belongs to, if any.",
+            "agentId": "Identifier of the AI agent attached to the inbox, if any.",
+        },
+    },
+    "Domains": {
+        "description": "Sending and receiving domains configured on a Nuntly account.",
+        "docs_url": "https://nuntly.com/docs/api-reference/domains/list-domains",
+        "columns": {
+            "id": "Unique identifier for the domain.",
+            "name": "The domain name.",
+            "status": "Overall domain verification status (bootstrapping, pending, success, failed, temporary_failure).",
+            "sendingStatus": "Whether sending is enabled, disabled, or paused for this domain.",
+            "receivingStatus": "Inbound-receiving verification status (bootstrapping, pending, success, failed, temporary_failure).",
+            "createdAt": "When the domain was added, in ISO 8601 format.",
+            "region": "The region the domain's mail infrastructure is hosted in.",
+        },
+    },
+    "Webhooks": {
+        "description": "Webhook endpoints configured to receive Nuntly event notifications.",
+        "docs_url": "https://nuntly.com/docs/api-reference/webhooks/list-webhooks",
+        "columns": {
+            "id": "Unique identifier for the webhook.",
+            "name": "Human-readable name for the webhook, if set.",
+            "endpointUrl": "The URL Nuntly sends event payloads to.",
+            "status": "Whether the webhook is enabled, disabled, or revoked.",
+            "disabledReason": "Why the webhook was disabled, if applicable (manual, auto_consecutive_failures).",
+            "disabledAt": "When the webhook was disabled, in ISO 8601 format, if disabled.",
+            "events": "Event types this webhook is subscribed to.",
+            "createdAt": "When the webhook was created, in ISO 8601 format.",
+        },
+    },
+}

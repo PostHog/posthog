@@ -1,0 +1,69 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "deleted": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "is_task": {
+            "default": false,
+            "description": "Whether this comment is an actionable task that can be marked complete. Tasks render with a checkbox in the UI and can be filtered as a separate kind. Cannot be set on replies (source_comment) or emoji reactions. Immutable after creation.",
+            "type": "boolean"
+        },
+        "item_context": {
+            "description": "Metadata for the comment target, anchor, thread state, and owning task."
+        },
+        "item_id": {
+            "anyOf": [
+                {
+                    "maxLength": 72,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "mentions": {
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "rich_content": {},
+        "scope": {
+            "maxLength": 79,
+            "type": "string"
+        },
+        "slug": {
+            "type": "string"
+        },
+        "source_comment": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        }
+    },
+    "type": "object"
+}

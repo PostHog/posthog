@@ -1,6 +1,6 @@
 ---
 name: diagnosing-experiment-results
-description: "Diagnoses bias, anomalies, and strange-looking results on a PostHog experiment: empty / 0-exposure experiments, sample ratio mismatch, identity fragmentation, multi-variant exposure, uneven-split exclusion bias, significance traps (peeking, A/A, Bayesian vs Frequentist), PostHog-vs-SQL discrepancies, and a variant-split survey for qualitative feedback. Symptom-driven dispatch to the right diagnostic.\nTRIGGER when: user asks 'is my experiment biased?' or 'why 0 exposures?', references the bias banner, says a variant looks strange or wrong, sees significance flipping or an A/A test showing significance, notices PostHog disagreeing with their SQL, reports surprises after mid-run edits, or wants qualitative feedback from or a survey of an experiment's users.\nDO NOT TRIGGER when: creating a new experiment (creating-experiments), only configuring rollout (configuring-experiment-rollout) or metrics (configuring-experiment-analytics), or lifecycle questions (managing-experiment-lifecycle)."
+description: "Diagnoses bias, anomalies, and strange results on a PostHog experiment. Covers 0-exposure experiments, sample ratio mismatch, identity fragmentation, multi-variant exposure, uneven-split exclusion bias, significance traps (peeking, A/A, Bayesian vs Frequentist), PostHog-vs-SQL discrepancies, surprises after mid-run edits, and qualitative follow-up via a variant-split survey.\nTRIGGER when: user asks 'is my experiment biased?' or 'why 0 exposures?', references the bias banner, says a variant looks strange / wrong / off, sees significance flipping or A/A significance, finds PostHog numbers disagreeing with their SQL, reports surprises after mid-run edits, or wants qualitative feedback or a survey for an experiment.\nDO NOT TRIGGER when: creating an experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
 ---
 
 # Diagnosing experiment results
@@ -22,8 +22,7 @@ resolve it to a concrete ID.
 
 Call `experiment-get` and pull these fields. They are inputs for almost every diagnostic:
 
-- `parameters.feature_flag_variants[].rollout_percentage` — the variant split
-- `parameters.rollout_percentage` — the overall rollout (% of users entering the experiment)
+- `feature_flag.filters.multivariate.variants[].rollout_percentage` — the variant split
 - `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
 - `exposure_criteria.exposure_config.event` — unset means the default exposure event; read which one
   from `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved
@@ -31,7 +30,10 @@ Call `experiment-get` and pull these fields. They are inputs for almost every di
 - `exposure_criteria.filterTestAccounts` — defaults to `true`
 - `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
-  `rollout_percentage`. Any non-null `variant` is a forced-variant override on the matched cohort
+  `rollout_percentage` (that group's rollout, % of the matched bucketing units — persons, or groups
+  when `feature_flag.filters.aggregation_group_type_index` is set — that enter the experiment; each
+  group has its own, so there is no single overall rollout unless the flag has one unconditional
+  group). Any non-null `variant` is a forced-variant override on the matched cohort
   (release-condition assignment, not randomized) — surfaces A7. Watch for the severe shape (A7b): a
   variant-pinned group with broad/empty `properties` at high rollout, or no group left randomized
   (`variant: null`) / no release path to one arm — that starves the other variant (one arm gets ~0

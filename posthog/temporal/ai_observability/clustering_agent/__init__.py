@@ -12,7 +12,7 @@ from collections.abc import Mapping
 
 from langchain_openai import ChatOpenAI
 
-from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_flex_first_chat_client
 from posthog.temporal.ai_observability.trace_clustering.constants import NOISE_CLUSTER_ID
 from posthog.temporal.ai_observability.trace_clustering.models import ClusterLabel
 
@@ -25,6 +25,7 @@ def get_labeling_llm(
     session_id: str,
     properties: Mapping[str, str],
     distinct_id: str,
+    flex: bool = True,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for cluster labeling.
 
@@ -32,8 +33,11 @@ def get_labeling_llm(
     ai-gateway when configured; see
     ``posthog.temporal.ai_observability.llm_endpoint``. Enforces the same
     guardrail as before: AI features only run in Cloud or local DEBUG builds.
+
+    Labeling runs as a daily batch, so it takes the flex service tier; see
+    ``build_flex_first_chat_client`` for the tier, timeout, and retry policy.
     """
-    return build_langchain_chat_client(
+    return build_flex_first_chat_client(
         model,
         timeout,
         ai_product="aio_clustering",
@@ -41,6 +45,7 @@ def get_labeling_llm(
         session_id=session_id,
         properties=properties,
         distinct_id=distinct_id,
+        flex=flex,
     )
 
 

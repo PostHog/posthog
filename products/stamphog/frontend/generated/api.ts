@@ -9,172 +9,29 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    DigestChannelApi,
     DigestRunApi,
-    PaginatedDigestChannelListApi,
     PaginatedDigestRunListApi,
     PaginatedReviewRunListApi,
     PaginatedStamphogPullRequestListApi,
     PaginatedStamphogRepoConfigListApi,
-    PatchedDigestChannelApi,
-    PatchedStamphogRepoConfigApi,
+    PatchedStamphogRepoConfigWriteApi,
+    ReviewRequestApi,
+    ReviewRequestResponseApi,
     ReviewRunApi,
-    StamphogDigestChannelsListParams,
+    StamphogAddRepositoryApi,
+    StamphogAvailableRepositoriesApi,
     StamphogDigestRunsListParams,
     StamphogInstallInfoApi,
     StamphogPullRequestApi,
     StamphogPullRequestsListParams,
     StamphogRepoConfigApi,
+    StamphogRepoConfigWriteApi,
+    StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
     StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
 } from './api.schemas'
-
-// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
-type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
-
-type WritableKeys<T> = {
-    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
-}[keyof T]
-
-type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
-type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
-
-type Writable<T> = Pick<T, WritableKeys<T>>
-type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
-    ? {
-          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
-      }
-    : DistributeReadOnlyOverUnions<T>
-
-export const getStamphogDigestChannelsListUrl = (projectId: string, params?: StamphogDigestChannelsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/stamphog/digest_channels/?${stringifiedParams}`
-        : `/api/projects/${projectId}/stamphog/digest_channels/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsList = async (
-    projectId: string,
-    params?: StamphogDigestChannelsListParams,
-    options?: RequestInit
-): Promise<PaginatedDigestChannelListApi> => {
-    return apiMutator<PaginatedDigestChannelListApi>(getStamphogDigestChannelsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getStamphogDigestChannelsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsCreate = async (
-    projectId: string,
-    digestChannelApi: NonReadonly<DigestChannelApi>,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(digestChannelApi),
-    })
-}
-
-export const getStamphogDigestChannelsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getStamphogDigestChannelsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsUpdate = async (
-    projectId: string,
-    id: string,
-    digestChannelApi: NonReadonly<DigestChannelApi>,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(digestChannelApi),
-    })
-}
-
-export const getStamphogDigestChannelsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDigestChannelApi?: NonReadonly<PatchedDigestChannelApi>,
-    options?: RequestInit
-): Promise<DigestChannelApi> => {
-    return apiMutator<DigestChannelApi>(getStamphogDigestChannelsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDigestChannelApi),
-    })
-}
-
-export const getStamphogDigestChannelsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/stamphog/digest_channels/${id}/`
-}
-
-/**
- * Per-audience Slack destinations for the daily merged-PR digest.
- */
-export const stamphogDigestChannelsDestroy = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getStamphogDigestChannelsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
 
 export const getStamphogDigestRunsListUrl = (projectId: string, params?: StamphogDigestRunsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -193,7 +50,7 @@ export const getStamphogDigestRunsListUrl = (projectId: string, params?: Stampho
 }
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const stamphogDigestRunsList = async (
     projectId: string,
@@ -211,7 +68,7 @@ export const getStamphogDigestRunsRetrieveUrl = (projectId: string, id: string) 
 }
 
 /**
- * Read-only history of posted (or attempted) digests, filterable by digest channel.
+ * Read-only history of posted (or attempted) digests, filterable by Slack channel.
  */
 export const stamphogDigestRunsRetrieve = async (
     projectId: string,
@@ -311,14 +168,14 @@ export const getStamphogRepoConfigsCreateUrl = (projectId: string) => {
  */
 export const stamphogRepoConfigsCreate = async (
     projectId: string,
-    stamphogRepoConfigApi: NonReadonly<StamphogRepoConfigApi>,
+    stamphogRepoConfigWriteApi: StamphogRepoConfigWriteApi,
     options?: RequestInit
 ): Promise<StamphogRepoConfigApi> => {
     return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(stamphogRepoConfigApi),
+        body: JSON.stringify(stamphogRepoConfigWriteApi),
     })
 }
 
@@ -350,14 +207,14 @@ export const getStamphogRepoConfigsUpdateUrl = (projectId: string, id: string) =
 export const stamphogRepoConfigsUpdate = async (
     projectId: string,
     id: string,
-    stamphogRepoConfigApi: NonReadonly<StamphogRepoConfigApi>,
+    stamphogRepoConfigWriteApi: StamphogRepoConfigWriteApi,
     options?: RequestInit
 ): Promise<StamphogRepoConfigApi> => {
     return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(stamphogRepoConfigApi),
+        body: JSON.stringify(stamphogRepoConfigWriteApi),
     })
 }
 
@@ -371,14 +228,14 @@ export const getStamphogRepoConfigsPartialUpdateUrl = (projectId: string, id: st
 export const stamphogRepoConfigsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedStamphogRepoConfigApi?: NonReadonly<PatchedStamphogRepoConfigApi>,
+    patchedStamphogRepoConfigWriteApi?: PatchedStamphogRepoConfigWriteApi,
     options?: RequestInit
 ): Promise<StamphogRepoConfigApi> => {
     return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedStamphogRepoConfigApi),
+        body: JSON.stringify(patchedStamphogRepoConfigWriteApi),
     })
 }
 
@@ -398,6 +255,62 @@ export const stamphogRepoConfigsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getStamphogRepoConfigsAddRepositoryCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/stamphog/repo_configs/add_repository/`
+}
+
+/**
+ * Turn reviews on for a repository from the project's connected GitHub installations. Creates the repo config, or turns an existing one back on. Needs the editor level on stamphog.
+ */
+export const stamphogRepoConfigsAddRepositoryCreate = async (
+    projectId: string,
+    stamphogAddRepositoryApi: StamphogAddRepositoryApi,
+    options?: RequestInit
+): Promise<StamphogRepoConfigApi> => {
+    return apiMutator<StamphogRepoConfigApi>(getStamphogRepoConfigsAddRepositoryCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(stamphogAddRepositoryApi),
+    })
+}
+
+export const getStamphogRepoConfigsAvailableRepositoriesRetrieveUrl = (
+    projectId: string,
+    params?: StamphogRepoConfigsAvailableRepositoriesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/stamphog/repo_configs/available_repositories/?${stringifiedParams}`
+        : `/api/projects/${projectId}/stamphog/repo_configs/available_repositories/`
+}
+
+/**
+ * List repositories from the project's connected GitHub installations that are not added to stamphog yet, so they can be added with add_repository.
+ */
+export const stamphogRepoConfigsAvailableRepositoriesRetrieve = async (
+    projectId: string,
+    params?: StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
+    options?: RequestInit
+): Promise<StamphogAvailableRepositoriesApi> => {
+    return apiMutator<StamphogAvailableRepositoriesApi>(
+        getStamphogRepoConfigsAvailableRepositoriesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getStamphogRepoConfigsInstallInfoRetrieveUrl = (projectId: string) => {
@@ -454,7 +367,7 @@ export const getStamphogReviewRunsListUrl = (projectId: string, params?: Stampho
 }
 
 /**
- * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 export const stamphogReviewRunsList = async (
     projectId: string,
@@ -467,12 +380,32 @@ export const stamphogReviewRunsList = async (
     })
 }
 
+export const getStamphogReviewRunsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/stamphog/review_runs/`
+}
+
+/**
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
+ */
+export const stamphogReviewRunsCreate = async (
+    projectId: string,
+    reviewRequestApi: ReviewRequestApi,
+    options?: RequestInit
+): Promise<ReviewRequestResponseApi> => {
+    return apiMutator<ReviewRequestResponseApi>(getStamphogReviewRunsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reviewRequestApi),
+    })
+}
+
 export const getStamphogReviewRunsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/stamphog/review_runs/${id}/`
 }
 
 /**
- * Read-only history of stamphog review runs, filterable by repository, PR number, and status.
+ * History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.
  */
 export const stamphogReviewRunsRetrieve = async (
     projectId: string,

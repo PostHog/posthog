@@ -1,10 +1,12 @@
 import importlib
-from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 
-from django.apps import apps
-from django.db import connection
+from django.apps import apps as current_apps
+from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.operations.fields import RenameField
+
+from parameterized import parameterized
 
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -15,24 +17,29 @@ from ee.models.scim_provisioned_user import SCIMProvisionedUser
 migration_module = importlib.import_module("ee.migrations.0058_backfill_scim_provisioned_user_config")
 backfill_scim_provisioned_user_config = migration_module.backfill_scim_provisioned_user_config
 
-SCHEMA_EDITOR = SimpleNamespace(connection=connection)
+
+class FakeSchemaEditor:
+    class connection:
+        alias = "default"
 
 
-class TestBackfillSCIMProvisionedUserConfig(BaseTest):
-    def setUp(self):
-        super().setUp()
-        self.config = IdentityProviderConfig.objects.create(organization=self.organization, scim_enabled=True)
-        self.domain = OrganizationDomain.objects.create(
-            organization=self.organization,
-            domain="example.com",
-            verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+def apps_before_the_rename():
+    # posthog.1316 renames the field, and the squashes leave this backfill free to run on either
+    # side of it. The current state with that one rename undone is the other side.
+    state = MigrationLoader(connection=None).project_state()
+    RenameField("organizationdomain", "_identity_provider_config", "identity_provider_config").state_forwards(
+        "posthog", state
+    )
+    return state.apps
+
+
+class TestBackfillScimProvisionedUserConfig(BaseTest):
+    def _domain(self, domain: str, config: IdentityProviderConfig) -> OrganizationDomain:
+        return OrganizationDomain.objects.create(
+            organization=self.organization, domain=domain, _identity_provider_config=config
         )
-        self.provisioned_user = User.objects.create_user(
-            email="provisioned@example.com", password=None, first_name="Provisioned"
-        )
 
-    def _create_record(self, user: User, domain: OrganizationDomain) -> SCIMProvisionedUser:
+    def _record(self, user: User, domain: OrganizationDomain) -> SCIMProvisionedUser:
         return SCIMProvisionedUser.objects.create(
             user=user,
             organization_domain=domain,
@@ -40,31 +47,22 @@ class TestBackfillSCIMProvisionedUserConfig(BaseTest):
             username=user.email,
         )
 
-    def test_backfills_the_config_linked_to_the_record_domain(self):
-        record = self._create_record(self.provisioned_user, self.domain)
+    @parameterized.expand([("before_the_rename",), ("after_the_rename",)])
+    def test_claims_records_keyed_on_a_domain(self, case):
+        config = IdentityProviderConfig.objects.create(organization=self.organization, scim_enabled=True)
+        first_domain = self._domain("one.example.com", config)
+        second_domain = self._domain("two.example.com", config)
 
-        backfill_scim_provisioned_user_config(apps, SCHEMA_EDITOR)
+        claimable = self._record(self.user, first_domain)
+        duplicate_user = User.objects.create_and_join(self.organization, "duplicate@example.com", None)
+        oldest_of_the_duplicates = self._record(duplicate_user, first_domain)
+        newest_of_the_duplicates = self._record(duplicate_user, second_domain)
 
-        record.refresh_from_db()
-        assert record.identity_provider_config_id == self.config.id
+        apps = apps_before_the_rename() if case == "before_the_rename" else current_apps
+        backfill_scim_provisioned_user_config(apps, FakeSchemaEditor())
 
-    def test_leaves_a_second_record_for_the_same_config_on_its_domain_key(self):
-        # Two domains sharing a config used to serve SCIM separately, so one user can hold a record
-        # per domain. Claiming both for the config would break the unique constraint added in 0059.
-        second_domain = OrganizationDomain.objects.create(
-            organization=self.organization,
-            domain="partner.example.com",
-            verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
-        )
-        first_record = self._create_record(self.provisioned_user, self.domain)
-        second_record = self._create_record(self.provisioned_user, second_domain)
-
-        backfill_scim_provisioned_user_config(apps, SCHEMA_EDITOR)
-
-        first_record.refresh_from_db()
-        second_record.refresh_from_db()
-        assert [first_record.identity_provider_config_id, second_record.identity_provider_config_id] == [
-            self.config.id,
-            None,
-        ]
+        for record in (claimable, oldest_of_the_duplicates, newest_of_the_duplicates):
+            record.refresh_from_db()
+        assert claimable.identity_provider_config_id == config.id
+        assert oldest_of_the_duplicates.identity_provider_config_id == config.id
+        assert newest_of_the_duplicates.identity_provider_config_id is None

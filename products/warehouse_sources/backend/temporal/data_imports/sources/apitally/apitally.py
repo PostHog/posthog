@@ -163,6 +163,9 @@ def apitally_source(
                 child_endpoint=endpoint,
                 fanout=endpoint_config.fanout,
                 client_config=client_config,
+                # The Apps list wraps its rows in a `data` envelope; the parent must unwrap it so
+                # the fan-out can bind each app's `id` to the child's `app_id` path param.
+                parent_endpoint_extra={"data_selector": "data"},
                 path_format_values={},
                 team_id=team_id,
                 job_id=job_id,

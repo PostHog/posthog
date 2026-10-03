@@ -1,679 +1,19 @@
-from posthog.test.base import BaseTest
+import re
+from uuid import uuid4
 
-from posthog.models import Element, Organization
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from django.test import SimpleTestCase, override_settings
+
+from parameterized import parameterized
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Element
+from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
-
-from products.actions.backend.models.action import Action
-
-
-def _create_action(team, steps):
-    return Action.objects.create(team=team, steps_json=steps)
-
-
-# :TODO: Move ee/clickhouse/models/test/test_action.py here
-def filter_by_actions_factory(_create_event, _create_person, _get_events_for_action):
-    class TestFilterByActions(BaseTest):
-        def test_filter_with_selector_direct_decendant_ordering(self):
-            all_events = self._setup_action_selector_events()
-            action = _create_action(
-                self.team,
-                [
-                    {"event": "$autocapture", "selector": "div > div > a"},
-                    {
-                        "event": "$autocapture",
-                        "selector": "div > a.somethingthatdoesntexist",
-                    },
-                ],
-            )
-
-            self.assertActionEventsMatch(action, [all_events[1]])
-
-        def test_filter_with_selector_nth_child(self):
-            all_events = self._setup_action_selector_events()
-            action = _create_action(
-                self.team,
-                [{"event": "$autocapture", "selector": "div > a:nth-child(2)"}],
-            )
-
-            self.assertActionEventsMatch(action, [all_events[1]])
-
-        def test_filter_with_selector_id(self):
-            all_events = self._setup_action_selector_events()
-            action = _create_action(self.team, [{"event": "$autocapture", "selector": "[id='someId']"}])
-
-            self.assertActionEventsMatch(action, [all_events[1]])
-
-        def test_filter_with_selector_nested(self):
-            all_events = self._setup_action_selector_events()
-            action = _create_action(self.team, [{"event": "$autocapture", "selector": "[id='nested'] a"}])
-
-            self.assertActionEventsMatch(action, [all_events[0]])
-
-        def test_filter_with_selector_star(self):
-            all_events = self._setup_action_selector_events()
-            action = _create_action(self.team, [{"event": "$autocapture", "selector": "div *"}])
-
-            self.assertActionEventsMatch(action, all_events)
-
-        def _setup_action_selector_events(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-
-            event1 = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url",
-                        nth_child=1,
-                        nth_of_type=0,
-                        attr_class=["one-class"],
-                    ),
-                    Element(tag_name="button", nth_child=0, nth_of_type=0),
-                    Element(
-                        # Important that in this hierarchy the div is sandwiched between button and section.
-                        # This way makes sure that any conditions which should match this element also work
-                        # if the element is neither first nor last in the hierarchy.
-                        tag_name="div",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                    Element(tag_name="section", nth_child=0, nth_of_type=0, attr_id="nested"),
-                ],
-            )
-
-            event2 = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                    # make sure elements don't get double counted if they're part of the same event
-                    Element(href="/a-url-2", nth_child=0, nth_of_type=0),
-                ],
-            )
-
-            event3 = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="a", nth_child=3, nth_of_type=0),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                ],
-            )
-
-            # make sure other teams' data doesn't get mixed in
-            team2 = Organization.objects.bootstrap(None)[2]
-            _create_event(
-                event="$autocapture",
-                team=team2,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="a", nth_child=2, nth_of_type=0, attr_id="someId"),
-                    Element(tag_name="div", nth_child=0, nth_of_type=0),
-                ],
-            )
-
-            return event1, event2, event3
-
-        def assertActionEventsMatch(self, action, expected_events):
-            events = _get_events_for_action(action)
-
-            self.assertCountEqual([e.uuid for e in events], list(expected_events))
-
-        def test_with_normal_filters(self):
-            # this test also specifically tests the back to back receipt of
-            # the same type of events by action to test the query cache
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            # _create_person(distinct_ids=["whatever2"], team=self.team)
-
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {"event": "$autocapture", "href": "/a-url", "selector": "a"},
-                    {"event": "$autocapture", "href": "/a-url-2"},
-                ],
-            )
-
-            team2 = Organization.objects.bootstrap(None)[2]
-            event1_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url",
-                        text="some_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-
-            event2_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever2",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url",
-                        text="some_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-
-            event3_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url-2",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                    # make sure elements don't get double counted if they're part of the same event
-                    Element(
-                        tag_name="div",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                ],
-            )
-
-            event4_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever2",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url-2",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                    # make sure elements don't get double counted if they're part of the same event
-                    Element(
-                        tag_name="div",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                ],
-            )
-
-            # team leakage
-            _create_event(
-                team=team2,
-                event="$autocapture",
-                distinct_id="whatever2",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-            _create_event(
-                team=team2,
-                event="$autocapture",
-                distinct_id="whatever2",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url-2",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 4)
-            self.assertEqual(events[0].uuid, event4_uuid)
-            self.assertEqual(events[1].uuid, event3_uuid)
-            self.assertEqual(events[2].uuid, event2_uuid)
-            self.assertEqual(events[3].uuid, event1_uuid)
-
-        def test_with_href_contains(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "href": "/a-url",
-                        "href_matching": "contains",
-                        "selector": "a",
-                    }
-                ],
-            )
-
-            event1_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url",
-                        text="some_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-
-            event2_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever2",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="https://google.com/a-url",
-                        text="some_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-
-            event3_uuid = _create_event(
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/a-url-2",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                    # make sure elements don't get double counted if they're part of the same event
-                    Element(
-                        tag_name="div",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                ],
-            )
-
-            _create_event(  # Not matched because href is /b-url not /a-url
-                team=self.team,
-                event="$autocapture",
-                distinct_id="whatever2",
-                elements=[
-                    Element(
-                        tag_name="a",
-                        href="/b-url",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                    # make sure elements don't get double counted if they're part of the same event
-                    Element(
-                        tag_name="div",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    ),
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 3)
-            self.assertEqual(events[0].uuid, event3_uuid)
-            self.assertEqual(events[1].uuid, event2_uuid)
-            self.assertEqual(events[2].uuid, event1_uuid)
-
-        def test_with_class(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "selector": "a.nav-link.active",
-                        "tag_name": "a",
-                    }
-                ],
-            )
-            event1_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="span", attr_class=None),
-                    # crazy-class makes sure we don't require exact matching of the entire class string
-                    Element(tag_name="a", attr_class=["active", "crazy-class", "nav-link"]),
-                ],
-            )
-            # no class
-            _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="span", attr_class=None),
-                    Element(tag_name="a", attr_class=None),
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-            self.assertEqual(len(events), 1)
-
-        def test_with_class_with_escaped_symbols(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "selector": "a.na\\v-link:b@ld",
-                        "tag_name": "a",
-                    }
-                ],
-            )
-            event1_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="span", attr_class=None),
-                    Element(tag_name="a", attr_class=["na\\v-link:b@ld"]),
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-            self.assertEqual(len(events), 1)
-
-        def test_with_class_with_escaped_slashes(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "selector": "a.na\\\\\\v-link:b@ld",
-                        "tag_name": "a",
-                    }
-                ],
-            )
-            event1_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="span", attr_class=None),
-                    Element(tag_name="a", attr_class=["na\\\\\\v-link:b@ld"]),
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-            self.assertEqual(len(events), 1)
-
-        def test_with_tag_matching_class_selector(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "selector": "input",  # This should ONLY match the tag, but not a class named `input`
-                    }
-                ],
-            )
-            event_matching_tag_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="span", attr_class=None),
-                    Element(tag_name="input", attr_class=["button"]),  # Should match
-                ],
-            )
-            _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[
-                    Element(tag_name="span", attr_class=None),
-                    Element(tag_name="button", attr_class=["input"]),  # Cannot match
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].uuid, event_matching_tag_uuid)
-
-        def test_attributes(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            event1_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
-            )
-
-            action1 = Action.objects.create(
-                team=self.team, steps_json=[{"event": "$autocapture", "selector": '[data-id="123"]'}]
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].uuid, event1_uuid)
-
-        def test_filter_events_by_url(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            action1 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "url": "https://posthog.com/feedback/123",
-                        "url_matching": "exact",
-                    },
-                    {"event": "$autocapture", "href": "/a-url-2"},
-                ],
-            )
-
-            action2 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "url": "123",
-                        "url_matching": "contains",
-                    }
-                ],
-            )
-
-            action3 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "url": "https://posthog.com/%/123",
-                        "url_matching": "contains",
-                    }
-                ],
-            )
-
-            action4 = Action.objects.create(
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$autocapture",
-                        "url": "/123$",
-                        "url_matching": "regex",
-                    }
-                ],
-            )
-
-            _create_event(team=self.team, distinct_id="whatever", event="$autocapture")
-            event2_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                properties={"$current_url": "https://posthog.com/feedback/123"},
-                elements=[
-                    Element(
-                        tag_name="div",
-                        text="some_other_text",
-                        nth_child=0,
-                        nth_of_type=0,
-                    )
-                ],
-            )
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
-
-            events = _get_events_for_action(action2)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
-
-            events = _get_events_for_action(action3)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
-
-            events = _get_events_for_action(action4)
-            self.assertEqual(events[0].uuid, event2_uuid)
-            self.assertEqual(len(events), 1)
-
-        def test_person_with_different_distinct_id(self):
-            action_watch_movie = Action.objects.create(
-                team=self.team,
-                name="watched movie",
-                steps_json=[
-                    {
-                        "tag_name": "a",
-                        "href": "/movie",
-                        "event": "$autocapture",
-                    }
-                ],
-            )
-
-            _create_person(distinct_ids=["anonymous_user", "is_now_signed_up"], team=self.team)
-            _create_event(
-                distinct_id="anonymous_user",
-                team=self.team,
-                elements=[Element(tag_name="a", href="/movie")],
-                event="$autocapture",
-            )
-
-            event_watched_movie_uuid = _create_event(
-                distinct_id="is_now_signed_up",
-                team=self.team,
-                elements=[Element(tag_name="a", href="/movie")],
-                event="$autocapture",
-            )
-
-            events = _get_events_for_action(action_watch_movie)
-            self.assertEqual(events[0].uuid, event_watched_movie_uuid)
-            self.assertEqual(events[0].distinct_id, "is_now_signed_up")
-
-        def test_no_person_leakage_from_other_teams(self):
-            action_watch_movie = Action.objects.create(
-                team=self.team, name="watched movie", steps_json=[{"event": "user signed up"}]
-            )
-
-            _create_person(distinct_ids=["anonymous_user"], team=self.team)
-            _create_event(event="user signed up", distinct_id="anonymous_user", team=self.team)
-
-            team2 = Organization.objects.bootstrap(None)[2]
-            _create_person(distinct_ids=["anonymous_user2"], team=team2)
-
-            events = _get_events_for_action(action_watch_movie)
-            self.assertEqual(len(events), 1)
-            self.assertEqual(events[0].distinct_id, "anonymous_user")
-
-        def test_person_property(self):
-            _create_person(
-                team=self.team,
-                distinct_ids=["person1"],
-                properties={"$browser": "Chrome"},
-            )
-            _create_person(team=self.team, distinct_ids=["person2"])
-            _create_event(event="$pageview", distinct_id="person1", team=self.team)
-            _create_event(event="$pageview", distinct_id="person2", team=self.team)
-            action = Action.objects.create(
-                name="pageview",
-                team=self.team,
-                steps_json=[
-                    {
-                        "event": "$pageview",
-                        "properties": [{"key": "$browser", "value": "Chrome", "type": "person"}],
-                    }
-                ],
-            )
-            events = _get_events_for_action(action)
-            self.assertEqual(len(events), 1)
-
-        def test_no_steps(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[Element(tag_name="button", attributes={"attr__data-id": "123"})],
-            )
-            action1 = Action.objects.create(team=self.team)
-
-            events = _get_events_for_action(action1)
-            self.assertEqual(len(events), 0)
-
-        def test_empty_selector_same_as_null(self):
-            _create_person(distinct_ids=["whatever"], team=self.team)
-            action_null_selector = Action.objects.create(
-                team=self.team, steps_json=[{"event": "$autocapture", "selector": None}]
-            )
-            action_empty_selector = Action.objects.create(
-                team=self.team, steps_json=[{"event": "$autocapture", "selector": ""}]
-            )
-            event1_uuid = _create_event(
-                event="$autocapture",
-                team=self.team,
-                distinct_id="whatever",
-                elements=[Element(tag_name="span", attr_class=None)],
-            )
-
-            events_null_selector = _get_events_for_action(action_null_selector)
-            self.assertEqual(events_null_selector[0].uuid, event1_uuid)
-            self.assertEqual(len(events_null_selector), 1)
-
-            events_empty_selector = _get_events_for_action(action_empty_selector)
-            self.assertEqual(events_empty_selector, events_null_selector)
-
-    return TestFilterByActions
+from posthog.models.event.util import bulk_create_events, create_event, events_only_in_active_schema
+from posthog.models.property.util import build_selector_regex
+from posthog.test.test_journeys import journeys_for
 
 
 class TestSelectors(BaseTest):
@@ -771,6 +111,19 @@ class TestSelectors(BaseTest):
         self.assertEqual(selector1.parts[1].direct_descendant, True)
         self.assertEqual(selector1.parts[1].unique_order, 0)
 
+    @parameterized.expand(
+        [
+            (
+                "a class name that contains the pseudo-class text",
+                "div.foo-nth-child(2)",
+                [{"tag_name": "div", "attr_class__contains": ["foo-nth-child(2)"]}],
+            ),
+            ("the pseudo-class text with no colon", "nth-child(2)", [{"tag_name": "nth-child(2)"}]),
+        ]
+    )
+    def test_nth_child_without_a_colon_is_not_a_positional_selector(self, _name, selector, expected):
+        self.assertEqual([part.data for part in Selector(selector).parts], expected)
+
     def test_unique_order(self):
         selector1 = Selector("div > div")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div"})
@@ -803,3 +156,298 @@ class TestSelectors(BaseTest):
         # Make sure we strip these for full text search to work in the database
         selector1 = Selector("div#root\\:id")
         self.assertEqual(selector1.parts[0].data, {"tag_name": "div", "attr_id": "root:id"})
+
+
+class TestSelectorRegexMatching(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a sibling class the selector does not name can carry any character",
+                ".flex",
+                [Element(tag_name="div", attr_class=["flex", "w-1/2", "!mt-0", "hover:bg-blue-500/75"])],
+                True,
+            ),
+            (
+                "a target class can carry slashes and bangs",
+                ".bg-yellow/50",
+                [Element(tag_name="div", attr_class=["bg-yellow/50"])],
+                True,
+            ),
+            (
+                "a tailwind arbitrary-value target class",
+                ".max-w-[1045px]",
+                [Element(tag_name="div", attr_class=["max-w-[1045px]"])],
+                True,
+            ),
+            (
+                "an attribute value with a pre-escaped quote",
+                'div[title="say \\"hi\\""]',
+                [Element(tag_name="div", attributes={"attr__title": 'say "hi"'})],
+                True,
+            ),
+            (
+                "a single-quoted attribute value containing double quotes",
+                "div[title='say \"hi\"']",
+                [Element(tag_name="div", attributes={"attr__title": 'say "hi"'})],
+                True,
+            ),
+            (
+                "a neighboring attribute value containing a quote",
+                'div[title="hi"]',
+                [Element(tag_name="div", attributes={"attr__data-x": 'a"b', "attr__title": "hi"})],
+                True,
+            ),
+            (
+                "a semicolon inside an attribute value stays inside the element",
+                'input[type="text"]',
+                [
+                    Element(
+                        tag_name="input", attributes={"attr__style": "display: flex; gap: 4px", "attr__type": "text"}
+                    )
+                ],
+                True,
+            ),
+            (
+                "two attributes with others between them, in any order",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(
+                        tag_name="button",
+                        attributes={
+                            "attr__type": "button",
+                            "attr__ng-disabled": "busy",
+                            "attr__ng-click": "continue()",
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "two attributes in single quotes after a tag",
+                "button[type='button'][data-x='a']",
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                True,
+            ),
+            (
+                "two attributes on different elements",
+                '[type="button"][ng-click="continue()"]',
+                [
+                    Element(tag_name="button", attributes={"attr__type": "button"}),
+                    Element(tag_name="div", attributes={"attr__ng-click": "continue()"}),
+                ],
+                False,
+            ),
+            (
+                "a tag and its two attributes on different elements",
+                "button[type='button'][data-x='a']",
+                [
+                    Element(tag_name="button"),
+                    Element(tag_name="div", attributes={"attr__data-x": "a", "attr__type": "button"}),
+                ],
+                False,
+            ),
+            (
+                "two attributes followed by a class the element does not have",
+                'button[type="button"][data-x="a"].active',
+                [Element(tag_name="button", attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "the same attribute with two different values",
+                '[data-x="a"][data-x="b"]',
+                [Element(tag_name="div", attributes={"attr__data-x": "b"})],
+                False,
+            ),
+            (
+                "two attributes with an escaped quote in a value",
+                "[title='it\\'s'][data-x='a']",
+                [Element(tag_name="div", attributes={"attr__data-x": "a", "attr__title": "it's"})],
+                True,
+            ),
+            (
+                "two attribute names that only match the end of longer names",
+                'button[foo="1"][bar="2"]',
+                [Element(tag_name="button", attributes={"attr__data-bar": "2", "attr__data-foo": "1"})],
+                False,
+            ),
+            (
+                "two attributes after a tag and a position the element does not have",
+                'button:nth-child(2)[type="button"][data-x="a"]',
+                [Element(tag_name="div", nth_child=1, attributes={"attr__data-x": "a", "attr__type": "button"})],
+                False,
+            ),
+            (
+                "an attribute value with nested quotes and an equals sign",
+                "[ng-class=\"{'selected': data.raising_for=='myself'}\"]",
+                [Element(tag_name="div", attributes={"attr__ng-class": "{'selected': data.raising_for=='myself'}"})],
+                True,
+            ),
+            (
+                "attribute value mismatch",
+                'div[title="hi"]',
+                [Element(tag_name="div", attributes={"attr__title": "bye"})],
+                False,
+            ),
+            (
+                "class not on the element",
+                ".flex",
+                [Element(tag_name="div", attr_class=["lex"])],
+                False,
+            ),
+            (
+                "direct child combinator still matches parent and child",
+                "a > b",
+                [Element(tag_name="b"), Element(tag_name="a")],
+                True,
+            ),
+            (
+                "descendant combinator still matches parent and child",
+                "a b",
+                [Element(tag_name="b"), Element(tag_name="a")],
+                True,
+            ),
+            (
+                "direct child combinator does not match the reversed order",
+                "a > b",
+                [Element(tag_name="a"), Element(tag_name="b")],
+                False,
+            ),
+        ]
+    )
+    def test_selector_matches_elements_chain(self, _name, selector, elements, expected):
+        regex = build_selector_regex(Selector(selector, escape_slashes=False))
+        self.assertEqual(bool(re.search(regex, elements_to_string(elements))), expected)
+
+
+class TestSelectorRegexMonotonicity(SimpleTestCase):
+    SELECTORS = [
+        ".flex",
+        ".class",
+        ".bg-yellow/50",
+        ".!ml-auto",
+        ".max-w-[1045px]",
+        "div",
+        "a > b",
+        "a b",
+        'div[title="say \\"hi\\""]',
+        "div[title='say \"hi\"']",
+        'a[href="/pricing"]',
+        '[id="submit"]',
+        "button.btn:nth-child(3)",
+    ]
+
+    ELEMENT_CHAINS = [
+        [Element(tag_name="div", attr_class=["flex", "w-1/2"])],
+        [Element(tag_name="div", attr_class=["bg-yellow/50", "!ml-auto"])],
+        [Element(tag_name="div", attr_class=["max-w-[1045px]", "shadow-[0_4px_6px_rgba(0,0,0,0.1)]"])],
+        [Element(tag_name="div", attr_class=["class"], attributes={"attr__title": 'say "hi"'})],
+        [Element(tag_name="input", attributes={"attr__style": "display: flex; gap: 4px", "attr__type": "text"})],
+        [Element(tag_name="b"), Element(tag_name="a")],
+        [Element(tag_name="b"), Element(tag_name="div"), Element(tag_name="a")],
+        [Element(tag_name="a", href="/pricing", attr_class=["px-2", "hover:underline"])],
+        [Element(tag_name="button", attr_class=["btn"], nth_child=3), Element(tag_name="form")],
+        [Element(tag_name="button", attr_id="submit", attributes={"attr__type": "button"})],
+        # an attribute value that itself looks like a class followed by more text,
+        # which the old tail could wander into
+        [Element(tag_name="span", attributes={"attr__title": "x.class y"})],
+    ]
+
+    @staticmethod
+    def _pre_fix_build_selector_regex(selector: Selector) -> str:
+        # Frozen copy of build_selector_regex from before the tail and
+        # quote-escaping fix, kept to prove the fix only widens matching.
+        regex = r""
+        for tag in selector.parts:
+            if tag.data.get("tag_name") and isinstance(tag.data["tag_name"], str) and tag.data["tag_name"] != "*":
+                regex += re.escape(tag.data["tag_name"])
+            if tag.data.get("attr_class__contains"):
+                regex += r".*?\." + r"\..*?".join([re.escape(s) for s in sorted(tag.data["attr_class__contains"])])
+            if tag.ch_attributes:
+                regex += r".*?"
+                for key, value in sorted(tag.ch_attributes.items()):
+                    regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
+            regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+            if tag.direct_descendant:
+                regex += r".*"
+        return r"(^|;)" + regex if regex else r""
+
+    def test_fix_only_widens_matching(self):
+        chains = [elements_to_string(elements) for elements in self.ELEMENT_CHAINS]
+        newly_matching_pairs = 0
+        for selector_string in self.SELECTORS:
+            selector = Selector(selector_string, escape_slashes=False)
+            old_regex = self._pre_fix_build_selector_regex(selector)
+            new_regex = build_selector_regex(selector)
+            for chain in chains:
+                old_match = bool(re.search(old_regex, chain))
+                new_match = bool(re.search(new_regex, chain))
+                with self.subTest(selector=selector_string, chain=chain):
+                    if old_match:
+                        self.assertTrue(new_match)
+                if new_match and not old_match:
+                    newly_matching_pairs += 1
+        # the corpus has to exercise the widening, or the superset check is vacuous
+        self.assertGreater(newly_matching_pairs, 0)
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestNativeEventInserts(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(["bulk", "single"])
+    def test_native_only_scope_restores_dual_writes(self, insertion: str) -> None:
+        def insert(event: str) -> None:
+            if insertion == "bulk":
+                bulk_create_events([{"team": self.team, "event": event, "distinct_id": "test"}])
+            else:
+                create_event(event_uuid=uuid4(), team=self.team, event=event, distinct_id="test")
+
+        with self.assertRaisesRegex(ValueError, "fixture failed"):
+            with events_only_in_active_schema():
+                with events_only_in_active_schema():
+                    insert("nested")
+                insert("outer")
+                raise ValueError("fixture failed")
+
+        insert("after")
+
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",)],
+        )
+        self.assertEqual(
+            sync_execute(
+                "SELECT event FROM events_json WHERE team_id = %(team_id)s ORDER BY event", {"team_id": self.team.pk}
+            ),
+            [("after",), ("nested",), ("outer",)],
+        )
+
+    @parameterized.expand(["bulk", "single", "journey"])
+    def test_properties_follow_ingestion_cleanup(self, insertion: str) -> None:
+        properties = {
+            "$feature/enabled": True,
+            "$feature/disabled": False,
+            "$feature_flags": {"existing": "control"},
+            "$sdk_debug_replay_internal_buffer_length": 0,
+        }
+        if insertion == "journey":
+            journeys_for({"test": [{"event": "test", "properties": properties}]}, self.team)
+        elif insertion == "bulk":
+            bulk_create_events([{"team": self.team, "event": "test", "distinct_id": "test", "properties": properties}])
+        else:
+            create_event(event_uuid=uuid4(), team=self.team, event="test", distinct_id="test", properties=properties)
+
+        result = sync_execute(
+            "SELECT properties.`$feature_flags`, "
+            "toJSONString(temporary_properties.`$sdk_debug_replay_internal_buffer_length`), "
+            "isNull(properties.`$sdk_debug_replay_internal_buffer_length`) "
+            "FROM events_json WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )
+        assert result == [
+            (
+                {"disabled": "false", "enabled": "true", "existing": "control"},
+                "0",
+                1,
+            )
+        ]

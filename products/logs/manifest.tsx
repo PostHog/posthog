@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'logs',
             description: 'Monitor and analyze your logs to understand and fix issues.',
+            docsHref: 'https://posthog.com/docs/logs',
         },
         LogsAlertDetail: {
             import: () => import('./frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
@@ -93,9 +94,9 @@ export const manifest: ProductManifest = {
         {
             path: 'Logs',
             intents: [ProductKey.LOGS],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             iconType: 'logs' as FileSystemIconType,
-            iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
             sceneKey: 'Logs',
         },

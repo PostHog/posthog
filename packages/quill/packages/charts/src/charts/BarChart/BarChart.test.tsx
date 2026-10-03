@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChart, getHogChartTooltip, renderHogChart } from '../../testing'
+import { getHogChart, getHogChartTooltip, renderHogChart, waitForHogChartTooltip } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -418,6 +418,41 @@ describe('BarChart', () => {
                 clientX: dimensions.plotLeft + dimensions.plotWidth * 0.95,
                 clientY: yMidRow,
             })
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+        })
+
+        const hoverBandCenter = async (hitArea: 'bar' | 'band', index: number): Promise<void> => {
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'v', label: 'V', data: [100, 1, 0] }]}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ tooltip: { hitArea } }}
+                />
+            )
+            const bandCenterX = (i: number): number =>
+                dimensions.plotLeft + ((i + 0.5) * dimensions.plotWidth) / LABELS.length
+            const clientY = dimensions.plotTop + 4
+            // The first bar fills the plot, so this hover proves the chart is live.
+            await waitForHogChartTooltip(3000, () =>
+                fireEvent.mouseMove(chart.element, { clientX: bandCenterX(0), clientY })
+            )
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX(index), clientY })
+        }
+
+        it.each<[string, number, string]>([
+            ['a bar one unit tall', 1, 'Tue'],
+            ['an empty bucket', 2, 'Wed'],
+        ])('band hit-testing reaches %s', async (_name, index, expectedLabel) => {
+            await hoverBandCenter('band', index)
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toContain(expectedLabel))
+        })
+
+        it.each<[string, number]>([
+            ['a bar one unit tall', 1],
+            ['an empty bucket', 2],
+        ])('bar hit-testing leaves %s unreachable', async (_name, index) => {
+            await hoverBandCenter('bar', index)
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 

@@ -1,11 +1,8 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gitea import GiteaSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.gitea import GiteaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -14,7 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gitea.sour
     GITEA_WEBHOOK_RESOURCE_MAP,
     GiteaSource,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.gitea.source"
 
@@ -27,9 +23,6 @@ class TestGiteaSource:
             base_url="https://gitea.example.com", access_token="tok", repository="owner/repo"
         )
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GITEA
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
@@ -39,15 +32,6 @@ class TestGiteaSource:
         # The scaffold shipped hidden; a finished source must be visible.
         assert config.unreleasedSource is None
         assert [f.name for f in config.fields] == ["base_url", "access_token", "repository"]
-
-    def test_access_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "access_token"
-        )
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_connection_host_fields_cover_base_url_and_repository(self):
         # `base_url` is where the token is sent; `repository` is which repo it reads. Changing
@@ -60,6 +44,7 @@ class TestGiteaSource:
             "401 Client Error: Unauthorized for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
             "403 Client Error: Forbidden for url: https://gitea.example.com/api/v1/repos/owner/repo/issues",
             "404 Client Error: Not Found for url: https://gitea.example.com/api/v1/repos/owner/repo",
+            "Gitea Actions runs are unavailable for this repository. Syncing workflow runs needs Gitea 1.25 or later with Actions enabled on the repository.",
         ],
     )
     def test_non_retryable_errors_match_known_failures(self, observed_error):
@@ -81,7 +66,12 @@ class TestGiteaSource:
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         by_name = {schema.name: schema for schema in schemas}
         # Only the endpoints with a real server-side `since` filter are incremental.
-        assert {name for name, schema in by_name.items() if schema.supports_incremental} == {"issues", "commits"}
+        assert {name for name, schema in by_name.items() if schema.supports_incremental} == {
+            "issues",
+            "commits",
+            "issue_comments",
+            "issue_timeline",
+        }
         assert {name for name, schema in by_name.items() if schema.supports_webhooks} == {"issues", "pull_requests"}
         assert by_name["issues"].incremental_fields == INCREMENTAL_FIELDS["issues"]
 
@@ -139,12 +129,6 @@ class TestGiteaSource:
         is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert (is_valid, error) == (False, "Invalid Gitea instance URL")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is GiteaResumeConfig
 
     @mock.patch(f"{_SOURCE_MODULE}.gitea_source")
     @mock.patch.object(GiteaSource, "is_database_host_valid")

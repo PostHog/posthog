@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -45,12 +46,13 @@ def upsert_direct_clickhouse_table(
     if existing_table is None:
         return DataWarehouseTable.objects.create(
             name=schema_name,
-            format=DataWarehouseTable.TableFormat.Parquet,
+            format=DataWarehouseTableFormat.Parquet,
             team_id=source.team_id,
             url_pattern=DIRECT_CLICKHOUSE_URL_PATTERN,
             external_data_source=source,
             columns=columns,
             options=options,
+            created_via=DataWarehouseTableCreatedVia.SOURCE,
         )
 
     existing_table.name = schema_name

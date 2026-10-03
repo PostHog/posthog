@@ -144,6 +144,9 @@ export function DefaultTooltip<Meta = unknown>({
             <div
                 ref={scrollContainerRef}
                 onScroll={updateScrollFades}
+                // One grid for all rows, with each row subgridded onto it, so the value column is
+                // as wide as the widest value and every row's label ends at the same x.
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto]"
                 style={{
                     maxHeight: ROWS_MAX_HEIGHT,
                     overflowY: 'auto',
@@ -162,7 +165,7 @@ export function DefaultTooltip<Meta = unknown>({
                             key={s.series.key}
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
-                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5 rounded transition-colors duration-150${isClosest ? ' font-semibold bg-current/[.1]' : ''}${clickable}`}
+                            className={`grid grid-cols-subgrid col-span-3 items-center gap-2 min-w-0 py-0.5 px-1.5 rounded transition-colors duration-150${isClosest ? ' font-semibold bg-current/[.1]' : ''}${clickable}`}
                             onClick={
                                 onRowClick
                                     ? () => {
@@ -179,7 +182,7 @@ export function DefaultTooltip<Meta = unknown>({
                             <TooltipSwatch color={s.color} />
                             {/* Grid-stack the label so an invisible semibold ghost always reserves
                                 the bold width — the visible span toggles weight without reflowing. */}
-                            <span className="flex-1 min-w-0 overflow-hidden grid">
+                            <span className="min-w-0 overflow-hidden grid">
                                 <span className="font-semibold invisible truncate [grid-area:1/1]" aria-hidden="true">
                                     {labelContent}
                                 </span>
@@ -187,7 +190,7 @@ export function DefaultTooltip<Meta = unknown>({
                                     {labelContent}
                                 </span>
                             </span>
-                            <strong data-attr="hog-chart-tooltip-value" className="tabular-nums">
+                            <strong data-attr="hog-chart-tooltip-value" className="tabular-nums justify-self-end">
                                 {format(s.value, s)}
                             </strong>
                         </div>

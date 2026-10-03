@@ -19,6 +19,14 @@ export class RasterizationMetrics {
         buckets: ACTIVITY_DURATION_BOUNDARIES,
     })
 
+    private static readonly beginFrameStallDuration = new Summary({
+        name: 'recording_rasterizer_beginframe_stall_duration_seconds',
+        help: 'Duration of recovered beginFrame stalls; frames that hit the hard timeout are not recorded here',
+        percentiles: QUANTILES,
+        maxAgeSeconds: MAX_AGE_SECONDS,
+        ageBuckets: AGE_BUCKETS,
+    })
+
     private static readonly setupDuration = new Summary({
         name: 'recording_rasterizer_setup_duration_seconds',
         help: 'Time spent on browser setup, player load, and recording data fetch',
@@ -118,6 +126,11 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances that disconnected unexpectedly',
     })
 
+    private static readonly unhandledRejectionsTotal = new Counter({
+        name: 'recording_rasterizer_unhandled_rejections_total',
+        help: 'Number of unhandled promise rejections suppressed by the worker guard',
+    })
+
     // --- Concurrency ---
 
     private static readonly concurrentActivities = new Gauge({
@@ -131,6 +144,10 @@ export class RasterizationMetrics {
         this.activityDuration.labels({ result }).observe(seconds)
         this.activitiesTotal.labels({ result }).inc()
         recordActivity(result, seconds)
+    }
+
+    public static observeBeginFrameStall(seconds: number): void {
+        this.beginFrameStallDuration.observe(seconds)
     }
 
     public static observeSetup(result: 'success' | 'error', seconds: number): void {
@@ -170,6 +187,10 @@ export class RasterizationMetrics {
 
     public static browserCrashed(): void {
         this.browserCrashesTotal.inc()
+    }
+
+    public static incrementUnhandledRejection(): void {
+        this.unhandledRejectionsTotal.inc()
     }
 
     // Labeled counters only expose series after the first increment; the

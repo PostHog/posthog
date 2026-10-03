@@ -1,6 +1,3 @@
-import { IconClock, IconGithub, IconWarning } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { percentage } from 'lib/utils/numbers'
 import type { SignalNode } from 'scenes/debug/signals/types'
@@ -30,33 +27,21 @@ function hasRepoWorkflow(value: unknown): value is RepoWorkflowExtra {
     )
 }
 
-/** The headline metric tag, switched on the CI signal variant. */
-function MetricTag({ signal }: { signal: SignalNode }): JSX.Element | null {
+/** The headline metric line, switched on the CI signal variant. */
+function metricLine(signal: SignalNode): string | null {
     const extra = signal.extra
     switch (signal.source_type) {
         case SignalSourceType.CiFlakyCheck: {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIFlakyCheckSignalExtraApi
-            return (
-                <LemonTag type="warning" size="small" icon={<IconWarning />}>
-                    Flaky · {e.job_name} · {e.flaky_count} runs in {e.window_days}d
-                </LemonTag>
-            )
+            return `Flaky · ${e.job_name} · ${e.flaky_count} runs in ${e.window_days}d`
         }
         case SignalSourceType.CiBrokenDefaultBranch: {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
-            return (
-                <LemonTag type="danger" size="small" icon={<IconWarning />}>
-                    {e.branch} · {percentage(e.conclusive_success_rate, 0)} pass
-                </LemonTag>
-            )
+            return `${e.branch} · ${percentage(e.conclusive_success_rate, 0)} pass`
         }
         case SignalSourceType.CiDurationRegression: {
             const e = extra as Record<string, unknown> & EngineeringAnalyticsCIDurationRegressionSignalExtraApi
-            return (
-                <LemonTag type="warning" size="small" icon={<IconClock />}>
-                    p95 +{percentage(e.pct_increase, 0)}
-                </LemonTag>
-            )
+            return `p95 +${percentage(e.pct_increase, 0)}`
         }
         default:
             return null
@@ -69,16 +54,17 @@ export function EngineeringAnalyticsSignalCard({ signal }: SignalCardProps): JSX
         return <SignalCardShell signal={signal}>{null}</SignalCardShell>
     }
     const { repo_owner, repo_name, workflow_name } = signal.extra
+    const metric = metricLine(signal)
 
     return (
         <SignalCardShell signal={signal}>
-            <div className="flex flex-wrap items-center gap-2">
-                <LemonTag size="small" icon={<IconGithub />}>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-tertiary">
                     {repo_owner}/{repo_name}
-                </LemonTag>
-                <span className="font-medium">{workflow_name}</span>
-                <MetricTag signal={signal} />
+                </span>
+                <span className="font-medium text-sm">{workflow_name}</span>
             </div>
+            {metric && <div className="text-xs text-tertiary mt-1">{metric}</div>}
 
             {signal.content && (
                 <LemonMarkdown className="text-sm text-secondary mt-2" disableImages>

@@ -1,5 +1,7 @@
 import { RecipeNormalizer } from '@posthog/llm-normalizer'
 
+import api from 'lib/api'
+
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, CompatMessage, OpenAICompletionMessage } from './types'
@@ -13,6 +15,8 @@ import {
     getInternalTagName,
     getSessionID,
     getSessionStartTimestamp,
+    getSummarizationLookupDateRange,
+    queryEvaluationRuns,
     hasCostBreakdown,
     hasStringContentField,
     isEmptyJSONStructure,
@@ -71,6 +75,72 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.49, 1])('preserves a System One probability of %s without inventing reasoning', (probability) => {
+        const row = makeEvaluationRunRow()
+        row[7] = ''
+        row[21] = probability
+        const run = mapEvaluationRunRow(row)
+        expect(run.probability).toBe(probability)
+        expect(run.reasoning).toBe('')
+    })
+
+    it.each([
+        ['["resolved"]', ['resolved']],
+        ['[]', []],
+        [null, []],
+        ['invalid', null],
+        ['[1]', null],
+    ])('preserves categorical JSON %p without confusing empty and absent results', (raw, expected) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'categorical' })
+        row[18] = raw
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'categorical',
+            categories: expected,
+            result: null,
+        })
+    })
+
+    it.each([false, 'false'])('keeps an inapplicable categorical result as N/A (%p)', (applicable) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'categorical', applicable })
+        row[18] = null
+        expect(mapEvaluationRunRow(row).categories).toBeNull()
+    })
+
+    it.each([
+        ['a backfilled verdict', '2026-04-11T08:00:00Z', 'backfill-1'],
+        ['a verdict written before these properties existed', null, null],
+    ])('maps the run time and backfill of %s', (_case, startTime, backfillId) => {
+        const row = makeEvaluationRunRow()
+        row[18] = null
+        row[19] = startTime
+        row[20] = backfillId
+        expect(mapEvaluationRunRow(row)).toMatchObject({ start_time: startTime, backfill_id: backfillId })
+    })
+
+    it.each([0, 0.5, -2, '0', '0.5', '-2'])('keeps numeric score %p and its original bounds', (score) => {
+        const row = makeEvaluationRunRow({ result: null, resultType: 'numeric' })
+        row[15] = score
+        row[16] = -5
+        row[17] = 10
+        expect(mapEvaluationRunRow(row)).toMatchObject({
+            result_type: 'numeric',
+            result: null,
+            score: Number(score),
+            score_min: -5,
+            score_max: 10,
+        })
+    })
+
+    it.each([null, true, false, '', 'true', 'false'])(
+        'does not read a numeric score from the boolean result property (%p)',
+        (result) => {
+            expect(mapEvaluationRunRow(makeEvaluationRunRow({ result, resultType: 'numeric' }))).toMatchObject({
+                result: null,
+                score: null,
+            })
+        }
+    )
+
     it('maps sentiment rows without coercing missing boolean results to false', () => {
         const run = mapEvaluationRunRow(
             makeEvaluationRunRow({
@@ -136,6 +206,24 @@ describe('mapEvaluationRunRow', () => {
 
         expect(run.result).toBeNull()
         expect(run.applicable).toBe(false)
+    })
+})
+
+describe('getSummarizationLookupDateRange', () => {
+    it('brackets the entity timestamp by a day either side', () => {
+        expect(getSummarizationLookupDateRange('2026-01-01T00:00:00Z')).toEqual({
+            date_from: '2025-12-31T00:00:00.000Z',
+            date_to: '2026-01-02T00:00:00.000Z',
+        })
+    })
+
+    // Without the guard, dayjs anchors on now, so the window never contains an older entity
+    // and the endpoint answers 404 instead of falling back to its own default.
+    it.each([
+        ['missing', undefined],
+        ['unparseable', 'not a timestamp'],
+    ])('sends no window at all when the timestamp is %s', (_, createdAt) => {
+        expect(getSummarizationLookupDateRange(createdAt)).toEqual({})
     })
 })
 
@@ -2311,6 +2399,143 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
 
             expect(normalizeMessage(message, 'user')).toEqual([{ role: 'assistant', content: '' }])
         })
+
+        it('normalizes reasoning parts into thinking messages without an empty primary', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    { type: 'reasoning', content: 'The user wants the forecast.' },
+                    { type: 'text', content: 'Here is the forecast.' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'assistant', content: 'Here is the forecast.' },
+                { role: 'assistant (thinking)', content: 'The user wants the forecast.' },
+            ])
+        })
+
+        it('normalizes a reasoning-only message into just a thinking message', () => {
+            const message = {
+                role: 'assistant',
+                parts: [{ type: 'reasoning', content: 'Considering options.' }],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'assistant (thinking)', content: 'Considering options.' },
+            ])
+        })
+
+        it('normalizes server_tool_call parts into tool calls', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'server_tool_call',
+                        id: 'st_1',
+                        name: 'web_search',
+                        server_tool_call: { type: 'web_search', query: 'weather in Montreal' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'st_1',
+                            function: {
+                                name: 'web_search',
+                                arguments: { type: 'web_search', query: 'weather in Montreal' },
+                            },
+                        },
+                    ],
+                },
+            ])
+        })
+
+        it('normalizes server_tool_call_response parts into tool messages', () => {
+            const message = {
+                role: 'assistant',
+                parts: [
+                    {
+                        type: 'server_tool_call_response',
+                        id: 'st_1',
+                        server_tool_call_response: { type: 'web_search', status: 'completed' },
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                {
+                    role: 'tool',
+                    content: '{"type":"web_search","status":"completed"}',
+                    tool_call_id: 'st_1',
+                },
+            ])
+        })
+
+        it('normalizes image blob parts into data-URI image items', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    { type: 'text', content: 'What is in this picture?' },
+                    { type: 'blob', modality: 'image', mime_type: 'image/png', content: 'aGVsbG8=' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'user', content: 'What is in this picture?' },
+                { role: 'user', content: [{ type: 'image', image: 'data:image/png;base64,aGVsbG8=' }] },
+            ])
+        })
+
+        it('normalizes image uri parts into image items', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    { type: 'uri', modality: 'image', mime_type: 'image/jpeg', uri: 'https://example.com/cat.jpg' },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([
+                { role: 'user', content: [{ type: 'image', image: 'https://example.com/cat.jpg' }] },
+            ])
+        })
+
+        it.each([
+            [
+                'a non-image blob',
+                { type: 'blob', modality: 'audio', mime_type: 'audio/mp3', content: 'aGVsbG8=' },
+                '[audio]',
+            ],
+            [
+                'a non-image uri',
+                { type: 'uri', modality: 'document', mime_type: 'application/pdf', uri: 'https://example.com/doc.pdf' },
+                '[document: https://example.com/doc.pdf]',
+            ],
+            ['a file reference', { type: 'file', modality: 'document', file_id: 'file_123' }, '[file: file_123]'],
+        ])('normalizes %s into a text marker', (_label, part, expectedContent) => {
+            const message = { role: 'user', parts: [part] }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'user', content: expectedContent }])
+        })
+
+        it.each([
+            [
+                'its summary when present',
+                { type: 'compaction', id: 'c1', content: 'Earlier turns covered pricing.' },
+                'Earlier turns covered pricing.',
+            ],
+            ['a marker when the summary is absent', { type: 'compaction', id: 'c1' }, '[conversation compacted]'],
+        ])('normalizes compaction parts into %s', (_label, part, expectedContent) => {
+            const message = { role: 'user', parts: [part] }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'user', content: expectedContent }])
+        })
     })
 
     describe('getSessionID', () => {
@@ -2802,5 +3027,28 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                 { role: 'tool', content: '{"tempF":71}', tool_call_id: 'c1' },
             ])
         })
+    })
+})
+
+describe('queryEvaluationRuns', () => {
+    const queryHogQL = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+
+    afterEach(() => queryHogQL.mockClear())
+
+    it('narrows to one backfill as SQL rather than as a string', async () => {
+        await queryEvaluationRuns({ evaluationId: 'eval-1', backfillId: 'run-1' })
+
+        // A nested hogql template would arrive escaped as a value and fail to parse, so assert
+        // the clause reached the query as SQL.
+        expect(queryHogQL.mock.calls[0][0]).toContain("AND properties.$ai_evaluation_backfill_id = 'run-1'")
+    })
+
+    it('leaves the runs unfiltered when no backfill is given', async () => {
+        await queryEvaluationRuns({ evaluationId: 'eval-1' })
+
+        expect(queryHogQL.mock.calls[0][0]).not.toContain('AND properties.$ai_evaluation_backfill_id =')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result as score')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_min as score_min')
+        expect(queryHogQL.mock.calls[0][0]).toContain('properties.$ai_evaluation_numeric_result_max as score_max')
     })
 })

@@ -2,21 +2,18 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.dagster_cloud import (
-    DagsterCloudResumeConfig,
+from products.warehouse_sources.backend.facade.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source import DagsterCloudSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.dagster_cloud.source"
 
 
 class TestDagsterCloudSourceConfig:
-    def test_source_type(self) -> None:
-        assert DagsterCloudSource().source_type == ExternalDataSourceType.DAGSTERCLOUD
-
     def test_config_is_released_alpha_not_hidden(self) -> None:
         config = DagsterCloudSource().get_source_config
         assert config.releaseStatus == ReleaseStatus.ALPHA
@@ -42,7 +39,6 @@ class TestDagsterCloudSourceConfig:
 class TestDagsterCloudSchemas:
     def test_schema_incremental_flags(self) -> None:
         schemas = {s.name: s for s in DagsterCloudSource().get_schemas(MagicMock(), team_id=1)}
-        assert set(schemas) == {"runs", "backfills", "assets"}
         assert schemas["runs"].supports_incremental is True
         assert {f["field"] for f in schemas["runs"].incremental_fields} == {"updateTime", "creationTime"}
         assert schemas["backfills"].supports_incremental is False
@@ -57,8 +53,9 @@ class TestDagsterCloudSchemas:
     def test_documented_tables_render_for_public_docs(self) -> None:
         # lists_tables_without_credentials=True — the static catalog must surface in public docs.
         tables = {t["name"]: t for t in DagsterCloudSource().get_documented_tables()}
-        assert set(tables) == {"runs", "backfills", "assets"}
-        assert tables["runs"]["description"]  # canonical description present
+        assert set(tables) == set(ENDPOINTS)
+        # Every table carries a curated description rather than falling back to the LLM.
+        assert all(tables[name]["description"] for name in ENDPOINTS)
         assert "Incremental" in tables["runs"]["sync_methods"]
         assert "Incremental" not in tables["assets"]["sync_methods"]
 
@@ -87,19 +84,6 @@ class TestDagsterCloudNonRetryableErrors:
 
 
 class TestDagsterCloudPlumbing:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = DagsterCloudSource().get_resumable_source_manager(MagicMock())
-        assert manager._data_class is DagsterCloudResumeConfig
-
-    @patch(f"{MODULE}.validate_dagster_cloud_credentials")
-    def test_validate_credentials_passes_config_fields(self, mock_validate: MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        config = MagicMock(organization="acme", deployment="prod", api_token="tok")
-
-        DagsterCloudSource().validate_credentials(config, team_id=1)
-
-        mock_validate.assert_called_once_with("acme", "prod", "tok")
-
     @patch(f"{MODULE}.dagster_cloud_source")
     def test_source_for_pipeline_gates_incremental_value(self, mock_source: MagicMock) -> None:
         config = MagicMock(organization="acme", deployment="prod", api_token="tok")

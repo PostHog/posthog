@@ -112,7 +112,7 @@ where
 
 /// Truncate a string to a maximum number of characters (not bytes).
 /// Handles multibyte UTF-8 characters correctly.
-fn truncate_chars(s: &str, max_chars: usize) -> &str {
+pub(crate) fn truncate_chars(s: &str, max_chars: usize) -> &str {
     match s.char_indices().nth(max_chars) {
         Some((byte_idx, _)) => &s[..byte_idx],
         None => s,
@@ -186,6 +186,8 @@ pub struct FlagsCanonicalLogLine {
     pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
+    /// The response shape served, such as `FlagsV2` or `FlagsV3`.
+    pub response_format: Option<&'static str>,
 
     // Populated during authentication
     pub team_id: Option<i32>,
@@ -325,6 +327,7 @@ impl Default for FlagsCanonicalLogLine {
             lib: None,
             lib_version: None,
             api_version: None,
+            response_format: None,
             team_id: None,
             distinct_id: None,
             device_id: None,
@@ -396,6 +399,7 @@ impl FlagsCanonicalLogLine {
             lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
+            response_format = self.response_format,
             duration_ms = duration_ms,
             http_status = self.http_status,
             flags_evaluated = self.flags_evaluated,
@@ -669,6 +673,7 @@ mod tests {
         assert!(log.lib.is_none());
         assert!(log.lib_version.is_none());
         assert!(log.api_version.is_none());
+        assert!(log.response_format.is_none());
         assert!(log.team_id.is_none());
         assert!(log.distinct_id.is_none());
         assert!(log.device_id.is_none());
@@ -717,6 +722,7 @@ mod tests {
         log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());
+        log.response_format = Some("FlagsV3");
         log.team_id = Some(123);
         log.distinct_id = Some("user_abc".to_string());
         log.device_id = Some("device_123".to_string());
@@ -1198,7 +1204,7 @@ mod tests {
             503,
             "service_unavailable"
         )]
-        #[case(FlagError::Internal("test".into()), 500, "internal_error")]
+        #[case(FlagError::internal(anyhow::anyhow!("test")), 500, "internal_error")]
         #[case(FlagError::RequestDecodingError("test".into()), 400, "request_decoding_error")]
         #[case(FlagError::MissingDistinctId, 400, "missing_distinct_id")]
         #[case(FlagError::NoTokenError, 401, "missing_token")]
@@ -1207,8 +1213,8 @@ mod tests {
         #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
-        #[case(FlagError::DataParsingErrorWithContext("test".into()), 500, "flag_data_parsing_error")]
-        #[case(FlagError::RedisUnavailable, 503, "redis_unavailable")]
+        #[case(FlagError::flag_data_parsing("test"), 500, "flag_data_parsing_error")]
+        #[case(FlagError::redis_unavailable(anyhow::anyhow!("connection refused")), 503, "redis_unavailable")]
         #[case(FlagError::DatabaseUnavailable, 503, "database_unavailable")]
         #[case(FlagError::TimeoutError(None), 503, "timeout")]
         #[case(FlagError::TimeoutError(Some("pool".into())), 503, "timeout")]
@@ -1227,9 +1233,14 @@ mod tests {
             500,
             "cohort_filters_parsing_error"
         )]
-        #[case(FlagError::PersonNotFound, 503, "person_not_found")]
-        #[case(FlagError::CacheMiss, 503, "cache_miss")]
-        #[case(FlagError::DataParsingError, 500, "data_parsing_error")]
+        #[case(FlagError::person_not_found(), 503, "person_not_found")]
+        #[case(FlagError::cache_miss(), 503, "cache_miss")]
+        #[case(FlagError::data_parsing(anyhow::anyhow!("bad payload")), 500, "data_parsing_error")]
+        #[case(
+            FlagError::batch_evaluation_panicked(),
+            500,
+            "batch_evaluation_panicked"
+        )]
         #[case(FlagError::HashKeyOverrideError, 500, "hash_key_override_error")]
         fn test_set_error_populates_fields(
             #[case] error: FlagError,

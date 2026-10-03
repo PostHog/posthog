@@ -5,7 +5,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -34,7 +34,18 @@ _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
-@dataclass
+def _required_model_keys(model: type[BaseModel]) -> set[str]:
+    """Names a `model` instance cannot be built without, so the extractor can spot the answer object.
+
+    A model whose fields all have defaults validates any stray object as an empty answer, so its
+    declared names mark the answer instead.
+    """
+    keys = {field.alias or name: field.is_required() for name, field in model.model_fields.items()}
+    return {key for key, required in keys.items() if required} or set(keys)
+
+
+# Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
+@dataclass(frozen=False)
 class MultiTurnSession:
     task: Task
     task_run: TaskRun
@@ -42,6 +53,11 @@ class MultiTurnSession:
     printed_lines: int = 0
     verbose: bool = False
     output_fn: OutputFn = field(default=None)
+    last_full_log: str = ""
+    """Cumulative session log (S3 JSONL) as of the latest completed turn. Empty until
+    the first turn returns. Callers slice per-turn ranges off it via ``log_lines_seen`` —
+    ``poll_for_turn`` already reads the full log each turn and discarded it, so retaining
+    it costs nothing extra."""
     # Per-turn poll budget. None falls back to `poll_for_turn`'s default (`MAX_POLL_SECONDS`).
     # Set this below the caller's Temporal activity `start_to_close_timeout` so the
     # dropped-finalization salvage can fire before the activity is cancelled.
@@ -62,14 +78,18 @@ class MultiTurnSession:
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
         ai_stage: str | None = None,
+        ai_agent_name: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
         fallback_from_text: Callable[[str], _ModelT] | None = None,
+        json_retry_prompt: str | None = None,
         workflow_id_prefix: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        output_schema: dict[str, Any] | None = None,
+        analytics_query_context: list[dict[str, object]] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -88,6 +108,11 @@ class MultiTurnSession:
         to persist. Single-turn callers (e.g. the Signals scout, whose summary is a
         free-text markdown close-out) use this so an unparseable end-turn no longer
         discards the entire run and its scan-position close-out.
+
+        `json_retry_prompt`, if given, is sent once as a follow-up turn on the same
+        session when the first turn does not parse/validate against `model`. The agent
+        keeps its context, so it can restate its answer as JSON without a new sandbox
+        run. `fallback_from_text` applies only if the retry turn fails too.
         """
         session, last_message = await cls.start_raw(
             prompt=prompt,
@@ -99,6 +124,7 @@ class MultiTurnSession:
             origin_product=origin_product,
             signal_report_id=signal_report_id,
             ai_stage=ai_stage,
+            ai_agent_name=ai_agent_name,
             internal=internal,
             on_task_run_created=on_task_run_created,
             max_poll_seconds=max_poll_seconds,
@@ -106,9 +132,27 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            output_schema=output_schema,
+            analytics_query_context=analytics_query_context,
         )
+        # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
+        salvageable = True
         try:
-            parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            try:
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn")
+            except Exception as e:
+                if json_retry_prompt is None:
+                    raise
+                logger.warning(
+                    "multi_turn: end-turn did not validate against %s for run=%s, asking for JSON once (%s)",
+                    model.__name__,
+                    session.task_run.id,
+                    e,
+                )
+                salvageable = False
+                retry_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
+                salvageable = True
+                parsed = cls._parse_and_validate(retry_message, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller
@@ -116,6 +160,7 @@ class MultiTurnSession:
             # a Temporal cancellation (CancelledError), which must propagate and fail the run.
             if (
                 fallback_from_text is not None
+                and salvageable
                 and last_message is not None
                 and not isinstance(e, asyncio.CancelledError)
             ):
@@ -156,6 +201,7 @@ class MultiTurnSession:
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
         ai_stage: str | None = None,
+        ai_agent_name: str | None = None,
         internal: bool = False,
         on_task_run_created: Callable[[TaskRun], Awaitable[None]] | None = None,
         max_poll_seconds: int | None = None,
@@ -163,6 +209,8 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        output_schema: dict[str, Any] | None = None,
+        analytics_query_context: list[dict[str, object]] | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -187,11 +235,14 @@ class MultiTurnSession:
             origin_product=origin_product,
             signal_report_id=signal_report_id,
             ai_stage=ai_stage,
+            ai_agent_name=ai_agent_name,
             internal=internal,
             workflow_id_prefix=workflow_id_prefix,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            output_schema=output_schema,
+            analytics_query_context=analytics_query_context,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
@@ -222,13 +273,16 @@ class MultiTurnSession:
                 raise
         started_at = time.monotonic()
         try:
-            last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
+            turn = await poll_for_turn(
                 task_run,
                 verbose=verbose,
                 output_fn=output_fn,
                 workflow_handle=workflow_handle,
                 max_poll_seconds=max_poll_seconds,
             )
+            session.log_lines_seen = turn.total_lines
+            session.printed_lines = turn.printed_lines
+            session.last_full_log = turn.full_log or ""
             logger.info(
                 "multi_turn: initial turn completed run=%s duration=%.2fs",
                 task_run.id,
@@ -242,7 +296,7 @@ class MultiTurnSession:
             # Shield so the failure signal still lands if the cancel re-fires mid-cleanup.
             await asyncio.shield(session.end(status="failed", error=str(e)))
             raise
-        return session, last_message
+        return session, turn.last_message
 
     async def send_followup(
         self,
@@ -250,10 +304,13 @@ class MultiTurnSession:
         model: type[_ModelT],
         *,
         label: str = "",
+        validation_context: dict[str, object] | None = None,
     ) -> _ModelT:
         """Send a follow-up message and wait for the agent's next structured response."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
+        parsed = self._parse_and_validate(
+            last_message, model, label=label or "followup", validation_context=validation_context
+        )
         return parsed
 
     async def send_followup_raw(
@@ -297,7 +354,7 @@ class MultiTurnSession:
             attempt,
         )
         try:
-            last_message, _, self.log_lines_seen, self.printed_lines = await poll_for_turn(
+            turn = await poll_for_turn(
                 self.task_run,
                 skip_lines=self.log_lines_seen,
                 printed_lines=self.printed_lines,
@@ -306,7 +363,10 @@ class MultiTurnSession:
                 workflow_handle=self._workflow_handle,
                 max_poll_seconds=self.max_poll_seconds,
             )
-            return last_message
+            self.log_lines_seen = turn.total_lines
+            self.printed_lines = turn.printed_lines
+            self.last_full_log = turn.full_log or ""
+            return turn.last_message
         # Catch empty turns, raise everything else
         except EmptyAgentTurnError as e:
             # Advance log offsets to read from the current tail instead of re-reading the empty-turn lines
@@ -324,11 +384,20 @@ class MultiTurnSession:
                 self.output_fn(f"Agent returned empty response for {label or 'followup'}, {action}")
             return None
 
+    @property
+    def workflow_handle(self) -> WorkflowHandle:
+        """The parent workflow's handle. Raises when the session was built without one."""
+        if self._workflow_handle is None:
+            raise RuntimeError("Workflow handle is not available in this session.")
+        return self._workflow_handle
+
     @staticmethod
-    def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:
+    def _parse_and_validate(
+        text: str, model: type[_ModelT], label: str, validation_context: dict[str, object] | None = None
+    ) -> _ModelT:
         """Extract JSON from agent text and validate against a Pydantic model."""
-        json_data = extract_json_from_text(text=text, label=label)
-        return model.model_validate(json_data)
+        json_data = extract_json_from_text(text=text, label=label, required_keys=_required_model_keys(model))
+        return model.model_validate(json_data, context=validation_context)
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
         """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.

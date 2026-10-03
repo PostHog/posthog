@@ -2,12 +2,16 @@ import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
+    API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
     getScopeDescription,
+    scopeMatchesSearch,
 } from 'lib/scopes'
 
-import { API_SCOPE_OBJECTS } from '~/types'
+import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
+
+const API_SCOPE_OBJECTS = Object.values(ScopeObjectEnumApi)
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -21,6 +25,13 @@ const getRenderableKeyCreationScopes = (): Set<string> =>
 describe('getScopeDescription', () => {
     it('returns the known description for a recognised scope', () => {
         expect(getScopeDescription('user:read')).toBe('Read access to users')
+    })
+
+    it('uses customer task labels in the scope picker', () => {
+        expect(API_SCOPES.find(({ key }) => key === 'customer_task')).toMatchObject({
+            objectName: 'Customer task',
+            objectPlural: 'customer tasks',
+        })
     })
 
     it('derives a readable label for OAuth-hidden scopes absent from API_SCOPES', () => {
@@ -41,15 +52,63 @@ describe('API_SCOPES modal coverage', () => {
     const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
 
     it('offers or explicitly omits every scope object', () => {
-        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
-        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
+        // The enum is generated from posthog/scopes.py, so a new backend scope object fails here
+        // until someone offers it in the key-creation modal or gives a reason to omit it.
         const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
         expect(uncovered).toEqual([])
     })
 
     it('never both offers and omits the same scope', () => {
-        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
+        const overlap = [...omitted].filter((obj) => offered.has(obj as ScopeObjectEnumApi))
         expect(overlap).toEqual([])
+    })
+})
+
+describe('API_SCOPE_GROUPS', () => {
+    it('files every scope object in exactly one group', () => {
+        // A new scope object fails here until someone picks the product area it belongs to.
+        const filed = API_SCOPE_GROUPS.flatMap(({ objects }) => objects)
+        const duplicates = [...new Set(filed.filter((obj, index) => filed.indexOf(obj) !== index))]
+        const missing = API_SCOPE_OBJECTS.filter((obj) => !filed.includes(obj))
+        expect({ duplicates, missing }).toEqual({ duplicates: [], missing: [] })
+    })
+
+    it('uses each group label once', () => {
+        const labels = API_SCOPE_GROUPS.map(({ label }) => label)
+        expect(labels).toEqual([...new Set(labels)])
+    })
+})
+
+describe('scopeMatchesSearch', () => {
+    const featureFlag = { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' }
+
+    it('matches every scope for an empty or whitespace term', () => {
+        expect(scopeMatchesSearch(featureFlag, '')).toBe(true)
+        expect(scopeMatchesSearch(featureFlag, '   ')).toBe(true)
+    })
+
+    // The regression this guards: the picker shows objectName, so a search on that label must match.
+    it.each([
+        ['key', 'feature_flag'],
+        ['objectName', 'Feature flag'],
+        ['objectPlural', 'feature flags'],
+        ['a single word from the label', 'flag'],
+        ['tokens in any order', 'flag feature'],
+    ])('matches on %s', (_field, term) => {
+        expect(scopeMatchesSearch(featureFlag, term)).toBe(true)
+    })
+
+    it('matches on the info text and ignores non-string info', () => {
+        expect(scopeMatchesSearch({ key: 'query', objectName: 'Query', info: 'Run SQL' }, 'sql')).toBe(true)
+        expect(scopeMatchesSearch({ key: 'query', objectName: 'Query', info: undefined }, 'undefined')).toBe(false)
+    })
+
+    it('matches on label for rows that carry no objectName', () => {
+        expect(scopeMatchesSearch({ key: 'cohort', label: 'Cohort' }, 'cohort')).toBe(true)
+    })
+
+    it('returns false when a token matches no field', () => {
+        expect(scopeMatchesSearch(featureFlag, 'dashboard')).toBe(false)
     })
 })
 

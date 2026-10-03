@@ -537,6 +537,11 @@ function TableCard({
     onUpdatePaginator: (paginator: Paginator) => void
     onRemove: () => void
 }): JSX.Element {
+    // Name and path are both required by the backend (min_length=1). A table left with either
+    // blank passes the wizard's non-empty manifest check and only fails at create time with a
+    // manifest-path error, so warn here where the fields are.
+    const nameMissing = !table.name.trim()
+    const pathMissing = !table.path.trim()
     return (
         <div className="rounded border border-border p-3 space-y-3">
             <div className="flex items-center justify-between">
@@ -581,6 +586,19 @@ function TableCard({
                         ]}
                     />
                 </LemonField.Pure>
+            </div>
+            {/* Persistently mounted so screen readers announce the warnings as they appear — a
+                region that mounts already populated is skipped by several readers. empty:hidden
+                keeps it from adding spacing when both fields are filled. */}
+            <div aria-live="polite" className="empty:hidden space-y-2">
+                {nameMissing && (
+                    <p className="m-0 text-xs text-danger">
+                        Enter a table name. Creating the source fails without one.
+                    </p>
+                )}
+                {pathMissing && (
+                    <p className="m-0 text-xs text-danger">Enter a path. Creating the source fails without one.</p>
+                )}
             </div>
             <LemonField.Pure label="Records JSONPath">
                 <LemonInput

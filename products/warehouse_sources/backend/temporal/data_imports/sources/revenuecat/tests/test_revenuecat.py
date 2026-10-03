@@ -157,11 +157,11 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            (401, "rejected the API key"),
+            (401, "rejected your api key"),
             (403, "denied"),
             (404, "could not find"),
             (429, "rate-limited"),
-            (500, "RevenueCat API error"),
+            (500, "could not complete"),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
@@ -173,6 +173,8 @@ class TestValidateCredentials:
         assert success is False
         assert error is not None
         assert expected_substring.lower() in error.lower()
+        # The status code is for error tracking, not for the person reading the source setup form.
+        assert str(status_code) not in error
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_returns_false_on_network_error(self, mock_session):
@@ -182,7 +184,9 @@ class TestValidateCredentials:
 
         assert success is False
         assert error is not None
-        assert "Could not reach RevenueCat" in error
+        assert error == api_client.UNREACHABLE_MESSAGE
+        # The transport exception must not reach the form — it names hosts and internals.
+        assert "dns fail" not in error
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.revenuecat._session")
     def test_skips_project_check_when_id_normalizes_to_empty(self, mock_session):
@@ -500,6 +504,10 @@ class TestCreateWebhook:
         # Webhook creation needs write scope, so this shared 403 message must not tell the user to
         # grant read access (unlike the credential-check path).
         assert "read" not in result.error.lower()
+        # Naming the scope is the point: a scope-neutral 403 sends people round re-checking a key
+        # that was never missing the permission they looked at.
+        assert "write permission for integrations" in result.error
+        assert "manual setup" in result.error
 
 
 class TestDeleteWebhook:

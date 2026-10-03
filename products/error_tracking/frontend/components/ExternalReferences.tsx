@@ -1,15 +1,17 @@
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonInputSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import { stackFrameLogic } from 'lib/components/Errors/Frame/stackFrameLogic'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
-import { GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
+import { GitHubRepositoryPicker, GitHubRepositorySelectField } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { JiraProjectSelectField } from 'lib/integrations/JiraIntegrationHelpers'
 import { LinearTeamSelectField } from 'lib/integrations/LinearIntegrationHelpers'
 import { ICONS } from 'lib/integrations/utils'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -26,21 +28,45 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingExternalReference, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
-import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import {
+    ErrorTrackingExternalIssueResultApi,
+    ErrorTrackingExternalIssueResultApiExternalContext,
+} from '../generated/api.schemas'
+import {
+    errorTrackingIssueSceneLogic,
+    errorTrackingIssueSceneLogicType,
+} from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
+import { appendStacktrace, getStacktrace } from './externalIssueBody'
+import { externalIssueSearchLogic } from './externalIssueSearchLogic'
+import { IncludeStacktraceField } from './IncludeStacktraceField'
 
 const ERROR_TRACKING_INTEGRATIONS = ['linear', 'github', 'gitlab', 'jira'] as const satisfies readonly IntegrationKind[]
 
-type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
+type onSubmitFormType = (integrationId: number, config: Record<string, string>, includeStacktrace: boolean) => void
+type onSubmitLinkType = (
+    integrationId: number,
+    externalContext: ErrorTrackingExternalIssueResultApiExternalContext
+) => void
 type ErrorTrackingIntegrationKind = (typeof ERROR_TRACKING_INTEGRATIONS)[number]
 type ErrorTrackingIntegration = IntegrationType & { kind: ErrorTrackingIntegrationKind }
+type ErrorTrackingIssueSceneBuiltLogic = BuiltLogic<errorTrackingIssueSceneLogicType>
 
-const POSTHOG_HTML_LINE_BREAKS = '\n<br/>\n<br/>\n'
+// The dialog otherwise sizes to its widest line, so it would resize when the stack trace preview is shown or hidden.
+const CREATE_ISSUE_DIALOG_WIDTH = '40rem'
+
+const PROVIDER_LABELS: Record<ErrorTrackingIntegrationKind, string> = {
+    github: 'GitHub',
+    gitlab: 'GitLab',
+    linear: 'Linear',
+    jira: 'Jira',
+}
 
 const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
     ErrorTrackingIntegrationKind,
     (
         issue: ErrorTrackingRelationalIssue,
         issueUrl: string,
+        sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
         integration: ErrorTrackingIntegration,
         onSubmit: onSubmitFormType
     ) => void
@@ -52,8 +78,9 @@ const EXTERNAL_REFERENCE_FORM_BUILDERS: Record<
 }
 
 export const ExternalReferences = (): JSX.Element | null => {
-    const { issue, issueLoading, issueFingerprints } = useValues(errorTrackingIssueSceneLogic)
-    const { createExternalReference } = useActions(errorTrackingIssueSceneLogic)
+    const sceneLogic = useMountedLogic(errorTrackingIssueSceneLogic)
+    const { issue, issueLoading, issueFingerprints } = useValues(sceneLogic)
+    const { createExternalReference, linkExternalReference } = useActions(sceneLogic)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
 
     if (!issue || integrationsLoading) {
@@ -68,7 +95,7 @@ export const ExternalReferences = (): JSX.Element | null => {
 
     const errorTrackingIntegrations = getIntegrationsByKind([...ERROR_TRACKING_INTEGRATIONS])
     const externalReferences = issue.external_issues ?? []
-    const creatingIssue = issue && issueLoading
+    const busy = !!issue && issueLoading
 
     const onClickCreateIssue = (integration: IntegrationType): void => {
         const buildForm = EXTERNAL_REFERENCE_FORM_BUILDERS[integration.kind as ErrorTrackingIntegrationKind]
@@ -77,14 +104,19 @@ export const ExternalReferences = (): JSX.Element | null => {
             buildForm(
                 issue,
                 getIssueUrl(issueFingerprints),
+                sceneLogic,
                 integration as ErrorTrackingIntegration,
                 createExternalReference
             )
         }
     }
 
+    const onClickLinkIssue = (integration: IntegrationType): void => {
+        linkExistingIssueForm(integration as ErrorTrackingIntegration, linkExternalReference)
+    }
+
     return (
-        <div>
+        <div className="flex flex-col gap-y-1">
             {externalReferences.map((reference: ErrorTrackingExternalReference) => (
                 <Link
                     key={reference.id}
@@ -98,46 +130,95 @@ export const ExternalReferences = (): JSX.Element | null => {
                     }}
                 >
                     <ButtonPrimitive fullWidth disabled={issueLoading}>
-                        <IntegrationIcon kind={reference.integration.kind} />
-                        {reference.integration.display_name}
+                        <div className="flex items-center gap-2 min-w-0 w-full">
+                            <IntegrationIcon kind={reference.integration.kind} />
+                            <span className="truncate min-w-0 flex-1 text-left">
+                                {reference.title ||
+                                    PROVIDER_LABELS[reference.integration.kind as ErrorTrackingIntegrationKind]}
+                            </span>
+                            {reference.external_id && (
+                                <span className="text-sm text-muted flex-shrink-0 ml-auto">
+                                    {reference.external_id}
+                                </span>
+                            )}
+                        </div>
                     </ButtonPrimitive>
                 </Link>
             ))}
             {errorTrackingIntegrations.length === 0 ? (
                 <SetupIntegrationsButton />
-            ) : errorTrackingIntegrations.length > 1 ? (
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <ButtonPrimitive fullWidth disabled={creatingIssue}>
-                            <IconPlus />
-                            {creatingIssue ? 'Creating issue...' : 'Create issue'}
-                        </ButtonPrimitive>
-                    </DropdownMenuTrigger>
-
-                    <DropdownMenuContent loop matchTriggerWidth>
-                        <DropdownMenuGroup>
-                            {errorTrackingIntegrations.map((integration: IntegrationType) => (
-                                <DropdownMenuItem key={integration.id} asChild>
-                                    <ButtonPrimitive menuItem onClick={() => onClickCreateIssue(integration)}>
-                                        <IntegrationIcon kind={integration.kind} />
-                                        {integration.display_name}
-                                    </ButtonPrimitive>
-                                </DropdownMenuItem>
-                            ))}
-                        </DropdownMenuGroup>
-                    </DropdownMenuContent>
-                </DropdownMenu>
             ) : (
-                <ButtonPrimitive
-                    fullWidth
-                    onClick={() => onClickCreateIssue(errorTrackingIntegrations[0])}
-                    disabled={issueLoading}
-                >
-                    <IntegrationIcon kind={errorTrackingIntegrations[0].kind} />
-                    {creatingIssue ? 'Creating issue...' : 'Create issue'}
-                </ButtonPrimitive>
+                <>
+                    <IntegrationActionButton
+                        integrations={errorTrackingIntegrations}
+                        icon={<IconPlus />}
+                        label="Create issue"
+                        busyLabel="Creating issue..."
+                        busy={busy}
+                        onSelect={onClickCreateIssue}
+                    />
+                    <IntegrationActionButton
+                        integrations={errorTrackingIntegrations}
+                        icon={<IconLink />}
+                        label="Link existing issue"
+                        busyLabel="Linking issue..."
+                        busy={busy}
+                        onSelect={onClickLinkIssue}
+                    />
+                </>
             )}
         </div>
+    )
+}
+
+// Renders one action (create / link) as a single button for one integration, or a dropdown to pick
+// the integration when several are connected.
+function IntegrationActionButton({
+    integrations,
+    icon,
+    label,
+    busyLabel,
+    busy,
+    onSelect,
+}: {
+    integrations: IntegrationType[]
+    icon: JSX.Element
+    label: string
+    busyLabel: string
+    busy: boolean
+    onSelect: (integration: IntegrationType) => void
+}): JSX.Element {
+    if (integrations.length === 1) {
+        return (
+            <ButtonPrimitive fullWidth onClick={() => onSelect(integrations[0])} disabled={busy}>
+                {icon}
+                {busy ? busyLabel : label}
+            </ButtonPrimitive>
+        )
+    }
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <ButtonPrimitive fullWidth disabled={busy}>
+                    {icon}
+                    {busy ? busyLabel : label}
+                </ButtonPrimitive>
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent loop matchTriggerWidth>
+                <DropdownMenuGroup>
+                    {integrations.map((integration: IntegrationType) => (
+                        <DropdownMenuItem key={integration.id} asChild>
+                            <ButtonPrimitive menuItem onClick={() => onSelect(integration)}>
+                                <IntegrationIcon kind={integration.kind} />
+                                {integration.display_name}
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    ))}
+                </DropdownMenuGroup>
+            </DropdownMenuContent>
+        </DropdownMenu>
     )
 }
 
@@ -165,26 +246,37 @@ function getIssueUrl(fingerprints: ErrorTrackingFingerprint[]): string {
     return `${window.location.origin}${window.location.pathname}`
 }
 
-function getIssueMarkdownBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
-    return `${issue.description ?? ''}${POSTHOG_HTML_LINE_BREAKS}**PostHog issue:** ${issueUrl}`
-}
-
-function getIssuePlaintextBody(issue: ErrorTrackingRelationalIssue, issueUrl: string): string {
-    return `${issue.description ?? ''}\n\nPostHog issue: ${issueUrl}`
+// The event and its frame records can finish loading after the dialog opens, so the trace is built at submit time.
+function getSubmittedBody(
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
+    text: string,
+    includeStacktrace: boolean
+): string {
+    if (!includeStacktrace) {
+        return text
+    }
+    const { selectedEvent, initialEvent } = sceneLogic.values
+    return appendStacktrace(
+        text,
+        getStacktrace(selectedEvent ?? initialEvent, stackFrameLogic.values.stackFrameRecords)
+    )
 }
 
 function createGitHubIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create GitHub issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl),
+            body: `**PostHog issue:** ${issueUrl}`,
+            includeStacktrace: true,
             integrationId: integration.id,
             repositories: [],
         },
@@ -195,8 +287,9 @@ function createGitHubIssueForm(
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="body" />
             </div>
         ),
         errors: {
@@ -204,8 +297,13 @@ function createGitHubIssueForm(
             repositories: (repositories) =>
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
-        onSubmit: ({ title, body, repositories }) => {
-            onSubmit(integration.id, { repository: repositories[0], title, body })
+        onSubmit: ({ title, body, includeStacktrace, repositories }) => {
+            const submittedBody = getSubmittedBody(sceneLogic, body, includeStacktrace)
+            onSubmit(
+                integration.id,
+                { repository: repositories[0], title, body: submittedBody },
+                submittedBody !== body
+            )
         },
     })
 }
@@ -213,15 +311,18 @@ function createGitHubIssueForm(
 function createGitLabIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create GitLab issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            body: getIssueMarkdownBody(issue, issueUrl),
+            body: `**PostHog issue:** ${issueUrl}`,
+            includeStacktrace: true,
             integrationId: integration.id,
         },
         content: (
@@ -230,15 +331,17 @@ function createGitLabIssueForm(
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="body" label="Body">
-                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="body" />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
         },
-        onSubmit: ({ title, body }) => {
-            onSubmit(integration.id, { title, body })
+        onSubmit: ({ title, body, includeStacktrace }) => {
+            const submittedBody = getSubmittedBody(sceneLogic, body, includeStacktrace)
+            onSubmit(integration.id, { title, body: submittedBody }, submittedBody !== body)
         },
     })
 }
@@ -246,15 +349,18 @@ function createGitLabIssueForm(
 function createLinearIssueForm(
     issue: ErrorTrackingRelationalIssue,
     _issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create Linear issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: issue.description,
+            description: '',
+            includeStacktrace: true,
             integrationId: integration.id,
             teamIds: [],
         },
@@ -265,16 +371,22 @@ function createLinearIssueForm(
                     <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="description" />
             </div>
         ),
         errors: {
             title: (title) => (!title ? 'You must enter a title' : undefined),
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
-        onSubmit: ({ title, description, teamIds }) => {
-            onSubmit(integration.id, { team_id: teamIds[0], title, description })
+        onSubmit: ({ title, description, includeStacktrace, teamIds }) => {
+            const submittedDescription = getSubmittedBody(sceneLogic, description, includeStacktrace)
+            onSubmit(
+                integration.id,
+                { team_id: teamIds[0], title, description: submittedDescription },
+                submittedDescription !== description
+            )
         },
     })
 }
@@ -282,15 +394,18 @@ function createLinearIssueForm(
 function createJiraIssueForm(
     issue: ErrorTrackingRelationalIssue,
     issueUrl: string,
+    sceneLogic: ErrorTrackingIssueSceneBuiltLogic,
     integration: ErrorTrackingIntegration,
     onSubmit: onSubmitFormType
 ): void {
     LemonDialog.openForm({
         title: 'Create Jira issue',
+        width: CREATE_ISSUE_DIALOG_WIDTH,
         shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
-            description: getIssuePlaintextBody(issue, issueUrl),
+            description: `PostHog issue: ${issueUrl}`,
+            includeStacktrace: true,
             integrationId: integration.id,
             projectKeys: [],
         },
@@ -301,8 +416,9 @@ function createJiraIssueForm(
                     <LemonInput data-attr="jira-issue-title" placeholder="Issue summary" size="small" />
                 </LemonField>
                 <LemonField name="description" label="Description">
-                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." />
+                    <LemonTextArea data-attr="jira-issue-description" placeholder="Start typing..." maxRows={12} />
                 </LemonField>
+                <IncludeStacktraceField sceneLogic={sceneLogic} bodyField="description" />
             </div>
         ),
         errors: {
@@ -310,10 +426,137 @@ function createJiraIssueForm(
             projectKeys: (projectKeys) =>
                 projectKeys && projectKeys.length === 0 ? 'You must choose a project' : undefined,
         },
-        onSubmit: ({ title, description, projectKeys }) => {
-            onSubmit(integration.id, { project_key: projectKeys[0], title, description })
+        onSubmit: ({ title, description, includeStacktrace, projectKeys }) => {
+            const submittedDescription = getSubmittedBody(sceneLogic, description, includeStacktrace)
+            onSubmit(
+                integration.id,
+                { project_key: projectKeys[0], title, description: submittedDescription },
+                submittedDescription !== description
+            )
         },
     })
+}
+
+function linkExistingIssueForm(integration: ErrorTrackingIntegration, onSubmit: onSubmitLinkType): void {
+    const label = PROVIDER_LABELS[integration.kind]
+    LemonDialog.openForm({
+        title: `Link existing ${label} issue`,
+        shouldAwaitSubmit: true,
+        initialValues: { externalIssue: null as ErrorTrackingExternalIssueResultApi | null },
+        content: (
+            <LemonField name="externalIssue" label="Issue">
+                <ExistingIssueSelect integrationId={integration.id} kind={integration.kind} />
+            </LemonField>
+        ),
+        errors: {
+            externalIssue: (externalIssue) => (!externalIssue ? 'You must select an issue' : undefined),
+        },
+        onSubmit: ({ externalIssue }) => {
+            if (externalIssue) {
+                onSubmit(integration.id, { ...externalIssue.external_context, title: externalIssue.title })
+            }
+        },
+    })
+}
+
+// Searchable picker of existing provider issues. Search state lives in externalIssueSearchLogic;
+// this component only bridges the LemonField value/onChange to the selected issue.
+function ExistingIssueSelect({
+    integrationId,
+    kind,
+    value,
+    onChange,
+}: {
+    integrationId: number
+    kind: ErrorTrackingIntegrationKind
+    value?: ErrorTrackingExternalIssueResultApi | null
+    onChange?: (value: ErrorTrackingExternalIssueResultApi | null) => void
+}): JSX.Element {
+    const requiresRepository = kind === 'github'
+    const logic = externalIssueSearchLogic({ integrationId, requiresRepository })
+    const { repository, results, resultsLoading } = useValues(logic)
+    const { setRepository, inputChanged, issueSelected } = useActions(logic)
+
+    const optionKey = (result: ErrorTrackingExternalIssueResultApi): string => result.url || `${result.id}`
+    const selectedKey = value ? optionKey(value) : null
+    const options = results.map((result) => ({
+        key: optionKey(result),
+        label: `${result.title} ${formatExternalIssueId(result.id, kind)}`,
+        labelComponent: externalIssueOptionLabel(result, kind),
+    }))
+    // A results refresh must not visually drop a valid selection, so the selected
+    // issue stays in the options even when the fresh results no longer include it.
+    if (value && selectedKey && !options.some((option) => option.key === selectedKey)) {
+        options.push({
+            key: selectedKey,
+            label: `${value.title} ${formatExternalIssueId(value.id, kind)}`,
+            labelComponent: externalIssueOptionLabel(value, kind),
+        })
+    }
+
+    return (
+        <div className="flex flex-col gap-y-2">
+            {requiresRepository && (
+                <GitHubRepositoryPicker
+                    integrationId={integrationId}
+                    value={repository}
+                    onChange={(newRepository) => {
+                        setRepository(newRepository ?? '')
+                        onChange?.(null)
+                    }}
+                />
+            )}
+            <LemonInputSelect
+                mode="single"
+                data-attr="select-existing-issue"
+                popoverClassName="[&_.LemonButton__content>span]:grow [&_.LemonButton__content>span]:min-w-0"
+                placeholder={
+                    requiresRepository && !repository ? 'Select a repository first...' : 'Search for an issue...'
+                }
+                disabled={requiresRepository && !repository}
+                loading={resultsLoading}
+                // Results are already filtered by the provider; the client-side fuzzy filter
+                // would hide valid matches whose titles don't contain the raw query text.
+                disableFiltering
+                options={options}
+                value={selectedKey ? [selectedKey] : []}
+                onInputChange={(query) => {
+                    inputChanged(query)
+                    // Typing a new query invalidates the current pick - submitting while results
+                    // refresh must not link the previously selected issue.
+                    if (query.trim() && value) {
+                        onChange?.(null)
+                    }
+                }}
+                onChange={(selection) => {
+                    const key = selection[0] ?? null
+                    const selected =
+                        results.find((result) => optionKey(result) === key) ??
+                        (key !== null && key === selectedKey ? value : null)
+                    if (selected) {
+                        issueSelected()
+                    }
+                    onChange?.(selected ?? null)
+                }}
+            />
+        </div>
+    )
+}
+
+function externalIssueOptionLabel(
+    issue: ErrorTrackingExternalIssueResultApi,
+    kind: ErrorTrackingIntegrationKind
+): JSX.Element {
+    return (
+        <span className="flex items-center justify-between gap-2 min-w-0 w-full">
+            <span className="truncate">{issue.title}</span>
+            <span className="text-muted flex-shrink-0">{formatExternalIssueId(issue.id, kind)}</span>
+        </span>
+    )
+}
+
+function formatExternalIssueId(id: string, kind: ErrorTrackingIntegrationKind): string {
+    return (kind === 'github' || kind === 'gitlab') && !id.startsWith('#') ? `#${id}` : id
 }
 
 const IntegrationIcon = ({ kind }: { kind: IntegrationKind }): JSX.Element => {

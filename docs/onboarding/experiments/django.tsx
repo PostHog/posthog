@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getDjangoSteps as getDjangoStepsPA } from '../product-analytics/django'
+import { getDjangoInstallSteps } from '../product-analytics/django'
 import { StepDefinition } from '../steps'
 
 export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only
-    const installationSteps = getDjangoStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send events')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -41,7 +38,7 @@ export const getDjangoSteps = (ctx: OnboardingComponentsContext): StepDefinition
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getDjangoInstallSteps(ctx), ...experimentSteps]
 }
 
 export const DjangoInstallation = createInstallation(getDjangoSteps)

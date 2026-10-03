@@ -35,7 +35,7 @@ export const RUN_VARIANT_TIMESTAMP_LABEL: Record<RunVariant, string> = {
   failed: "Failed",
 };
 
-interface VariantMeta {
+export interface VariantMeta {
   label: string;
   badgeTone: "default" | "info" | "success" | "destructive";
   orbClass: string;
@@ -43,7 +43,7 @@ interface VariantMeta {
   ariaLabel: string;
 }
 
-const VARIANT_META: Record<RunVariant, VariantMeta> = {
+export const VARIANT_META: Record<RunVariant, VariantMeta> = {
   queued: {
     label: "Queued",
     badgeTone: "default",
@@ -111,7 +111,7 @@ export function AgentRunCard({ report }: AgentRunCardProps) {
       type="button"
       onClick={() =>
         navigate({
-          to: "/code/inbox/runs/$reportId",
+          to: "/inbox/runs/$reportId",
           params: { reportId: report.id },
         })
       }

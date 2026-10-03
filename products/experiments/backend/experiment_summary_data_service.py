@@ -1,8 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, TypeIs, Union
-from zoneinfo import ZoneInfo
+from typing import Any, TypeIs
 
 from django.conf import settings
 
@@ -11,11 +10,7 @@ from posthoganalytics import capture_exception
 from posthog.schema import (
     CacheMissResponse,
     ExperimentExposureQuery,
-    ExperimentFunnelMetric,
-    ExperimentMeanMetric,
     ExperimentQuery,
-    ExperimentRatioMetric,
-    ExperimentRetentionMetric,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     MaxExperimentMetricResult,
@@ -33,11 +28,17 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE, ExperimentSummaryData
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import (
+    METRIC_BUILDERS,
+    ExperimentMetric,
+    resolve_saved_metric_definition,
+)
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment, get_experiment_rule
+from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
 
 
 @dataclass
@@ -54,32 +55,14 @@ class ExposureQueryResult:
     pending: bool
 
 
-MAX_METRICS_TO_SUMMARIZE = 50
 MAX_CONCURRENT_EXPERIMENT_SUMMARY_QUERIES = 10
 
-# This threshold is just to avoid minor discrepancies in timestamps.
-# The check itself compares the frontend timestamp with the last
-# backend refresh timestamp. So leaving the browser open while not
-# having any new data on the backend will not trigger a warning.
-FRESHNESS_THRESHOLD_SECONDS = 60
 
-ExperimentMetricType = Union[
-    ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric
-]
-
-
-def parse_metric_dict(metric_dict: dict) -> ExperimentMetricType | None:
-    """Parse a metric dictionary into its typed Pydantic object."""
-    metric_type = metric_dict.get("metric_type")
-    if metric_type == "mean":
-        return ExperimentMeanMetric(**metric_dict)
-    if metric_type == "funnel":
-        return ExperimentFunnelMetric(**metric_dict)
-    if metric_type == "ratio":
-        return ExperimentRatioMetric(**metric_dict)
-    if metric_type == "retention":
-        return ExperimentRetentionMetric(**metric_dict)
-    return None
+def parse_metric_dict(metric_dict: dict) -> ExperimentMetric | None:
+    """Parse a metric dictionary into its typed Pydantic object. Legacy Trends/Funnels
+    definitions carry no metric_type and are skipped rather than summarized."""
+    builder = METRIC_BUILDERS.get(metric_dict.get("metric_type", ""))
+    return builder(**metric_dict) if builder else None
 
 
 def get_delta_from_interval(interval: list[float] | None) -> float | None:
@@ -143,13 +126,8 @@ class ExperimentSummaryDataService:
         self._team = team
         self._user = user
 
-    async def fetch_experiment_data(
-        self, experiment_id: int
-    ) -> tuple[MaxExperimentSummaryContext, datetime | None, bool]:
-        """
-        Fetch experiment data from the database and run cached queries concurrently.
-        Returns the context data, the last refresh timestamp, and whether any calculation is pending.
-        """
+    async def fetch_experiment_data(self, experiment_id: int) -> ExperimentSummaryData:
+        """Fetch experiment data from the database and run cached queries concurrently."""
         team_id = self._team.id
 
         # First, fetch the experiment (required to build queries)
@@ -208,6 +186,7 @@ class ExperimentSummaryDataService:
                     )
                     result = query_runner.run(
                         execution_mode=execution_mode,
+                        user=self._user,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -244,7 +223,7 @@ class ExperimentSummaryDataService:
                     exposure_query = ExperimentExposureQuery(
                         experiment_id=experiment_id,
                         experiment_name=experiment.name,
-                        feature_flag=feature_flag.filters,
+                        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
                         start_date=experiment.start_date.isoformat() if experiment.start_date else None,
                         end_date=experiment.end_date.isoformat() if experiment.end_date else None,
                         exposure_criteria=experiment.exposure_criteria,
@@ -257,10 +236,13 @@ class ExperimentSummaryDataService:
                             query=exposure_query,
                             team=experiment.team,
                             limit_context=LimitContext.QUERY_ASYNC,
+                            # Runs for the requesting Max user, so warehouse access is enforced against them.
+                            user=self._user,
                             error_event_context="agent",
                         )
                         exposure_result = exposure_runner.run(
                             execution_mode=execution_mode,
+                            user=self._user,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
@@ -290,11 +272,26 @@ class ExperimentSummaryDataService:
             query = link.saved_metric.query
             if not query:
                 continue
+            query = resolve_saved_metric_definition(query, link.metadata)
+            # The display name lives on the saved metric model, not in its query dict —
+            # without it the summary falls back to raw event names.
+            if link.saved_metric.name:
+                query = {**query, "name": link.saved_metric.name}
             metric_type = (link.metadata or {}).get("type", "primary")
             if metric_type == "primary":
                 primary_metrics.append(query)
             else:
                 secondary_metrics.append(query)
+
+        # Number metrics in the UI's display order so "Metric 2" in the summary is the second row in the app.
+        primary_rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
+        secondary_rank = metric_display_rank(experiment.secondary_metrics_ordered_uuids)
+        primary_metrics.sort(key=lambda metric: primary_rank(metric.get("uuid", "")))
+        secondary_metrics.sort(key=lambda metric: secondary_rank(metric.get("uuid", "")))
+
+        omitted_metric_count = max(0, len(primary_metrics) - MAX_METRICS_TO_SUMMARIZE) + max(
+            0, len(secondary_metrics) - MAX_METRICS_TO_SUMMARIZE
+        )
 
         primary_metric_tasks = [
             run_metric_query_async(metric, i) for i, metric in enumerate(primary_metrics[:MAX_METRICS_TO_SUMMARIZE])
@@ -361,8 +358,8 @@ class ExperimentSummaryDataService:
             ):
                 latest_refresh = exposure_query_result.refresh_time
 
-        return (
-            MaxExperimentSummaryContext(
+        return ExperimentSummaryData(
+            context=MaxExperimentSummaryContext(
                 experiment_id=experiment_id,
                 experiment_name=experiment.name or "Unnamed experiment",
                 description=experiment.description or None,
@@ -372,35 +369,7 @@ class ExperimentSummaryDataService:
                 secondary_metrics_results=secondary_results,
                 stats_method=stats_method,
             ),
-            latest_refresh,
-            pending_calculation,
+            last_refresh=latest_refresh,
+            pending_calculation=pending_calculation,
+            omitted_metric_count=omitted_metric_count,
         )
-
-    def check_data_freshness(
-        self, frontend_last_refresh: str | None, backend_last_refresh: datetime | None
-    ) -> str | None:
-        """
-        Check if there's a significant difference between frontend and backend data freshness.
-        Returns a warning message if data might have changed, None otherwise.
-        """
-        if not frontend_last_refresh or not backend_last_refresh:
-            return None
-
-        try:
-            frontend_time = datetime.fromisoformat(frontend_last_refresh.replace("Z", "+00:00"))
-            if frontend_time.tzinfo is None:
-                frontend_time = frontend_time.replace(tzinfo=ZoneInfo("UTC"))
-            if backend_last_refresh.tzinfo is None:
-                backend_last_refresh = backend_last_refresh.replace(tzinfo=ZoneInfo("UTC"))
-
-            time_diff = abs((backend_last_refresh - frontend_time).total_seconds())
-            if time_diff > FRESHNESS_THRESHOLD_SECONDS:
-                return (
-                    f"**Note:** The experiment data has been updated since you loaded this page "
-                    f"(approximately {int(time_diff / 60)} minutes ago). "
-                    f"The summary below reflects the most current data."
-                )
-        except (ValueError, TypeError):
-            pass
-
-        return None

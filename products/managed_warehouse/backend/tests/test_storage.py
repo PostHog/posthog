@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.managed_warehouse.backend.storage import (
     _DELTA_LOG_VERSION_RE,
+    AwsCredentials,
     DuckLakeStorageConfig,
     _collect_delta_log_keys,
     normalize_endpoint,
@@ -166,7 +167,9 @@ class TestDuckLakeStorageConfigProduction:
         monkeypatch.setattr("products.managed_warehouse.backend.storage._get_django_settings", lambda: mock_settings)
         monkeypatch.setattr(
             "products.managed_warehouse.backend.storage._get_boto3_credentials",
-            lambda: ("ASIAACCESSKEY", "secretkey123", "sessiontoken456"),
+            lambda: AwsCredentials(
+                access_key="ASIAACCESSKEY", secret_key="secretkey123", session_token="sessiontoken456"
+            ),
         )
 
         config = DuckLakeStorageConfig.from_runtime()
@@ -194,7 +197,7 @@ class TestDuckLakeStorageConfigProduction:
         monkeypatch.setattr("products.managed_warehouse.backend.storage._get_django_settings", lambda: mock_settings)
         monkeypatch.setattr(
             "products.managed_warehouse.backend.storage._get_boto3_credentials",
-            lambda: ("AKIAACCESSKEY", "secretkey789", None),
+            lambda: AwsCredentials(access_key="AKIAACCESSKEY", secret_key="secretkey789"),
         )
 
         config = DuckLakeStorageConfig.from_runtime()

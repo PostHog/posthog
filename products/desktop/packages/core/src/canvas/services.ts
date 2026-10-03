@@ -7,21 +7,32 @@ import type { ChannelTaskRecord } from "./channelTaskSchemas";
 import type {
   CanvasActionDefinition,
   CanvasActionResult,
+  CanvasConnectorCallResult,
   CanvasDraft,
   CanvasSource,
   CanvasStateEntry,
   CanvasStateScope,
   CanvasVersion,
+  CanvasView,
   DashboardRecord,
+  PublishProjectInput,
+  PublishProjectResult,
 } from "./dashboardSchemas";
 import type {
+  CanvasAgentRequestResult,
   CanvasCaptureConfig,
   CanvasCaptureInput,
   CanvasCaptureResult,
   CanvasDataQueryInput,
   CanvasDataResult,
   CanvasLoadInsightInput,
+  SavedInsight,
 } from "./freeformSchemas";
+import type {
+  CanvasLayout,
+  CanvasLayoutResult,
+  LayoutOperation,
+} from "./gridLayoutSchemas";
 import type { CanvasTemplateSummary } from "./templateSchemas";
 
 // Structural service interfaces the host-router routers depend on. The concrete
@@ -34,18 +45,45 @@ export interface ICanvasTemplatesService {
 
 export interface IDashboardsService {
   list(channelId: string): Promise<DashboardRecord[]>;
+  // The component store: component-kind canvases visible to the caller.
+  listComponents(input: { search?: string }): Promise<DashboardRecord[]>;
+  listAll(): Promise<DashboardRecord[]>;
   get(id: string): Promise<DashboardRecord | null>;
+  publishProject(input: PublishProjectInput): Promise<PublishProjectResult>;
+  // Everything needed to open a canvas, in one round trip.
+  view(id: string): Promise<CanvasView>;
   create(input: {
     channelId: string;
     name: string;
     templateId?: string;
   }): Promise<DashboardRecord>;
-  saveContext(input: { id: string; context: string }): Promise<DashboardRecord>;
+  // Get-or-create the caller's home grid canvas. Idempotent.
+  home(): Promise<DashboardRecord>;
+  // Read a grid canvas's layout (the head, or a historical version).
+  getLayout(input: {
+    id: string;
+    versionId?: string;
+  }): Promise<CanvasLayoutResult>;
+  // Publish a complete layout as the new head (live immediately, no build).
+  publishLayout(input: {
+    id: string;
+    layout: CanvasLayout;
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult>;
+  // Apply surgical, guarded operations to the current layout.
+  patchLayout(input: {
+    id: string;
+    operations: LayoutOperation[];
+    prompt?: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasLayoutResult>;
   setGenerationTask(input: {
     id: string;
     taskId: string | null;
   }): Promise<DashboardRecord>;
   setPinned(input: { id: string; pinned: boolean }): Promise<DashboardRecord>;
+  file(input: { id: string; channelId: string }): Promise<DashboardRecord>;
   // File a rendering error against the build that threw it (best-effort).
   reportError(input: {
     id: string;
@@ -72,6 +110,14 @@ export interface IDashboardsService {
     verb: string;
     payload: Record<string, unknown>;
   }): Promise<CanvasActionResult>;
+  // Call one declared connector tool with the viewer's own connection.
+  callConnector(input: {
+    id: string;
+    provider: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+    approval_token?: string;
+  }): Promise<CanvasConnectorCallResult>;
   // Read the canvas's source project (the head, or a historical version).
   getSource(input: { id: string; versionId?: string }): Promise<CanvasSource>;
   // The canvas's source-version history, newest first (metadata only).
@@ -98,11 +144,16 @@ export interface IDashboardsService {
   actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord>;
   rename(input: { id: string; name: string }): Promise<DashboardRecord>;
   delete(id: string): Promise<void>;
+  requestAgent(input: {
+    id: string;
+    prompt: string;
+  }): Promise<CanvasAgentRequestResult>;
 }
 
 export interface ICanvasDataService {
   query(input: CanvasDataQueryInput): Promise<CanvasDataResult>;
   loadInsight(input: CanvasLoadInsightInput): Promise<CanvasDataResult>;
+  listSavedInsights(search?: string): Promise<SavedInsight[]>;
   capture(input: CanvasCaptureInput): Promise<CanvasCaptureResult>;
   captureConfig(): Promise<CanvasCaptureConfig>;
 }

@@ -1,21 +1,28 @@
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
+    sync::Mutex,
     time::{Duration, Instant},
 };
 use tokio_retry::{
     strategy::{jitter, ExponentialBackoff},
-    Retry,
+    RetryIf,
 };
 
 use crate::database::{
-    get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
+    get_connection_with_metrics, get_writer_connection_with_metrics, pool_names, PostgresRouter,
 };
-use common_database::PostgresReader;
+use common_database::{PostgresReader, PostgresWriter};
 use common_types::{Person, PersonId, TeamId};
 use once_cell::sync::Lazy;
+use rand::Rng;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
-use sqlx::{Acquire, Row};
+use sqlx::{
+    postgres::{PgConnection, PgRow},
+    Acquire, Row,
+};
+use tokio::time::timeout;
 use tracing::{debug, instrument, warn};
 
 // Add thread-local imports for test-specific counter
@@ -30,8 +37,8 @@ use crate::{
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME,
+        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_REPLICA_CHECK, FLAG_HASH_KEY_RETRIES_COUNTER,
+        FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::property_models::{OperatorType, PropertyFilter},
 };
@@ -39,6 +46,13 @@ use crate::{
 use super::{flag_group_type_mapping::GroupTypeIndex, flag_matching::FlagEvaluationState};
 
 const LONG_SCALE: u64 = 0xfffffffffffffff;
+
+/// Enough to size a rate nobody has measured, small enough that the extra primary load is noise.
+const REPLICA_STALENESS_SAMPLE_RATE: f64 = 0.01;
+
+/// Bounds how long a detached check can occupy the writer pool. Covers connection acquisition as
+/// well as the query, so a saturated pool kills the task here rather than at its acquire timeout.
+const REPLICA_STALENESS_CHECK_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Precomputed mapping from property name to its $initial_ equivalent.
 /// Source: posthog/taxonomy/taxonomy.py - PERSON_PROPERTIES_ADAPTED_FROM_EVENT + CAMPAIGN_PROPERTIES
@@ -86,6 +100,7 @@ static INITIAL_PROPERTY_MAP: Lazy<HashMap<&'static str, &'static str>> = Lazy::n
         ("epik", "$initial_epik"),
         ("qclid", "$initial_qclid"),
         ("sccid", "$initial_sccid"),
+        ("oppref", "$initial_oppref"),
         ("irclid", "$initial_irclid"),
         ("_kx", "$initial__kx"),
     ])
@@ -153,8 +168,10 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
 ///
 /// Web SDKs (posthog-js) report the OS as `$os`; mobile SDKs report it as
 /// `$os_name`. Ingestion normalizes `$os_name` -> `$os` at write time
-/// (`personInitialAndUTMProperties` in nodejs/src/utils/db/utils.ts), but that
-/// only covers newly-written rows — historical and un-normalized person rows can
+/// (`normalizeOsAlias` in nodejs/src/common/utils/event.ts for the event's own
+/// `$os`, `personInitialAndUTMProperties` in nodejs/src/common/utils/db/utils.ts
+/// for the person row), but that only covers newly-written rows, and it excludes
+/// `$is_server` events; historical and un-normalized person rows can
 /// carry only one of the two keys. Flag matching does exact-key lookups, so
 /// without this a mobile person whose row has only `$os_name` never matches an
 /// `$os` filter (and vice versa). The mirror is bidirectional so either filter
@@ -200,8 +217,12 @@ async fn fetch_person_and_cohorts(
     static_cohort_ids: &[CohortId],
 ) -> Result<PersonCohortResult, FlagError> {
     let conn_acquisition_start = Instant::now();
-    let conn_result =
-        get_connection_with_metrics(reader, "persons_reader", "fetch_person_properties").await;
+    let conn_result = get_connection_with_metrics(
+        reader,
+        pool_names::PERSONS_READER,
+        "fetch_person_properties",
+    )
+    .await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
@@ -238,7 +259,7 @@ async fn fetch_person_and_cohorts(
     };
 
     let query_labels = [
-        ("pool".to_string(), "persons_reader".to_string()),
+        ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
         ("team_id".to_string(), team_id.to_string()),
     ];
 
@@ -372,7 +393,8 @@ async fn fetch_group_properties(
 ) -> Result<GroupResult, FlagError> {
     let conn_acquisition_start = Instant::now();
     let conn_result =
-        get_connection_with_metrics(reader, "persons_reader", "fetch_group_properties").await;
+        get_connection_with_metrics(reader, pool_names::PERSONS_READER, "fetch_group_properties")
+            .await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
@@ -409,7 +431,7 @@ async fn fetch_group_properties(
     };
 
     let query_labels = [
-        ("pool".to_string(), "persons_reader".to_string()),
+        ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
         ("team_id".to_string(), team_id.to_string()),
     ];
 
@@ -583,6 +605,14 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         )?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
+        // Mark every requested index as fetched, not just the ones the query returned a
+        // row for. The group query is authoritative for all requested (index, key) pairs,
+        // so "no row" means the group genuinely has no properties. Recording that keeps it
+        // distinguishable from "prep never ran", which is what
+        // `FlagEvaluationState::group_properties_pending` keys on.
+        for &idx in group_type_to_key.keys() {
+            flag_evaluation_state.mark_group_properties_fetched(idx);
+        }
         for (idx, props) in group.group_properties {
             flag_evaluation_state.set_group_properties(idx, props);
         }
@@ -642,22 +672,14 @@ fn are_overrides_useful_for_flag(
 
 /// Classifies whether a FlagError is worth retrying.
 ///
-/// NOTE: this does not gate retries. The call sites use `Retry::spawn`, which retries
-/// every `Err` unconditionally; this only labels metrics and logs. Switch to
-/// `RetryIf::spawn` with this as the predicate if retries should actually be gated.
+/// Timeouts are not retried. A second attempt could wait the full acquire and statement timeouts
+/// again, which pushes the call past the request timeout. A foreign key violation is retried
+/// because it means that a person was deleted during a hash key override write.
 fn should_retry_on_error(error: &FlagError) -> bool {
-    match error {
-        // Errors constructed with context (e.g. "Failed to fetch flags") bypass
-        // From<sqlx::Error> and still carry the raw error, so classify by transience here.
-        FlagError::DatabaseError(sqlx_error, _) => common_database::is_transient_error(sqlx_error),
-
-        // Transient DB faults propagated via `?` (From<sqlx::Error>) or connection
-        // acquisition failures arrive already classified as DatabaseUnavailable (503).
-        FlagError::DatabaseUnavailable => true,
-
-        // Other error types generally should not be retried
-        _ => false,
-    }
+    matches!(
+        classify_db_error(error),
+        Some(("foreign_key" | "transient", _))
+    )
 }
 
 /// Check if a FlagError contains a foreign key constraint violation
@@ -671,17 +693,18 @@ fn flag_error_is_foreign_key_constraint(error: &FlagError) -> bool {
 }
 
 /// Maps a database-related FlagError to its `(error_type, timeout_subtype)` metric labels,
-/// or None for errors that aren't tracked. Split out from `classify_and_track_error` so the
-/// classification can be tested without observing the global counter.
+/// or None for errors that aren't tracked.
 fn classify_db_error(error: &FlagError) -> Option<(&'static str, Option<&str>)> {
     let labels = match error {
         FlagError::DatabaseError(sqlx_error, _) => {
+            // is_transient_error also accepts the statement timeout 57014. The timeout check
+            // therefore runs first, so should_retry_on_error does not retry a timeout.
             let err_type = if common_database::is_foreign_key_constraint_error(sqlx_error) {
                 "foreign_key"
-            } else if common_database::is_transient_error(sqlx_error) {
-                "transient"
             } else if common_database::is_timeout_error(sqlx_error) {
                 "timeout"
+            } else if common_database::is_transient_error(sqlx_error) {
+                "transient"
             } else {
                 // Errors reaching this arm were built with context, bypassing
                 // From<sqlx::Error>; transient/timeout ones are caught above, so
@@ -704,16 +727,11 @@ fn classify_db_error(error: &FlagError) -> Option<(&'static str, Option<&str>)> 
     Some(labels)
 }
 
-/// Classify and track database errors
-fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool) {
-    let Some((error_type, timeout_subtype)) = classify_db_error(error) else {
-        return;
-    };
-
+fn track_db_error(error_type: &str, timeout_subtype: Option<&str>, operation: &str, retried: bool) {
     let mut labels = vec![
         ("error_type".to_string(), error_type.to_string()),
         ("operation".to_string(), operation.to_string()),
-        ("retried".to_string(), will_retry.to_string()),
+        ("retried".to_string(), retried.to_string()),
     ];
 
     // Add timeout subtype if available
@@ -722,6 +740,122 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
     }
 
     common_metrics::inc(FLAG_DATABASE_ERROR_COUNTER, &labels, 1);
+}
+
+/// Records `flags_hash_key_retries_total` and the `retried` label on `flags_database_error_total`
+/// for one hash key override call.
+///
+/// `RetryIf` evaluates its condition before it checks whether any delays remain. The error alone
+/// therefore does not tell an attempt whether a retry follows it. The caller can also drop the
+/// call during the backoff, for example when the request times out. A failed attempt therefore
+/// counts as retried only when the next attempt starts. If the call ends before that, `Drop`
+/// records the error as not retried.
+struct HashKeyRetryMetrics {
+    team_id: TeamId,
+    operation: &'static str,
+    retries: usize,
+    attempts: Mutex<Attempts>,
+}
+
+#[derive(Default)]
+struct Attempts {
+    started: usize,
+    error_awaiting_retry: Option<(&'static str, Option<String>)>,
+}
+
+impl HashKeyRetryMetrics {
+    fn new(team_id: TeamId, operation: &'static str, retries: usize) -> Self {
+        Self {
+            team_id,
+            operation,
+            retries,
+            attempts: Mutex::default(),
+        }
+    }
+
+    fn start(&self) {
+        let mut attempts = self.attempts.lock().unwrap();
+        if attempts.started > 0 {
+            common_metrics::inc(
+                FLAG_HASH_KEY_RETRIES_COUNTER,
+                &[
+                    ("team_id".to_string(), self.team_id.to_string()),
+                    ("operation".to_string(), self.operation.to_string()),
+                ],
+                1,
+            );
+            if let Some((error_type, timeout_subtype)) = attempts.error_awaiting_retry.take() {
+                track_db_error(error_type, timeout_subtype.as_deref(), self.operation, true);
+            }
+        }
+        attempts.started += 1;
+    }
+
+    /// Records the error of the attempt that started last and returns whether `RetryIf` retries it.
+    fn fail(&self, error: &FlagError) -> bool {
+        let mut attempts = self.attempts.lock().unwrap();
+        let will_retry = attempts.started <= self.retries && should_retry_on_error(error);
+        if let Some((error_type, timeout_subtype)) = classify_db_error(error) {
+            if will_retry {
+                attempts.error_awaiting_retry =
+                    Some((error_type, timeout_subtype.map(str::to_owned)));
+            } else {
+                track_db_error(error_type, timeout_subtype, self.operation, false);
+            }
+        }
+        will_retry
+    }
+}
+
+impl Drop for HashKeyRetryMetrics {
+    fn drop(&mut self) {
+        let error = self
+            .attempts
+            .get_mut()
+            .ok()
+            .and_then(|attempts| attempts.error_awaiting_retry.take());
+        if let Some((error_type, timeout_subtype)) = error {
+            track_db_error(
+                error_type,
+                timeout_subtype.as_deref(),
+                self.operation,
+                false,
+            );
+        }
+    }
+}
+
+/// Runs a hash key override call and retries it after each of `retry_delays` while
+/// `should_retry_on_error` accepts the error. `log_retry` runs for each error that gets a retry.
+///
+/// `HashKeyRetryMetrics::fail` is the `RetryIf` condition, so the metrics and the retry come from
+/// one decision.
+async fn retry_hash_key_call<T, Fut>(
+    team_id: TeamId,
+    operation: &'static str,
+    retry_delays: Vec<Duration>,
+    mut attempt: impl FnMut() -> Fut,
+    log_retry: impl Fn(&FlagError),
+) -> Result<T, FlagError>
+where
+    Fut: Future<Output = Result<T, FlagError>>,
+{
+    let metrics = HashKeyRetryMetrics::new(team_id, operation, retry_delays.len());
+    RetryIf::spawn(
+        retry_delays,
+        || {
+            metrics.start();
+            attempt()
+        },
+        |e: &FlagError| {
+            let will_retry = metrics.fail(e);
+            if will_retry {
+                log_retry(e);
+            }
+            will_retry
+        },
+    )
+    .await
 }
 
 // Attempts to match a flag condition filter that depends on another flag
@@ -763,8 +897,13 @@ pub fn match_flag_value_to_flag_filter(
 /// for the given distinct IDs. It handles priority by giving precedence to the first
 /// distinct ID in the list. The operation is retried once (2 total attempts) with
 /// exponential backoff on transient database errors.
+///
+/// `pool_name` labels the connection metrics. Callers pass either the persons reader or the
+/// persons writer, and both arrive here as the same type, so only the caller knows which.
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
+    pool_name: &'static str,
+    persons_writer: PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
@@ -772,52 +911,34 @@ pub async fn get_feature_flag_hash_key_overrides(
     #[cfg(test)]
     increment_hash_key_override_lookup_count();
 
-    let retry_strategy = ExponentialBackoff::from_millis(50)
+    let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
-        .take(1) // 1 retry = 2 total attempts; keeps retry budget tight (~350ms worst case)
-        .map(jitter);
+        .take(1) // 1 retry = 2 total attempts
+        .map(jitter)
+        .collect();
 
-    // Use tokio-retry to automatically retry on transient failures
-    Retry::spawn(retry_strategy, || async {
-        let result = try_get_feature_flag_hash_key_overrides(
-            &reader,
-            team_id,
-            &distinct_id_and_hash_key_override,
-        )
-        .await;
-
-        // Log retry attempts for observability
-        if let Err(ref e) = result {
-            let will_retry = should_retry_on_error(e);
-
-            // Track error classification
-            classify_and_track_error(e, "get_hash_key_overrides", will_retry);
-
-            if will_retry {
-                // Increment retry counter for monitoring
-                common_metrics::inc(
-                    FLAG_HASH_KEY_RETRIES_COUNTER,
-                    &[
-                        ("team_id".to_string(), team_id.to_string()),
-                        (
-                            "operation".to_string(),
-                            "get_hash_key_overrides".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-
-                tracing::warn!(
-                    team_id = %team_id,
-                    distinct_ids = ?distinct_id_and_hash_key_override,
-                    error = ?e,
-                    "Hash key override query failed, will retry"
-                );
-            }
-        }
-
-        result
-    })
+    retry_hash_key_call(
+        team_id,
+        "get_hash_key_overrides",
+        retry_delays,
+        || {
+            try_get_feature_flag_hash_key_overrides(
+                &reader,
+                pool_name,
+                &persons_writer,
+                team_id,
+                &distinct_id_and_hash_key_override,
+            )
+        },
+        |e| {
+            tracing::warn!(
+                team_id = %team_id,
+                distinct_ids = ?distinct_id_and_hash_key_override,
+                error = ?e,
+                "Hash key override query failed, will retry"
+            );
+        },
+    )
     .await
 }
 
@@ -825,40 +946,27 @@ pub async fn get_feature_flag_hash_key_overrides(
 /// This is separated to make it easy to retry with tokio-retry.
 async fn try_get_feature_flag_hash_key_overrides(
     reader: &PostgresReader,
+    pool_name: &'static str,
+    persons_writer: &PostgresWriter,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let mut conn = get_connection_with_metrics(
-        reader,
-        "persons_reader",
-        "get_feature_flag_hash_key_overrides",
-    )
-    .await?;
-
-    // Get person data and their hash key overrides in one query
-    let hash_override_query = r#"
-            SELECT
-                ppd.person_id,
-                ppd.distinct_id,
-                fhko.feature_flag_key,
-                fhko.hash_key
-            FROM posthog_persondistinctid ppd
-            LEFT JOIN posthog_featureflaghashkeyoverride fhko
-                ON fhko.person_id = ppd.person_id
-                AND fhko.team_id = ppd.team_id
-            WHERE ppd.team_id = $1
-                AND ppd.distinct_id = ANY($2)
-                AND ppd.is_deleted = false
-        "#;
+    let mut conn =
+        get_connection_with_metrics(reader, pool_name, "get_feature_flag_hash_key_overrides")
+            .await?;
 
     let query_start = Instant::now();
-    let rows = sqlx::query(hash_override_query)
-        .bind(team_id)
-        .bind(distinct_id_and_hash_key_override)
-        .fetch_all(&mut *conn)
-        .await?;
+    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
     let query_duration = query_start.elapsed();
+
+    // Nothing below needs the reader connection, and this function is on the hottest path.
+    drop(conn);
+
+    // The join keeps a person row even when it has no override, so no rows at all means this pool
+    // could not see any of the requested distinct IDs. That is a different miss from seeing at
+    // least one and finding no override.
+    let any_distinct_id_found = !rows.is_empty();
 
     if query_duration.as_millis() > 200 {
         warn!(
@@ -888,10 +996,7 @@ async fn try_get_feature_flag_hash_key_overrides(
         person_id_to_distinct_id.insert(person_id, distinct_id);
 
         // Collect overrides where they exist
-        if let (Ok(feature_flag_key), Ok(hash_key)) = (
-            row.try_get::<String, _>("feature_flag_key"),
-            row.try_get::<String, _>("hash_key"),
-        ) {
+        if let Some((feature_flag_key, hash_key)) = row_override(&row) {
             overrides.push((feature_flag_key, hash_key, person_id));
         }
     }
@@ -927,7 +1032,119 @@ async fn try_get_feature_flag_hash_key_overrides(
         1,
     );
 
+    if pool_name == pool_names::PERSONS_READER
+        && feature_flag_hash_key_overrides.is_empty()
+        && rand::thread_rng().gen_bool(REPLICA_STALENESS_SAMPLE_RATE)
+    {
+        // Detached, so a sampled request never waits on the primary. The cost is that the check
+        // runs slightly after the served read, so an override that replicates in that gap counts
+        // as a disagreement. That inflates the rate rather than hiding lag.
+        let persons_writer = persons_writer.clone();
+        let distinct_ids = distinct_id_and_hash_key_override.to_vec();
+        tokio::spawn(async move {
+            check_primary_for_stale_empty(
+                &persons_writer,
+                team_id,
+                &distinct_ids,
+                any_distinct_id_found,
+            )
+            .await;
+        });
+    }
+
     Ok(feature_flag_hash_key_overrides)
+}
+
+/// Tells apart the two causes of an empty result: the person has no override, or the row has not
+/// replicated. Only the second is wrong, and the served metrics cannot separate them.
+///
+/// The answer is counted and thrown away. Serving it would make this a partial fix, and the rate
+/// would then measure the fix.
+///
+/// Diagnostic. Remove once the rate is known.
+async fn check_primary_for_stale_empty(
+    persons_writer: &PostgresWriter,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
+    any_distinct_id_found_on_replica: bool,
+) {
+    let check = primary_has_override(persons_writer, team_id, distinct_id_and_hash_key_override);
+
+    // Both booleans test "any requested distinct ID", not one specific person, so with several
+    // distinct IDs (the $anon_distinct_id case) the split between the two disagree buckets is
+    // approximate: the replica may have seen one distinct ID while missing the person that owns the
+    // primary override. The aggregate disagreement rate is unaffected.
+    let outcome = match timeout(REPLICA_STALENESS_CHECK_TIMEOUT, check).await {
+        Err(_) => "timeout",
+        Ok(Err(_)) => "error",
+        Ok(Ok(false)) => "agree",
+        Ok(Ok(true)) if any_distinct_id_found_on_replica => "disagree_override_missing",
+        Ok(Ok(true)) => "disagree_person_missing",
+    };
+
+    common_metrics::inc(
+        FLAG_HASH_KEY_REPLICA_CHECK,
+        &[("outcome".to_string(), outcome.to_string())],
+        1,
+    );
+}
+
+/// The served read and the staleness check must agree on what counts as an override, or the
+/// disagree metrics measure the gap between two tests rather than replica lag.
+fn row_override(row: &PgRow) -> Option<(String, String)> {
+    let feature_flag_key: String = row.try_get("feature_flag_key").ok()?;
+    let hash_key: String = row.try_get("hash_key").ok()?;
+    Some((feature_flag_key, hash_key))
+}
+
+/// Both the served read and the staleness check run this, so a disagreement between them means
+/// the data differed, not the question.
+async fn fetch_override_rows(
+    conn: &mut PgConnection,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
+) -> Result<Vec<PgRow>, FlagError> {
+    // Get person data and their hash key overrides in one query
+    let hash_override_query = r#"
+            SELECT
+                ppd.person_id,
+                ppd.distinct_id,
+                fhko.feature_flag_key,
+                fhko.hash_key
+            FROM posthog_persondistinctid ppd
+            LEFT JOIN posthog_featureflaghashkeyoverride fhko
+                ON fhko.person_id = ppd.person_id
+                AND fhko.team_id = ppd.team_id
+            WHERE ppd.team_id = $1
+                AND ppd.distinct_id = ANY($2)
+                AND ppd.is_deleted = false
+        "#;
+
+    sqlx::query(hash_override_query)
+        .bind(team_id)
+        .bind(distinct_id_and_hash_key_override)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(FlagError::from)
+}
+
+/// Asks the primary whether any override exists for these distinct IDs.
+async fn primary_has_override(
+    persons_writer: &PostgresWriter,
+    team_id: TeamId,
+    distinct_id_and_hash_key_override: &[String],
+) -> Result<bool, FlagError> {
+    let mut conn = get_connection_with_metrics(
+        persons_writer,
+        pool_names::PERSONS_WRITER,
+        // Its own operation name, so these stay out of the served read's metrics.
+        "get_feature_flag_hash_key_overrides_replica_check",
+    )
+    .await?;
+
+    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
+
+    Ok(rows.iter().any(|row| row_override(row).is_some()))
 }
 
 /// Sets feature flag hash key overrides for a list of distinct IDs.
@@ -941,61 +1158,35 @@ pub async fn set_feature_flag_hash_key_overrides(
     distinct_ids: Vec<String>,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    let retry_strategy = ExponentialBackoff::from_millis(100)
+    let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
         .take(2)
-        .map(jitter); // Add jitter to prevent thundering herd
+        .map(jitter) // Add jitter to prevent thundering herd
+        .collect();
 
-    // Use tokio-retry to automatically retry on transient failures
-    Retry::spawn(retry_strategy, || async {
-        let result = try_set_feature_flag_hash_key_overrides(
-            router,
-            team_id,
-            &distinct_ids,
-            &hash_key_override,
-        )
-        .await;
-
-        // Only retry on foreign key constraint errors (person deletion race condition)
-        match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
-                // Track error classification
-                classify_and_track_error(e, "set_hash_key_overrides", true);
-
-                // Increment retry counter for monitoring
-                common_metrics::inc(
-                    FLAG_HASH_KEY_RETRIES_COUNTER,
-                    &[
-                        ("team_id".to_string(), team_id.to_string()),
-                        (
-                            "operation".to_string(),
-                            "set_hash_key_overrides".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-
+    retry_hash_key_call(
+        team_id,
+        "set_hash_key_overrides",
+        retry_delays,
+        || {
+            try_set_feature_flag_hash_key_overrides(
+                router,
+                team_id,
+                &distinct_ids,
+                &hash_key_override,
+            )
+        },
+        |e| {
+            if flag_error_is_foreign_key_constraint(e) {
                 tracing::info!(
                     team_id = %team_id,
                     distinct_ids = ?distinct_ids,
                     error = ?e,
                     "Hash key override setting failed due to a person deletion race condition, will retry"
                 );
-
-                // Return error to trigger retry
-                result
             }
-            // For other errors, don't retry - return immediately to stop retrying
-            Err(e) => {
-                // Track error classification for non-retried errors
-                classify_and_track_error(e, "set_hash_key_overrides", false);
-
-                result
-            }
-            // Success case - return the result
-            Ok(_) => result,
-        }
-    })
+        },
+    )
     .await
 }
 
@@ -1010,11 +1201,19 @@ async fn try_set_feature_flag_hash_key_overrides(
     // Get connection from persons writer for the transaction
     let mut persons_conn = get_writer_connection_with_metrics(
         router.get_persons_writer(),
-        "persons_writer",
+        pool_names::PERSONS_WRITER,
         "set_feature_flag_hash_key_overrides",
     )
     .await?;
     let mut transaction = persons_conn.begin().await?;
+    // The foreign key from posthog_featureflaghashkeyoverride to posthog_person is deferred.
+    // Postgres checks deferred keys at COMMIT. statement_timeout does not cover COMMIT. When
+    // another transaction holds FOR UPDATE on the person row, as a delete does, the commit waits
+    // until that transaction ends or the request times out. This statement moves the check into
+    // the INSERT, where statement_timeout applies.
+    sqlx::query("SET CONSTRAINTS ALL IMMEDIATE")
+        .execute(&mut *transaction)
+        .await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
     let person_data_query = r#"
@@ -1061,7 +1260,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
-            ("pool".to_string(), "persons_writer".to_string()),
+            ("pool".to_string(), pool_names::PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_start = Instant::now();
@@ -1117,15 +1316,11 @@ async fn try_set_feature_flag_hash_key_overrides(
         // Get separate connection for non-persons query
         let mut non_persons_conn = get_connection_with_metrics(
             router.get_non_persons_reader(),
-            "non_persons_reader",
+            pool_names::NON_PERSONS_READER,
             "set_hash_key_overrides",
         )
         .await
-        .map_err(|e| {
-            sqlx::Error::Configuration(
-                format!("Failed to acquire non-persons connection: {e}").into(),
-            )
-        })?;
+        .map_err(FlagError::from)?;
 
         let flags_labels = [
             (
@@ -1136,7 +1331,10 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
-            ("pool".to_string(), "non_persons_reader".to_string()),
+            (
+                "pool".to_string(),
+                pool_names::NON_PERSONS_READER.to_string(),
+            ),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_start = Instant::now();
@@ -1201,7 +1399,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
-            ("pool".to_string(), "persons_writer".to_string()),
+            ("pool".to_string(), pool_names::PERSONS_WRITER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let insert_start = Instant::now();
@@ -1267,54 +1465,20 @@ pub async fn should_write_hash_key_override(
     distinct_id: String,
     hash_key_override: String,
 ) -> Result<bool, FlagError> {
-    let retry_strategy = ExponentialBackoff::from_millis(100)
+    let retry_delays: Vec<Duration> = ExponentialBackoff::from_millis(100)
         .max_delay(Duration::from_millis(300))
         .take(2)
-        .map(jitter); // Add jitter to prevent thundering herd
+        .map(jitter) // Add jitter to prevent thundering herd
+        .collect();
+    let distinct_ids = vec![distinct_id, hash_key_override];
 
-    let distinct_ids = vec![distinct_id.clone(), hash_key_override.clone()];
-
-    // Use tokio-retry to automatically retry on transient failures
-    Retry::spawn(retry_strategy, || async {
-        let result = try_should_write_hash_key_override(router, team_id, &distinct_ids).await;
-
-        // Only retry on foreign key constraint errors (person deletion race condition)
-        match &result {
-            Err(e) if flag_error_is_foreign_key_constraint(e) => {
-                // Increment retry counter for monitoring
-                common_metrics::inc(
-                    FLAG_HASH_KEY_RETRIES_COUNTER,
-                    &[
-                        ("team_id".to_string(), team_id.to_string()),
-                        (
-                            "operation".to_string(),
-                            "should_write_hash_key_override".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-
-                tracing::info!(
-                    team_id = %team_id,
-                    distinct_id = %distinct_id,
-                    error = ?e,
-                    "Hash key override check failed, will retry"
-                );
-
-                // Return error to trigger retry
-                result
-            }
-            // For other errors, don't retry - return immediately to stop retrying
-            Err(e) => {
-                // Track error classification for non-retried errors
-                classify_and_track_error(e, "should_write_hash_key_override", false);
-
-                result
-            }
-            // Success case - return the result
-            Ok(_) => result,
-        }
-    })
+    retry_hash_key_call(
+        team_id,
+        "should_write_hash_key_override",
+        retry_delays,
+        || try_should_write_hash_key_override(router, team_id, &distinct_ids),
+        |_| {},
+    )
     .await
 }
 
@@ -1379,7 +1543,7 @@ async fn try_should_write_hash_key_override(
         let persons_conn_start = Instant::now();
         let mut persons_conn = get_connection_with_metrics(
             router.get_persons_reader(),
-            "persons_reader",
+            pool_names::PERSONS_READER,
             "should_write_check",
         )
         .await
@@ -1389,7 +1553,7 @@ async fn try_should_write_hash_key_override(
         if persons_conn_acquisition_time > Duration::from_millis(100) {
             warn!(
                 team_id = %team_id,
-                pool = "persons_reader",
+                pool = pool_names::PERSONS_READER,
                 acquisition_ms = persons_conn_acquisition_time.as_millis(),
                 "Slow connection acquisition from persons_reader pool"
             );
@@ -1401,7 +1565,7 @@ async fn try_should_write_hash_key_override(
                 "person_data_with_overrides".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
-            ("pool".to_string(), "persons_reader".to_string()),
+            ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let person_query_timer =
@@ -1422,7 +1586,7 @@ async fn try_should_write_hash_key_override(
                         &[
                             ("error_type".to_string(), "timeout".to_string()),
                             ("timeout_type".to_string(), timeout_type.to_string()),
-                            ("pool".to_string(), "persons_reader".to_string()),
+                            ("pool".to_string(), pool_names::PERSONS_READER.to_string()),
                             (
                                 "operation".to_string(),
                                 "should_write_hash_key_override".to_string(),
@@ -1433,7 +1597,7 @@ async fn try_should_write_hash_key_override(
 
                     warn!(
                         team_id = %team_id,
-                        pool = "persons_reader",
+                        pool = pool_names::PERSONS_READER,
                         timeout_type = timeout_type,
                         error = ?e,
                         "Query timed out on persons_reader pool"
@@ -1462,7 +1626,7 @@ async fn try_should_write_hash_key_override(
         let non_persons_conn_start = Instant::now();
         let mut non_persons_conn = get_connection_with_metrics(
             router.get_non_persons_reader(),
-            "non_persons_reader",
+            pool_names::NON_PERSONS_READER,
             "should_write_check",
         )
         .await
@@ -1472,7 +1636,7 @@ async fn try_should_write_hash_key_override(
         if non_persons_conn_acquisition_time > Duration::from_millis(100) {
             warn!(
                 team_id = %team_id,
-                pool = "non_persons_reader",
+                pool = pool_names::NON_PERSONS_READER,
                 acquisition_ms = non_persons_conn_acquisition_time.as_millis(),
                 "Slow connection acquisition from non_persons_reader pool"
             );
@@ -1484,7 +1648,10 @@ async fn try_should_write_hash_key_override(
                 "active_flags_with_continuity".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
-            ("pool".to_string(), "non_persons_reader".to_string()),
+            (
+                "pool".to_string(),
+                pool_names::NON_PERSONS_READER.to_string(),
+            ),
             ("team_id".to_string(), team_id.to_string()),
         ];
         let flags_query_timer =
@@ -1504,7 +1671,10 @@ async fn try_should_write_hash_key_override(
                         &[
                             ("error_type".to_string(), "timeout".to_string()),
                             ("timeout_type".to_string(), timeout_type.to_string()),
-                            ("pool".to_string(), "non_persons_reader".to_string()),
+                            (
+                                "pool".to_string(),
+                                pool_names::NON_PERSONS_READER.to_string(),
+                            ),
                             (
                                 "operation".to_string(),
                                 "should_write_hash_key_override".to_string(),
@@ -1515,7 +1685,7 @@ async fn try_should_write_hash_key_override(
 
                     warn!(
                         team_id = %team_id,
-                        pool = "non_persons_reader",
+                        pool = pool_names::NON_PERSONS_READER,
                         timeout_type = timeout_type,
                         error = ?e,
                         "Query timed out on non_persons_reader pool"
@@ -1572,14 +1742,20 @@ fn increment_hash_key_override_lookup_count() {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::Ordering;
+
+    use common_database::{get_pool_with_config, PoolConfig};
+    use futures::FutureExt;
+    use metrics_util::debugging::DebuggingRecorder;
     use rstest::rstest;
     use serde_json::json;
 
     use crate::{
+        config::DEFAULT_TEST_CONFIG,
         flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters},
         mock,
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::TestContext,
+        utils::test_utils::{counter_total, CountingFailingClient, TestContext},
     };
 
     use super::*;
@@ -2216,6 +2392,59 @@ mod tests {
     }
 
     #[rstest]
+    #[case(false, false, false)]
+    #[case(true, false, false)]
+    #[case(true, true, true)]
+    #[tokio::test]
+    async fn test_primary_has_override_reports_only_a_real_override(
+        #[case] person_exists: bool,
+        #[case] override_set: bool,
+        #[case] expected: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "replica_check_user".to_string();
+
+        if person_exists {
+            context
+                .insert_person(team.id, distinct_id.clone(), None)
+                .await
+                .unwrap();
+        }
+
+        if override_set {
+            let flag = mock!(FeatureFlag,
+                team_id: team.id,
+                filters: FlagFilters {
+                    groups: vec![],
+                    ..Default::default()
+                },
+                ensure_experience_continuity: Some(true)
+            );
+            let flag_row = mock!(FeatureFlagRow, from: flag);
+            context.insert_flag(team.id, Some(flag_row)).await.unwrap();
+
+            let router = context.create_postgres_router();
+            set_feature_flag_hash_key_overrides(
+                &router,
+                team.id,
+                vec![distinct_id.clone()],
+                "replica_check_hash_key".to_string(),
+            )
+            .await
+            .unwrap();
+        }
+
+        let found = primary_has_override(&context.persons_writer, team.id, &[distinct_id])
+            .await
+            .unwrap();
+
+        // A wrong query here reports no override every time: the check reads healthy and the
+        // rate it exists to measure is silently zero.
+        assert_eq!(found, expected);
+    }
+
+    #[rstest]
     #[case("some_distinct_id", 0.7270002403585725)]
     #[case("test-identifier", 0.4493881716040236)]
     #[case("example_id", 0.9402003475831224)]
@@ -2425,6 +2654,253 @@ mod tests {
         assert!(!result);
     }
 
+    #[rstest]
+    #[case::timeout(|| sqlx::Error::PoolTimedOut, 1, 1, 1)]
+    #[case::transient(|| sqlx::Error::PoolClosed, 2, 3, 3)]
+    #[tokio::test(start_paused = true)]
+    async fn test_hash_key_override_retries(
+        #[case] error: fn() -> sqlx::Error,
+        #[case] read_attempts: usize,
+        #[case] write_attempts: usize,
+        #[case] check_attempts: usize,
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let client = std::sync::Arc::new(CountingFailingClient::new(error));
+        let router = PostgresRouter::new(
+            client.clone(),
+            client.clone(),
+            client.clone(),
+            client.clone(),
+        );
+        let calls = || client.calls.swap(0, Ordering::SeqCst);
+
+        let read = get_feature_flag_hash_key_overrides(
+            client.clone(),
+            pool_names::PERSONS_READER,
+            client.clone(),
+            1,
+            vec!["user".to_string()],
+        )
+        .await;
+        assert!(read.is_err());
+        assert_eq!(calls(), read_attempts, "read attempts");
+
+        let write = set_feature_flag_hash_key_overrides(
+            &router,
+            1,
+            vec!["user".to_string()],
+            "hash".to_string(),
+        )
+        .await;
+        assert!(write.is_err());
+        assert_eq!(calls(), write_attempts, "write attempts");
+
+        let check =
+            should_write_hash_key_override(&router, 1, "user".to_string(), "hash".to_string())
+                .await;
+        assert!(check.is_err());
+        assert_eq!(calls(), check_attempts, "check attempts");
+
+        let counter =
+            |name: &str, labels: &[(&str, &str)]| counter_total(&snapshotter, name, labels);
+        for (operation, attempts) in [
+            ("get_hash_key_overrides", read_attempts),
+            ("set_hash_key_overrides", write_attempts),
+            ("should_write_hash_key_override", check_attempts),
+        ] {
+            let retries = (attempts - 1) as u64;
+            assert_eq!(
+                counter(FLAG_HASH_KEY_RETRIES_COUNTER, &[("operation", operation)]),
+                retries,
+                "{operation} retries"
+            );
+            assert_eq!(
+                counter(
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[("operation", operation), ("retried", "true")]
+                ),
+                retries,
+                "{operation} errors labeled retried"
+            );
+            assert_eq!(
+                counter(
+                    FLAG_DATABASE_ERROR_COUNTER,
+                    &[("operation", operation), ("retried", "false")]
+                ),
+                1,
+                "{operation} final error labeled not retried"
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_hash_key_override_dropped_during_backoff_counts_no_retry() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+
+        let client = std::sync::Arc::new(CountingFailingClient::new(|| sqlx::Error::PoolClosed));
+
+        let read = get_feature_flag_hash_key_overrides(
+            client.clone(),
+            pool_names::PERSONS_READER,
+            client.clone(),
+            1,
+            vec!["user".to_string()],
+        )
+        .now_or_never();
+
+        assert!(read.is_none(), "read finished instead of waiting to retry");
+        assert_eq!(client.calls.load(Ordering::SeqCst), 1);
+        let counter =
+            |name: &str, labels: &[(&str, &str)]| counter_total(&snapshotter, name, labels);
+        assert_eq!(counter(FLAG_HASH_KEY_RETRIES_COUNTER, &[]), 0);
+        assert_eq!(
+            counter(FLAG_DATABASE_ERROR_COUNTER, &[("retried", "true")]),
+            0
+        );
+        assert_eq!(
+            counter(FLAG_DATABASE_ERROR_COUNTER, &[("retried", "false")]),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_retries_transient_non_persons_acquire_failure() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        context
+            .insert_person(team.id, "user".to_string(), None)
+            .await
+            .unwrap();
+
+        let non_persons_reader =
+            std::sync::Arc::new(CountingFailingClient::new(|| sqlx::Error::PoolClosed));
+        let router = PostgresRouter::new(
+            context.persons_reader.clone(),
+            context.persons_writer.clone(),
+            non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+
+        let result = set_feature_flag_hash_key_overrides(
+            &router,
+            team.id,
+            vec!["user".to_string()],
+            "hash".to_string(),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(non_persons_reader.calls.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_set_overrides_statement_timeout_covers_person_row_lock() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let person_id = context
+            .insert_person(team.id, "user".to_string(), None)
+            .await
+            .unwrap();
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            ensure_experience_continuity: Some(true)
+        );
+        context
+            .insert_flag(team.id, Some(mock!(FeatureFlagRow, from: flag)))
+            .await
+            .unwrap();
+
+        let persons_writer: PostgresWriter = std::sync::Arc::new(
+            get_pool_with_config(
+                &DEFAULT_TEST_CONFIG.get_persons_write_database_url(),
+                PoolConfig {
+                    statement_timeout_ms: Some(200),
+                    ..PoolConfig::default()
+                },
+            )
+            .unwrap(),
+        );
+        let router = PostgresRouter::new(
+            context.persons_reader.clone(),
+            persons_writer,
+            context.non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+
+        // FOR UPDATE conflicts with the KEY SHARE lock that the foreign key check takes on the
+        // person row.
+        let mut lock_conn = context.persons_writer.get_connection().await.unwrap();
+        let mut lock_tx = lock_conn.begin().await.unwrap();
+        sqlx::query("SELECT id FROM posthog_person WHERE id = $1 FOR UPDATE")
+            .bind(person_id)
+            .execute(&mut *lock_tx)
+            .await
+            .unwrap();
+
+        let result = timeout(
+            Duration::from_secs(10),
+            set_feature_flag_hash_key_overrides(
+                &router,
+                team.id,
+                vec!["user".to_string()],
+                "hash".to_string(),
+            ),
+        )
+        .await
+        .expect("the write waited for the person row lock instead of timing out");
+        lock_tx.rollback().await.unwrap();
+
+        assert!(
+            matches!(result, Err(FlagError::TimeoutError(_))),
+            "expected a statement timeout, got {result:?}"
+        );
+    }
+
+    /// `common_database` has the same mock, but it is private to that crate's tests.
+    #[derive(Debug)]
+    struct MockDbError {
+        code: &'static str,
+    }
+
+    impl std::fmt::Display for MockDbError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "database error {}", self.code)
+        }
+    }
+
+    impl std::error::Error for MockDbError {}
+
+    impl sqlx::error::DatabaseError for MockDbError {
+        fn message(&self) -> &str {
+            "mock database error"
+        }
+
+        fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+            Some(self.code.into())
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
+    }
+
     #[tokio::test]
     async fn test_should_retry_on_error() {
         use sqlx::Error as SqlxError;
@@ -2456,7 +2932,18 @@ mod tests {
 
         let protocol_timeout_error =
             FlagError::DatabaseError(SqlxError::Protocol("operation timeout".to_string()), None);
-        assert!(should_retry_on_error(&protocol_timeout_error));
+        assert!(!should_retry_on_error(&protocol_timeout_error));
+
+        let wrapped_statement_timeout = FlagError::DatabaseError(
+            SqlxError::from(MockDbError { code: "57014" }),
+            Some("Failed to fetch person data".to_string()),
+        );
+        assert!(!should_retry_on_error(&wrapped_statement_timeout));
+
+        let foreign_key_violation: FlagError =
+            SqlxError::from(MockDbError { code: "23503" }).into();
+        assert!(flag_error_is_foreign_key_constraint(&foreign_key_violation));
+        assert!(should_retry_on_error(&foreign_key_violation));
 
         // Test that configuration errors don't trigger retries
         let config_error = FlagError::DatabaseError(
@@ -2515,6 +3002,15 @@ mod tests {
             Some("Failed to fetch flags".to_string()),
         );
         assert_eq!(classify_db_error(&contextual), Some(("unknown", None)));
+
+        let contextual_statement_timeout = FlagError::DatabaseError(
+            SqlxError::from(MockDbError { code: "57014" }),
+            Some("Failed to fetch person data".to_string()),
+        );
+        assert_eq!(
+            classify_db_error(&contextual_statement_timeout),
+            Some(("timeout", None))
+        );
 
         let timeout = FlagError::TimeoutError(Some("pool_timeout".to_string()));
         assert_eq!(

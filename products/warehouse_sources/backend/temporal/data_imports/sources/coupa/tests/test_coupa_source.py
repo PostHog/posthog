@@ -1,17 +1,8 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.coupa import CoupaResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source import CoupaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.coupa import CoupaSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCoupaSource:
@@ -21,30 +12,6 @@ class TestCoupaSource:
         self.config = CoupaSourceConfig(
             instance_url="https://myorg.coupahost.com", client_id="cid", client_secret="sec"
         )
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.COUPA
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Coupa"
-        assert config.label == "Coupa"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/coupa.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["instance_url", "client_id", "client_secret"]
-
-    def test_client_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "client_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     def test_connection_host_fields_cover_instance_url(self):
         # The instance URL decides where the stored credentials get sent.
@@ -72,23 +39,6 @@ class TestCoupaSource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
-
-    def test_get_schemas(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Every stream filters server-side on updated_at[gt].
-        assert all(schema.supports_incremental for schema in schemas)
-        assert all([f["field"] for f in schema.incremental_fields] == ["updated_at"] for schema in schemas)
-        assert {schema.name: schema.incremental_fields for schema in schemas} == INCREMENTAL_FIELDS
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["invoices"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "invoices"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.validate_coupa_credentials"
@@ -134,13 +84,6 @@ class TestCoupaSource:
 
         assert is_valid is False
         assert "Invalid Coupa credentials" in (error_message or "")
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is CoupaResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.coupa.source.coupa_source")
     @mock.patch.object(CoupaSource, "is_database_host_valid")

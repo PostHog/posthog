@@ -25,62 +25,11 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_absolute_date_range[new_events_schema]
-  '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
 # name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query
   '''
   SELECT count() AS `count()`,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
-  WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-  GROUP BY toTimeZone(events.timestamp, 'UTC')
-  ORDER BY count() DESC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query[new_events_schema]
-  '''
-  SELECT count() AS `count()`,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
   GROUP BY toTimeZone(events.timestamp, 'UTC')
   ORDER BY count() DESC
@@ -110,33 +59,6 @@
                                                        WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
                                                        ORDER BY events.event ASC
                                                        LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY events.event ASC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_not_returned_for_non_timestamp_order[new_events_schema]
-  '''
-  SELECT events.event AS event,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY events.event ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
@@ -234,87 +156,6 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.1]
-  '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.2]
-  '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema]
-  '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'idx'), ''), 'null'), '^"|"$', '') AS idx,
@@ -396,87 +237,6 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.1]
-  '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-11 12:00:04.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.2]
-  '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-11 12:00:02.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema]
-  '''
-  SELECT if(notEquals(toJSONString(events.properties.^idx), '{}'), toJSONString(events.properties.^idx), if(isNull(events.properties.idx), NULL, if(startsWith(dynamicType(events.properties.idx), 'DateTime'), replaceOne(toString(events.properties.idx), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.idx), 'Array'), startsWith(dynamicType(events.properties.idx), 'Map'), startsWith(dynamicType(events.properties.idx), 'Tuple')), toJSONString(events.properties.idx), toString(events.properties.idx))))) AS idx,
-         toTimeZone(events.timestamp, 'UTC') AS timestamp
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
 # name: TestEventsQueryRunner.test_cursor_with_star_select
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
@@ -488,34 +248,6 @@
                                                        ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.uuid DESC
                                                        LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.uuid DESC
-  LIMIT 3
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_cursor_with_star_select[new_events_schema]
-  '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
-                                                 LIMIT 3)), and(less(events.timestamp, toDateTime64('2020-01-12 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2020-01-10 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
   LIMIT 3
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -557,19 +289,24 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_element_chain_property_filter[new_events_schema]
+# name: TestEventsQueryRunner.test_flag_evaluations_person_display_names_resolve_each_rows_person_id
   '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
+  SELECT tuple(flag_evaluations.distinct_id, toString(if(not(empty(flag_evaluations__override.distinct_id)), flag_evaluations__override.person_id, flag_evaluations.person_id)), flag_evaluations.distinct_id)
+  FROM flag_evaluations
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS flag_evaluations__override ON equals(flag_evaluations.distinct_id, flag_evaluations__override.distinct_id)
+  WHERE and(equals(flag_evaluations.team_id, 99999), in(flag_evaluations.uuid,
+                                                          (SELECT flag_evaluations.uuid AS uuid
+                                                           FROM flag_evaluations
+                                                           WHERE and(equals(flag_evaluations.team_id, 99999), equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                           ORDER BY toTimeZone(flag_evaluations.timestamp, 'UTC') ASC, flag_evaluations.uuid ASC
+                                                           LIMIT 101)), and(equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
+  ORDER BY toTimeZone(flag_evaluations.timestamp, 'UTC') ASC, flag_evaluations.uuid ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -583,6 +320,38 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_flag_evaluations_person_display_names_resolve_each_rows_person_id.1
+  '''
+  SELECT persons.id AS id,
+         coalesce(nullIf(toString(persons.properties___email), ''), nullIf(toString(persons.properties___name), ''), nullIf(toString(persons.properties___username), '')) AS `coalesce(nullIf(toString(properties.email), ''), nullIf(toString(properties.name), ''), nullIf(toString(properties.username), ''))`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___username,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id, tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('00000000-0000-4000-8000-000000000002'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE in(persons.id,
+           tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('00000000-0000-4000-8000-000000000002'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))
+  LIMIT 4 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table
@@ -596,34 +365,6 @@
                                                        ORDER BY toTimeZone(events.timestamp, 'UTC') ASC, events.uuid ASC
                                                        LIMIT 101)), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC, events.uuid ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_presorted_events_table[new_events_schema]
-  '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(toJSONString(events.properties.^some_prop), '{}'), toJSONString(events.properties.^some_prop), if(isNull(events.properties.some_prop), NULL, if(startsWith(dynamicType(events.properties.some_prop), 'DateTime'), replaceOne(toString(events.properties.some_prop), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.some_prop), 'Array'), startsWith(dynamicType(events.properties.some_prop), 'Map'), startsWith(dynamicType(events.properties.some_prop), 'Tuple')), toJSONString(events.properties.some_prop), toString(events.properties.some_prop))))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
-                                                 LIMIT 101)), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^some_prop), '{}'), toJSONString(events.properties.^some_prop), if(isNull(events.properties.some_prop), NULL, if(startsWith(dynamicType(events.properties.some_prop), 'DateTime'), replaceOne(toString(events.properties.some_prop), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.some_prop), 'Array'), startsWith(dynamicType(events.properties.some_prop), 'Map'), startsWith(dynamicType(events.properties.some_prop), 'Tuple')), toJSONString(events.properties.some_prop), toString(events.properties.some_prop))))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -666,34 +407,6 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestEventsQueryRunner.test_presorted_events_table_multiple_order_by[new_events_schema]
-  '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY toTimeZone(events.timestamp, 'UTC') DESC, events.event ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_event
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
@@ -704,34 +417,6 @@
                                                        WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                        ORDER BY events.event ASC
                                                        LIMIT 101)), and(less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY events.event ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_presorted_events_table_order_by_event[new_events_schema]
-  '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY events.event ASC
-                                                 LIMIT 101)), and(less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY events.event ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -759,34 +444,6 @@
                                                        ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
                                                        LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'priority'), ''), 'null'), '^"|"$', '') ASC
-  LIMIT 101
-  OFFSET 0 SETTINGS readonly=2,
-                    max_execution_time=60,
-                    allow_experimental_object_type=1,
-                    max_ast_elements=4000000,
-                    max_expanded_ast_elements=4000000,
-                    max_bytes_before_external_group_by=0,
-                    transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295,
-                    optimize_rewrite_aggregate_function_with_if=0,
-                    optimize_min_inequality_conjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
-  '''
-# ---
-# name: TestEventsQueryRunner.test_presorted_events_table_order_by_property[new_events_schema]
-  '''
-  SELECT tuple(events.uuid, events.event, concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != 'null'
-                                                                                                                                          AND NOT (kv.2 = '[]'
-                                                                                                                                                   AND has(['$active_feature_flags', '$exception_functions', '$exception_sources', '$exception_types', '$exception_values'], kv.1)), JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}'), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
-  FROM events_json AS events
-  WHERE and(equals(events.team_id, 99999), in(events.uuid,
-                                                (SELECT events.uuid AS uuid
-                                                 FROM events_json AS events
-                                                 WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                 ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(events.properties.priority), NULL, if(startsWith(dynamicType(events.properties.priority), 'DateTime'), replaceOne(toString(events.properties.priority), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.priority), 'Array'), startsWith(dynamicType(events.properties.priority), 'Map'), startsWith(dynamicType(events.properties.priority), 'Tuple')), toJSONString(events.properties.priority), toString(events.properties.priority))))) ASC
-                                                 LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY if(notEquals(toJSONString(events.properties.^priority), '{}'), toJSONString(events.properties.^priority), if(isNull(events.properties.priority), NULL, if(startsWith(dynamicType(events.properties.priority), 'DateTime'), replaceOne(toString(events.properties.priority), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.priority), 'Array'), startsWith(dynamicType(events.properties.priority), 'Map'), startsWith(dynamicType(events.properties.priority), 'Tuple')), toJSONString(events.properties.priority), toString(events.properties.priority))))) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,

@@ -18,6 +18,7 @@ import type { CloudPendingPermissionRequest } from "../types";
 interface ToolData {
   toolCallId: string;
   status: ToolStatus;
+  args?: Record<string, unknown>;
 }
 
 interface PermissionResponseArgs {
@@ -46,10 +47,12 @@ export function PlanApprovalCard({
   const [customInput, setCustomInput] = useState("");
 
   const response = permission?.response;
-  const planText = useMemo(
-    () => (permission ? extractPlanText(permission.toolCall) : null),
-    [permission],
-  );
+  const planText = useMemo(() => {
+    if (permission) {
+      return extractPlanText(permission.toolCall);
+    }
+    return extractPlanText({ rawInput: toolData.args });
+  }, [permission, toolData.args]);
   const selectedOption = useMemo(
     () =>
       permission?.options.find(
@@ -62,7 +65,7 @@ export function PlanApprovalCard({
     toolData.status === "completed" ||
     toolData.status === "error";
 
-  if (!permission) {
+  if (!permission && !planText) {
     return null;
   }
 
@@ -93,7 +96,7 @@ export function PlanApprovalCard({
     null;
   const resolvedAsReject = selectedOption
     ? isPermissionRejection(selectedOption)
-    : false;
+    : toolData.status === "error";
 
   return (
     <View className="mx-4 my-1 rounded-lg border border-accent-6 bg-gray-2">
@@ -119,7 +122,7 @@ export function PlanApprovalCard({
               showsVerticalScrollIndicator={false}
             >
               <View className="px-3 py-3">
-                <MarkdownText content={planText} />
+                <MarkdownText content={planText} disableRemoteImages />
               </View>
             </ScrollView>
           </View>
@@ -154,7 +157,7 @@ export function PlanApprovalCard({
             </View>
           </View>
         </View>
-      ) : (
+      ) : permission ? (
         <View className="px-3 pb-3">
           {permission.options.map((option) => {
             const meta = getPermissionOptionMeta(option);
@@ -227,7 +230,7 @@ export function PlanApprovalCard({
             );
           })}
         </View>
-      )}
+      ) : null}
     </View>
   );
 }

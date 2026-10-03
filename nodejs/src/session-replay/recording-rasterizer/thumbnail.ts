@@ -1,0 +1,301 @@
+import { execFile } from 'child_process'
+import * as fs from 'fs/promises'
+import * as os from 'os'
+import * as path from 'path'
+import { promisify } from 'util'
+
+import { toFiniteNumber } from './capture/config'
+import { RasterizationError } from './errors'
+import { createLogger } from './logger'
+import { downloadFromS3, parseS3Uri, uploadToS3 } from './storage'
+import type {
+    ExtractThumbnailInput,
+    ExtractThumbnailOutput,
+    ExtractThumbnailsInput,
+    ExtractThumbnailsOutput,
+} from './types'
+
+const execFileAsync = promisify(execFile)
+const log = createLogger()
+
+// One frame out of an existing MP4 never approaches the render timeouts; a longer wait means ffmpeg
+// is wedged on a corrupt file rather than working.
+const FFMPEG_TIMEOUT_MS = 60_000
+
+export interface Rect {
+    w: number
+    h: number
+    x: number
+    y: number
+}
+
+const BORDER_TOLERANCE = 6
+// Every 8th row/column is enough to tell a uniform bar from page content, and keeps the scan cheap.
+const SCAN_STEP = 8
+
+function matchesBorder(frame: Buffer, offset: number, r: number, g: number, b: number): boolean {
+    return (
+        Math.abs(frame[offset] - r) <= BORDER_TOLERANCE &&
+        Math.abs(frame[offset + 1] - g) <= BORDER_TOLERANCE &&
+        Math.abs(frame[offset + 2] - b) <= BORDER_TOLERANCE
+    )
+}
+
+/** The page inside the analysis canvas, when a phone-sized session leaves a uniform border around it. */
+// Corner colour rather than a luma threshold: the background is not black, so cropdetect misses it, and
+// a threshold high enough to catch it crops into a dark page.
+export function uniformBorderRect(frame: Buffer, width: number, height: number): Rect | null {
+    if (frame.length < width * height * 3) {
+        return null
+    }
+    const [r, g, b] = [frame[0], frame[1], frame[2]]
+    const at = (x: number, y: number): number => (y * width + x) * 3
+
+    const columnIsBorder = (x: number): boolean => {
+        for (let y = 0; y < height; y += SCAN_STEP) {
+            if (!matchesBorder(frame, at(x, y), r, g, b)) {
+                return false
+            }
+        }
+        return true
+    }
+    const rowIsBorder = (y: number): boolean => {
+        for (let x = 0; x < width; x += SCAN_STEP) {
+            if (!matchesBorder(frame, at(x, y), r, g, b)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    let left = 0
+    while (left < width && columnIsBorder(left)) {
+        left++
+    }
+    if (left === width) {
+        // A frame of nothing but border: the render is blank, so there is no page to find.
+        return null
+    }
+    let right = width - 1
+    while (right > left && columnIsBorder(right)) {
+        right--
+    }
+    let top = 0
+    while (top < height && rowIsBorder(top)) {
+        top++
+    }
+    let bottom = height - 1
+    while (bottom > top && rowIsBorder(bottom)) {
+        bottom--
+    }
+
+    const rect = { w: right - left + 1, h: bottom - top + 1, x: left, y: top }
+    if (rect.w < width * 0.1 || rect.h < height * 0.1) {
+        return null
+    }
+    // Worth a second ffmpeg pass only when it removes a real share of the frame.
+    if (1 - (rect.w * rect.h) / (width * height) < 0.15) {
+        return null
+    }
+    return rect
+}
+
+async function frameSize(sourcePath: string): Promise<{ width: number; height: number } | null> {
+    try {
+        const { stdout } = await execFileAsync(
+            'ffprobe',
+            [
+                '-v',
+                'error',
+                '-select_streams',
+                'v:0',
+                '-show_entries',
+                'stream=width,height',
+                '-of',
+                'csv=p=0',
+                sourcePath,
+            ],
+            { timeout: FFMPEG_TIMEOUT_MS }
+        )
+        const [width, height] = stdout.trim().split(',').map(Number)
+        return Number.isFinite(width) && Number.isFinite(height) ? { width, height } : null
+    } catch (err) {
+        log.warn({ err: (err as Error)?.message }, 'ffprobe could not read the frame size')
+        return null
+    }
+}
+
+async function detectBorder(
+    sourcePath: string,
+    rawPath: string,
+    videoTimeS: number,
+    footerCrop: string,
+    width: number,
+    height: number
+): Promise<Rect | null> {
+    try {
+        await execFileAsync(
+            'ffmpeg',
+            [
+                '-nostdin',
+                '-loglevel',
+                'error',
+                '-ss',
+                String(videoTimeS),
+                '-i',
+                sourcePath,
+                '-frames:v',
+                '1',
+                '-vf',
+                footerCrop,
+                '-pix_fmt',
+                'rgb24',
+                '-f',
+                'rawvideo',
+                '-y',
+                rawPath,
+            ],
+            { timeout: FFMPEG_TIMEOUT_MS }
+        )
+        return uniformBorderRect(await fs.readFile(rawPath), width, height)
+    } catch (err) {
+        // Best-effort: a failed probe means the full frame, never a failed thumbnail.
+        log.warn({ err: (err as Error)?.message }, 'border detection failed, keeping the full frame')
+        return null
+    }
+}
+
+interface FrameSource {
+    workDir: string
+    sourcePath: string
+    footerCrop: string
+    size: { width: number; height: number } | null
+    footer: number
+    width: number
+}
+
+async function withFrameSource<T>(
+    input: { source_s3_uri: string; footer_crop_px?: number; width?: number },
+    run: (source: FrameSource) => Promise<T>
+): Promise<T> {
+    const location = parseS3Uri(input.source_s3_uri)
+    const workDir = await fs.mkdtemp(path.join(process.env.VIDEO_WORK_DIR || os.tmpdir(), 'thumb-'))
+    try {
+        const sourcePath = path.join(workDir, 'source.mp4')
+        await downloadFromS3(location.bucket, location.key, sourcePath)
+        const footer = Math.max(0, Math.floor(input.footer_crop_px ?? 0))
+        return await run({
+            workDir,
+            sourcePath,
+            // crop before scale: the footer is measured in source pixels.
+            footerCrop: `crop=iw:ih-${footer}:0:0`,
+            size: await frameSize(sourcePath),
+            footer,
+            width: Math.max(1, Math.floor(input.width ?? 1280)),
+        })
+    } finally {
+        await fs.rm(workDir, { recursive: true, force: true })
+    }
+}
+
+async function cutFrame(source: FrameSource, videoTimeS: number, outputPath: string): Promise<number> {
+    const { size, footer, footerCrop, width } = source
+    const rawPath = path.join(source.workDir, 'frame.rgb')
+    const letterbox = size
+        ? await detectBorder(source.sourcePath, rawPath, videoTimeS, footerCrop, size.width, size.height - footer)
+        : null
+    if (letterbox) {
+        log.info({ ...letterbox, frame: size }, 'cropping the letterbox around the page')
+    }
+
+    const crops = letterbox
+        ? [footerCrop, `crop=${letterbox.w}:${letterbox.h}:${letterbox.x}:${letterbox.y}`]
+        : [footerCrop]
+    // Never upscale: a phone-sized page stretched to 1280 is a blurrier, heavier poster.
+    const sourceWidth = letterbox?.w ?? size?.width ?? width
+    const filters = [...crops, `scale=${Math.min(width, sourceWidth)}:-2`].join(',')
+
+    // -ss before -i seeks by keyframe index rather than decoding to the timestamp, which is what
+    // keeps this cheap. -frames:v 1 stops after the first frame it lands on.
+    const args = [
+        '-nostdin',
+        '-loglevel',
+        'error',
+        '-ss',
+        String(videoTimeS),
+        '-i',
+        source.sourcePath,
+        '-frames:v',
+        '1',
+        '-vf',
+        filters,
+        '-y',
+        outputPath,
+    ]
+
+    try {
+        await execFileAsync('ffmpeg', args, { timeout: FFMPEG_TIMEOUT_MS })
+    } catch (err) {
+        const stderr = (err as { stderr?: string })?.stderr?.slice(0, 500) ?? ''
+        log.warn({ err: (err as Error)?.message, stderr }, 'thumbnail extraction failed')
+        throw new RasterizationError(
+            `ffmpeg could not extract a frame: ${(err as Error)?.message ?? String(err)}`,
+            true,
+            'THUMBNAIL_EXTRACT_FAILED',
+            err
+        )
+    }
+
+    const stat = await fs.stat(outputPath).catch(() => null)
+    if (!stat || stat.size === 0) {
+        // A seek past the end of the video exits 0 and writes nothing, so size is the real check.
+        throw new RasterizationError(`ffmpeg wrote no frame at ${videoTimeS}s`, false, 'THUMBNAIL_EMPTY_OUTPUT')
+    }
+    return stat.size
+}
+
+/**
+ * Cut frames from an already-rendered analysis MP4 and store each as a PNG, downloading the video once.
+ *
+ * No browser, so this costs seconds of CPU rather than a recording load. The crop removes the
+ * burned-in metadata footer, which is an artifact of the analysis render and not part of the page.
+ * A frame past the video's end is left out of the output rather than failing the batch.
+ */
+export async function extractThumbnails(input: ExtractThumbnailsInput): Promise<ExtractThumbnailsOutput> {
+    // Before the download: `-ss NaN` burns every attempt, each pulling the whole MP4 first.
+    const frames = input.frames.map((frame) => ({
+        id: frame.id,
+        videoTimeS: Math.max(0, toFiniteNumber(frame.video_time_s, 'video_time_s')),
+        required: frame.required ?? false,
+    }))
+    return withFrameSource(input, async (source) => {
+        const extracted: ExtractThumbnailsOutput['frames'] = []
+        for (const frame of frames) {
+            const outputPath = path.join(source.workDir, `${frame.id}.png`)
+            let fileSizeBytes: number
+            try {
+                fileSizeBytes = await cutFrame(source, frame.videoTimeS, outputPath)
+            } catch (err) {
+                // A local cut fails the same way on a retry, so an optional frame is skipped rather than retried.
+                if (!frame.required && err instanceof RasterizationError) {
+                    log.warn({ id: frame.id, video_time_s: frame.videoTimeS, code: err.code }, 'skipping a frame')
+                    continue
+                }
+                throw err
+            }
+            const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, frame.id, 'png')
+            extracted.push({ id: frame.id, s3_uri: s3Uri, file_size_bytes: fileSizeBytes })
+            await fs.rm(outputPath, { force: true })
+        }
+        return { frames: extracted }
+    })
+}
+
+/** The single-frame shape of media workflows started before the batch path. Delete once they drain. */
+export async function extractThumbnail(input: ExtractThumbnailInput): Promise<ExtractThumbnailOutput> {
+    const { frames } = await extractThumbnails({
+        ...input,
+        frames: [{ video_time_s: input.video_time_s, id: input.id, required: true }],
+    })
+    return { s3_uri: frames[0].s3_uri, file_size_bytes: frames[0].file_size_bytes }
+}

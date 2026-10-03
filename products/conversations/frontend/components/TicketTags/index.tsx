@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -22,6 +22,7 @@ export function TicketTags({
     disabledReason,
 }: TicketTagsProps): JSX.Element {
     const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     const tagsDisplay = (
         <ObjectTags
@@ -30,18 +31,20 @@ export function TicketTags({
                 ? { staticOnly: true as const }
                 : {
                       onChange,
+                      onEdit: loadTagsIfNeeded,
                       saving: saving || tagsLoading,
                       tagsAvailable,
                   })}
             className={className}
             data-attr="ticket-tags"
             actionButtonSize="medium"
+            wrap
         />
     )
 
     return disabledReason ? (
         <Tooltip title={disabledReason}>
-            <span>{tagsDisplay}</span>
+            <span className="min-w-0">{tagsDisplay}</span>
         </Tooltip>
     ) : (
         tagsDisplay

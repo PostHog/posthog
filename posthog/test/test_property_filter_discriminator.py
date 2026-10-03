@@ -1,11 +1,14 @@
 from django.test.testcases import SimpleTestCase
 
 from parameterized import parameterized
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
     AccountCustomPropertyFilter,
+    ActionConversionGoal,
+    BehavioralPropertyFilter,
     CohortPropertyFilter,
+    CustomEventConversionGoal,
     DashboardFilter,
     DataWarehousePersonPropertyFilter,
     DataWarehousePropertyFilter,
@@ -23,6 +26,9 @@ from posthog.schema import (
     LogEntryPropertyFilter,
     LogPropertyFilter,
     LogPropertyFilterType,
+    MCPModelBreakdownQuery,
+    MCPToolCallBreakdownQuery,
+    MCPToolQualityRowsQuery,
     MetricPropertyFilter,
     PersonMetadataPropertyFilter,
     PersonPropertyFilter,
@@ -53,6 +59,18 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
     # also preserves legacy tolerance: filters without `type`, `{}` rows, multi-value
     # log/span tags, and the AND/OR-tagged recursive group. These tests pin both the
     # routing and the tolerance so a schema regeneration that drops either fails here.
+
+    @parameterized.expand([("action", {"actionId": 1}), ("event", {"customEventName": "customer_created"})])
+    def test_conversion_goal_properties(self, kind: str, fields: dict[str, object]) -> None:
+        model = ActionConversionGoal if kind == "action" else CustomEventConversionGoal
+        goal = model.model_validate({**fields, "properties": [{"type": "event", "key": "plan", "value": "paid"}]})
+        assert goal.properties is not None
+        assert isinstance(goal.properties[0], EventPropertyFilter)
+        for property_type in ["account_custom_property", "revenue_analytics", "recording"]:
+            with self.assertRaises(ValidationError):
+                model.model_validate(
+                    {**fields, "properties": [{"type": property_type, "key": "plan", "value": "paid"}]}
+                )
 
     @parameterized.expand(
         [
@@ -114,6 +132,18 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
                 "workflow_variable",
                 {"type": "workflow_variable", "key": "k", "operator": "exact"},
                 WorkflowVariablePropertyFilter,
+            ),
+            (
+                "behavioral",
+                {
+                    "type": "behavioral",
+                    "key": "$pageview",
+                    "value": "performed_event",
+                    "event_type": "events",
+                    "time_value": 30,
+                    "time_interval": "day",
+                },
+                BehavioralPropertyFilter,
             ),
         ]
     )
@@ -258,6 +288,43 @@ class TestPropertyFilterDiscriminator(SimpleTestCase):
         )
         assert isinstance(query.properties, list)
         assert type(query.properties[0]) is EventPropertyFilter
+
+    @parameterized.expand(
+        [
+            ("MCPToolCallBreakdownQuery", MCPToolCallBreakdownQuery, {}),
+            ("MCPModelBreakdownQuery", MCPModelBreakdownQuery, {}),
+            ("MCPToolQualityRowsQuery", MCPToolQualityRowsQuery, {}),
+        ]
+    )
+    def test_mcp_analytics_properties_use_the_discriminated_filter(
+        self, kind: str, model: type[BaseModel], extra_fields: dict
+    ) -> None:
+        supported_filters: list[tuple[str, type[BaseModel]]] = [
+            ("event", EventPropertyFilter),
+            ("person", PersonPropertyFilter),
+            ("session", SessionPropertyFilter),
+        ]
+        for property_type, expected in supported_filters:
+            query = model.model_validate(
+                {
+                    "kind": kind,
+                    "properties": [{"type": property_type, "key": "k", "operator": "exact"}],
+                    **extra_fields,
+                }
+            )
+            properties = query.properties  # type: ignore[attr-defined]
+            assert properties is not None
+            assert type(properties[0]) is expected
+
+        for property_type in ["cohort", "hogql"]:
+            with self.assertRaises(ValidationError):
+                model.model_validate(
+                    {
+                        "kind": kind,
+                        "properties": [{"type": property_type, "key": "k", "operator": "exact"}],
+                        **extra_fields,
+                    }
+                )
 
     def test_serialization_round_trip_is_stable(self) -> None:
         node = EventsNode(

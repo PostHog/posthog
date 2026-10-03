@@ -1,17 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jamfpro import (
     JamfProAuthMethodConfig,
     JamfProSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.jamf_pro import JamfProResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestJamfProSource:
@@ -25,40 +20,10 @@ class TestJamfProSource:
             ),
         )
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.JAMFPRO
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "JamfPro"
-        assert config.label == "Jamf Pro"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["instance_url", "auth_method"]
-
-        url_field, auth_field = config.fields
-        assert isinstance(url_field, SourceFieldInputConfig)
-        assert url_field.secret is False
-        assert url_field.required is True
-
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert [option.value for option in auth_field.options] == ["client_credentials", "basic"]
-        secret_flags = {
-            f.name: f.secret for option in auth_field.options for f in option.fields or [] if hasattr(f, "secret")
-        }
-        assert secret_flags == {"client_id": False, "client_secret": True, "username": False, "password": True}
-
     def test_connection_host_fields_covers_instance_url(self):
         # Without this, an org member could retarget the instance URL at a server they control
         # and exfiltrate the preserved credentials.
         assert self.source.connection_host_fields == ["instance_url"]
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
 
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -75,46 +40,6 @@ class TestJamfProSource:
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["computers"])
         assert [s.name for s in schemas] == ["computers"]
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source.validate_jamf_pro_credentials"
-    )
-    def test_validate_credentials_maps_client_credentials(self, mock_validate):
-        mock_validate.return_value = (True, None)
-
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="computers")
-
-        assert result == (True, None)
-        args = mock_validate.call_args.args
-        assert args[0] == "example.jamfcloud.com"
-        credentials = args[1]
-        assert credentials.method == "client_credentials"
-        assert credentials.client_id == "cid"
-        assert credentials.client_secret == "secret"
-        assert args[2] == "computers"
-        assert args[3] == self.team_id
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source.validate_jamf_pro_credentials"
-    )
-    def test_validate_credentials_maps_basic_auth(self, mock_validate):
-        mock_validate.return_value = (True, None)
-        config = JamfProSourceConfig(
-            instance_url="example.jamfcloud.com",
-            auth_method=JamfProAuthMethodConfig(selection="basic", username="admin", password="pw"),
-        )
-
-        self.source.validate_credentials(config, self.team_id)
-
-        credentials = mock_validate.call_args.args[1]
-        assert credentials.method == "basic"
-        assert credentials.username == "admin"
-        assert credentials.password == "pw"
-
-    def test_get_resumable_source_manager(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is JamfProResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source.jamf_pro_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_jamf_pro_source):

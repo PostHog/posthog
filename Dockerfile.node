@@ -71,8 +71,6 @@ COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
 COPY ./common/replay-headless/src/ ./common/replay-headless/src/
 COPY ./common/replay-headless/build.mjs ./common/replay-headless/
 
-# Build cyclotron first
-RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
 # Build the rust hogvm napi addon (shadow execution of transformations)
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/hogvm-node build
 
@@ -130,9 +128,6 @@ RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
 
 # Add in the compiled nodejs & its runtime dependencies from the build stage
-COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/dist /code/rust/cyclotron-node/dist
-COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/package.json /code/rust/cyclotron-node/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/rust/cyclotron-node/index.node /code/rust/cyclotron-node/index.node
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/common/hogvm/node/package.json /code/rust/common/hogvm/node/package.json
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/common/hogvm/node/index.js /code/rust/common/hogvm/node/index.js
 COPY --from=nodejs-build --chown=posthog:posthog /code/rust/common/hogvm/node/index.node /code/rust/common/hogvm/node/index.node

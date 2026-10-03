@@ -9,29 +9,30 @@ respected and the sandbox fan-out stays by-reference.
 
 Sandbox-turn activities (chunk / review / dedup) call `run_sandbox_review`, which spins a single-turn
 agent (minutes); `validate_chunk_activity` instead drives one warm multi-turn session per chunk. Both
-take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `Heartbeater()`. ORM
+take minutes, so they declare a `heartbeat_timeout` on dispatch and heartbeat via `ReviewActivityHeartbeater`. ORM
 access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@scoped_temporal()` +
 `@close_db_connections` mirror the Signals report activities.
 """
 
-import uuid
 import logging
 import datetime
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
@@ -39,14 +40,14 @@ from products.review_hog.backend.reviewer.constants import (
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
     DEFAULT_URGENCY_THRESHOLD,
-    VALIDATION_INITIAL_PERMISSION_MODE,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     VALIDATION_MAX_ATTEMPTS,
-    VALIDATION_MODEL,
-    VALIDATION_REASONING_EFFORT,
-    VALIDATION_RUNTIME_ADAPTER,
+    ReviewArm,
     effective_priority,
     published_priorities_for,
-    resolve_review_arm,
+    review_arm_for_mode,
+    validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -76,13 +77,14 @@ from products.review_hog.backend.reviewer.persistence import (
     load_valid_findings,
     persist_chunk_set,
     persist_commit_snapshot,
-    persist_findings,
     persist_perspective_results,
     persist_perspective_selection,
     persist_pr_snapshot,
     persist_verdict,
+    replace_deduplicated_findings,
     upsert_review_report,
 )
+from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.sandbox.direct_llm import run_oneshot_review
 from products.review_hog.backend.reviewer.sandbox.executor import (
     MultiTurnSession,
@@ -97,11 +99,13 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_validation_skill_for_run,
 )
 from products.review_hog.backend.reviewer.status_comment import (
+    FinalizeStatusCommentInput,
     ensure_status_comment,
     fail_status_comment,
     finalize_status_comment,
     maybe_refresh_status_comment,
 )
+from products.review_hog.backend.reviewer.telemetry import review_event_uuid, review_routing_properties
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
@@ -133,11 +137,17 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_deterministic_chunks,
     reconcile_chunks,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.tasks.backend.facade.run_config import ReasoningEffort
+
+if TYPE_CHECKING:
+    from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +160,7 @@ class ValidateIntegrationInput:
     team_id: int
 
 
-@dataclass
+@frozen
 class FetchPRDataInput:
     team_id: int
     user_id: int
@@ -164,9 +174,14 @@ class FetchPRDataInput:
     # Provenance stamped onto the ReviewReport at upsert (see `upsert_review_report`).
     signal_report_id: str | None = None
     trigger_source: str = TRIGGER_MANUAL
+    # `ReportPriority` value the trigger read before the implementation agent could write its own.
+    signal_priority: str | None = None
+    # This turn's mode. Read only to hold the tier back on a flash turn: the persisted arm must stay
+    # what the PR's next normal review runs on. Defaulted so pre-field payloads stay full reviews.
+    review_mode: str = REVIEW_MODE_FULL
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReviewMeta:
     """Small fetch result the parent threads through the rest of the run (no big payloads)."""
 
@@ -194,6 +209,8 @@ class ReviewMeta:
     # A branch target whose compare diff has no reviewable files ("pushed nothing"): the parent
     # self-skips the turn before any sandbox spend.
     empty_diff: bool = False
+    already_completed: bool = False
+    pr_open: bool = True
 
 
 @dataclass
@@ -213,7 +230,7 @@ class ResolveActingUserInput:
     default_user_id: int | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResolveActingUserResult:
     # The user whose enabled perspectives drive this review; None when nothing in the resolution
     # chain maps to a PostHog org user — the parent then skips the review.
@@ -231,6 +248,11 @@ class ResolveActingUserResult:
     # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
     # new workflow command; old runs must never reach it on replay). The model default is True.
     resolve_comments: bool = False
+    # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
+    # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
+    celebrate_clean_reviews: bool = True
+    review_authored_prs: bool = False
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
 
 @dataclass
@@ -261,7 +283,7 @@ class GenerateSchemasInput:
     pass
 
 
-@dataclass
+@dataclass(frozen=False)
 class SandboxStageInput:
     """Shared identity + turn scope for a sandbox-turn activity."""
 
@@ -272,6 +294,11 @@ class SandboxStageInput:
     repository: str
     branch: str
     run_index: int
+    # What this turn runs on (`REVIEW_MODE_FULL` / `REVIEW_MODE_FLASH`); picks the reviewer and
+    # validator arms and labels every GitHub message. Keyword-only with a default so subclasses keep
+    # their positional fields and pre-field payloads deserialize as full reviews.
+    review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
+    flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
 
 
 @dataclass
@@ -356,7 +383,7 @@ class BuildBodyInput:
     will_publish: bool = False
 
 
-@dataclass
+@dataclass(frozen=False)
 class PublishInput:
     team_id: int
     report_id: str
@@ -367,6 +394,8 @@ class PublishInput:
     pr_number: int
     # Same snapshot as `BuildBodyInput.urgency_threshold`, so body counts and comments agree.
     urgency_threshold: str = IssuePriority.CONSIDER.value
+    review_mode: str = REVIEW_MODE_FULL
+    trigger_source: str = TRIGGER_MANUAL
 
 
 @dataclass
@@ -397,7 +426,7 @@ class AppendCodeReviewArtefactInput:
     review_url: str | None = None
 
 
-@dataclass
+@frozen
 class TrackReviewCompletedInput:
     """One `reviewhog_review_completed` analytics event per finalized review turn."""
 
@@ -409,36 +438,47 @@ class TrackReviewCompletedInput:
     # The workflow's start_time (ISO 8601) — one turn is one workflow execution, so this anchors
     # the event's turn duration.
     workflow_started_at: str
+    # Which trigger started THIS turn. The report row only remembers the trigger that created it,
+    # and a person's re-trigger of an inbox report is the case the tier telemetry has to see.
+    # Defaulted so in-flight payloads from before the field still deserialize.
+    turn_trigger_source: str | None = None
+    # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
+    review_mode: str = REVIEW_MODE_FULL
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
 
-@dataclass
+@frozen
+class TrackReviewStartedInput:
+    """One `reviewhog_review_started` analytics event per review turn that passed every gate."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    turn_trigger_source: str | None
+    review_mode: str = REVIEW_MODE_FULL
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+
+
+@frozen
 class TrackReviewFailedInput:
     """One `reviewhog_review_failed` analytics event per failed review turn."""
 
     team_id: int
     report_id: str
     run_index: int
+    turn_trigger_source: str | None = None
+    review_mode: str = REVIEW_MODE_FULL
+    flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
 
 
-@dataclass
+@dataclass(frozen=False)
 class StatusCommentInput:
     """Kickoff / failure edits of the PR's status comment; owner/repo/pr come off the report row."""
 
     team_id: int
     report_id: str
-
-
-@dataclass
-class FinalizeStatusCommentInput:
-    team_id: int
-    report_id: str
-    run_index: int
-    # The run's snapshotted threshold, so the held-back explanation matches what publish enforced.
-    urgency_threshold: str
-    review_url: str | None = None
-    # Whose threshold gated the run ("author" / "override" / "default", from the resolve snapshot) —
-    # the held-back sentence must blame the right settings. Defaulted so pre-field payloads deserialize.
-    resolved_from: str = "author"
+    review_mode: str = REVIEW_MODE_FULL
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -453,9 +493,11 @@ def _sandbox_workflow_id_prefix(step_name: str) -> str:
     return f"{activity.info().workflow_id}:{step_name}".lower()
 
 
-async def _refresh_status_comment(team_id: int, report_id: str) -> None:
+async def _refresh_status_comment(team_id: int, report_id: str, review_mode: str) -> None:
     """Refresh the PR's status comment after this activity persisted progress (debounced, best-effort)."""
-    await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(team_id, report_id)
+    await database_sync_to_async(maybe_refresh_status_comment, thread_sensitive=False)(
+        team_id, report_id, review_mode=review_mode
+    )
 
 
 def _github_integration_exists(team_id: int) -> bool:
@@ -558,12 +600,18 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_metadata=pr_metadata,
         signal_report_id=input.signal_report_id,
         trigger_source=input.trigger_source,
+        # Only the creating turn routes on it: the upsert is what knows whether the row exists.
+        signal_priority=ReportPriority(input.signal_priority) if input.signal_priority is not None else None,
+        # A flash trigger never lifts: the lift rewrites the persisted arm, and the person asking for
+        # the cheap review would raise what every later normal turn costs.
+        lift_tier_on_human_trigger=input.review_mode != REVIEW_MODE_FLASH,
     )
     # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
     # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
-    already_published = bool(head_sha) and report.published_head_sha == head_sha
+    already_published = review_already_published(report, head_sha, input.review_mode)
+    already_completed = bool(head_sha) and report.automatic_reviewed_head_sha == head_sha
     # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
     # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1
@@ -597,12 +645,19 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_comments=pr_comments,
         pr_files=pr_files,
     )
+    if already_published or (
+        input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or pr_metadata.state != "open")
+    ):
+        ReviewReport.objects.for_team(input.team_id).filter(id=report_id).update(
+            status=ReviewReport.Status.IDLE if pr_metadata.state == "open" else ReviewReport.Status.CLOSED
+        )
     return ReviewMeta(
         report_id=report_id,
         head_sha=head_sha,
-        # Sandboxes check out this ref. For PRs use the pinned pull ref: refs/pull/N/head outlives the
-        # head branch (merging mid-review deletes it, killing every later sandbox checkout).
-        branch=f"pull/{pr_number}/head" if pr_number is not None else pr_metadata.head_branch,
+        # Sandboxes check out this branch by name. The Tasks checkout only resolves refs/heads/<name>;
+        # a pull ref like `pull/N/head` falls through to a fresh branch on the base tip, so every
+        # sandbox would review the base branch instead of the PR.
+        branch=pr_metadata.head_branch,
         repository=input.repository,
         run_index=run_index,
         snapshotted=snapshotted,
@@ -612,6 +667,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_number=pr_number,
         pr_url=pr_url,
         empty_diff=pr_number is None and not pr_files,
+        already_completed=already_completed,
+        pr_open=pr_metadata.state == "open",
     )
 
 
@@ -635,30 +692,40 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     return user.id if user is not None else None
 
 
-def _resolve_acting_user(
-    team_id: int,
-    author_login: str,
-    override_user_id: int | None,
-    report_id: str | None = None,
-    trigger_source: str = TRIGGER_MANUAL,
-    default_user_id: int | None = None,
-) -> ResolveActingUserResult:
+def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
+    # Resolved even on override runs: the clean-review media switch keys off the mapped author's own
+    # preference, not the requester's, so an override run still needs this identity to load it.
+    author_user_id = _login_to_user_id(input.team_id, input.author_login)
     acting_user_id: int | None
-    if override_user_id is not None:
-        acting_user_id, resolved_from = override_user_id, "override"
+    if input.override_user_id is not None:
+        acting_user_id, resolved_from = input.override_user_id, "override"
     else:
-        acting_user_id, resolved_from = _login_to_user_id(team_id, author_login), "author"
+        acting_user_id, resolved_from = author_user_id, "author"
         # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
         # the trigger already resolved. Other triggers keep the author-only contract and skip.
-        if acting_user_id is None and trigger_source == TRIGGER_LABEL:
-            acting_user_id, resolved_from = default_user_id, "default"
+        if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
+            acting_user_id, resolved_from = input.default_user_id, "default"
+    if input.trigger_source == TRIGGER_AUTOMATIC and (
+        acting_user_id is None or not authored_reviews_enabled(team_id=input.team_id, user_id=acting_user_id)
+    ):
+        if input.report_id is not None:
+            ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
+                status=ReviewReport.Status.IDLE
+            )
+        return ResolveActingUserResult(acting_user_id=None)
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
     if resolved_from == "default":
-        logger.info("PR author %r has no PostHog user; acting as the default user %s", author_login, acting_user_id)
-    if report_id is not None:
-        ReviewReport.objects.for_team(team_id).filter(id=report_id).update(acting_user_id=acting_user_id)
-    settings = ReviewUserSettings.load(team_id, acting_user_id)
+        logger.info(
+            "PR author %r has no PostHog user; acting as the default user %s", input.author_login, acting_user_id
+        )
+    if input.report_id is not None:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
+    # celebrate_clean_reviews follows the author, who can differ from the acting user on an
+    # override run, so load both rows in one query instead of a second round trip below.
+    extra_settings_ids = [author_user_id] if author_user_id is not None and author_user_id != acting_user_id else []
+    settings_by_user = ReviewUserSettings.load_many(input.team_id, [acting_user_id, *extra_settings_ids])
+    settings = settings_by_user[acting_user_id]
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
         # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
@@ -678,6 +745,24 @@ def _resolve_acting_user(
         # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
         # switch never governs someone else's PR — an unmapped author gets the default posture (on).
         resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
+        # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
+        # it to "your pull requests". A teammate-triggered override still honors the mapped author's
+        # own preference. Only an unmapped author falls back to the default.
+        celebrate_clean_reviews=(
+            settings.celebrate_clean_reviews
+            if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
+            else (
+                settings_by_user[author_user_id].celebrate_clean_reviews
+                if resolved_from == "override" and author_user_id is not None
+                else True
+            )
+        ),
+        review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
+        flash_reasoning_effort=(
+            str(settings.flash_reasoning_effort)
+            if resolved_from in ("author", "override")
+            else ReasoningEffort.MEDIUM.value
+        ),
     )
 
 
@@ -692,14 +777,7 @@ async def resolve_acting_user_activity(input: ResolveActingUserInput) -> Resolve
     other triggers return None on an unmapped author and the parent skips the review.
     The CLI/eval passes an explicit `override_user_id` to test a known user's perspectives on any PR.
     """
-    return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
-        input.team_id,
-        input.author_login,
-        input.override_user_id,
-        input.report_id,
-        input.trigger_source,
-        input.default_user_id,
-    )
+    return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(input)
 
 
 def _sync_review_skills(team_id: int) -> None:
@@ -756,7 +834,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     )
     if existing is not None:
         logger.info("Reusing persisted chunk set for this turn")
-        await _refresh_status_comment(input.team_id, input.report_id)
+        await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
         return [chunk.chunk_id for chunk in existing.chunks]
 
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
@@ -773,7 +851,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
         await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
             team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=planned
         )
-        await _refresh_status_comment(input.team_id, input.report_id)
+        await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
         return [chunk.chunk_id for chunk in planned.chunks]
 
     prompt = generate_chunking_prompt(snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files)
@@ -782,7 +860,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     # shot keeps the agentic sandbox, which can navigate the repo instead of holding it all at once.
     additions = count_reviewable_additions(snapshot.pr_files)
     use_oneshot = bool(CHUNKING_ONESHOT_MAX_ADDITIONS) and additions <= CHUNKING_ONESHOT_MAX_ADDITIONS
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         if use_oneshot:
             chunks = await run_oneshot_review(
                 team_id=input.team_id,
@@ -813,7 +891,7 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return [chunk.chunk_id for chunk in chunks.chunks]
 
 
@@ -866,7 +944,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
     if not chunks.chunks:
         return None
     prompt = generate_selection_prompt(snapshot.pr_metadata, chunks.chunks, snapshot.pr_files, input.perspectives)
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         raw = await run_oneshot_review(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -885,7 +963,7 @@ async def select_perspectives_activity(input: SelectPerspectivesInput) -> Perspe
         roster=[p.skill_name for p in input.perspectives],
         selection=selection,
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return PerspectiveSelectionDTO.from_model(selection)
 
 
@@ -915,9 +993,10 @@ def _prepare_review_prompt(
     run_index: int,
     blind_spot_check: bool,
     wave_perspectives: list[LoadedPerspectiveDTO],
+    review_arm: ReviewArm,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
-    done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm)
     if (pass_number, chunk_id) in done:
         return None
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
@@ -955,6 +1034,14 @@ def _prepare_review_prompt(
 @close_db_connections
 async def review_chunk_activity(input: ReviewChunkInput) -> bool:
     """Review one chunk through one perspective (or the blind-spot check) and persist it (idempotent)."""
+    # The report's persisted arm (its tier's, decided at creation), not the module pins. Each unit
+    # resolves it against the live registry, so all units of a turn agree unless a deploy
+    # deregisters the model mid-turn — which is why a tier's arm changes in REVIEW_ARMS_BY_TIER,
+    # never by deregistering the model. A flash turn overrides it with the flash arm for this turn only.
+    persisted_arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id
+    )
+    arm = review_arm_for_mode(input.review_mode, persisted_arm, flash_reasoning_effort=input.flash_reasoning_effort)
     prompt = await database_sync_to_async(_prepare_review_prompt, thread_sensitive=False)(
         input.team_id,
         input.report_id,
@@ -966,6 +1053,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.run_index,
         input.blind_spot_check,
         input.wave_perspectives,
+        arm,
     )
     if prompt is None:
         return True
@@ -974,13 +1062,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         if input.blind_spot_check
         else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
     )
-    # The report's persisted experiment arm, not the module pins. Each unit resolves it against the
-    # live registry, so all units of a turn agree unless a deploy deregisters the model mid-turn —
-    # which is why experiment teardown drops arms from REVIEW_EXPERIMENT_ARMS, never the registry.
-    arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id
-    )
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         review = await run_sandbox_review(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1005,16 +1087,19 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         report_id=input.report_id,
         head_sha=input.head_sha,
         results={(input.pass_number, input.chunk_id): review},
+        review_arm=arm,
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return True
 
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 
-def _combine_and_clean(team_id: int, report_id: str, head_sha: str) -> list[Issue]:
-    perspective_results = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
+def _combine_and_clean(team_id: int, report_id: str, head_sha: str, review_arm: ReviewArm) -> list[Issue]:
+    perspective_results = load_perspective_results(
+        team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm
+    )
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
     raw_issues = combine_issues(perspective_results)
@@ -1032,8 +1117,15 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     stages reload the issue content from the finding rows, so the unbounded issue list never crosses
     a Temporal payload boundary by value.
     """
+    # Only this turn's reviewer's results are combined: a flash and a full turn can share a commit.
+    persisted_arm = await database_sync_to_async(load_review_arm, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id
+    )
+    review_arm = review_arm_for_mode(
+        input.review_mode, persisted_arm, flash_reasoning_effort=input.flash_reasoning_effort
+    )
     issues = await database_sync_to_async(_combine_and_clean, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha
+        input.team_id, input.report_id, input.head_sha, review_arm
     )
     snapshot = await database_sync_to_async(load_pr_snapshot, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha
@@ -1046,7 +1138,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
-    async with Heartbeater():
+    async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
         survivors = await deduplicate_issues(
             team_id=input.team_id,
             user_id=input.user_id,
@@ -1058,10 +1150,17 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             repository=input.repository,
             workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
         )
-    issue_ids = await database_sync_to_async(persist_findings, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
+    issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        issues=survivors,
+        run_index=input.run_index,
+        head_sha=input.head_sha,
+        review_mode=input.review_mode,
+        review_arm=review_arm,
+        validation_arm=validation_arm_for_mode(input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort),
     )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return DedupResult(issue_ids=issue_ids)
 
 
@@ -1129,10 +1228,11 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 
     validated = len(done)
     final_attempt = activity.info().attempt >= VALIDATION_MAX_ATTEMPTS
+    validator = validation_arm_for_mode(input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort)
     session: MultiTurnSession | None = None
     chunk_ok = False
     try:
-        async with Heartbeater():
+        async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
             for issue in pending:
                 issue_files = [f for f in pr_files if f.filename == issue.file]
                 try:
@@ -1154,10 +1254,10 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                             model_to_validate=IssueValidation,
                             step_name=f"validation-c{input.chunk_id}",
                             workflow_id_prefix=_sandbox_workflow_id_prefix(f"validation-c{input.chunk_id}"),
-                            runtime_adapter=VALIDATION_RUNTIME_ADAPTER,
-                            model=VALIDATION_MODEL,
-                            reasoning_effort=VALIDATION_REASONING_EFFORT,
-                            initial_permission_mode=VALIDATION_INITIAL_PERMISSION_MODE,
+                            runtime_adapter=validator.runtime_adapter,
+                            model=validator.model,
+                            reasoning_effort=validator.reasoning_effort,
+                            initial_permission_mode=validator.initial_permission_mode,
                         )
                     else:
                         validation = await continue_sandbox_session(
@@ -1202,46 +1302,42 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
                 status="completed" if chunk_ok else "failed",
                 error=None if chunk_ok else "validation chunk failed mid-session",
             )
-    await _refresh_status_comment(input.team_id, input.report_id)
+    await _refresh_status_comment(input.team_id, input.report_id, input.review_mode)
     return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=validated)
 
 
 # --- Build body + finalize + publish ---------------------------------------------------------------
 
 
-def _build_and_finalize(
-    team_id: int,
-    report_id: str,
-    head_sha: str,
-    run_index: int,
-    issue_ids: list[str],
-    urgency_threshold: str,
-    will_publish: bool,
-) -> None:
-    issues = load_run_issues(team_id=team_id, report_id=report_id, run_index=run_index, issue_ids=issue_ids)
+def _build_and_finalize(input: BuildBodyInput) -> None:
+    issues = load_run_issues(
+        team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issue_ids=input.issue_ids
+    )
     # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
     # same findings in the body and the posted comments.
-    validations = load_run_validations(team_id=team_id, report_id=report_id, run_index=run_index, issues=issues)
+    validations = load_run_validations(
+        team_id=input.team_id, report_id=input.report_id, run_index=input.run_index, issues=issues
+    )
     # The reviewed diff decides which valid findings can't be anchored inline — the body surfaces those
     # in an "Other findings" section (the same snapshot publish positions inline comments against).
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
     body = build_review_body(
         issues=issues,
         validations=validations,
         pr_files=pr_files,
-        published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
+        published_priorities=published_priorities_for(IssuePriority(input.urgency_threshold)),
     )
     finalize_review_report(
-        team_id=team_id,
-        report_id=report_id,
+        team_id=input.team_id,
+        report_id=input.report_id,
         body_markdown=body,
-        run_index=run_index,
-        head_sha=head_sha,
+        run_index=input.run_index,
+        head_sha=input.head_sha,
         # The same snapshot the body above and the publish gate consume — stamped so the detail view
         # buckets this turn's findings by the gate that actually ran.
-        urgency_threshold=urgency_threshold,
-        will_publish=will_publish,
+        urgency_threshold=input.urgency_threshold,
+        will_publish=input.will_publish,
     )
 
 
@@ -1250,40 +1346,28 @@ def _build_and_finalize(
 @close_db_connections
 async def build_body_activity(input: BuildBodyInput) -> None:
     """Render the review body and finalize the turn (store the body, bump the run watermark)."""
-    await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(
-        input.team_id,
-        input.report_id,
-        input.head_sha,
-        input.run_index,
-        input.issue_ids,
-        input.urgency_threshold,
-        input.will_publish,
-    )
+    await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(input)
 
 
-def _publish(
-    team_id: int,
-    report_id: str,
-    head_sha: str,
-    run_index: int,
-    owner: str,
-    repo: str,
-    pr_number: int,
-    urgency_threshold: str,
-) -> PublishResult:
-    token, installation_id = _installation_auth(team_id, f"{owner}/{repo}")
+def _publish(input: PublishInput) -> PublishResult:
+    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     outcome = publish_persisted_review(
-        team_id=team_id,
-        report_id=report_id,
-        head_sha=head_sha,
-        run_index=run_index,
-        owner=owner,
-        repo=repo,
-        pr_number=pr_number,
+        team_id=input.team_id,
+        report_id=input.report_id,
+        head_sha=input.head_sha,
+        run_index=input.run_index,
+        owner=input.owner,
+        repo=input.repo,
+        pr_number=input.pr_number,
         token=token,
-        urgency_threshold=IssuePriority(urgency_threshold),
+        urgency_threshold=IssuePriority(input.urgency_threshold),
         installation_id=installation_id,
+        review_mode=input.review_mode,
     )
+    if input.trigger_source == TRIGGER_AUTOMATIC:
+        ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
+            automatic_reviewed_head_sha=input.head_sha
+        )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 
 
@@ -1296,24 +1380,15 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
     The per-run publish gate lives in the workflow (`inputs.publish`): this activity is dispatched
     only when publishing is enabled and the turn has a PR to post to.
     """
-    return await database_sync_to_async(_publish, thread_sensitive=False)(
-        input.team_id,
-        input.report_id,
-        input.head_sha,
-        input.run_index,
-        input.owner,
-        input.repo,
-        input.pr_number,
-        input.urgency_threshold,
-    )
+    return await database_sync_to_async(_publish, thread_sensitive=False)(input)
 
 
-def _remove_trigger_label(team_id: int, owner: str, repo: str, pr_number: int) -> None:
-    token, installation_id = _installation_auth(team_id, f"{owner}/{repo}")
+def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
+    token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     try:
         github_api_request(
             "DELETE",
-            f"/repos/{owner}/{repo}/issues/{pr_number}/labels/reviewhog",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/reviewhog",
             token=token,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
             installation_id=installation_id,
@@ -1328,9 +1403,7 @@ def _remove_trigger_label(team_id: int, owner: str, repo: str, pr_number: int) -
 @close_db_connections
 async def remove_trigger_label_activity(input: RemoveTriggerLabelInput) -> None:
     """Remove the label that started a label-triggered review, if it is still present."""
-    await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(
-        input.team_id, input.owner, input.repo, input.pr_number
-    )
+    await database_sync_to_async(_remove_trigger_label, thread_sensitive=False)(input)
 
 
 def _review_event_identity(report: ReviewReport) -> str:
@@ -1340,37 +1413,92 @@ def _review_event_identity(report: ReviewReport) -> str:
     return str(acting_distinct_id) if acting_distinct_id else str(report.team.uuid)
 
 
-def _review_arm_properties(report: ReviewReport) -> dict[str, str | bool]:
-    """The model-experiment labels on every review analytics event (the model name is the arm).
+def _turn_event_properties(
+    report: ReviewReport, *, run_index: int, turn_trigger_source: str | None
+) -> dict[str, str | int | None]:
+    """The identity every per-turn review event shares: which report, which turn, and who asked for it.
 
-    Resolved, not raw: pre-experiment rows carry NULLs but their reviews run on the default pins,
-    and the event must say what actually ran.
+    `trigger_source` is the trigger that created the report; `turn_trigger_source` is the trigger
+    of this turn, which differs when a person re-triggers an inbox report.
     """
-    persisted = (
-        report.review_runtime_adapter,
-        report.review_model,
-        report.review_reasoning_effort,
-        report.review_initial_permission_mode,
-    )
-    arm = resolve_review_arm(*persisted)
-    resolved = (arm.runtime_adapter.value, arm.model, arm.reasoning_effort.value, arm.initial_permission_mode)
     return {
-        "review_runtime_adapter": arm.runtime_adapter.value,
-        "review_model": arm.model,
-        "review_reasoning_effort": arm.reasoning_effort.value,
-        # True when a persisted assignment failed resolution and the turn ran the fallback pins
-        # instead of its drawn arm; per-arm dashboards must exclude these contaminated turns.
-        # The whole bundle is compared because a failed assignment can share the default arm's model
-        # string while differing on adapter or effort. Pre-experiment rows (all NULL) stay False.
-        "review_arm_fallback": any(persisted) and resolved != persisted,
+        "report_id": str(report.id),
+        "team_id": report.team_id,
+        "repository": report.repository,
+        "pr_number": report.pr_number,
+        "run_index": run_index,
+        "trigger_source": report.trigger_source,
+        "turn_trigger_source": turn_trigger_source,
+        "author_login": report.author_login,
     }
+
+
+def _pr_size_properties(snapshot: "PRSnapshotArtefact | None") -> dict[str, int | None]:
+    """PR size as fetched for the turn; every value is None when the turn's snapshot is unavailable."""
+    pr_meta = snapshot.pr_metadata if snapshot is not None else None
+    return {
+        "pr_additions": pr_meta.additions if pr_meta is not None else None,
+        "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
+        "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
+        "pr_commits": pr_meta.commits if pr_meta is not None else None,
+        # Added lines ReviewHog actually reviews (lockfiles/tests/generated filtered out), which is
+        # the honest denominator for per-line cost.
+        "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
+    }
+
+
+def _track_review_started(input: TrackReviewStartedInput) -> None:
+    report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
+    snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
+    posthoganalytics.capture(
+        distinct_id=_review_event_identity(report),
+        event="reviewhog_review_started",
+        # A parent retry must not count another start for the same turn and mode.
+        uuid=review_event_uuid(
+            "reviewhog_review_started",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
+        properties={
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **review_routing_properties(
+                report, review_mode=input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort
+            ),
+            **_pr_size_properties(snapshot),
+        },
+        groups=groups(team=report.team),
+        send_feature_flags=True,
+    )
+
+
+def _track_review_started_safe(input: TrackReviewStartedInput) -> None:
+    # Analytics must never fail a review: any load/capture failure is logged, not raised.
+    try:
+        _track_review_started(input)
+    except Exception:
+        logger.exception("Failed to capture reviewhog_review_started for report %s; continuing", input.report_id)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def track_review_started_activity(input: TrackReviewStartedInput) -> None:
+    """Capture the turn's `reviewhog_review_started` product-analytics event.
+
+    Fires once every gate has passed and the turn is about to spend sandboxes, so it counts turns
+    that actually run. It carries the arm as it stood when the turn began: a person's trigger that
+    joins a cheaper turn lifts the row mid-run, so the completed event alone would show the lifted
+    arm for a turn whose units mostly ran on the cheap one. Started versus completed is how a
+    dashboard sees that lift. Best-effort: any failure is logged, not raised.
+    """
+    await database_sync_to_async(_track_review_started_safe, thread_sensitive=False)(input)
 
 
 def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     report = ReviewReport.objects.for_team(input.team_id).select_related("acting_user", "team").get(id=input.report_id)
     findings = load_turn_findings(team_id=input.team_id, report_id=input.report_id, run_index=input.run_index)
     snapshot = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
-    pr_meta = snapshot.pr_metadata if snapshot is not None else None
     duration_seconds = round(
         (
             datetime.datetime.now(tz=datetime.UTC) - datetime.datetime.fromisoformat(input.workflow_started_at)
@@ -1386,32 +1514,25 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_completed",
-        # Deterministic per turn: an activity retry that re-captures after a worker crash emits the
-        # same event uuid, so ingestion dedupes it instead of double-counting the review.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_completed:{input.report_id}:{input.run_index}")),
+        # Activity retries must not double-count a completed turn within its review mode.
+        uuid=review_event_uuid(
+            "reviewhog_review_completed",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
-            "report_id": str(report.id),
-            "team_id": report.team_id,
-            "repository": report.repository,
-            "pr_number": report.pr_number,
-            "run_index": input.run_index,
-            "trigger_source": report.trigger_source,
-            "author_login": report.author_login,
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
             "published": input.published,
             "findings_total": len(findings),
             "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
             "findings_must_fix": valid_by_priority.get(IssuePriority.MUST_FIX, 0),
             "findings_should_fix": valid_by_priority.get(IssuePriority.SHOULD_FIX, 0),
             "findings_consider": valid_by_priority.get(IssuePriority.CONSIDER, 0),
-            **_review_arm_properties(report),
-            # PR size as fetched for this turn; None when the turn's snapshot is unavailable.
-            "pr_additions": pr_meta.additions if pr_meta is not None else None,
-            "pr_deletions": pr_meta.deletions if pr_meta is not None else None,
-            "pr_changed_files": pr_meta.changed_files if pr_meta is not None else None,
-            "pr_commits": pr_meta.commits if pr_meta is not None else None,
-            # Added lines ReviewHog actually reviews (lockfiles/tests/generated filtered out) —
-            # the honest denominator for per-line cost.
-            "pr_reviewable_additions": count_reviewable_additions(snapshot.pr_files) if snapshot is not None else None,
+            **review_routing_properties(
+                report, review_mode=input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort
+            ),
+            **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
         },
         groups=groups(team=report.team),
@@ -1446,19 +1567,18 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
     posthoganalytics.capture(
         distinct_id=_review_event_identity(report),
         event="reviewhog_review_failed",
-        # Deterministic per turn, like the completed event: repeated failures of the same turn (a
-        # re-trigger that dies again before finalize bumps run_count) dedupe to one event, so
-        # completion rate counts turns, not attempts.
-        uuid=str(uuid.uuid5(uuid.NAMESPACE_URL, f"reviewhog_review_failed:{input.report_id}:{input.run_index}")),
+        # Failures of the same turn and mode dedupe so retries do not lower its completion rate.
+        uuid=review_event_uuid(
+            "reviewhog_review_failed",
+            report_id=input.report_id,
+            run_index=input.run_index,
+            review_mode=input.review_mode,
+        ),
         properties={
-            "report_id": str(report.id),
-            "team_id": report.team_id,
-            "repository": report.repository,
-            "pr_number": report.pr_number,
-            "run_index": input.run_index,
-            "trigger_source": report.trigger_source,
-            "author_login": report.author_login,
-            **_review_arm_properties(report),
+            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **review_routing_properties(
+                report, review_mode=input.review_mode, flash_reasoning_effort=input.flash_reasoning_effort
+            ),
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
@@ -1482,9 +1602,10 @@ async def track_review_failed_activity(input: TrackReviewFailedInput) -> None:
     The completed event alone hides failures: a run that dies never emits it, so an arm of the
     reviewer-model experiment that crashes on its hardest PRs would silently shed them from every
     per-review metric. This event is the denominator's other half, but do NOT naively sum event
-    counts: the parent workflow retry makes fail-then-complete at the same (report_id, run_index)
-    common, so a turn counts as failed only when it has a failed event and NO completed event
-    (anti-join on report_id + run_index). Best-effort, like the completed event.
+    counts: a parent retry can fail and then complete at the same (report_id, run_index, review_mode),
+    so a turn counts as failed only when that combination has a failed event and no completed event.
+    Anti-join on report_id + run_index + review_mode, treating an absent mode as Full for legacy events.
+    Best-effort, like the completed event.
     """
     await database_sync_to_async(_track_review_failed_safe, thread_sensitive=False)(input)
 
@@ -1501,7 +1622,9 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
     Dispatched only on the publish path once every gate has passed. Best-effort inside
     (`ensure_status_comment` swallows failures), so it can't fail the review.
     """
-    await database_sync_to_async(ensure_status_comment, thread_sensitive=False)(input.team_id, input.report_id)
+    await database_sync_to_async(ensure_status_comment, thread_sensitive=False)(
+        input.team_id, input.report_id, review_mode=input.review_mode
+    )
 
 
 @activity.defn
@@ -1509,22 +1632,15 @@ async def post_status_comment_activity(input: StatusCommentInput) -> None:
 @close_db_connections
 async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) -> None:
     """Rewrite the status comment with the turn's outcome: full found counts vs. what was published."""
-    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(
-        input.team_id,
-        input.report_id,
-        run_index=input.run_index,
-        urgency_threshold=input.urgency_threshold,
-        review_url=input.review_url,
-        resolved_from=input.resolved_from,
-    )
+    await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
 
 
-def _fail_run(team_id: int, report_id: str) -> None:
+def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
-    fail_status_comment(team_id, report_id)
+    fail_status_comment(team_id, report_id, review_mode=review_mode)
 
 
 @activity.defn
@@ -1536,7 +1652,7 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

@@ -1,19 +1,22 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { LemonSkeleton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { AccountOpportunity, accountOpportunitiesLogic, NOT_LOADED } from './accountOpportunitiesLogic'
 import { AccountsEvents, SALESFORCE_ORIGIN } from './constants'
 
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
+
 function OpportunitiesEmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
         </div>
@@ -70,8 +73,18 @@ const columns: LemonTableColumns<AccountOpportunity> = [
     },
 ]
 
-export function AccountOpportunitiesExpansion({ accountId }: { accountId: string }): JSX.Element {
-    const { opportunitiesResult, opportunitiesResultLoading } = useValues(accountOpportunitiesLogic({ accountId }))
+export function AccountOpportunitiesExpansion({
+    accountId,
+    instanceId,
+    embedded = true,
+}: {
+    accountId: string
+    instanceId?: string
+    embedded?: boolean
+}): JSX.Element {
+    const { opportunitiesResult, opportunitiesResultLoading } = useValues(
+        accountOpportunitiesLogic({ accountId, instanceId })
+    )
 
     if (opportunitiesResultLoading || opportunitiesResult === NOT_LOADED) {
         return <LemonSkeleton className="h-64 w-full" />
@@ -109,7 +122,7 @@ export function AccountOpportunitiesExpansion({ accountId }: { accountId: string
     return (
         <LemonTable<AccountOpportunity>
             size="small"
-            embedded
+            embedded={embedded}
             dataSource={opportunities}
             columns={columns}
             rowKey="id"

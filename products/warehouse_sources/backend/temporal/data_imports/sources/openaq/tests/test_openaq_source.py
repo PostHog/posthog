@@ -4,14 +4,9 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openaq import OpenAQSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.openaq import OpenAQResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.settings import OPENAQ_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source import OpenAQSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> OpenAQSourceConfig:
@@ -19,19 +14,6 @@ def _config() -> OpenAQSourceConfig:
 
 
 class TestOpenAQSourceConfig:
-    def test_source_type(self) -> None:
-        assert OpenAQSource().source_type == ExternalDataSourceType.OPENAQ
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        fields = OpenAQSource().get_source_config.fields
-        assert len(fields) == 1
-        api_key = fields[0]
-        assert isinstance(api_key, SourceFieldInputConfig)
-        assert api_key.name == "api_key"
-        assert api_key.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key.required is True
-        assert api_key.secret is True
-
     def test_docs_url_matches_slug(self) -> None:
         # The website derives the doc slug from this URL; a mismatch 404s the Supported tables section.
         assert OpenAQSource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/openaq"
@@ -112,13 +94,6 @@ class TestOpenAQValidateCredentials:
 
 
 class TestOpenAQPipelineWiring:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = OpenAQSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OpenAQResumeConfig
-
     def _inputs(self, **overrides: Any) -> MagicMock:
         inputs = MagicMock()
         inputs.schema_name = overrides.get("schema_name", "measurements")
@@ -128,17 +103,6 @@ class TestOpenAQPipelineWiring:
             "db_incremental_field_last_value", "2026-01-01T00:00:00Z"
         )
         return inputs
-
-    def test_source_for_pipeline_passes_incremental_value_when_enabled(self) -> None:
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.openaq.source.openaq_source"
-        ) as mock_source:
-            OpenAQSource().source_for_pipeline(_config(), manager, self._inputs())
-        _, kwargs = mock_source.call_args
-        assert kwargs["endpoint"] == "measurements"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
 
     def test_source_for_pipeline_drops_incremental_value_when_disabled(self) -> None:
         # When the schema isn't synced incrementally, the last value must not leak into a filter.

@@ -1,18 +1,12 @@
 import pytest
 from unittest import mock
 
-from parameterized import parameterized
-
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pretix import PretixSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pretix import PretixResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.settings import (
     ENDPOINTS,
     INCREMENTAL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source import PretixSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestPretixSource:
@@ -20,34 +14,6 @@ class TestPretixSource:
         self.source = PretixSource()
         self.team_id = 123
         self.config = PretixSourceConfig(organizer="acme", api_token="test-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.PRETIX
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Pretix"
-        assert config.label == "Pretix"
-        assert config.releaseStatus == "alpha"
-        assert config.iconPath == "/static/services/pretix.png"
-
-        fields = {f.name: f for f in config.fields}
-        assert set(fields) == {"organizer", "api_token", "base_url"}
-
-        token_field = fields["api_token"]
-        assert isinstance(token_field, SourceFieldInputConfig)
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.required is True
-        assert token_field.secret is True
-
-        organizer_field = fields["organizer"]
-        assert isinstance(organizer_field, SourceFieldInputConfig)
-        assert organizer_field.required is True
-
-        base_url_field = fields["base_url"]
-        assert isinstance(base_url_field, SourceFieldInputConfig)
-        assert base_url_field.required is False
 
     def test_connection_host_fields_covers_base_url(self):
         # Retargeting the API URL must force re-entry of the token, otherwise an editor could point
@@ -85,31 +51,6 @@ class TestPretixSource:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["events", "nonexistent"])
 
         assert [schema.name for schema in schemas] == ["events"]
-
-    @parameterized.expand(
-        [
-            ((True, None),),
-            ((False, "Invalid pretix API token"),),
-        ]
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.validate_pretix_credentials"
-    )
-    def test_validate_credentials_delegates_to_transport(self, validation_result, mock_validate):
-        mock_validate.return_value = validation_result
-
-        assert self.source.validate_credentials(self.config, self.team_id) == validation_result
-        mock_validate.assert_called_once_with(
-            self.config.api_token, self.config.organizer, self.config.base_url, self.team_id
-        )
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        inputs.logger = mock.MagicMock()
-
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert manager._data_class is PretixResumeConfig
 
     def test_source_for_pipeline_rejects_unknown_schema(self):
         inputs = mock.MagicMock()

@@ -11,7 +11,7 @@ const MARKDOWN_BODY = [
   "PostHog Desktop now runs **recurring agent jobs** straight from your project.",
   "",
   "- Schedule a prompt on any cadence",
-  "- Route the results to your inbox or a channel",
+  "- Route the results to Self-driving or a channel",
   "- Pause or rewire a loop without a release",
   "",
   "Read the [docs](https://posthog.com/docs) for the full tour.",

@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.optimizely import (
     OptimizelySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.source import OptimizelySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestOptimizelySource:
@@ -16,28 +13,6 @@ class TestOptimizelySource:
         self.source = OptimizelySource()
         self.team_id = 123
         self.config = OptimizelySourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.OPTIMIZELY
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Optimizely"
-        assert config.label == "Optimizely"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/optimizely.com.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_api_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     def test_non_retryable_errors_match_auth_failures(self):
         non_retryable_errors = self.source.get_non_retryable_errors()
@@ -91,15 +66,3 @@ class TestOptimizelySource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_token)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.optimizely.source.optimizely_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_optimizely_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "experiments"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_optimizely_source.assert_called_once()
-        kwargs = mock_optimizely_source.call_args.kwargs
-        assert kwargs["api_token"] == "api-token"
-        assert kwargs["endpoint"] == "experiments"

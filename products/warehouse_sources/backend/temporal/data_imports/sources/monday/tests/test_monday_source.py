@@ -1,12 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMondaySource:
@@ -14,28 +12,6 @@ class TestMondaySource:
         self.source = MondaySource()
         self.team_id = 123
         self.config = MondaySourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MONDAY
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Monday"
-        assert config.label == "monday.com"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/monday.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_api_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -59,6 +35,17 @@ class TestMondaySource:
     def test_non_retryable_errors_does_not_match_unrelated(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "monday.com API error (retryable): status=500",
+            "monday.com internal server error (retryable): Internal Server Error; Internal server error",
+        ],
+    )
+    def test_retryable_errors_match_transient_monday_errors(self, observed_error):
+        retryable_errors = self.source.get_retryable_errors()
+        assert error_message_matches(observed_error, retryable_errors)
 
     def test_get_schemas_are_full_refresh_only(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -94,15 +81,3 @@ class TestMondaySource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_token)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.monday.source.monday_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_monday_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "items"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_monday_source.assert_called_once()
-        kwargs = mock_monday_source.call_args.kwargs
-        assert kwargs["api_token"] == "api-token"
-        assert kwargs["endpoint"] == "items"

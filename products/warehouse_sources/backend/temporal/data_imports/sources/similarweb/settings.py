@@ -1,9 +1,25 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
 from products.warehouse_sources.backend.types import IncrementalField
 
 BASE_URL = "https://api.similarweb.com"
+
+# Similarweb's legacy REST API versions each resource in its own URL path segment (`/v1/...`,
+# `/v4/...`) and carries the key in the `api_key` query param. This is the wire the source has
+# always spoken, so it stays the behaviour of a source pinned to the framework's unversioned label.
+API_VERSION_LEGACY = UNVERSIONED_API_VERSION
+# API V5 replaces the per-resource paths with one `/v5/website-analysis` host, `api-key` header
+# auth, and a standardized `{"meta": ..., "data": [...]}` envelope; metrics are selected with a
+# `metrics` query param rather than a per-metric path.
+API_VERSION_V5 = "v5"
+
+# V5 serves every engagement metric from this one multi-metric endpoint. Each per-metric table
+# requests only its own metric so the table set stays identical across versions.
+V5_ENGAGEMENT_PATH = "/v5/website-analysis/websites/traffic-and-engagement"
 # Free endpoint (no data credits) that reports the account's remaining credits and data access,
 # so credential validation costs the customer nothing.
 CAPABILITIES_PATH = "/capabilities"
@@ -19,6 +35,9 @@ CHUNK_ROWS = 5000
 PAGE_LIMIT = 100
 
 DEFAULT_COUNTRY = "world"
+# V5 documents the worldwide breakdown as `ww`, where the legacy API used `world`; the sentinel is
+# translated only on the V5 request wire, so stored rows keep the configured `world` value.
+V5_WORLDWIDE_COUNTRY = "ww"
 
 GRANULARITY_OPTIONS = (
     ("monthly", "Monthly"),
@@ -36,7 +55,7 @@ TRAFFIC_SOURCES = "traffic_sources"
 TRAFFIC_BY_COUNTRY = "traffic_by_country"
 
 
-@dataclass
+@frozen
 class SimilarwebEndpointConfig:
     name: str
     # `{domain}` is substituted with each configured domain.
@@ -55,6 +74,10 @@ class SimilarwebEndpointConfig:
     accepts_granularity: bool = True
     # Offset-paginated (`limit`/`offset`) rather than a single full-window response.
     paginated: bool = False
+    # The metric name to request from the V5 multi-metric engagement endpoint. Set only on the
+    # engagement tables whose V5 wire is documented; `None` keeps the endpoint on its legacy path
+    # under every pin (its V5 response shape isn't documented in enough detail to implement).
+    v5_metric: str | None = None
 
 
 _ENGAGEMENT_PATH = "/v1/website/{domain}/total-traffic-and-engagement"
@@ -67,6 +90,7 @@ SIMILARWEB_ENDPOINTS: dict[str, SimilarwebEndpointConfig] = {
         primary_keys=["domain", "country", "granularity", "date"],
         description="Estimated desktop and mobile web visits per period for each configured domain",
         incremental_fields=[incremental_field("date")],
+        v5_metric="visits",
     ),
     PAGE_VIEWS: SimilarwebEndpointConfig(
         name=PAGE_VIEWS,
@@ -76,6 +100,7 @@ SIMILARWEB_ENDPOINTS: dict[str, SimilarwebEndpointConfig] = {
         primary_keys=["domain", "country", "granularity", "date"],
         description="Estimated desktop and mobile web page views per period for each configured domain",
         incremental_fields=[incremental_field("date")],
+        v5_metric="page_views",
     ),
     PAGES_PER_VISIT: SimilarwebEndpointConfig(
         name=PAGES_PER_VISIT,
@@ -84,6 +109,7 @@ SIMILARWEB_ENDPOINTS: dict[str, SimilarwebEndpointConfig] = {
         primary_keys=["domain", "country", "granularity", "date"],
         description="Average number of pages viewed per visit, per period, for each configured domain",
         incremental_fields=[incremental_field("date")],
+        v5_metric="pages_per_visit",
     ),
     AVERAGE_VISIT_DURATION: SimilarwebEndpointConfig(
         name=AVERAGE_VISIT_DURATION,
@@ -92,6 +118,7 @@ SIMILARWEB_ENDPOINTS: dict[str, SimilarwebEndpointConfig] = {
         primary_keys=["domain", "country", "granularity", "date"],
         description="Average visit duration in seconds, per period, for each configured domain",
         incremental_fields=[incremental_field("date")],
+        v5_metric="average_visit_duration",
     ),
     BOUNCE_RATE: SimilarwebEndpointConfig(
         name=BOUNCE_RATE,
@@ -100,6 +127,7 @@ SIMILARWEB_ENDPOINTS: dict[str, SimilarwebEndpointConfig] = {
         primary_keys=["domain", "country", "granularity", "date"],
         description="Share of visits that ended without further interaction, per period, for each configured domain",
         incremental_fields=[incremental_field("date")],
+        v5_metric="bounce_rate",
     ),
     GLOBAL_RANK: SimilarwebEndpointConfig(
         name=GLOBAL_RANK,

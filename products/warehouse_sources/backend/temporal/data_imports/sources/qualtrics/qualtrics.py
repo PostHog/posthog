@@ -14,6 +14,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -120,12 +122,12 @@ class QualtricsResumeConfig:
     parent_index: int = 0
 
 
-@dataclasses.dataclass
+@frozen
 class QualtricsCredentials:
     method: Literal["api_token", "oauth_client_credentials"]
-    api_token: str | None = None
+    api_token: str | None = dataclasses.field(default=None, repr=False)
     client_id: str | None = None
-    client_secret: str | None = None
+    client_secret: str | None = dataclasses.field(default=None, repr=False)
 
     def secret_values(self) -> tuple[str, ...]:
         return tuple(value for value in (self.api_token, self.client_secret) if value)

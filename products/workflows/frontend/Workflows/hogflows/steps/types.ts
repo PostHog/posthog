@@ -5,6 +5,7 @@ import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { HogFlowAction } from '../types'
+import { isDuration, isSignedDuration } from './durations'
 
 export type HogFlowStepNodeProps = NodeProps & {
     data: HogFlowAction
@@ -24,12 +25,19 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
         return
     }
-    if (!/^\d*\.?\d+[dhms]$/.test(v)) {
+    if (!isDuration(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a number followed by s, m, h, or d' })
         return
     }
     if (parseFloat(v) <= 0) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be greater than 0' })
+    }
+})
+
+// A delay offset points either side of the date it offsets, so unlike DURATION_STRING it is signed.
+const OFFSET_DURATION_STRING = z.string().superRefine((v, ctx) => {
+    if (!isSignedDuration(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Offset must be a number followed by s, m, h, or d' })
     }
 })
 
@@ -93,6 +101,11 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'non_failure_status_codes',
         'customer_analytics_account_properties',
         'customer_analytics_account_relationships',
+        'task_model',
+        'task_repository',
+        'task_mcp_installations',
+        'signals_scout',
+        'task_skills',
     ]),
     key: z.string(),
     label: z.string(),
@@ -166,6 +179,7 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             audience_type: z.enum(['persons', 'accounts']).optional(),
             properties: z.array(z.any()),
             tag_names: z.array(z.string()).optional(),
+            assignment_status: z.enum(['all', 'assigned', 'unassigned']).optional(),
             assigned_to_user_ids: z.array(z.number()).optional(),
             all_roles_unassigned: z.boolean().optional(),
         }),
@@ -173,6 +187,23 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('data-warehouse-table'),
         // Dot-notated table name matching the Python CDPProducer naming
+        table_name: z.string(),
+        filters: z.object({
+            properties: z.array(z.any()).optional(),
+        }),
+        key_property: z.string().optional(),
+    }),
+    z.object({
+        type: z.literal('internal-event'),
+        filters: z.object({
+            source: z.literal('internal-events'),
+            events: z.array(z.any()).min(1),
+            properties: z.array(z.any()).optional(),
+        }),
+    }),
+    z.object({
+        type: z.literal('data-warehouse-view'),
+        // The materialized view's own name, which is also its HogQL name
         table_name: z.string(),
         filters: z.object({
             properties: z.array(z.any()).optional(),
@@ -202,7 +233,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
-            delay_duration: z.string().optional(),
         }),
     }),
     z.object({
@@ -222,9 +252,56 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
     z.object({
         ..._commonActionFields,
         type: z.literal('delay'),
-        config: z.object({
-            delay_duration: DURATION_STRING,
-        }),
+        // Two ways to say when to continue, exactly one of which is set. `delay_duration` waits a fixed span
+        // from when the step starts; `delay_until` waits for an instant carried by the person or the event.
+        // Keep in sync with nodejs/src/cdp/schema/hogflow.ts and the server-side validation in hog_flow.py.
+        config: z
+            .object({
+                delay_duration: DURATION_STRING.optional(),
+                delay_until: z
+                    .object({
+                        // HogQL evaluating to a datetime. The builder composes it from a property picker,
+                        // but the API accepts any expression, so anything can turn up here.
+                        expression: z.string(),
+                        offset: OFFSET_DURATION_STRING.optional(),
+                        // Which zone a date carrying no offset of its own is read in, the same three
+                        // fields wait_until_time_window uses.
+                        timezone: z.string().nullish(),
+                        use_person_timezone: z.boolean().optional(),
+                        fallback_timezone: z.string().nullish(),
+                        // Compiled server-side at save; whatever the client sends is discarded.
+                        bytecode: z.any().optional(),
+                        bytecode_error: z.string().optional(),
+                    })
+                    .optional(),
+                max_delay_duration: DURATION_STRING.optional(),
+            })
+            .superRefine((config, ctx) => {
+                if (!config.delay_until) {
+                    if (config.delay_duration === undefined) {
+                        ctx.addIssue({
+                            code: z.ZodIssueCode.custom,
+                            path: ['delay_duration'],
+                            message: 'Please enter a duration',
+                        })
+                    }
+                    return
+                }
+                if (config.delay_duration !== undefined) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: ['delay_until'],
+                        message: 'A delay waits either for a duration or until a date, not both',
+                    })
+                }
+                if (!config.delay_until.expression.trim()) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: ['delay_until', 'expression'],
+                        message: 'Please choose a date to wait for',
+                    })
+                }
+            }),
     }),
     z.object({
         ..._commonActionFields,

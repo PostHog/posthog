@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.tasks.backend.logic.services.compute_quota import (
     ComputeQuotaDenialReason,
@@ -59,6 +59,25 @@ class TestComputeQuota:
         limited.assert_called_with(self.team.api_token)
 
     @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True)
+    @patch("products.tasks.backend.logic.services.compute_quota._is_posthog_code_quota_limited", return_value=True)
+    def test_staff_task_bypasses_compute_quota(self, limited):
+        staff_user = User.objects.create(email="staff@example.com", is_staff=True)
+
+        assert not is_compute_quota_exhausted(self.task(created_by=staff_user))
+        limited.assert_not_called()
+
+    @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True)
+    def test_deactivated_organization_still_blocks_staff_task(self):
+        staff_user = User.objects.create(email="staff@example.com", is_staff=True)
+        self.team.organization.is_active = False
+        self.team.organization.save(update_fields=["is_active"])
+
+        assert (
+            get_compute_quota_denial_reason(self.task(created_by=staff_user))
+            == ComputeQuotaDenialReason.ORGANIZATION_DEACTIVATED
+        )
+
+    @override_settings(TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED=True)
     @patch(
         "products.tasks.backend.logic.services.compute_quota._is_posthog_code_quota_limited",
         side_effect=ConnectionError,
@@ -76,6 +95,12 @@ class TestComputeQuota:
     )
     def test_non_billable_origins_are_ineligible(self, origin, provenance):
         assert not is_task_billable_compute(self.task(origin_product=origin, client_provenance=provenance))
+
+    @pytest.mark.parametrize("origin", [Task.OriginProduct.USER_CREATED, Task.OriginProduct.SPACE_SETUP])
+    def test_desktop_started_origins_are_billable(self, origin):
+        assert is_task_billable_compute(
+            self.task(origin_product=origin, client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        )
 
     def test_unknown_origin_is_ineligible(self):
         assert not is_billable_compute(

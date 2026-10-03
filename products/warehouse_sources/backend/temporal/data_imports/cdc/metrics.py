@@ -43,21 +43,35 @@ def get_micro_batches_flushed_metric(team_id: int, source_id: str) -> MetricCoun
     )
 
 
-def get_shadow_buffer_files_written_metric(team_id: int, source_id: str) -> MetricCounter:
-    return _source_meter(team_id, source_id).create_counter(
-        "cdc_shadow_buffer_files_written_total", "Total buffer files written in shadow mode"
+# Every buffer write is authoritative delivery. The label keeps the value dashboards already filter on.
+_BUFFER_LANE_LABEL = {"lane": "ingress"}
+
+
+def get_buffer_files_written_metric(team_id: int, source_id: str) -> MetricCounter:
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes(_BUFFER_LANE_LABEL)
+        .create_counter("cdc_buffer_files_written_total", "Total buffer files written, by lane")
     )
 
 
-def get_shadow_buffer_write_errors_metric(team_id: int, source_id: str) -> MetricCounter:
+def get_extract_retry_metric(team_id: int, source_id: str) -> MetricCounter:
+    """Extraction runs that are not the first attempt.
+
+    Exposure proxy for the zombie-attempt collision: a superseded attempt that is still alive can
+    overwrite a live attempt's buffer file over the same position range with fewer rows, and that
+    loss has no detector of its own. It takes a retry to reach, so a quiet counter bounds the risk.
+    """
     return _source_meter(team_id, source_id).create_counter(
-        "cdc_shadow_buffer_write_errors_total", "Total swallowed shadow buffer write failures"
+        "cdc_extract_retried_attempts_total", "Extraction runs starting at attempt > 1"
     )
 
 
-def get_shadow_buffer_write_duration_metric(team_id: int, source_id: str) -> MetricHistogramFloat:
-    return _source_meter(team_id, source_id).create_histogram_float(
-        "cdc_shadow_buffer_write_duration_seconds", "Duration of shadow buffer S3 writes", "s"
+def get_buffer_write_duration_metric(team_id: int, source_id: str) -> MetricHistogramFloat:
+    return (
+        _source_meter(team_id, source_id)
+        .with_additional_attributes(_BUFFER_LANE_LABEL)
+        .create_histogram_float("cdc_buffer_write_duration_seconds", "Duration of buffer S3 writes, by lane", "s")
     )
 
 
@@ -69,17 +83,6 @@ def get_extraction_duration_metric(team_id: int, source_id: str, status: str) ->
     )
 
 
-def get_tick_skipped_metric(team_id: int, source_id: str, stuck: bool) -> MetricCounter:
-    return (
-        _meter()
-        .with_additional_attributes({"team_id": str(team_id), "source_id": source_id, "stuck": str(stuck).lower()})
-        .create_counter(
-            "cdc_ticks_skipped_pending_load_total",
-            "Total extraction ticks skipped because a previous run's batches are still loading",
-        )
-    )
-
-
 def get_slot_advance_metric(team_id: int, source_id: str) -> MetricCounter:
     return _source_meter(team_id, source_id).create_counter("cdc_slot_advance_total", "Total replication slot advances")
 
@@ -88,17 +91,6 @@ def get_slot_advance_failures_metric(team_id: int, source_id: str) -> MetricCoun
     return _source_meter(team_id, source_id).create_counter(
         "cdc_slot_advance_failures_total", "Total replication slot advance failures"
     )
-
-
-def get_deferred_runs_depth_metric(team_id: int, source_id: str) -> MetricGauge:
-    return _source_meter(team_id, source_id).create_gauge(
-        "cdc_deferred_runs_depth", "Deferred CDC runs awaiting the snapshot→streaming flush"
-    )
-
-
-# ---------------------------------------------------------------------------
-# Orphan-slot sweeper
-# ---------------------------------------------------------------------------
 
 
 def get_wal_lag_metric(team_id: int, source_id: str) -> MetricGauge:

@@ -55,6 +55,10 @@ class ReviewIssueFinding(BaseModel):
     run_index: int = Field(
         description="The review turn (1-based) that produced this finding; scopes publishing to one turn."
     )
+    validation_context: str | None = Field(
+        default=None,
+        description="The reviewed head, mode, and model configurations for verdict reuse and Flash outcome attribution.",
+    )
     title: str = Field(description="Issue title.")
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")
@@ -193,6 +197,27 @@ class ThreadVerdictArtefact(BaseModel):
         return v
 
 
+class ResolutionRunArtefact(BaseModel):
+    """Content for a `resolution_run` artefact: one resolution run's opening work-list.
+
+    Appended by the run's prepare step the moment the work-list is classified, so progress surfaces
+    (the reviews API's resolving row, the PR status comment) can count the run's `thread_verdict`
+    artefacts against it. The newest row marks the report's latest resolution run; the run's closing
+    `note` artefact (author `review_hog_resolution`) marks it finished — a run artefact with no
+    later closing note is either still running (recent artefact activity) or died partway (stale).
+    """
+
+    total: int = Field(description="Threads queued for a resolution turn this run (post pre-filter and run cap).")
+    thread_ids: list[str] = Field(
+        default_factory=list,
+        description="The queued threads' node ids, so progress counts only this run's verdicts "
+        "(redelivered prior-run verdicts also append rows during the run).",
+    )
+    redeliver: int = Field(default=0, description="Threads only needing their GitHub writes redelivered (no LLM turn).")
+    skipped: int = Field(default=0, description="Threads skipped as already judged and delivered.")
+    overflow: int = Field(default=0, description="Threads beyond the run cap, left for the next run.")
+
+
 class ChunkSetArtefact(BaseModel):
     """Content for a `chunk_set` artefact: the PR's chunking computed for ONE review turn.
 
@@ -224,12 +249,20 @@ class PerspectiveSelectionArtefact(BaseModel):
 
 
 class PerspectiveResultArtefact(BaseModel):
-    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn."""
+    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn.
+
+    The complete reviewer arm keys the resume because different efforts can review the same commit.
+    Rows without an arm are not reused: their model alone cannot establish the reasoning budget.
+    """
 
     head_sha: str = Field(description="PR head commit this review was computed for.")
     pass_number: int = Field(description="The review perspective (1=Logic, 2=Contracts, 3=Performance).")
     chunk_id: int = Field(description="The chunk this perspective reviewed.")
     review: IssuesReview = Field(description="The issues this perspective found in this chunk.")
+    review_model: str | None = Field(default=None, description="The reviewer model that produced this result.")
+    review_config: str | None = Field(
+        default=None, description="Serialized reviewer configuration that produced this result."
+    )
 
 
 class PRSnapshotArtefact(BaseModel):
@@ -259,6 +292,7 @@ ReviewArtefactContent = (
     | ValidationVerdict
     | FindingOutcomeArtefact
     | ThreadVerdictArtefact
+    | ResolutionRunArtefact
     | ReviewLogArtefactContent
     | ReviewWorkingStateContent
 )
@@ -269,6 +303,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "validation_verdict": ValidationVerdict,
     "finding_outcome": FindingOutcomeArtefact,
     "thread_verdict": ThreadVerdictArtefact,
+    "resolution_run": ResolutionRunArtefact,
     "task_run": TaskRunArtefact,
     "commit": Commit,
     "code_reference": CodeReference,

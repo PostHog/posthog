@@ -1,33 +1,496 @@
-import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxFlatListTabKey, InboxScope } from '../types'
-import { shouldDefaultToEntireProject } from './reportListLogic'
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { expectLogic } from 'kea-test-utils'
 
-describe('shouldDefaultToEntireProject', () => {
-    const base = {
-        tabKey: 'pulls' as InboxFlatListTabKey,
-        scope: INBOX_SCOPE_FOR_YOU as InboxScope,
-        hasUserChosenScope: false,
-        hasResolvedUser: true,
-        count: 0 as number | null,
-    }
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-    it('switches to Entire project when a fresh user has zero assigned PRs', () => {
-        expect(shouldDefaultToEntireProject(base)).toBe(true)
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import {
+    INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_FOR_YOU,
+    InboxReportSectionKey,
+    InboxScope,
+    SignalReport,
+    SignalReportStatus,
+} from '../types'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
+import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic, shouldDefaultToEntireProject } from './reportListLogic'
+
+const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
+const REFRESH_METRICS_URL = '/api/projects/:team_id/signals/reports/refresh_metrics/'
+
+it('uses the needs-decision view without an actionability filter that hides failed reports', () => {
+    expect(INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision']).toEqual({ view: 'needs_decision' })
+})
+
+function makeReport(id: string): SignalReport {
+    return {
+        id,
+        title: `Report ${id}`,
+        summary: 'summary',
+        status: SignalReportStatus.READY,
+        total_weight: 0,
+        signal_count: 1,
+        artefact_count: 0,
+        is_suggested_reviewer: false,
+        priority: 'P2',
+        source_products: ['error_tracking'],
+        created_at: '2026-06-11T10:00:00Z',
+        updated_at: '2026-06-11T10:00:00Z',
+    } satisfies SignalReport
+}
+
+describe('reportListLogic', () => {
+    describe('shouldDefaultToEntireProject', () => {
+        const base = {
+            sectionKey: 'needs-decision' as InboxReportSectionKey,
+            primarySectionKey: 'needs-decision' as InboxReportSectionKey,
+            scope: INBOX_SCOPE_FOR_YOU as InboxScope,
+            hasUserChosenScope: false,
+            hasResolvedUser: true,
+            count: 0 as number | null,
+        }
+
+        it('switches to Entire project when a fresh user has zero assigned reports', () => {
+            expect(shouldDefaultToEntireProject(base)).toBe(true)
+        })
+
+        // With the redesign flag off the Pull requests list is the primary section instead.
+        it('keys the switch on whichever section the layout treats as primary', () => {
+            const legacy = { ...base, primarySectionKey: 'monitoring' as InboxReportSectionKey }
+            expect(shouldDefaultToEntireProject({ ...legacy, sectionKey: 'monitoring' })).toBe(true)
+            expect(shouldDefaultToEntireProject({ ...legacy, sectionKey: 'needs-decision' })).toBe(false)
+        })
+
+        it.each<[string, Partial<typeof base>]>([
+            // The user has reports assigned – keep them on For you.
+            ['user has assigned reports', { count: 3 }],
+            // The user deliberately picked a scope – never override it, even with zero reports.
+            ['user chose their scope', { hasUserChosenScope: true }],
+            // Only the primary section (Needs decision) drives the default.
+            ['not the primary section', { sectionKey: 'monitoring' as InboxReportSectionKey }],
+            // Already off For you – nothing to default.
+            ['already entire project', { scope: INBOX_SCOPE_ENTIRE_PROJECT as InboxScope }],
+            // Count for For-you scope is only meaningful once the user's uuid has resolved.
+            ['user not resolved yet', { hasResolvedUser: false }],
+            // Count request in flight / failed (null) is not treated as "zero".
+            ['count not loaded', { count: null }],
+        ])('stays put when %s', (_label, override) => {
+            expect(shouldDefaultToEntireProject({ ...base, ...override })).toBe(false)
+        })
     })
 
-    it.each<[string, Partial<typeof base>]>([
-        // The user has PRs assigned – keep them on For you.
-        ['user has assigned PRs', { count: 3 }],
-        // The user deliberately picked a scope – never override it, even with zero PRs.
-        ['user chose their scope', { hasUserChosenScope: true }],
-        // Only the Pull requests tab (their assigned PRs) drives the default.
-        ['not the pulls tab', { tabKey: 'reports' as InboxFlatListTabKey }],
-        // Already off For you – nothing to default.
-        ['already entire project', { scope: INBOX_SCOPE_ENTIRE_PROJECT as InboxScope }],
-        // Count for For-you scope is only meaningful once the user's uuid has resolved.
-        ['user not resolved yet', { hasResolvedUser: false }],
-        // Count request in flight / failed (null) is not treated as "zero".
-        ['count not loaded', { count: null }],
-    ])('stays put when %s', (_label, override) => {
-        expect(shouldDefaultToEntireProject({ ...base, ...override })).toBe(false)
+    // The flat list pages every state through `loadMore`, so it must append from the loaded offset
+    // and stay quiet once the server says there is nothing further.
+    describe('list paging', () => {
+        const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
+        const SECOND_PAGE = [makeReport('page-2-0')]
+        let requestedOffsets: (string | null)[]
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            requestedOffsets = []
+            useMocks({
+                get: {
+                    // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        const offset = searchParams.get('offset')
+                        // The header count fires a separate count-only request; not a page.
+                        if (searchParams.get('limit') !== '1') {
+                            requestedOffsets.push(offset)
+                        }
+                        const firstPage = offset === '0' || offset === null
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                // A non-null `next` is what tells the section there are more pages.
+                                next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
+                                previous: null,
+                                results: firstPage ? FIRST_PAGE : SECOND_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('appends the next server page from the loaded offset, then stops', async () => {
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+
+            // The second page came back with `next: null`, so a further loadMore fires no request.
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
+        })
+
+        // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
+        // inside the viewport without re-firing. The flag is what surfaces the retry control, and a
+        // plain `loadMore` must be able to fetch the page again.
+        it('flags a failed next page and clears the flag on a successful retry', async () => {
+            let failNextPage = true
+            useMocks({
+                get: {
+                    [REPORTS_URL]: ({ request }) => {
+                        const offset = new URL(request.url).searchParams.get('offset')
+                        if (offset && offset !== '0') {
+                            if (failNextPage) {
+                                failNextPage = false
+                                return [500, {}]
+                            }
+                            return [
+                                200,
+                                {
+                                    count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                    next: null,
+                                    previous: null,
+                                    results: SECOND_PAGE,
+                                },
+                            ]
+                        }
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: 'http://localhost/api/projects/997/signals/reports/?offset=50',
+                                previous: null,
+                                results: FIRST_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pageLoadFailed).toBe(true)
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length)
+
+            logic.actions.loadMore()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.pageLoadFailed).toBe(false)
+            expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+        })
+
+        it('keeps a row removed while the next page is in flight out of the appended list', async () => {
+            let releasePage: () => void = () => {}
+            const heldPage = new Promise<void>((resolve) => {
+                releasePage = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await heldPage
+                        return [
+                            200,
+                            {
+                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                next: null,
+                                previous: null,
+                                results: SECOND_PAGE,
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic.actions.loadMore()
+            logic.actions.removeReport(FIRST_PAGE[3].id)
+            releasePage()
+            await expectLogic(logic).toDispatchActions(['loadMoreReportsSuccess'])
+
+            expect(logic.values.reports.map((r) => r.id)).toEqual([
+                ...FIRST_PAGE.filter((r) => r.id !== FIRST_PAGE[3].id).map((r) => r.id),
+                ...SECOND_PAGE.map((r) => r.id),
+            ])
+        })
+
+        // A refetch reloads only the first page, so a reviewer edit must drop the row in place or the
+        // reader loses their scroll position in a long list.
+        it.each([
+            {
+                name: 'drops the row once the scoped reviewer is removed',
+                scope: 'teammate:t-1',
+                after: [],
+                dropped: true,
+            },
+            {
+                name: 'keeps the row while the scoped reviewer stays',
+                scope: 'teammate:t-1',
+                after: ['t-1'],
+                dropped: false,
+            },
+            {
+                name: 'keeps the row when no reviewer scope applies',
+                scope: INBOX_SCOPE_ENTIRE_PROJECT,
+                after: [],
+                dropped: false,
+            },
+        ] as { name: string; scope: InboxScope; after: string[]; dropped: boolean }[])(
+            '$name',
+            async ({ scope, after, dropped }) => {
+                const bulkLogic = inboxBulkActionsLogic()
+                bulkLogic.mount()
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.loadMore()
+                await expectLogic(logic).toFinishAllListeners()
+                requestedOffsets = []
+
+                bulkLogic.actions.reportReviewersChanged(FIRST_PAGE[3].id, after)
+                await expectLogic(logic).toFinishAllListeners()
+
+                const loadedCount = FIRST_PAGE.length + SECOND_PAGE.length
+                expect(logic.values.reports.map((r) => r.id).includes(FIRST_PAGE[3].id)).toBe(!dropped)
+                expect(logic.values.reports).toHaveLength(dropped ? loadedCount - 1 : loadedCount)
+                expect(requestedOffsets).toEqual([])
+                bulkLogic.unmount()
+            }
+        )
+    })
+
+    // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
+    // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
+    describe('lazy source line', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+        let includeSourceMetadata: (string | null)[]
+        let queriedReportIds: string[][]
+        let scoutName: string
+
+        beforeEach(async () => {
+            includeSourceMetadata = []
+            queriedReportIds = []
+            scoutName = 'signals-scout-support'
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        if (searchParams.get('count_only') !== 'true') {
+                            includeSourceMetadata.push(searchParams.get('include_source_metadata'))
+                        }
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: null,
+                                previous: null,
+                                results: ['scouted', 'no-signals'].map((id) => ({
+                                    ...makeReport(id),
+                                    source_products: [],
+                                    scout_name: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
+                        const { report_ids } = (await request.json()) as { report_ids: string[] }
+                        queriedReportIds.push(report_ids)
+                        return [
+                            200,
+                            {
+                                reports: report_ids.map((id) =>
+                                    id === 'scouted'
+                                        ? { id, source_products: ['signals_scout'], scout_name: scoutName }
+                                        : { id, source_products: [], scout_name: null }
+                                ),
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('fills the source line after the rows load and refreshes it with the rows', async () => {
+            expect(includeSourceMetadata).toEqual(['false'])
+            expect(queriedReportIds).toEqual([['scouted', 'no-signals']])
+            expect(
+                logic.values.reports.map(({ id, source_products, scout_name }) => ({ id, source_products, scout_name }))
+            ).toEqual([
+                { id: 'scouted', source_products: ['signals_scout'], scout_name: 'signals-scout-support' },
+                { id: 'no-signals', source_products: [], scout_name: null },
+            ])
+
+            scoutName = 'signals-scout-billing'
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(queriedReportIds).toEqual([
+                ['scouted', 'no-signals'],
+                ['scouted', 'no-signals'],
+            ])
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
+        })
+    })
+
+    // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
+    // or dropped pull request has no CI worth reading, and asking about it spends a GitHub call.
+    describe('pull requests still in flight on the page', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        const withPr = (id: string, overrides: Partial<SignalReport>): SignalReport => ({
+            ...makeReport(id),
+            implementation_pr_url: `https://github.com/PostHog/posthog/pull/${id}`,
+            ...overrides,
+        })
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    '/api/projects/:team_id/signals/reports/pr_ci_statuses/': { statuses: [] },
+                    [REPORTS_URL]: () => [
+                        200,
+                        {
+                            count: 6,
+                            next: null,
+                            previous: null,
+                            results: [
+                                withPr('1', {}),
+                                withPr('2', { implementation_pr_merged: true }),
+                                withPr('3', { status: SignalReportStatus.SUPPRESSED }),
+                                withPr('5', { implementation_pr_state: 'draft' }),
+                                withPr('6', { implementation_pr_state: 'closed' }),
+                                makeReport('4'),
+                            ],
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'monitoring',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['monitoring'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('counts the rows whose pull request is still in flight, drafts included', () => {
+            expect(logic.values.livePrReportIds).toEqual(['1', '3', '5'])
+        })
+    })
+    // Snapshots refresh on read, like error tracking counts: a loaded page sends the ids whose saved
+    // number is missing or old, and the reply's numbers land on the rows without touching the prose.
+    describe('metric snapshots', () => {
+        const staleMetric = {
+            metric_id: 'affected-users',
+            title: 'Affected users',
+            kind: 'affected_users' as const,
+            role: 'primary' as const,
+            value: 17,
+            value_at: '2026-06-11T10:00:00Z',
+            series: [3, 5, 9],
+            value_format: 'count' as const,
+            unit: 'users',
+        }
+        let requestedIds: string[][]
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(async () => {
+            requestedIds = []
+            const stale = { ...makeReport('stale'), metrics: [staleMetric] }
+            const fresh = {
+                ...makeReport('fresh'),
+                metrics: [{ ...staleMetric, value_at: new Date(Date.now() - 60_000).toISOString() }],
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: [
+                        200,
+                        { count: 3, next: null, previous: null, results: [stale, fresh, makeReport('bare')] },
+                    ],
+                },
+                post: {
+                    [REFRESH_METRICS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as { report_ids: string[] }
+                        requestedIds.push(body.report_ids)
+                        return [
+                            200,
+                            {
+                                reports: [
+                                    {
+                                        id: 'stale',
+                                        metrics: [
+                                            {
+                                                ...staleMetric,
+                                                value: 21,
+                                                value_at: '2026-06-12T10:00:00Z',
+                                                series: [5, 9, 21],
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            })
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('sends only the stale rows and merges the refreshed numbers onto them', () => {
+            expect(requestedIds).toEqual([['stale']])
+            const byId = Object.fromEntries(logic.values.reports.map((report) => [report.id, report]))
+            expect(byId.stale.metrics?.[0]).toMatchObject({ value: 21, series: [5, 9, 21] })
+            expect(byId.stale.title).toBe('Report stale')
+            expect(byId.fresh.metrics?.[0].value).toBe(17)
+        })
+
+        it('sends nothing while the metrics flag is off', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_METRICS], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: false,
+            })
+            logic.actions.refreshReportMetrics(['stale'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedIds).toEqual([['stale']])
+        })
     })
 })

@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package ingestion.worker.v1;
+
+// WorkerIngest is the streaming ingest transport between the Rust ingestion
+// consumer and the Node.js ingestion-api workers.
+//
+// One bidirectional stream per (consumer process, worker pod) pair. The
+// stream is the ordering primitive: sub-batches are delivered to the worker
+// in send order, and the worker feeds them to its pipeline in read order, so
+// per-routing-key order holds as long as a key sticks to one worker (the
+// consumer's dispatcher pins guarantee that). Acks flow back on the response
+// stream and may complete out of order; `seq` correlates them.
+service WorkerIngest {
+  rpc IngestStream(stream IngestStreamRequest) returns (stream IngestStreamResponse);
+}
+
+// IngestStreamRequest is one frame on the consumer-to-worker stream.
+message IngestStreamRequest {
+  oneof msg {
+    // First frame on every stream. A stream carrying sub-batches before its
+    // hello is a protocol error and the worker closes it.
+    StreamHello hello = 1;
+    SubBatch sub_batch = 2;
+  }
+}
+
+// StreamHello identifies the sender so the worker's feed-order sentinel can
+// scope its per-key baselines.
+message StreamHello {
+  // Consumer process incarnation. A consumer restart replays uncommitted
+  // offsets, so the sentinel rebaselines instead of firing false violations.
+  string consumer_id = 1;
+  // Bumped each time this consumer (re)connects to this worker. A reconnect
+  // replays the un-acked tail, so the sentinel rebaselines on a new epoch.
+  uint64 stream_epoch = 2;
+}
+
+// SubBatch is one routed unit of work: a batch slice for one worker.
+message SubBatch {
+  // Per-stream monotonic sequence, starting at 1 after the hello. The worker
+  // rejects gaps and regressions — a hole means frames were lost or reordered
+  // and the per-key order guarantee no longer holds.
+  uint64 seq = 1;
+  // The Kafka batch that produced this sub-batch, for logs and debugging.
+  string batch_id = 2;
+  repeated KafkaMessage messages = 3;
+  // True when this sub-batch may repeat previously delivered messages: the
+  // reconnect replay of an un-acked tail, or a deferred-flush re-route. The
+  // worker's sentinel counts repeats on replay sub-batches as at-least-once
+  // redelivery rather than order violations.
+  bool replay = 4;
+  // Bumped when the consumer's Kafka partition assignment changes. A
+  // rebalance legitimately replays uncommitted offsets, so the worker's
+  // sentinel rebaselines on a new epoch instead of firing.
+  uint64 assignment_epoch = 5;
+}
+
+// KafkaMessage mirrors `SerializedKafkaMessage` in
+// `rust/ingestion-consumer/src/types.rs` and
+// `nodejs/src/ingestion/api/types.ts`. Values are raw UTF-8 strings —
+// PostHog Kafka messages are always JSON text.
+message KafkaMessage {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  int64 timestamp = 4;
+  optional string key = 5;
+  optional string value = 6;
+  map<string, string> headers = 7;
+}
+
+// SubBatchStatus is the outcome of processing one sub-batch.
+enum SubBatchStatus {
+  SUB_BATCH_STATUS_UNSPECIFIED = 0;
+  // Every message of the sub-batch was processed, side effects included.
+  // This is the commit barrier: the consumer treats it exactly like today's
+  // HTTP 200.
+  SUB_BATCH_STATUS_OK = 1;
+  // The sub-batch failed. The consumer must treat the stream as dead: later
+  // sub-batches may already carry the same routing keys, so per-key order on
+  // this stream is unrecoverable.
+  SUB_BATCH_STATUS_FAILED = 2;
+  // The worker was momentarily at capacity and did not process the sub-batch.
+  // This is transient backpressure, not a failure: the consumer replays the
+  // sub-batch (in order) without treating the worker as broken. The consumer
+  // treats any status it does not recognize the same way, so future non-fatal
+  // statuses stay backward compatible.
+  SUB_BATCH_STATUS_BUSY = 3;
+}
+
+// IngestStreamResponse is one frame on the worker-to-consumer stream.
+message IngestStreamResponse {
+  oneof msg {
+    // First frame on every stream, sent as soon as the worker accepts it and
+    // before any sub-batch completes: flushes response headers so the
+    // consumer's stream-open resolves (some HTTP/2 server stacks defer
+    // headers until the first response message).
+    StreamReady ready = 1;
+    SubBatchAck ack = 2;
+  }
+}
+
+// StreamReady carries no data yet; it is the slot where the worker could
+// later advertise limits or echo the hello.
+message StreamReady {}
+
+// SubBatchAck acks one sub-batch.
+message SubBatchAck {
+  // The `SubBatch.seq` this ack resolves.
+  uint64 seq = 1;
+  SubBatchStatus status = 2;
+  // Messages accepted into the pipeline. Meaningful only on
+  // SUB_BATCH_STATUS_OK.
+  uint32 accepted = 3;
+  // Human-readable failure reason. Set only on SUB_BATCH_STATUS_FAILED.
+  string error = 4;
+}

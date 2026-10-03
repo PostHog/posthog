@@ -40,7 +40,7 @@ Before scaffolding YAML, verify:
    Missing descriptions = agents guessing at parameters.
    Use `ListField(child=serializers.CharField())` instead of bare `ListField()`,
    and `@extend_schema_field(PydanticModel)` on `JSONField` subclasses to get typed Zod output
-   (see `products/alerts/backend/api/alert.py` for the pattern).
+   (see `products/alerts/backend/presentation/views/alert.py` for the pattern).
 2. **Plain `ViewSet` methods have `@extend_schema(request=...)`** —
    without it, drf-spectacular can't discover the request body
    and the generated tool gets `z.object({})` (zero parameters).
@@ -78,6 +78,24 @@ Violations fail the build.
 - **Format**: lowercase kebab-case — only `[a-z0-9-]`, no leading/trailing hyphens
 - **Length**: 52 characters or fewer
 - **Convention**: `domain-action`, e.g. `cohorts-create`, `dashboard-get`, `feature-flags-list`
+
+#### Keep action verbs out of compact tool domains
+
+The single-exec prompt builds its compact domain index with
+`ToolDomainExtractor`. Large families can split at an intermediate segment.
+Without action trimming, `experiment-freeze-exposure` can advertise the
+redundant domain `experiment-freeze` instead of `experiment`.
+
+Whenever you add or rename an action tool, check the
+[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+same change. If a rendered domain can end in an operation verb that is not
+already present, add the verb. Cover it in
+`services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
+is not the final segment of the full tool name.
+
+Add operation verbs such as `freeze`, `publish`, or `emit`. Do not add resource
+or capability nouns such as `config`, `logs`, `stats`, or `schedule` merely to
+make the prompt shorter; those remain useful discovery domains.
 
 ### Feature identifiers
 
@@ -146,6 +164,10 @@ tools:
       # include and exclude are mutually exclusive
       selectable: true # add optional `fields` param so the agent picks a subset of `include` per call
       # (constrained to the allowlist); omit `fields` to return the full set. Requires `include`.
+      strip_nulls: true # remove keys whose value is `null`, applied after include/exclude
+      # Use it on tools that echo a nested serializer schema, where the unset optional fields
+      # dominate the payload. Rejected with `list: true`, where per-row null removal makes the
+      # TOON table larger. Use `exclude` to drop the fields on a list tool instead.
     feature_flag: my-flag-key # gate this tool behind a PostHog feature flag
     feature_flag_behavior: enable # 'enable' (default) or 'disable'
 ```
@@ -162,6 +184,46 @@ Add `feature_flag` to any tool (standard or query wrapper) to gate its exposure 
 Reusing the same flag key with both behaviors performs an atomic swap: flag on → new tool visible, old tool hidden; flag off → old tool visible, new tool hidden. Useful for A/B testing tool variations.
 
 Flags are evaluated in parallel at init via `evaluateFeatureFlags`. If a flag can't be evaluated (service error, missing flag), `enable`-gated tools are excluded and `disable`-gated tools are included — fail-closed for new tools, fail-open for existing ones.
+
+### Enabling or renaming a tool
+
+The MCP server and Django deploy separately.
+A tool that reaches clients before its route lands returns 404 on every call until the Django deploy catches up.
+That hits a whole agent fleet at once.
+
+- **Land the route first.** Ship the endpoint, then enable the tool in a later change. A tool with
+  `enabled: true` in the same commit as a brand-new route is live in clients as soon as the MCP
+  server deploys.
+- **Or gate it.** Add `feature_flag` with `feature_flag_behavior: enable` and turn the flag on once
+  the route is serving.
+- **Keep the old name on a rename.** Leave the previous tool name in the YAML, pointing at the same
+  operation, until the new name has deployed everywhere. Sunset it with
+  `feature_flag_behavior: disable` on the same flag key, which swaps the two atomically.
+
+### Deprecating a tool
+
+A rename or a removal has two stages. Do not stop after the first one.
+
+1. **Alias, while callers migrate.** Register the old name as a thin wrapper that calls the current
+   handler and adds a `_deprecation_notice` to the response. The call still succeeds, and the agent
+   learns the new name. See `services/mcp/src/tools/skills/deprecatedAliases.ts`, spread into
+   `TOOL_MAP` in `services/mcp/src/tools/index.ts`. Use an alias only when the replacement accepts
+   the same arguments.
+2. **Redirect, when you delete the alias.** In the same change, add the old name to
+   `DEPRECATED_TOOL_REDIRECTS` in `services/mcp/src/tools/exec.ts`. The call then fails with a
+   `deprecated_tool` error that names the replacement, instead of the generic `Unknown tool: "..."`.
+   State any argument changes in the text — see the `self-driving-inbox-get` entry.
+
+Go directly to stage 2 when the replacement is not a drop-in. An alias that quietly drops renamed
+parameters is worse than a call that fails.
+
+Keep the redirect entry until the old name stops receiving traffic. `isRecordableToolName` records
+`$mcp_exec_target_tool` only for a name the server owns: a live tool, or a
+`DEPRECATED_TOOL_REDIRECTS` key. If you delete the entry too early, the remaining calls become
+unattributable in MCP analytics, and you can no longer tell whether anything still uses the old name.
+
+A tool that a feature flag removes is a different case. It keeps its definition, declares
+`superseded_by` in the YAML, and `flagGatedToolMessage` answers the call.
 
 ### Syncing after endpoint changes
 

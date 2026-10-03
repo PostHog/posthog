@@ -10,7 +10,7 @@ from posthog.schema import ArtifactContentType, ArtifactSource, VisualizationArt
 from posthog.models import Team
 
 from products.posthog_ai.backend.models.assistant import AgentArtifact
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.artifacts.handlers.base import ArtifactHandler, EnrichmentContext, register_handler
 from ee.hogai.artifacts.types import (

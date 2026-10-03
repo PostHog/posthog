@@ -11,18 +11,18 @@ pub fn get_endpoint(args: &GetArgs) -> Result<()> {
     let endpoint = fetch_endpoint(&args.name, args.debug)?;
 
     // URLs prominently at the top
-    println!();
+    crate::safe_println!();
     if let Some(ui_url) = &endpoint.ui_url {
-        println!("  {}  {}", "View:".bold(), ui_url.cyan());
+        crate::safe_println!("  {}  {}", "View:".bold(), ui_url.cyan());
     }
     if let Some(url) = &endpoint.url {
-        println!("  {}  {}", "Run:".bold(), url.cyan());
+        crate::safe_println!("  {}  {}", "Run:".bold(), url.cyan());
     }
-    println!();
+    crate::safe_println!();
 
     // Name and status
-    println!("  {}  {}", "Name:".bold(), endpoint.name);
-    println!(
+    crate::safe_println!("  {}  {}", "Name:".bold(), endpoint.name);
+    crate::safe_println!(
         "  {}  {}",
         "Status:".bold(),
         if endpoint.is_active {
@@ -34,11 +34,11 @@ pub fn get_endpoint(args: &GetArgs) -> Result<()> {
 
     // Description
     if !endpoint.description.is_empty() {
-        println!("  {}  {}", "Description:".bold(), endpoint.description);
+        crate::safe_println!("  {}  {}", "Description:".bold(), endpoint.description);
     }
 
     // Version info
-    println!(
+    crate::safe_println!(
         "  {}  {} ({} total)",
         "Version:".bold(),
         endpoint.current_version,
@@ -46,11 +46,11 @@ pub fn get_endpoint(args: &GetArgs) -> Result<()> {
     );
 
     // Materialization
-    println!();
+    crate::safe_println!();
     if endpoint.is_materialized {
-        println!("  {}", "Materialization".bold().underline());
+        crate::safe_println!("  {}", "Materialization".bold().underline());
         if let Some(mat) = &endpoint.materialization {
-            println!(
+            crate::safe_println!(
                 "    Status: {}",
                 match mat.status.as_deref() {
                     Some("Completed") => "completed".green(),
@@ -62,30 +62,30 @@ pub fn get_endpoint(args: &GetArgs) -> Result<()> {
             );
             if let Some(seconds) = endpoint.data_freshness_seconds {
                 if let Some(schedule) = data_freshness_seconds_to_schedule(seconds) {
-                    println!("    Refresh: {schedule}");
+                    crate::safe_println!("    Refresh: {schedule}");
                 }
             }
             if let Some(last) = &mat.last_materialized_at {
-                println!("    Last materialized: {last}");
+                crate::safe_println!("    Last materialized: {last}");
             }
             if let Some(err) = &mat.error {
-                println!("    Error: {}", err.red());
+                crate::safe_println!("    Error: {}", err.red());
             }
         }
     } else {
-        println!("  {}  disabled", "Materialization:".bold());
+        crate::safe_println!("  {}  disabled", "Materialization:".bold());
         if let Some(mat) = &endpoint.materialization {
             if !mat.can_materialize {
                 if let Some(reason) = &mat.reason {
-                    println!("    {}", reason.dimmed());
+                    crate::safe_println!("    {}", reason.dimmed());
                 }
             }
         }
     }
 
     // Query
-    println!();
-    println!("  {}", "Query".bold().underline());
+    crate::safe_println!();
+    crate::safe_println!("  {}", "Query".bold().underline());
     let query_str = if let Some(query) = endpoint.query.get("query").and_then(|q| q.as_str()) {
         query.to_string()
     } else {
@@ -93,15 +93,15 @@ pub fn get_endpoint(args: &GetArgs) -> Result<()> {
     };
 
     for line in query_str.lines() {
-        println!("    {}", line.dimmed());
+        crate::safe_println!("    {}", line.dimmed());
     }
 
     // Timestamps
-    println!();
-    println!("  Created: {}", endpoint.created_at.dimmed());
-    println!("  Updated: {}", endpoint.updated_at.dimmed());
+    crate::safe_println!();
+    crate::safe_println!("  Created: {}", endpoint.created_at.dimmed());
+    crate::safe_println!("  Updated: {}", endpoint.updated_at.dimmed());
 
-    println!();
+    crate::safe_println!();
 
     Ok(())
 }

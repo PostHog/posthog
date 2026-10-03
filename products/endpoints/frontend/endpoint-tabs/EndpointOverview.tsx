@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { LemonButton, LemonLabel, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { endpointLogic } from '../endpointLogic'
@@ -54,10 +54,7 @@ export function EndpointOverview(): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
-                                onClick={() => {
-                                    navigator.clipboard.writeText(endpoint.endpoint_path)
-                                    lemonToast.success('Endpoint URL copied to clipboard')
-                                }}
+                                onClick={() => void copyToClipboard(endpoint.endpoint_path, 'endpoint URL')}
                                 className="font-mono text-xs"
                             >
                                 {endpoint.endpoint_path}
@@ -101,10 +98,7 @@ export function EndpointOverview(): JSX.Element {
                         <LemonButton
                             type="secondary"
                             size="xsmall"
-                            onClick={() => {
-                                navigator.clipboard.writeText(versionUrl!)
-                                lemonToast.success('Version URL copied to clipboard')
-                            }}
+                            onClick={() => void copyToClipboard(versionUrl!, 'version URL')}
                             className="font-mono text-xs"
                         >
                             {versionUrl}

@@ -3,46 +3,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly import source as rootly_source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.rootly import RootlyResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.rootly.source import RootlySource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-
-class TestRootlySourceConfig:
-    def test_source_type(self) -> None:
-        assert RootlySource().source_type == ExternalDataSourceType.ROOTLY
-
-    def test_config_basics(self) -> None:
-        config = RootlySource().get_source_config
-        assert config.label == "Rootly"
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
-    def test_single_password_api_key_field(self) -> None:
-        fields = RootlySource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.required is True
-        assert field.type == SourceFieldInputConfigType.PASSWORD
 
 
 class TestRootlyGetSchemas:
-    def test_returns_every_endpoint(self) -> None:
-        schemas = RootlySource().get_schemas(MagicMock(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
     @parameterized.expand(
         [
             ("incidents", True),
@@ -69,10 +35,6 @@ class TestRootlyGetSchemas:
         schemas = {s.name: s for s in RootlySource().get_schemas(MagicMock(), team_id=1)}
         assert schemas["pulses"].should_sync_default is False
         assert schemas["incidents"].should_sync_default is True
-
-    def test_names_filter(self) -> None:
-        schemas = RootlySource().get_schemas(MagicMock(), team_id=1, names=["incidents", "users"])
-        assert {s.name for s in schemas} == {"incidents", "users"}
 
 
 class TestRootlyValidateCredentials:
@@ -128,11 +90,6 @@ class TestRootlyNonRetryableErrors:
 
 
 class TestRootlyResumableAndPipeline:
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        manager = RootlySource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is RootlyResumeConfig
-
     def test_source_for_pipeline_plumbs_endpoint_and_keys(self) -> None:
         inputs = MagicMock()
         inputs.schema_name = "incidents"

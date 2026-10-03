@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { SurveyEventProperties } from 'posthog-js'
 import { useState } from 'react'
 
+import * as heartPng from '@posthog/brand/hoggies/png/heart'
 import {
     LemonBanner,
     LemonButton,
@@ -16,7 +17,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { HeartHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -26,12 +27,15 @@ import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import {
     UNSUBSCRIBE_REASONS,
     billingProductLogic,
     isPlatformAndSupportAddon,
     randomizeReasons,
 } from './billingProductLogic'
+
+const HedgehogHeart = pngHoggie(heartPng)
 
 export const UnsubscribeSurveyModal = ({
     product,
@@ -53,12 +57,15 @@ export const UnsubscribeSurveyModal = ({
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
-    const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
+    const { unsubscribeError, billingLoading, billing, isExternallyBilled } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
+    const invoicesUrl = isExternallyBilled
+        ? billing?.external_billing_provider_invoices_url
+        : billing?.stripe_portal_url
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const isOnDiscountedPrice = isAddonProduct && (product as BillingProductV2AddonType).default_unit_amount_usd != null
 
@@ -84,7 +91,7 @@ export const UnsubscribeSurveyModal = ({
                 <h3 className="text-lg mb-2">How about now? Was that enough hedgehogs?</h3>
                 <p className="text-secondary mb-4">Look at all these adorable hedgehogs dancing just for you! 🦔✨</p>
                 <div className="flex justify-center items-center">
-                    <HeartHog width="100" height="100" />
+                    <HedgehogHeart width="100" height="100" />
                 </div>
             </div>
             <div className="flex gap-2 justify-center">
@@ -135,7 +142,7 @@ export const UnsubscribeSurveyModal = ({
                         ? action
                         : product.type === 'platform_and_support'
                           ? `${action} your plan`
-                          : `${action} from ${product.name}`
+                          : `${action} from ${billingProductDisplayName(product)}`
                 }
                 footer={
                     unsubscribeModalStep === 1 ? (
@@ -197,9 +204,11 @@ export const UnsubscribeSurveyModal = ({
                                 We're sorry to see you go! Please note, you'll lose access to platform features and
                                 usage limits will apply immediately. And if you have any outstanding invoices, they will
                                 be billed immediately.{' '}
-                                <Link to={billing?.stripe_portal_url} target="_blank">
-                                    View invoices
-                                </Link>
+                                {invoicesUrl && (
+                                    <Link to={invoicesUrl} target="_blank">
+                                        View invoices
+                                    </Link>
+                                )}
                             </p>
                         )}
 
@@ -208,7 +217,7 @@ export const UnsubscribeSurveyModal = ({
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
                                 ? `Why are you ${actionVerb}?`
-                                : `Why are you ${actionVerb} from ${product.name}?`}{' '}
+                                : `Why are you ${actionVerb} from ${billingProductDisplayName(product)}?`}{' '}
                             <i className="text-secondary">(you can select multiple)</i>
                             <Tooltip title="Required">
                                 <span className="text-danger">*</span>

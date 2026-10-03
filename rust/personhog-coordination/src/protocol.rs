@@ -135,37 +135,41 @@ pub fn freeze_quorum_met(
     routers: &[RegisteredRouter],
     freeze_acks: &[RouterFreezeAck],
     handoff: &HandoffState,
+    quorum: Option<&[String]>,
 ) -> bool {
     let acked: HashSet<&str> = freeze_acks
         .iter()
         .filter(|a| a.handoff_id == handoff.handoff_id)
         .map(|a| a.router_name.as_str())
         .collect();
-    required_freeze_ackers(routers, handoff).all(|name| acked.contains(name))
+    required_freeze_ackers(routers, quorum).all(|name| acked.contains(name))
 }
 
-/// The routers whose freeze ack this handoff needs: those it was created
-/// with that are still registered.
+/// The routers whose freeze ack a handoff needs: the membership it was
+/// created with, intersected with those still registered.
 ///
 /// Intersecting the snapshot with the live set makes the requirement
 /// monotonic — it can only shrink. A router that dies drops out (it is no
 /// longer routing, so it cannot reach the old owner), and one that joins
 /// later is never added (safe to exclude — see
-/// [`HandoffState::freeze_quorum`] for why).
+/// [`HandoffState::freeze_quorum_ref`] for why).
+///
+/// `quorum` is the membership already resolved from the record. `None`
+/// means none was recorded — a pre-upgrade record, or a reference that
+/// no longer resolves — and falls back to requiring every live router,
+/// the rule such records were written under and the stricter of the
+/// two. `Some` is authoritative even when empty: zero routers
+/// registered at creation means nobody must ack.
 pub fn required_freeze_ackers<'a>(
     routers: &'a [RegisteredRouter],
-    handoff: &'a HandoffState,
+    quorum: Option<&'a [String]>,
 ) -> impl Iterator<Item = &'a str> + 'a {
     routers
         .iter()
         .map(|r| r.router_name.as_str())
-        // `None` is a pre-upgrade record: fall back to requiring every
-        // live router, which is what it was written under. A `Some`
-        // snapshot is authoritative even when empty — zero routers at
-        // creation means nobody must ack, not "apply the legacy rule".
-        .filter(move |name| match &handoff.freeze_quorum {
+        .filter(move |name| match quorum {
             None => true,
-            Some(quorum) => quorum.iter().any(|member| member == name),
+            Some(members) => members.iter().any(|member| member == name),
         })
 }
 
@@ -220,13 +224,14 @@ pub fn missing_freeze_ackers(
     routers: &[RegisteredRouter],
     freeze_acks: &[RouterFreezeAck],
     handoff: &HandoffState,
+    quorum: Option<&[String]>,
 ) -> Vec<String> {
     let acked: HashSet<&str> = freeze_acks
         .iter()
         .filter(|a| a.handoff_id == handoff.handoff_id)
         .map(|a| a.router_name.as_str())
         .collect();
-    required_freeze_ackers(routers, handoff)
+    required_freeze_ackers(routers, quorum)
         .filter(|name| !acked.contains(name))
         .map(str::to_string)
         .collect()
@@ -284,6 +289,7 @@ mod tests {
             started_at: 0,
             handoff_id: String::new(),
             freeze_quorum: None,
+            freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
             new_owner_address: None,
@@ -314,12 +320,17 @@ mod tests {
     /// nothing can satisfy and no cleanup path removes.
     #[test]
     fn a_router_that_joined_after_creation_is_not_required() {
-        let mut h = handoff(0, Some("pod-a"), "pod-b");
-        h.freeze_quorum = Some(vec!["router-0".to_string()]);
+        let h = handoff(0, Some("pod-a"), "pod-b");
+        let quorum = ["router-0".to_string()];
         let acks = [freeze_ack("router-0", &h)];
 
         assert!(
-            freeze_quorum_met(&[router("router-0"), router("late-joiner")], &acks, &h),
+            freeze_quorum_met(
+                &[router("router-0"), router("late-joiner")],
+                &acks,
+                &h,
+                Some(&quorum)
+            ),
             "a router registered after creation must not block the quorum"
         );
     }
@@ -381,14 +392,19 @@ mod tests {
     /// one.
     #[test]
     fn missing_ackers_names_the_holdout_and_ignores_stale_acks() {
-        let mut h = handoff(0, Some("pod-a"), "pod-b");
-        h.freeze_quorum = Some(vec!["router-0".to_string(), "router-1".to_string()]);
+        let h = handoff(0, Some("pod-a"), "pod-b");
+        let quorum = ["router-0".to_string(), "router-1".to_string()];
         let mut stale = freeze_ack("router-1", &h);
         stale.handoff_id = "a-previous-handoff".to_string();
         let acks = [freeze_ack("router-0", &h), stale];
 
         assert_eq!(
-            missing_freeze_ackers(&[router("router-0"), router("router-1")], &acks, &h),
+            missing_freeze_ackers(
+                &[router("router-0"), router("router-1")],
+                &acks,
+                &h,
+                Some(&quorum)
+            ),
             vec!["router-1".to_string()],
             "router-1's stale ack proves nothing about this handoff"
         );
@@ -399,17 +415,22 @@ mod tests {
     /// owner, so its ack stays mandatory.
     #[test]
     fn a_router_present_at_creation_is_still_required() {
-        let mut h = handoff(0, Some("pod-a"), "pod-b");
-        h.freeze_quorum = Some(vec!["router-0".to_string(), "router-1".to_string()]);
+        let h = handoff(0, Some("pod-a"), "pod-b");
+        let quorum = ["router-0".to_string(), "router-1".to_string()];
         let acks = [freeze_ack("router-0", &h)];
 
         assert!(
-            !freeze_quorum_met(&[router("router-0"), router("router-1")], &acks, &h),
+            !freeze_quorum_met(
+                &[router("router-0"), router("router-1")],
+                &acks,
+                &h,
+                Some(&quorum)
+            ),
             "a snapshot member that has not acked must block the quorum"
         );
         // ...until it departs: a router that is gone cannot route.
         assert!(
-            freeze_quorum_met(&[router("router-0")], &acks, &h),
+            freeze_quorum_met(&[router("router-0")], &acks, &h, Some(&quorum)),
             "a departed snapshot member must drop out of the requirement"
         );
     }
@@ -421,14 +442,13 @@ mod tests {
     #[test]
     fn an_absent_snapshot_requires_every_live_router() {
         let h = handoff(0, Some("pod-a"), "pod-b");
-        assert!(h.freeze_quorum.is_none());
         let acks = [freeze_ack("router-0", &h)];
 
         assert!(
-            !freeze_quorum_met(&[router("router-0"), router("router-1")], &acks, &h),
-            "without a snapshot every live router must still be required"
+            !freeze_quorum_met(&[router("router-0"), router("router-1")], &acks, &h, None),
+            "without a membership every live router must still be required"
         );
-        assert!(freeze_quorum_met(&[router("router-0")], &acks, &h));
+        assert!(freeze_quorum_met(&[router("router-0")], &acks, &h, None));
     }
 
     /// A captured-but-empty snapshot is not the legacy fallback: zero
@@ -438,11 +458,11 @@ mod tests {
     /// the wedge for exactly this corner.
     #[test]
     fn an_empty_snapshot_requires_nobody() {
-        let mut h = handoff(0, Some("pod-a"), "pod-b");
-        h.freeze_quorum = Some(Vec::new());
+        let h = handoff(0, Some("pod-a"), "pod-b");
+        let quorum: [String; 0] = [];
 
         assert!(
-            freeze_quorum_met(&[router("late-joiner")], &[], &h),
+            freeze_quorum_met(&[router("late-joiner")], &[], &h, Some(&quorum)),
             "a router that registered after a zero-router creation must not be required"
         );
     }

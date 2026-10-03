@@ -1,70 +1,26 @@
-import { Image } from '@tiptap/extension-image'
-
 import {
     MARKDOWN_BASE_EDITABLE_EXTENSIONS,
     MARKDOWN_BASE_READONLY_EXTENSIONS,
 } from 'lib/components/MarkdownEditor/shared/markdownExtensions'
 import { createTiptapMarkdownConverter } from 'lib/utils/markdown'
 
+import {
+    IMAGE_TILE_MARKDOWN_EDITABLE_EXTENSION,
+    IMAGE_TILE_MARKDOWN_READONLY_EXTENSION,
+} from 'products/dashboards/frontend/components/ImageTile/imageTileMarkdown'
+
 import { WordArtExtension } from './WordArt/WordArtExtension'
-
-function escapeHtmlAttribute(value: string): string {
-    return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-}
-
-const TextCardImageExtension = Image.extend({
-    renderMarkdown(node) {
-        const attrs = node.attrs || {}
-        const src = attrs.src || ''
-        const alt = attrs.alt || ''
-        const title = attrs.title || ''
-        const width = attrs.width
-        const height = attrs.height
-
-        if (!width && !height) {
-            return title ? `![${alt}](${src} "${title}")` : `![${alt}](${src})`
-        }
-
-        const htmlAttrs = [
-            `src="${escapeHtmlAttribute(String(src))}"`,
-            `alt="${escapeHtmlAttribute(String(alt))}"`,
-            ...(title ? [`title="${escapeHtmlAttribute(String(title))}"`] : []),
-            ...(width ? [`width="${escapeHtmlAttribute(String(width))}"`] : []),
-            ...(height ? [`height="${escapeHtmlAttribute(String(height))}"`] : []),
-        ]
-
-        return `<img ${htmlAttrs.join(' ')} />`
-    },
-})
 
 export const TEXT_CARD_MARKDOWN_EXTENSIONS = [
     ...MARKDOWN_BASE_EDITABLE_EXTENSIONS,
     WordArtExtension,
-    TextCardImageExtension.configure({
-        HTMLAttributes: {
-            draggable: 'true',
-        },
-        resize: {
-            enabled: true,
-            directions: ['top', 'bottom', 'left', 'right'],
-            minWidth: 50,
-            minHeight: 50,
-            alwaysPreserveAspectRatio: true,
-        },
-    }),
+    IMAGE_TILE_MARKDOWN_EDITABLE_EXTENSION,
 ]
 
 export const TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS = [
     ...MARKDOWN_BASE_READONLY_EXTENSIONS,
     WordArtExtension,
-    TextCardImageExtension.configure({
-        HTMLAttributes: {
-            draggable: 'false',
-        },
-        resize: {
-            enabled: false,
-        },
-    }),
+    IMAGE_TILE_MARKDOWN_READONLY_EXTENSION,
 ]
 
 export const textCardConverter = createTiptapMarkdownConverter(TEXT_CARD_MARKDOWN_EXTENSIONS)

@@ -34,7 +34,7 @@ export const rerunWrapperKindFor = (kind: RerunFunctionKind): RerunWrapperFuncti
 export const isRerunWrapperKind = (kind: string): kind is RerunWrapperFunctionKind =>
     kind === 'hog_function_rerun' || kind === 'hog_flow_rerun'
 
-export type RerunStatusValue = 'running' | 'succeeded' | 'failed'
+export type RerunStatusValue = 'running' | 'succeeded' | 'failed' | 'canceled'
 
 /**
  * Filter shape for a rerun request.
@@ -55,6 +55,12 @@ export interface RerunFilter {
     window_end: string
     status?: RerunStatusValue[]
     error_kind?: string[]
+    /**
+     * Case-insensitive substring match on the latest error_message. Isolates one
+     * failure mode where error_kind is too coarse — most app-level errors share
+     * the generic 'hog_error' kind.
+     */
+    error_message_contains?: string
     max_attempts?: number
     max_count?: number
     invocation_ids?: string[]

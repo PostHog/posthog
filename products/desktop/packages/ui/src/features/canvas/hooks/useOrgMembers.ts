@@ -7,15 +7,17 @@ import { useMemo } from "react";
 // Membership churn is slow; one fetch per session window is plenty.
 const ORG_MEMBERS_STALE_MS = 5 * 60_000;
 
-export const orgMembersQueryKey = (orgId: string | null) =>
+const orgMembersQueryKey = (orgId: string | null) =>
   ["org-members", orgId] as const;
 
 /** Members of the current organization, sorted by display name. */
 export function useOrgMembers(options?: { enabled?: boolean }): {
   members: UserBasic[];
+  error: Error | null;
   isLoading: boolean;
   isError: boolean;
   isComplete: boolean;
+  refetch: () => void;
 } {
   const currentOrgId = useAuthStateValue((state) => state.currentOrgId);
   const query = useAuthenticatedQuery(
@@ -36,8 +38,12 @@ export function useOrgMembers(options?: { enabled?: boolean }): {
   );
   return {
     members,
+    error: query.error ?? null,
     isLoading: query.isLoading,
     isError: query.isError,
     isComplete: query.data?.isComplete ?? false,
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }

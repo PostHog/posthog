@@ -1,5 +1,6 @@
-# Kafka-consumer lag metrics for the trace-spans ingest, present on the local
-# logs node and prod-us only.
+# Kafka-consumer lag metrics for the trace-spans ingest, present on every logs
+# node. prod-us shards the storage table onto the logs cluster; the others keep
+# the single-shard ZK path declared here.
 database "posthog" {
   table "trace_spans_kafka_metrics" {
     order_by = ["_topic", "_partition"]

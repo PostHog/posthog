@@ -21,6 +21,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
+    reach_framework_safe_point,
+)
 
 from .auth import auth_secret_values
 from .exceptions import IgnoreResponseException
@@ -310,6 +313,7 @@ class RESTClient:
         allowed_hosts: Optional[list[str]] = None,
         allow_redirects: bool = True,
         request_timeout: Optional[float | tuple[float, float]] = None,
+        capture: bool = True,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -355,7 +359,14 @@ class RESTClient:
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
         # specialized auth (it should still be a tracked one in prod).
-        self.session = session or make_tracked_session(redact_values=self._redact_values)
+        #
+        # `capture` is only forwarded when it opts out of the default, so the call keeps
+        # matching the exact `assert_called_once_with(redact_values=...)` many sources'
+        # existing tests already make against `make_tracked_session`.
+        session_kwargs: dict[str, Any] = {"redact_values": self._redact_values}
+        if not capture:
+            session_kwargs["capture"] = capture
+        self.session = session or make_tracked_session(**session_kwargs)
         if self.headers:
             self.session.headers.update(self.headers)
 
@@ -467,6 +478,12 @@ class RESTClient:
 
             if resume_hook is not None:
                 resume_hook(paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None)
+                reach_framework_safe_point()
+
+            # Direct Resource traversal has consumed the page before execution resumes here, so this
+            # is safe even when a dependent resource routes its resume hook only to the child.
+            if resume_hook is None:
+                reach_framework_safe_point()
 
             if paginator is None or not paginator.has_next_page:
                 break

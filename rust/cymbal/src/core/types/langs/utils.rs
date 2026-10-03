@@ -17,6 +17,12 @@ pub fn get_sourcelocation_context(token: &SourceLocation, context_lines: usize) 
     get_context_lines(src.lines(), token_line_num as usize, context_lines)
 }
 
+pub fn is_kotlin_compose_source(source: &str) -> bool {
+    let normalized = source.replace('\\', "/");
+    normalized.contains("/kotlin/androidx/compose/")
+        || normalized.contains("/kotlin/org/jetbrains/compose/")
+}
+
 pub fn get_token_context(token: &Token<'_>, line: usize, context_lines: usize) -> Option<Context> {
     let src = token.get_source_view()?;
     let lines = src.lines();

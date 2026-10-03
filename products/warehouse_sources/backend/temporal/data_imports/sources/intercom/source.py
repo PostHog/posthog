@@ -1,25 +1,25 @@
 from typing import cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
+    IntercomResumeConfig,
     intercom_source,
     validate_credentials as validate_intercom_credentials,
 )
@@ -31,7 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
+class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2.13", "2.15", "2.16")
     default_version = "2.16"
@@ -60,6 +60,15 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             "Intercom access token not found": "Intercom OAuth access token is missing. Please reconnect your Intercom account.",
         }
 
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # The companies Scroll API cannot preserve a cursor across worker hand-offs.
+        return schema_name != "companies"
+
     def get_retryable_errors(self) -> set[str]:
         # The `companies` table walks Intercom's companies Scroll API (`_iter_companies` in
         # intercom.py). The scroll cursor expires mid-walk on idle timeout or when a
@@ -67,12 +76,30 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
         # then 404s (see `_is_scroll_expired`). `companies` is full-refresh, so a fresh
         # Temporal attempt opens a new scroll and restarts cleanly — transient and
         # self-recovering, not a real bug.
-        return {"Not Found for url: https://api.intercom.io/companies/scroll"}
+        #
+        # Opening a fresh scroll can also 400 with `scroll_exists` when another scroll is
+        # still open for the workspace (see `_is_scroll_exists`). `_open_companies_scroll`
+        # already backs off and retries that inline, but a lock held longer than the retry
+        # budget exhausts it and the raw error propagates — a fresh Temporal attempt opens
+        # cleanly once the stale scroll has expired, so this is the same self-recovering
+        # case as the 404 above, just surfaced later.
+        return {
+            "Not Found for url: https://api.intercom.io/companies/scroll",
+            "Bad Request for url: https://api.intercom.io/companies/scroll",
+            # Every Intercom request goes through `_make_intercom_session`, whose transport-level
+            # retry (`_INTERCOM_RETRY`, derived from `DEFAULT_RETRY`) already retries a 429/5xx
+            # response before `raise_for_status` can raise. A `HTTPError` reaching here has already
+            # exhausted that budget, so it's a transient upstream blip — Temporal retries the whole
+            # activity next. `raise_for_status` derives the "Server Error" prefix from the status
+            # code alone, not Intercom's reason text, so it's stable to match on (see
+            # convex/app_store_connect for the same pattern).
+            "Server Error",
+        }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.INTERCOM,
+            name=ExternalDataSourceType.INTERCOM,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             caption="Select an existing Intercom workspace to link to PostHog or create a new connection",
             iconPath="/static/services/intercom.png",
@@ -88,8 +115,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
                     ),
                 ],
             ),
-            featureFlag="dwh_intercom",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(
@@ -123,8 +149,10 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
     ) -> tuple[bool, str | None]:
         try:
             integration = self.get_oauth_integration(config.intercom_integration_id, team_id)
-        except ValueError as e:
-            return False, str(e)
+        except ValueError:
+            # get_oauth_integration raises ValueError("Integration not found: <id>") for an
+            # integration that was deleted or disconnected while the source still references it.
+            return False, "Intercom integration not found. Please reconnect your Intercom integration."
 
         if not integration.access_token:
             return False, "Intercom integration has no access token. Please reconnect."
@@ -135,7 +163,15 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             integration.access_token, schema_name=schema_name, api_version=self.resolve_api_version(api_version)
         )
 
-    def source_for_pipeline(self, config: IntercomSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[IntercomResumeConfig]:
+        return ResumableSourceManager[IntercomResumeConfig](inputs, IntercomResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: IntercomSourceConfig,
+        resumable_source_manager: ResumableSourceManager[IntercomResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         integration = self.get_oauth_integration(config.intercom_integration_id, inputs.team_id)
 
         if not integration.access_token:
@@ -147,6 +183,7 @@ class IntercomSource(SimpleSource[IntercomSourceConfig], OAuthMixin):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
+            resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field if inputs.should_use_incremental_field else None,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

@@ -1,8 +1,9 @@
 import './Playlist.scss'
 
+import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ReactNode, useRef, useState } from 'react'
+import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
 import {
@@ -10,6 +11,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDivider,
     LemonSkeleton,
     Link,
     Spinner,
@@ -17,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils/arrays'
@@ -35,6 +38,8 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs, SessionRecordingType } from '~/types'
 
 const SCROLL_TRIGGER_OFFSET = 100
+// Starting row height for the virtualizer; dynamic measurement corrects each row after it renders.
+const ESTIMATED_ROW_HEIGHT = 56
 
 type PlaylistSectionBase = {
     key: string
@@ -61,6 +66,12 @@ export type PlaylistProps = {
     isSynthetic?: boolean
     description?: string
     selectInitialItem?: boolean
+    /**
+     * Replaces the shared replay troubleshooting panel when a filters list comes back empty. Set it
+     * on a surface that already knows why its list is empty, because the shared panel can only
+     * offer the generic replay hints. Collections keep their own empty state.
+     */
+    listEmptyState?: JSX.Element
 }
 
 export function Playlist({
@@ -70,9 +81,20 @@ export function Playlist({
     isSynthetic,
     description,
     selectInitialItem,
+    listEmptyState,
 }: PlaylistProps): JSX.Element {
+    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const collapseButton = (
+        <LemonButton
+            icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
+            onClick={() => setPlaylistCollapsed(true)}
+            tooltip="Collapse playlist"
+            size="xsmall"
+            data-attr="collapse-playlist"
+        />
+    )
 
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -81,7 +103,8 @@ export function Playlist({
     })
 
     const lastScrollPositionRef = useRef(0)
-    const contentRef = useRef<HTMLDivElement | null>(null)
+    // state, not a ref: the virtualizer must re-initialize when the scroll container mounts
+    const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
@@ -161,7 +184,12 @@ export function Playlist({
                                 <Spinner textColored /> Loading older recordings
                             </>
                         ) : hasNext ? (
-                            <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                            <LemonButton
+                                data-attr="list-load-older"
+                                onClick={() => maybeLoadSessionRecordings('older')}
+                            >
+                                Load more
+                            </LemonButton>
                         ) : (
                             'No more results'
                         )}
@@ -172,6 +200,7 @@ export function Playlist({
                             <div className="flex gap-2">
                                 {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
                                     <LemonButton
+                                        data-attr="list-empty-widen-date-range"
                                         type="secondary"
                                         size="small"
                                         onClick={() =>
@@ -183,7 +212,12 @@ export function Playlist({
                                         Search last {filters.date_from === '-3d' ? '7' : '30'} days
                                     </LemonButton>
                                 )}
-                                <LemonButton type="secondary" size="small" onClick={() => setIsFiltersExpanded(true)}>
+                                <LemonButton
+                                    data-attr="list-empty-expand-filters"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setIsFiltersExpanded(true)}
+                                >
                                     Show filters
                                 </LemonButton>
                             </div>
@@ -220,11 +254,11 @@ export function Playlist({
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
-    const listEmptyState =
+    const emptyState =
         type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
         ) : (
-            <ListEmptyState />
+            <ListEmptyState listEmptyState={listEmptyState} />
         )
 
     // Show collapsed view
@@ -236,6 +270,7 @@ export function Playlist({
                 data-attr="expand-playlist"
             >
                 <LemonButton
+                    data-attr="list-toggle-collapse"
                     icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
                     tooltip="Expand playlist"
                     size="xsmall"
@@ -266,6 +301,7 @@ export function Playlist({
                         Showing {pluralize(filters.session_ids.length, 'selected recording')}
                     </span>
                     <LemonButton
+                        data-attr="list-clear-session-ids"
                         className="shrink-0"
                         size="xsmall"
                         type="tertiary"
@@ -296,24 +332,25 @@ export function Playlist({
                             <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
                                 <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    <div className="flex items-center gap-0.5">
-                                        <LemonButton
-                                            icon={
-                                                <IconSidebarClose
-                                                    className={clsx(!isPlaylistCollapsed && 'rotate-180')}
-                                                />
-                                            }
-                                            onClick={() => setPlaylistCollapsed(true)}
-                                            tooltip="Collapse playlist"
-                                            size="xsmall"
-                                            data-attr="collapse-playlist"
-                                        />
+                                    <div
+                                        className={clsx(
+                                            'flex items-center gap-0.5',
+                                            consolidatedControls && 'flex-1 min-w-0'
+                                        )}
+                                    >
+                                        {!consolidatedControls && collapseButton}
                                         <SessionRecordingsPlaylistTopSettings
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
                                             shortId={type === 'collection' ? logicKey : undefined}
                                         />
+                                        {consolidatedControls && (
+                                            <>
+                                                <LemonDivider vertical className="my-1 mx-0.5" />
+                                                {collapseButton}
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </DraggableToNotebook>
@@ -325,7 +362,7 @@ export function Playlist({
                                 until you close it.
                             </LemonBanner>
                         )}
-                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>
+                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse
                                     defaultActiveKeys={openSections}
@@ -339,7 +376,8 @@ export function Playlist({
                                                     loading={!!sessionRecordingsResponseLoading}
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
-                                                    emptyState={listEmptyState}
+                                                    emptyState={emptyState}
+                                                    scrollEl={scrollEl}
                                                 />
                                             ),
                                             className: 'p-0',
@@ -356,12 +394,13 @@ export function Playlist({
                                     loading={!!sessionRecordingsResponseLoading}
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
-                                    emptyState={listEmptyState}
+                                    emptyState={emptyState}
+                                    scrollEl={scrollEl}
                                 />
                             ) : sessionRecordingsResponseLoading ? (
                                 <LoadingState />
                             ) : (
-                                listEmptyState
+                                emptyState
                             )}
                         </div>
                     </div>
@@ -398,7 +437,7 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
-const ListEmptyState = (): JSX.Element => {
+const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'>): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -409,7 +448,7 @@ const ListEmptyState = (): JSX.Element => {
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col gap-2">
-                    <SessionRecordingsPlaylistTroubleshooting />
+                    {listEmptyState ?? <SessionRecordingsPlaylistTroubleshooting />}
                 </div>
             )}
         </div>
@@ -439,11 +478,7 @@ const CollectionEmptyState = ({
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
-                    <p>
-                        To add recordings to this collection, go to the{' '}
-                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
-                        "+ Add to collection" and select this collection from the list.
-                    </p>
+                    <p>Use "Add recordings" above to browse recordings and add them to this collection.</p>
                 </div>
             )}
         </div>
@@ -456,17 +491,19 @@ function SectionContent({
     activeItemId,
     setActiveItemId,
     emptyState,
+    scrollEl,
 }: {
     section: PlaylistSection
     loading: boolean
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     emptyState: JSX.Element
+    scrollEl: HTMLDivElement | null
 }): JSX.Element {
     return 'content' in section ? (
         <>{section.content}</>
     ) : 'items' in section && !!section.items.length ? (
-        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} />
+        <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} scrollEl={scrollEl} />
     ) : loading ? (
         <LoadingState />
     ) : (
@@ -480,19 +517,68 @@ export function ListSection({
     footer,
     onClick,
     activeItemId,
+    scrollEl,
 }: PlaylistRecordingPreviewBlock & {
     onClick: (item: SessionRecordingType) => void
     activeItemId: SessionRecordingType['id'] | null
+    scrollEl: HTMLDivElement | null
 }): JSX.Element {
+    const listRef = useRef<HTMLDivElement>(null)
+    const [scrollMargin, setScrollMargin] = useState(0)
+
+    const virtualizer = useVirtualizer({
+        count: items.length,
+        getScrollElement: () => scrollEl,
+        estimateSize: () => ESTIMATED_ROW_HEIGHT,
+        overscan: 10,
+        getItemKey: (index) => items[index].id,
+        scrollMargin,
+    })
+
+    // The list can sit below a banner or a pinned section inside the shared scroll container, and that
+    // offset changes when those appear or collapse. Realign the virtualizer's origin on layout shifts.
+    // The formula is scroll-invariant, so it only updates state on real shifts, not on every scroll frame.
+    useLayoutEffect(() => {
+        const listEl = listRef.current
+        if (!listEl || !scrollEl || virtualizer.isScrolling) {
+            return
+        }
+        const nextMargin =
+            listEl.getBoundingClientRect().top - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
+        setScrollMargin((current) => (Math.abs(current - nextMargin) > 1 ? nextMargin : current))
+    })
+
+    // Transformed absolute rows opt out of browser scroll anchoring, so compensate for
+    // prepended items ("newer" loads) to keep the visible rows in place.
+    const prevFirstIdRef = useRef(items[0]?.id)
+    useLayoutEffect(() => {
+        const prevFirstId = prevFirstIdRef.current
+        prevFirstIdRef.current = items[0]?.id
+        const insertedCount = items.findIndex((item) => item.id === prevFirstId)
+        if (insertedCount > 0 && scrollEl && scrollEl.scrollTop > 0) {
+            scrollEl.scrollTop += insertedCount * ESTIMATED_ROW_HEIGHT
+        }
+    }, [items, scrollEl])
+
     return (
         <>
-            {items.length > 0
-                ? items.map((item) => (
-                      <div key={item.id} className="border-b" onClick={() => onClick(item)}>
-                          {render({ item, isActive: item.id === activeItemId })}
-                      </div>
-                  ))
-                : null}
+            <div ref={listRef} className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                {virtualizer.getVirtualItems().map((virtualItem) => {
+                    const item = items[virtualItem.index]
+                    return (
+                        <div
+                            key={virtualItem.key}
+                            data-index={virtualItem.index}
+                            ref={virtualizer.measureElement}
+                            className="border-b absolute top-0 left-0 w-full"
+                            style={{ transform: `translateY(${virtualItem.start - scrollMargin}px)` }}
+                            onClick={() => onClick(item)}
+                        >
+                            {render({ item, isActive: item.id === activeItemId })}
+                        </div>
+                    )
+                })}
+            </div>
             {footer}
         </>
     )

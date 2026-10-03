@@ -45,6 +45,22 @@ def loop_owner_eligible_for_credentials(user_id: int | None, team: Team) -> bool
     return UserPermissions(user=owner, team=team).current_team.effective_membership_level is not None
 
 
+def user_has_current_team_access(user: User, team: Team) -> bool:
+    """Fresh eligibility for acting on a run: an active user with current effective
+    access to the team. Fails closed on resolution errors — callers here have no
+    fallback actor, unlike the Slack resolver below."""
+    if not user.is_active:
+        return False
+    try:
+        return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+    except Exception:
+        logger.warning(
+            "user_team_access_check_failed",
+            extra={"team_id": team.id, "user_id": user.id},
+        )
+        return False
+
+
 def is_slack_interaction_state(state: dict[str, Any] | None) -> bool:
     return (state or {}).get("interaction_origin") == "slack"
 

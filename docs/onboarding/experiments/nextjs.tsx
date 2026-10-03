@@ -1,20 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getNextJSSteps as getNextJSStepsPA } from '../product-analytics/nextjs'
+import { getNextJSSetupSteps } from '../product-analytics/nextjs'
 import { StepDefinition } from '../steps'
 
 export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, Tab, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics (not feature-flags)
-    // Filter to only keep installation-related steps, not usage steps
-    const installationSteps = getNextJSStepsPA(ctx).filter(
-        (step: StepDefinition) =>
-            step.title === 'Install the package' ||
-            step.title === 'Add environment variables' ||
-            step.title === 'Initialize PostHog'
-    )
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -69,7 +60,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getNextJSSetupSteps(ctx), ...experimentSteps]
 }
 
 export const NextJSInstallation = createInstallation(getNextJSSteps)

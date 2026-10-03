@@ -356,6 +356,14 @@ export const toolbarApi = {
             apiPost(`${PROJECT}/object_media_previews/`, payload, options),
     },
 
+    savedHeatmaps: {
+        capture: (
+            formData: FormData,
+            options: ToolbarApiOptions
+        ): Promise<ToolbarApiResult<{ id: string; short_id: string }>> =>
+            apiPost(`${PROJECT}/saved/capture/`, formData, options),
+    },
+
     elementStats: {
         list: (
             params: Record<string, any>,

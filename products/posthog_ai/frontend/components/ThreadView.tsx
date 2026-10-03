@@ -1,21 +1,36 @@
-import { useValues } from 'kea'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { runStreamLogic } from '../logics/runStreamLogic'
+import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
-import type { ThreadItem } from '../types/streamTypes'
+import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
+import {
+    groupThreadActivity,
+    groupToolRuns,
+    isRunningStatus,
+    isStartupStatus,
+    type ThreadDisplayItem,
+} from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
-import { ContextUsageBar } from './ContextUsageBar'
+import { resolveToolCall } from '../utils/toolResolver'
+import { TurnHoverStore } from '../utils/turnHoverStore'
+import { type TurnTrailer, computeTurnTrailers, mapRowsToRevealGroup } from '../utils/turnTrailers'
+import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
+import { type ThreadSkin, ThreadSkinContext } from './quill/quillThreadContext'
 import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
+import { ThreadActivityGroup } from './ThreadActivityGroup'
 import { ThreadRow } from './ThreadRow'
+import { lookupToolRenderer } from './tool/toolRegistry'
+import { TurnReveal } from './TurnReveal'
 import { VirtualizedThread } from './VirtualizedThread'
 
 /** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
-function getThreadItemKey(item: ThreadItem): string {
+function getThreadItemKey(item: ThreadDisplayItem): string {
     return item.id
 }
 
@@ -40,11 +55,32 @@ const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> 
     debug: 30,
 }
 
-function estimateThreadItemHeight(item: ThreadItem): number {
+/** The quill thread leaves a lone call or thought outside a group, and such a row shows its own live state. */
+function quillRowShowsProgress(item: ThreadDisplayItem, toolInvocations: ReadonlyMap<string, ToolInvocation>): boolean {
+    switch (item.type) {
+        case 'assistant_thought':
+            // An empty thought renders nothing, so the bottom indicator still has to show.
+            return !!item.text?.trim()
+        case 'tool_invocation': {
+            const status = item.toolCallId ? toolInvocations.get(item.toolCallId)?.status : undefined
+            return status === 'pending' || status === 'in_progress'
+        }
+        case 'status':
+            return isStartupStatus(item) || isRunningStatus(item)
+        default:
+            return false
+    }
+}
+
+function estimateThreadItemHeight(item: ThreadDisplayItem): number {
+    if (item.type === 'activity_group') {
+        return 48
+    }
     return THREAD_ITEM_HEIGHT_ESTIMATES[item.type] ?? 56
 }
 
 interface ThreadViewProps {
+    scrollRestorationKey?: string
     /**
      * Pass `false` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows then
      * render in document flow, unchanged from the pre-virtualized layout. Defaults to virtualized.
@@ -56,10 +92,23 @@ interface ThreadViewProps {
      * non-scout runs.
      */
     showContextUsage?: boolean
+    /** Renders per-turn UI (e.g. feedback actions) at each completed turn's end. */
+    renderTurnTrailer?: (trailer: TurnTrailer) => JSX.Element | null
+    /** Extra footer content below the thinking / PR / context-usage rows (e.g. the feedback prompt). */
+    footerExtra?: ReactNode
     className?: string
     listClassName?: string
+    endInset?: number
     rowClassName?: string
+    /**
+     * `quill` lays the thread out like PostHog Desktop's chat: user bubbles, ghost assistant prose, and
+     * each step as a quill chat marker. Every presenter below picks its skin from `ThreadSkinContext`,
+     * so tool renderers need no changes.
+     */
+    skin?: ThreadSkin
 }
+
+const QUILL_ROW_GAP = 16
 
 /**
  * Sandbox-runtime thread presenter. Reads `runStreamLogic.values.threadItems` (assistant text,
@@ -73,25 +122,52 @@ interface ThreadViewProps {
  * header/footer rows.
  */
 export function ThreadView({
+    scrollRestorationKey,
     virtualized = true,
     showContextUsage = false,
+    renderTurnTrailer,
+    footerExtra,
     className,
     listClassName,
     rowClassName,
+    endInset,
+    skin = 'lemon',
 }: ThreadViewProps): JSX.Element {
     const {
         threadItems,
         toolInvocations,
         isThinking,
         streamPhase,
+        showThinkingIndicator,
         runArtifacts,
         turnComplete,
         currentRunStatus,
         contextUsage,
         runConnectionState,
         logBootstrapLoading,
+        pendingPermissionRequest,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
+    // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
+    // still going, so it keeps the softer title.
+    const runEnded = isTerminalRunStatus(currentRunStatus)
+    const displayItems = useMemo(() => {
+        const pinnedToolIds = new Set<string>()
+        const widgetToolIds = new Set<string>()
+        for (const [id, invocation] of toolInvocations) {
+            const resolved = resolveToolCall(invocation)
+            const entry = lookupToolRenderer(resolved.resolvedKey, !!resolved.innerToolName)
+            if (entry.pinned) {
+                pinnedToolIds.add(id)
+            } else if (entry.keepVisible) {
+                widgetToolIds.add(id)
+            }
+        }
+        if (skin === 'quill') {
+            return groupToolRuns(threadItems, toolInvocations, { pinnedToolIds, widgetToolIds, settled: !isThinking })
+        }
+        return groupThreadActivity(threadItems, new Set([...pinnedToolIds, ...widgetToolIds]))
+    }, [threadItems, toolInvocations, skin, isThinking])
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
     // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
     // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
@@ -99,9 +175,13 @@ export function ThreadView({
         () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
         [threadItems]
     )
-    const hasActiveProgressItem = threadItems.some(
-        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
+    // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
+    const trailers = useMemo(
+        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
+        [threadItems, renderTurnTrailer]
     )
+    const revealGroups = useMemo(() => mapRowsToRevealGroup(displayItems), [displayItems])
+    const [turnHoverStore] = useState(() => new TurnHoverStore())
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
     // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
@@ -120,21 +200,21 @@ export function ThreadView({
     // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
     // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
     const showConnectionStatus = !!runConnectionState
-    // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
-    // gated by !hasActiveProgressItem so real `_posthog/progress` boot steps take precedence.
+    const lastItem = displayItems.at(-1)
+    const lastRowShowsProgress =
+        lastItem?.type === 'activity_group' ||
+        (skin === 'quill' && !!lastItem && quillRowShowsProgress(lastItem, toolInvocations))
     const showThinking =
-        (streamPhase === 'thinking' || streamPhase === 'provisioning') &&
-        !hasActiveProgressItem &&
-        !showConnectionStatus
+        showThinkingIndicator && !showConnectionStatus && !pendingPermissionRequest && !lastRowShowsProgress
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
-    // working, where the thinking line takes the footer. `ContextUsageBar` self-hides without data.
-    const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
+    // working, where the thinking line takes the footer. `ContextUsageChip` self-hides without data.
+    const showContextUsageFooter = showContextUsage && streamPhase === 'idle' && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus ? (
+            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus || footerExtra ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
                         showThinking={showThinking}
@@ -143,6 +223,7 @@ export function ThreadView({
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
                         showConnectionStatus={showConnectionStatus}
+                        extra={footerExtra}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
@@ -153,29 +234,89 @@ export function ThreadView({
             branch,
             showContextUsageFooter,
             showConnectionStatus,
+            footerExtra,
             rowClassName,
         ]
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => (
-            <VirtualizedThread.Row className={rowClassName}>
-                <ThreadRow
-                    item={item}
-                    isLast={index === threadItems.length - 1}
-                    isThinking={isThinking}
-                    toolInvocations={toolInvocations}
-                    turnComplete={turnComplete}
-                    turnCancelled={turnCancelled}
-                />
-            </VirtualizedThread.Row>
-        ),
-        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName]
+        (item: ThreadDisplayItem, index: number): JSX.Element => {
+            if (item.type === 'activity_group') {
+                const isLast = index === displayItems.length - 1
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
+                            <ThreadActivityGroup
+                                group={item}
+                                toolInvocations={toolInvocations}
+                                active={isLast && isThinking}
+                                waitingForInput={isLast && !!pendingPermissionRequest}
+                                cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
+                                renderItem={(activity) => (
+                                    <ThreadRow
+                                        item={activity}
+                                        isLast={false}
+                                        isThinking={false}
+                                        toolInvocations={toolInvocations}
+                                        turnComplete={turnComplete}
+                                        turnCancelled={turnCancelled}
+                                    />
+                                )}
+                            />
+                        </TurnReveal>
+                    </VirtualizedThread.Row>
+                )
+            }
+            if (item.type === 'turn_separator' && renderTurnTrailer) {
+                const trailer = trailers?.get(item.id)
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        {trailer ? (
+                            <TurnReveal store={turnHoverStore} turnId={item.id}>
+                                {renderTurnTrailer(trailer)}
+                            </TurnReveal>
+                        ) : null}
+                    </VirtualizedThread.Row>
+                )
+            }
+            return (
+                <VirtualizedThread.Row className={rowClassName}>
+                    <TurnReveal store={turnHoverStore} turnId={revealGroups.get(item.id)}>
+                        <ThreadRow
+                            item={item}
+                            isLast={index === displayItems.length - 1}
+                            isThinking={isThinking}
+                            toolInvocations={toolInvocations}
+                            turnComplete={turnComplete}
+                            turnCancelled={turnCancelled}
+                            runEnded={runEnded}
+                        />
+                    </TurnReveal>
+                </VirtualizedThread.Row>
+            )
+        },
+        [
+            displayItems.length,
+            isThinking,
+            toolInvocations,
+            turnComplete,
+            turnCancelled,
+            rowClassName,
+            renderTurnTrailer,
+            trailers,
+            revealGroups,
+            turnHoverStore,
+            pendingPermissionRequest,
+            currentRunStatus,
+            runEnded,
+        ]
     )
 
-    return (
+    const thread = (
         <VirtualizedThread.Root
-            items={threadItems}
+            key={scrollRestorationKey}
+            scrollRestorationKey={scrollRestorationKey}
+            items={displayItems}
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
             anchorItemKey={anchorItemKey}
@@ -189,11 +330,28 @@ export function ThreadView({
             // thread is already pinned when the first streamed rows land.
             turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
+            endInset={endInset}
+            gap={skin === 'quill' ? QUILL_ROW_GAP : undefined}
             className={className}
             listClassName={listClassName}
         >
             {renderItem}
         </VirtualizedThread.Root>
+    )
+    if (skin === 'lemon') {
+        return thread
+    }
+    return (
+        <ThreadSkinContext.Provider value={skin}>
+            {/* Virtualized, the root lays out rows itself; in document flow, this wrapper sets the rhythm. */}
+            {/* Quill's text color, set once here: a ghost bubble sets none, so its prose would inherit the page's. */}
+            <div
+                data-quill
+                className={cn('text-[var(--foreground)]', virtualized ? 'contents' : 'flex flex-col gap-4')}
+            >
+                {thread}
+            </div>
+        </ThreadSkinContext.Provider>
     )
 }
 
@@ -223,6 +381,7 @@ const ThreadFooter = memo(function ThreadFooter({
     prBranch,
     showContextUsage,
     showConnectionStatus,
+    extra,
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
@@ -230,18 +389,28 @@ const ThreadFooter = memo(function ThreadFooter({
     prBranch?: string
     showContextUsage?: boolean
     showConnectionStatus?: boolean
+    extra?: ReactNode
 }): JSX.Element {
     // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
     // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
     const { currentProgress, runConnectionState } = useValues(runStreamLogic)
+    const { retryConnection } = useActions(runStreamLogic)
     // `gap-1.5` matches the thread's inter-row gap (`VirtualizedThread`'s `gap` default) so stacked footer
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
-            {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
-            {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
+            {showConnectionStatus && runConnectionState && (
+                <RunAlertActivity {...runConnectionState} onRetry={retryConnection} />
+            )}
+            {showThinking && (
+                <ThinkingIndicator
+                    progress={thinkingPhase === 'provisioning' ? null : currentProgress}
+                    phase={thinkingPhase}
+                />
+            )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
-            {showContextUsage && <ContextUsageBar />}
+            {showContextUsage && <ContextUsageChip />}
+            {extra}
         </div>
     )
 })

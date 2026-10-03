@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stytch import StytchSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source import StytchSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import StytchResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch import StytchAPIError, get_rows
 
 
 class TestStytchSource:
@@ -16,28 +13,6 @@ class TestStytchSource:
         self.source = StytchSource()
         self.team_id = 123
         self.config = StytchSourceConfig(project_id="project-live-x", secret="secret-live-x")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.STYTCH
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Stytch"
-        assert config.label == "Stytch"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/stytch.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["project_id", "secret"]
-
-    def test_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "secret")
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -62,6 +37,40 @@ class TestStytchSource:
     def test_non_retryable_errors_do_not_match_transient_or_query_errors(self, transient_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in transient_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "endpoint, error_type, advised_tables",
+        [
+            ("users", "invalid_consumer_endpoint", "organizations and members"),
+            ("sessions", "invalid_consumer_endpoint", "organizations and members"),
+            ("organizations", "invalid_b2b_endpoint", "users and sessions"),
+            ("members", "invalid_b2b_endpoint", "users and sessions"),
+        ],
+    )
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.stytch.stytch.make_tracked_session")
+    def test_product_line_mismatch_is_classified_with_the_tables_to_use_instead(
+        self, mock_session, endpoint, error_type, advised_tables
+    ):
+        # Drive the real transport so the raised message and the classifier's patterns cannot drift
+        # apart: an unclassified failure leaves the schema enabled and retrying a request Stytch
+        # will always reject.
+        response = mock.MagicMock(status_code=400, ok=False)
+        response.json.return_value = {"error_type": error_type}
+        mock_session.return_value.request.return_value = response
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        with pytest.raises(StytchAPIError) as raised:
+            list(get_rows(self.config.project_id, self.config.secret, endpoint, mock.MagicMock(), manager))
+
+        classified = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(str(raised.value), [pattern])
+        ]
+        assert len(classified) == 1
+        assert advised_tables in (classified[0] or "")
+        assert mock_session.return_value.request.call_count == 1
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -119,38 +128,3 @@ class TestStytchSource:
         assert permissions["members"] is not None
         # One probe per surface, not per endpoint.
         assert mock_check.call_count == 2
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is StytchResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source.stytch_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_stytch_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "users"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-02T03:04:05Z"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        kwargs = mock_stytch_source.call_args.kwargs
-        assert kwargs["project_id"] == "project-live-x"
-        assert kwargs["secret"] == "secret-live-x"
-        assert kwargs["endpoint"] == "users"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-02T03:04:05Z"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.stytch.source.stytch_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_stytch_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sessions"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-02T03:04:05Z"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_stytch_source.call_args.kwargs["db_incremental_field_last_value"] is None

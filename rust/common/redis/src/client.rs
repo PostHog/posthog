@@ -1,8 +1,12 @@
+use std::io::Write;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use redis::aio::MultiplexedConnection;
 use redis::{AsyncCommands, RedisError};
-use std::time::Duration;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::pipeline::{PipelineCommand, PipelineResult};
 use crate::{Client, CompressionConfig, CustomRedisError, RedisValueFormat};
@@ -14,9 +18,70 @@ const ERR_RAWBYTES_SET: &str =
 
 #[derive(Clone)]
 pub struct RedisClient {
-    connection: MultiplexedConnection,
+    /// Shared across clones so a `heal()` on any handle repairs all of them.
+    /// `MultiplexedConnection` does not reconnect after its TCP connection
+    /// dies; `heal()` swaps in a rebuilt one.
+    connection: Arc<ArcSwap<MultiplexedConnection>>,
+    /// Connection info retained so `heal()` can rebuild.
+    client: redis::Client,
+    response_timeout: Option<Duration>,
+    connection_timeout: Option<Duration>,
+    /// Serializes heal attempts and carries the last-attempt time for the
+    /// cooldown, so an error burst cannot stampede reconnects.
+    heal_state: Arc<tokio::sync::Mutex<Instant>>,
     compression: CompressionConfig,
     format: RedisValueFormat,
+}
+
+/// Minimum time between reconnect attempts (see `RedisClient::heal_connection`).
+const HEAL_COOLDOWN: Duration = Duration::from_secs(5);
+
+impl RedisClient {
+    /// Current connection handle. Cheap: one atomic load plus a
+    /// `MultiplexedConnection` clone (an mpsc sender clone).
+    fn conn(&self) -> MultiplexedConnection {
+        self.connection.load().as_ref().clone()
+    }
+
+    /// Rebuild the underlying connection after it has died.
+    ///
+    /// `MultiplexedConnection` never reconnects on its own: once its TCP
+    /// connection drops (Redis failover, node replacement), every command
+    /// errors forever. Callers that detect an unrecoverable error
+    /// (`CustomRedisError::is_unrecoverable_error`) call this to swap in a
+    /// fresh connection; all clones of this client share the swap. Attempts
+    /// are serialized and rate-limited by `HEAL_COOLDOWN`, and a failed
+    /// attempt just waits for the next caller -- the client keeps failing
+    /// open in the meantime, exactly as it would without healing.
+    pub async fn heal_connection(&self) {
+        let mut last_attempt = self.heal_state.lock().await;
+        if last_attempt.elapsed() < HEAL_COOLDOWN {
+            return;
+        }
+        *last_attempt = Instant::now();
+
+        let mut config = redis::AsyncConnectionConfig::new();
+        if let Some(timeout) = self.response_timeout {
+            config = config.set_response_timeout(timeout);
+        }
+        if let Some(timeout) = self.connection_timeout {
+            config = config.set_connection_timeout(timeout);
+        }
+
+        match self
+            .client
+            .get_multiplexed_async_connection_with_config(&config)
+            .await
+        {
+            Ok(connection) => {
+                self.connection.store(Arc::new(connection));
+                info!("Redis connection healed after unrecoverable error");
+            }
+            Err(e) => {
+                warn!(error = %e, "Redis heal attempt failed; will retry after cooldown");
+            }
+        }
+    }
 }
 
 impl RedisClient {
@@ -147,7 +212,11 @@ impl RedisClient {
             .await?;
 
         Ok(RedisClient {
-            connection,
+            connection: Arc::new(ArcSwap::from_pointee(connection)),
+            client,
+            response_timeout,
+            connection_timeout,
+            heal_state: Arc::new(tokio::sync::Mutex::new(Instant::now() - HEAL_COOLDOWN)),
             compression,
             format,
         })
@@ -190,11 +259,18 @@ impl RedisClient {
         data: Vec<u8>,
         config: &CompressionConfig,
     ) -> Result<Vec<u8>, CustomRedisError> {
-        if config.enabled && data.len() > config.threshold {
-            zstd::encode_all(&data[..], config.level).map_err(|e| e.into())
-        } else {
-            Ok(data)
+        if !(config.enabled && data.len() > config.threshold) {
+            return Ok(data);
         }
+
+        // The frame has to declare the decompressed size. Django reads these values through
+        // python-zstd, which sizes its output buffer from that header and fails on anything
+        // past one 128 KiB block without it. `zstd::encode_all` never pledges the size, so it
+        // writes entries Django can only read while they stay small.
+        let mut encoder = zstd::Encoder::new(Vec::new(), config.level)?;
+        encoder.set_pledged_src_size(Some(data.len() as u64))?;
+        encoder.write_all(&data)?;
+        Ok(encoder.finish()?)
     }
 
     /// Serialize a string value according to the format and apply compression if configured
@@ -239,33 +315,97 @@ impl RedisClient {
         for arg in args {
             invocation.arg(arg);
         }
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let result: Vec<i64> = invocation.invoke_async(&mut conn).await?;
         Ok(result)
     }
 }
 
+/// Run a Lua script and decode its integer-array reply. Behind a trait so callers
+/// can be unit-tested against an in-memory fake, including a failing one that
+/// proves a limiter fails open.
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+
+    /// Rebuild the underlying connection after a connection-class failure; see
+    /// [`Client::heal`]. The default no-op keeps test fakes trivial.
+    async fn heal(&self) {}
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+
+    async fn heal(&self) {
+        self.heal_connection().await;
+    }
+}
+
 #[async_trait]
 impl Client for RedisClient {
+    async fn heal(&self) {
+        self.heal_connection().await;
+    }
+
     async fn zrangebyscore(
         &self,
         k: String,
         min: String,
         max: String,
     ) -> Result<Vec<String>, CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let results = conn.zrangebyscore(k, min, max).await?;
         Ok(results)
     }
 
+    async fn zrangebyscore_limit(
+        &self,
+        k: String,
+        min: String,
+        max: String,
+        offset: isize,
+        count: isize,
+    ) -> Result<Vec<String>, CustomRedisError> {
+        let mut conn = self.conn();
+        let results = conn.zrangebyscore_limit(k, min, max, offset, count).await?;
+        Ok(results)
+    }
+
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         conn.zadd::<_, _, _, ()>(k, member, score).await?;
         Ok(())
     }
 
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.conn();
+        zadd_nx_command(&k, &member, score)
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError> {
+        let mut conn = self.conn();
+        conn.zrem::<_, _, ()>(k, member).await?;
+        Ok(())
+    }
+
     async fn hincrby(&self, k: String, v: String, count: i64) -> Result<(), CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         conn.hincr::<_, _, _, ()>(k, v, count).await?;
         Ok(())
     }
@@ -279,7 +419,7 @@ impl Client for RedisClient {
         k: String,
         format: RedisValueFormat,
     ) -> Result<String, CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let raw_bytes: Vec<u8> = conn.get(k).await?;
 
         // return NotFound error when empty
@@ -308,7 +448,7 @@ impl Client for RedisClient {
     }
 
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let raw_bytes: Vec<u8> = conn.get(k).await?;
 
         // return NotFound error when empty
@@ -327,7 +467,7 @@ impl Client for RedisClient {
         v: Vec<u8>,
         ttl_seconds: Option<u64>,
     ) -> Result<(), CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         match ttl_seconds {
             Some(ttl) => conn.set_ex::<_, _, ()>(k, v, ttl).await?,
             None => conn.set::<_, _, ()>(k, v).await?,
@@ -347,7 +487,7 @@ impl Client for RedisClient {
     ) -> Result<(), CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         conn.set::<_, _, ()>(k, final_bytes).await?;
         Ok(())
     }
@@ -365,7 +505,7 @@ impl Client for RedisClient {
     ) -> Result<(), CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         conn.set_ex::<_, _, ()>(k, final_bytes, seconds).await?;
         Ok(())
     }
@@ -388,7 +528,7 @@ impl Client for RedisClient {
     ) -> Result<bool, CustomRedisError> {
         let final_bytes = self.serialize_and_compress(v, format)?;
 
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let seconds_usize = seconds as usize;
 
         // Use SET with both NX and EX options
@@ -423,7 +563,7 @@ impl Client for RedisClient {
                 .ignore();
         }
 
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
@@ -439,19 +579,34 @@ impl Client for RedisClient {
             pipe.cmd("EXPIRE").arg(&k).arg(ttl_seconds).ignore();
         }
 
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
+        pipe.query_async::<()>(&mut conn).await?;
+        Ok(())
+    }
+
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError> {
+        let mut pipe = redis::pipe();
+        for (k, by, expire_at) in items {
+            pipe.cmd("INCRBY").arg(&k).arg(by).ignore();
+            pipe.cmd("EXPIREAT").arg(&k).arg(expire_at).ignore();
+        }
+
+        let mut conn = self.conn();
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
 
     async fn del(&self, k: String) -> Result<(), CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         conn.del::<_, ()>(k).await?;
         Ok(())
     }
 
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let result: Option<String> = conn.hget(k, field).await?;
 
         match result {
@@ -461,7 +616,7 @@ impl Client for RedisClient {
     }
 
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError> {
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let result = conn.scard(k).await?;
         Ok(result)
     }
@@ -470,7 +625,7 @@ impl Client for RedisClient {
         if keys.is_empty() {
             return Ok(vec![]);
         }
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let results: Vec<Option<Vec<u8>>> = conn.mget(&keys).await?;
         Ok(results)
     }
@@ -483,7 +638,7 @@ impl Client for RedisClient {
         for k in &keys {
             pipe.scard(k);
         }
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let results: Vec<u64> = pipe.query_async(&mut conn).await?;
         Ok(results)
     }
@@ -505,7 +660,7 @@ impl Client for RedisClient {
                 .arg("NX")
                 .ignore();
         }
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
@@ -521,7 +676,7 @@ impl Client for RedisClient {
         for (k, v, ttl) in &items {
             pipe.cmd("SET").arg(k).arg(v).arg("NX").arg("EX").arg(ttl);
         }
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let results: Vec<Option<String>> = pipe.query_async(&mut conn).await?;
         Ok(results.into_iter().map(|r| r.is_some()).collect())
     }
@@ -530,7 +685,7 @@ impl Client for RedisClient {
         if keys.is_empty() {
             return Ok(());
         }
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         redis::cmd("DEL")
             .arg(&keys)
             .query_async::<()>(&mut conn)
@@ -602,6 +757,12 @@ impl Client for RedisClient {
                 PipelineCommand::SAdd { key, member } => {
                     pipe.cmd("SADD").arg(key).arg(member);
                 }
+                PipelineCommand::ZAdd { key, members } => {
+                    let cmd = pipe.cmd("ZADD").arg(key);
+                    for (score, member) in members {
+                        cmd.arg(*score).arg(member);
+                    }
+                }
                 PipelineCommand::Expire { key, seconds } => {
                     pipe.cmd("EXPIRE").arg(key).arg(*seconds);
                 }
@@ -613,7 +774,7 @@ impl Client for RedisClient {
         }
 
         // Execute the pipeline
-        let mut conn = self.connection.clone();
+        let mut conn = self.conn();
         let raw_results: Vec<redis::Value> = pipe.query_async(&mut conn).await?;
 
         // Process results
@@ -664,6 +825,7 @@ impl RedisClient {
             PipelineCommand::Set { .. }
             | PipelineCommand::SetEx { .. }
             | PipelineCommand::Del { .. }
+            | PipelineCommand::ZAdd { .. }
             | PipelineCommand::HIncrBy { .. } => Ok(PipelineResult::Ok),
             PipelineCommand::Expire { .. } => {
                 // EXPIRE returns 1 if the timeout was set, 0 if the key does not exist
@@ -702,9 +864,24 @@ impl RedisClient {
     }
 }
 
+fn zadd_nx_command(key: &str, member: &str, score: i64) -> redis::Cmd {
+    let mut command = redis::cmd("ZADD");
+    command.arg(key).arg("NX").arg(score).arg(member);
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_zadd_nx_command_encodes_score_before_member() {
+        let command = zadd_nx_command("rebuilds", "team-1", 100);
+        assert_eq!(
+            command.get_packed_command(),
+            b"*5\r\n$4\r\nZADD\r\n$8\r\nrebuilds\r\n$2\r\nNX\r\n$3\r\n100\r\n$6\r\nteam-1\r\n"
+        );
+    }
 
     // Test helper functions to reduce duplication
     mod helpers {
@@ -952,6 +1129,29 @@ mod tests {
         }
 
         #[test]
+        fn test_compressed_frame_declares_content_size() {
+            // Django reads these values through python-zstd, which sizes its output buffer
+            // from the frame header and fails past one 128 KiB block when the size is absent.
+            // A frame without it is readable by this crate and unreadable by Django, so no
+            // round-trip through `try_decompress` can catch the regression.
+            let test_value = "x".repeat(200_000);
+            let config = CompressionConfig::default();
+
+            let serialized = helpers::serialize_value(&test_value, RedisValueFormat::Pickle);
+            assert!(
+                serialized.len() > 128 * 1024,
+                "payload must exceed one zstd block for this to be the production shape"
+            );
+
+            let processed = RedisClient::maybe_compress(serialized.clone(), &config).unwrap();
+
+            assert_eq!(
+                zstd::zstd_safe::get_frame_content_size(&processed).unwrap(),
+                Some(serialized.len() as u64)
+            );
+        }
+
+        #[test]
         fn test_utf8_without_compression() {
             let test_value = "test_string";
             let config = CompressionConfig::disabled();
@@ -1107,7 +1307,7 @@ mod integration_tests {
     use crate::{ClientPipelineExt, PipelineResult};
     use testcontainers::core::{IntoContainerPort, WaitFor};
     use testcontainers::runners::AsyncRunner;
-    use testcontainers::GenericImage;
+    use testcontainers::{GenericImage, ImageExt};
 
     async fn create_test_client() -> (RedisClient, testcontainers::ContainerAsync<GenericImage>) {
         let container = GenericImage::new("redis", "7-alpine")
@@ -1132,6 +1332,106 @@ mod integration_tests {
         .unwrap();
 
         (client, container)
+    }
+
+    // Kill the Redis container and bring it back on the same port: a client
+    // stays broken (MultiplexedConnection never reconnects) until heal() swaps
+    // in a rebuilt connection.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_heal_recovers_connection_after_redis_restart() {
+        // A fixed host port: docker assigns a NEW random host port when a
+        // killed container restarts, which would leave the client dialing a
+        // dead port and turn this test into a false failure.
+        let host_port = 30000 + (std::process::id() % 10000) as u16;
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .with_mapped_port(host_port, 6379.tcp())
+            .start()
+            .await
+            .unwrap();
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let url = format!("redis://{host}:{port}");
+
+        let connect = || async {
+            RedisClient::with_config(
+                url.clone(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Utf8,
+                Some(Duration::from_millis(1000)),
+                Some(Duration::from_millis(2000)),
+            )
+            .await
+        };
+
+        // The readiness banner can land a hair before the socket accepts, so
+        // probe with a real command until Redis answers.
+        let mut healed_client = None;
+        for _ in 0..20 {
+            if let Ok(c) = connect().await {
+                if c.set("probe".to_string(), "1".to_string()).await.is_ok() {
+                    healed_client = Some(c);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let healed_client = healed_client.expect("redis container never became ready");
+        let broken_client = connect().await.unwrap();
+        broken_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .unwrap();
+
+        // Kill/start via the docker CLI: an abrupt kill matches the
+        // node-replacement failure heal() exists for.
+        let docker = |args: Vec<String>| {
+            let status = std::process::Command::new("docker")
+                .args(&args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "docker {args:?} failed");
+        };
+        docker(vec!["kill".to_string(), container.id().to_string()]);
+
+        assert!(healed_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_err());
+        assert!(broken_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_err());
+
+        docker(vec!["start".to_string(), container.id().to_string()]);
+        // Wait until the restarted Redis answers (checked via a fresh client)
+        // so the single heal attempt below cannot race the restart and burn
+        // its cooldown.
+        let mut ready = false;
+        for _ in 0..50 {
+            if let Ok(c) = connect().await {
+                if c.set("probe".to_string(), "1".to_string()).await.is_ok() {
+                    ready = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(ready, "redis container never came back");
+
+        Client::heal(&healed_client).await;
+        assert!(healed_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_ok());
+
+        // Without heal() the connection stays dead - the failure mode heal
+        // exists to fix.
+        assert!(broken_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_err());
     }
 
     #[tokio::test]
@@ -1341,6 +1641,50 @@ mod integration_tests {
                 "Mismatch at index {i}: expected {expected:?}, got {result:?}"
             );
         }
+    }
+
+    // `zadd_nx` is hand-built from `redis::cmd` because the driver exposes no NX helper, so
+    // the argument order is ours to get wrong. `ZADD key NX member score` parses the member
+    // as a score and returns an error the caller only sees as a failed write, which would
+    // leave the rebuild queue silently empty. This pins the order against a real server.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_zadd_nx_keeps_the_first_score() {
+        let (client, _container) = create_test_client().await;
+        let key = "zadd_nx_score".to_string();
+        let member = "team-1".to_string();
+
+        client
+            .zadd_nx(key.clone(), member.clone(), 100)
+            .await
+            .unwrap();
+        client
+            .zadd_nx(key.clone(), member.clone(), 200)
+            .await
+            .unwrap();
+
+        // The trait has no ZSCORE, so read the score back through a range that admits one
+        // value.
+        let at_first_score = client
+            .zrangebyscore(key.clone(), "100".to_string(), "100".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            at_first_score,
+            vec![member.clone()],
+            "the second NX write must leave the first score alone"
+        );
+
+        client.zadd(key.clone(), member.clone(), 200).await.unwrap();
+        let at_new_score = client
+            .zrangebyscore(key.clone(), "200".to_string(), "200".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            at_new_score,
+            vec![member],
+            "a plain zadd moves the member, which is the behavior NX exists to avoid"
+        );
     }
 
     /// Helper to create a test client with compression enabled.

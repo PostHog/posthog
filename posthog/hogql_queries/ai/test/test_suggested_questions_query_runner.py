@@ -9,6 +9,7 @@ from django.utils import timezone
 from posthog.schema import SuggestedQuestionsQuery
 
 from posthog.hogql_queries.ai.suggested_questions_query_runner import SuggestedQuestionsQueryRunner
+from posthog.llm.completions import OpenAICompletion
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -16,7 +17,9 @@ class TestSuggestedQuestionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     @patch(
         "posthog.hogql_queries.ai.suggested_questions_query_runner.hit_openai",
-        return_value=("Lorem ipsum. QUESTIONS:\nHow? 78\n\nWhy? 91", 21, 37),
+        return_value=OpenAICompletion(
+            content="Lorem ipsum. QUESTIONS:\nHow? 78\n\nWhy? 91", prompt_tokens=21, completion_tokens=37
+        ),
     )
     def test_suggested_questions_hit_openai(self, hit_openai_mock):
         results = SuggestedQuestionsQueryRunner(team=self.team, query=SuggestedQuestionsQuery()).calculate()

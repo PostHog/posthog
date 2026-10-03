@@ -9,7 +9,6 @@ pub const NON_CRATE_IMAGE_TRIGGERS: &[(&str, &[&str])] = &[(
     &[
         "rust/persons_migrations/",
         "rust/behavioral_cohorts_migrations/",
-        "rust/cyclotron-core/migrations/",
         "rust/cyclotron-node-migrations/",
         "rust/flags_read_store_migrations/",
         "rust/bin/migrate-",

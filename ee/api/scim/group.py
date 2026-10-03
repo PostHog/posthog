@@ -11,7 +11,7 @@ from scim2_filter_parser.attr_paths import AttrPath
 from posthog.models import OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
-from ee.models.rbac.role import Role, RoleMembership
+from products.access_control.backend.models.role import Role, RoleMembership
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class PostHogSCIMGroup(SCIMGroup):
         """
         Return list of group members in SCIM format.
         """
-        role_memberships = RoleMembership.objects.filter(role=self.obj).select_related("user")
+        role_memberships = RoleMembership.objects.filter(role=self.obj).valid_for_authorization().select_related("user")
         return [
             {
                 "value": str(rm.user.id),
@@ -141,7 +141,11 @@ class PostHogSCIMGroup(SCIMGroup):
             return
 
         # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
-        RoleMembership.objects.get_or_create(role=role, user=user, defaults={"organization_member": org_membership})
+        RoleMembership.objects.update_or_create(
+            role=role,
+            user=user,
+            defaults={"organization_member": org_membership},
+        )
 
     @classmethod
     def _update_members(cls, role: Role, members_data: list[dict], config: IdentityProviderConfig) -> None:

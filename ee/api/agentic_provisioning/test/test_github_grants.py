@@ -1,3 +1,5 @@
+import dataclasses
+
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
@@ -7,10 +9,17 @@ from parameterized import parameterized
 
 from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
+from posthog.token_bucket import Budget
 
 from ee.api.agentic_provisioning import github_grants
 from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_CLIENT_SECRET,
+    ProvisioningTestBase,
+    patched_budget,
+    provisioning_config,
+)
+from ee.api.agentic_provisioning.views.github_grants import GitHubGrantRepositoriesView
 
 ACCESS_TOKEN = "gho_secret_user_token"
 
@@ -83,7 +92,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         with (
             patch(
                 "ee.api.agentic_provisioning.views.github_grants.GitHubIntegration.github_user_from_code",
-                return_value=AUTHORIZATION,
+                return_value=dataclasses.replace(AUTHORIZATION, identity_verified_at=1_700_000_000),
             ) as mock_exchange,
             patch("ee.api.agentic_provisioning.github_grants.github_request", return_value=EMAILS_RESPONSE),
         ):
@@ -107,6 +116,7 @@ class TestGitHubGrants(ProvisioningTestBase):
         assert grant is not None
         assert grant.access_token == ACCESS_TOKEN
         assert grant.email == "octocat@example.com"
+        assert grant.to_authorization().identity_verified_at == 1_700_000_000
 
     @parameterized.expand(
         [
@@ -292,7 +302,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             return REPOSITORIES_RESPONSE
 
         with (
-            patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
+            patched_budget(GitHubGrantRepositoriesView, "get", "grant_repo_polls", Budget(burst=1, per_hour=1)),
             patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
         ):
             first = self._get_grants(url)
@@ -312,7 +322,7 @@ class TestGitHubGrants(ProvisioningTestBase):
             return REPOSITORIES_RESPONSE
 
         with (
-            patch("ee.api.agentic_provisioning.throttling.GITHUB_GRANT_POLL_RATE_LIMIT_MAX", 1),
+            patched_budget(GitHubGrantRepositoriesView, "get", "grant_repo_polls", Budget(burst=1, per_hour=1)),
             patch("ee.api.agentic_provisioning.github_grants.github_request", side_effect=fake_github_request),
         ):
             foreign = self._get_api(url, HTTP_AUTHORIZATION=self._basic_auth_header(other_partner))

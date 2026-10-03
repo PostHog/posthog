@@ -4,27 +4,40 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use arc_swap::{ArcSwap, Guard};
 use common_types::cohort::TeamAllowlist;
 use lifecycle::Handle;
-use metrics::gauge;
+use metrics::{counter, gauge, histogram};
 use rand::Rng;
 use sqlx::PgPool;
+use thiserror::Error;
 use tokio::sync::Notify;
+use tokio::task::JoinError;
 use tracing::{debug, info, warn};
 
 use crate::filters::loader::{build_catalog_from_rows, load_realtime_cohorts, CohortRow};
 use crate::filters::FilterError;
 use crate::filters::{FilterCatalog, Generation};
-use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
+use crate::observability::metrics::{
+    FILTER_CATALOG_BUILD_DURATION_SECONDS, FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS,
+    FILTER_CATALOG_REFRESH_TOTAL, FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS,
+};
 
 /// Snapshot counts returned by [`CatalogHandle::refresh`] for logging.
 #[derive(Debug, Clone, Copy)]
 pub struct CatalogStats {
     pub teams: usize,
     pub unique_conditions: usize,
+}
+
+#[derive(Debug, Error)]
+pub enum CatalogRefreshError {
+    #[error(transparent)]
+    Load(#[from] FilterError),
+    #[error("filter catalog build worker failed: {0}")]
+    Build(#[from] JoinError),
 }
 
 /// Lock-free, atomically-swapped catalog handle. Starts empty and unloaded; the pipeline fails
@@ -122,7 +135,25 @@ impl CatalogHandle {
     }
 
     /// Query `posthog_cohort`, drop out-of-scope teams, rebuild the catalog, and swap it in.
-    pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, FilterError> {
+    ///
+    /// The staleness metrics are stamped here rather than in [`run_refresh_loop`] so the boot load
+    /// in `main` counts too — otherwise a pod that booted fine and then lost its refresh loop would
+    /// look identical to one that never loaded.
+    pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
+        match self.refresh_inner(pool).await {
+            Ok(stats) => {
+                gauge!(FILTER_CATALOG_LAST_SUCCESS_TIMESTAMP_SECONDS).set(now_unix_seconds());
+                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "success").increment(1);
+                Ok(stats)
+            }
+            Err(err) => {
+                counter!(FILTER_CATALOG_REFRESH_TOTAL, "result" => "error").increment(1);
+                Err(err)
+            }
+        }
+    }
+
+    async fn refresh_inner(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
         let mut rows = load_realtime_cohorts(pool).await?;
         let fetched_rows = rows.len();
         retain_allowlisted(&mut rows, &self.allowlist);
@@ -133,7 +164,23 @@ impl CatalogHandle {
                 "filter catalog dropped cohort rows outside REALTIME_COHORT_TEAM_ALLOWLIST",
             );
         }
-        let catalog = build_catalog_from_rows(rows, self.cascade_enabled);
+        let cascade_enabled = self.cascade_enabled;
+        self.build_and_store(move || build_catalog_from_rows(rows, cascade_enabled))
+            .await
+    }
+
+    async fn build_and_store(
+        &self,
+        build: impl FnOnce() -> FilterCatalog + Send + 'static,
+    ) -> Result<CatalogStats, CatalogRefreshError> {
+        let catalog = tokio::task::spawn_blocking(move || {
+            let build_started = Instant::now();
+            let catalog = build();
+            histogram!(FILTER_CATALOG_BUILD_DURATION_SECONDS)
+                .record(build_started.elapsed().as_secs_f64());
+            catalog
+        })
+        .await?;
         let stats = CatalogStats {
             teams: catalog.team_count(),
             unique_conditions: catalog.total_unique_conditions(),
@@ -141,6 +188,14 @@ impl CatalogHandle {
         self.store(catalog);
         Ok(stats)
     }
+}
+
+/// Seconds since the Unix epoch, saturating at 0 on a clock set before it.
+fn now_unix_seconds() -> f64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since| since.as_secs_f64())
+        .unwrap_or(0.0)
 }
 
 /// Drop rows outside the configured team scope before catalog construction.
@@ -289,6 +344,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn catalog_build_runs_off_the_runtime_and_failure_keeps_the_snapshot() {
+        let handle = CatalogHandle::new();
+        let runtime_thread = std::thread::current().id();
+        let stats = handle
+            .build_and_store(move || {
+                assert_ne!(std::thread::current().id(), runtime_thread);
+                FilterCatalog::from_teams([(TeamId(7), team_with_one_behavioral())])
+            })
+            .await
+            .unwrap();
+        assert_eq!(stats.teams, 1);
+        assert_eq!(stats.unique_conditions, 1);
+        assert!(handle.is_loaded());
+        let snapshot = handle.load_full();
+
+        let error = handle
+            .build_and_store(|| panic!("catalog build failed"))
+            .await
+            .unwrap_err();
+        assert!(matches!(error, CatalogRefreshError::Build(error) if error.is_panic()));
+        assert!(Arc::ptr_eq(&snapshot, &handle.load_full()));
+        assert!(handle.is_loaded());
+    }
+
+    #[tokio::test]
     async fn wait_until_loaded_resolves_on_the_first_store_and_immediately_after() {
         let handle = Arc::new(CatalogHandle::new());
 
@@ -319,6 +399,14 @@ mod tests {
             team_with_one_behavioral(),
         )]));
         assert_eq!(handle.load().generation(), Generation(1));
+    }
+
+    #[test]
+    fn now_unix_seconds_is_a_plausible_epoch_second() {
+        // The staleness alert computes `time() - gauge`, so a gauge stamped in the wrong unit (or
+        // from a monotonic clock starting near zero) would read as decades stale and page forever.
+        let now = now_unix_seconds();
+        assert!(now > 1_700_000_000.0, "expected epoch seconds, got {now}");
     }
 
     #[test]

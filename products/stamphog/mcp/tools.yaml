@@ -9,60 +9,6 @@ feature: stamphog
 url_prefix: /stamphog
 ui_apps: {}
 tools:
-    stamphog-digest-channels-create:
-        operation: stamphog_digest_channels_create
-        enabled: true
-        scopes:
-            - stamphog:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create stamphog digest channel
-        description: >
-            Route an audience's daily merged-PR digest to a Slack channel. Requires `audience_key`,
-            `slack_integration_id` (must be a Slack integration belonging to this team), and `slack_channel_id`.
-        feature_flag: stamphog
-    stamphog-digest-channels-delete:
-        operation: stamphog_digest_channels_destroy
-        enabled: true
-        scopes:
-            - stamphog:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Delete stamphog digest channel
-        description: >
-            Disable a digest channel by id. This keeps the row as a disabled tombstone (so auto-provisioning can't
-            recreate and re-post it) rather than hard-deleting it — equivalent to `stamphog-digest-channels-update` with
-            `enabled: false`.
-        feature_flag: stamphog
-    stamphog-digest-channels-list:
-        operation: stamphog_digest_channels_list
-        enabled: true
-        scopes:
-            - stamphog:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List stamphog digest channels
-        description: >
-            List Slack destinations for the daily merged-PR digest in this project. Each channel is keyed by
-            `audience_key` (e.g. a repo or team bucket) and reports how it was resolved (manual, name match, repo policy
-            config) and whether it's currently enabled.
-        feature_flag: stamphog
-    stamphog-digest-channels-partial-update:
-        operation: stamphog_digest_channels_partial_update
-        enabled: false
-    stamphog-digest-channels-retrieve:
-        operation: stamphog_digest_channels_retrieve
-        enabled: false
-    stamphog-digest-channels-update:
-        operation: stamphog_digest_channels_update
-        enabled: false
     stamphog-digest-runs-list:
         operation: stamphog_digest_runs_list
         enabled: true
@@ -75,9 +21,11 @@ tools:
         list: true
         title: List stamphog digest runs
         description: >
-            List posted (or attempted) daily digest runs, newest first. Filter by `digest_channel` to see a single
-            channel's history. Each run reports its status, how many merged PRs it summarized, and the Slack message
-            timestamp it posted to. The rendered summary text itself lives only in the Slack post.
+            List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team
+            slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status,
+            how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the
+            headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by
+            `slack_channel_id` to see one channel's history.
         feature_flag: stamphog
     stamphog-digest-runs-retrieve:
         operation: stamphog_digest_runs_retrieve
@@ -116,6 +64,12 @@ tools:
             or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository,
             author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.
         feature_flag: stamphog
+    stamphog-repo-configs-add-repository:
+        operation: stamphog_repo_configs_add_repository_create
+        enabled: false
+    stamphog-repo-configs-available-repositories:
+        operation: stamphog_repo_configs_available_repositories_retrieve
+        enabled: false
     stamphog-repo-configs-create:
         operation: stamphog_repo_configs_create
         enabled: false
@@ -176,6 +130,26 @@ tools:
     stamphog-repo-configs-update:
         operation: stamphog_repo_configs_update
         enabled: false
+    stamphog-review-runs-create:
+        operation: stamphog_review_runs_create
+        enabled: true
+        scopes:
+            - stamphog:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Request a stamphog review
+        description: >
+            Ask stamphog to review one pull request now, by `repository` (owner/name) and `pr_number`. The repository
+            must be connected and enabled in Stamphog. The request replaces the trigger label, so it works in label mode
+            too, but every other rule still applies: stamphog refuses drafts, closed PRs, bot-authored PRs, PRs from
+            outside the repository, and PRs whose author lacks write access, and the error message says why. Stamphog
+            decides the verdict itself: a passing review posts a real GitHub approval, anything else posts a comment.
+            The review runs in the background, so this returns the run right away (status `queued`). Poll
+            `stamphog-review-runs-get` with its id for the verdict and reasoning. When a run already covers the PR's
+            current head, that run is returned with `created: false` instead of starting another.
+        feature_flag: stamphog
     stamphog-review-runs-get:
         operation: stamphog_review_runs_retrieve
         enabled: true
@@ -188,9 +162,11 @@ tools:
         title: Get stamphog review run
         description: >
             Get a single review run by id — the record of one automated review pass over a pull request. Returns the
-            lifecycle `status`, final `verdict`, and an allowlisted `gate_result` (gate_blocked, final_verdict). The raw
-            reviewer transcript, PR payload, and policy contents are deliberately not exposed — they carry repository
-            content a project member without repo access must not read.
+            lifecycle `status`, final `verdict`, an allowlisted `gate_result` (gate_blocked, final_verdict), and the
+            reviewer's `reasoning` (its explanation, the showstoppers that blocked approval, the review text stamphog
+            posts on GitHub, and a plain-language change summary). The reasoning fields are null until the reviewer has
+            run. Poll this after `stamphog-review-runs-create` until `status` is completed, gated, failed, or
+            superseded. The raw reviewer transcript, PR payload, patches, and policy contents are not exposed.
         feature_flag: stamphog
     stamphog-review-runs-list:
         operation: stamphog_review_runs_list
@@ -205,11 +181,12 @@ tools:
         title: List stamphog review runs
         description: >
             List stamphog's automated review runs for pull requests in this project, newest first. Filter by
-            `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Each run reports its
-            lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the
-            reviewer ran. The raw reviewer output (full reasoning transcript) is omitted from list results — use
-            `stamphog-review-runs-get` for the full detail.
+            `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Leave `trigger` unset
+            unless you want one trigger only: `trigger: all` does not mean every trigger. Each run reports its lifecycle
+            `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer
+            ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.
         feature_flag: stamphog
         response:
             exclude:
                 - output
+                - reasoning

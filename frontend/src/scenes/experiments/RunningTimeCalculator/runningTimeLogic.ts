@@ -11,6 +11,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { experimentsCalculateRunningTimeCreate } from 'products/experiments/frontend/generated/api'
 import type {
     RunningTimeCalculationInputApi,
@@ -21,12 +22,10 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { CachedNewExperimentQueryResponse, ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
-import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
     getFlagVariants,
     getOrderedMetricsWithResults,
-    initializeMetricOrdering,
     isExperimentConflictError,
     toConcurrencyPayload,
 } from '../utils'
@@ -37,6 +36,7 @@ import {
     calculateDaysElapsed,
     calculateExposureRate,
     getCalculatorMetricType,
+    hasRequiredBaselineStats,
 } from './calculations'
 
 export interface RunningTimeLogicProps {
@@ -69,6 +69,7 @@ export interface runningTimeLogicValues {
     }[] // experimentLogic
     primaryMetricsResultsLoading: boolean // experimentLogic
     unmodifiedExperiment: Experiment | null // experimentLogic
+    isRecalculating: boolean // experimentMetricsLogic
     recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
     recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
@@ -82,6 +83,7 @@ export interface runningTimeLogicValues {
     currentExposures: number | null
     dailyExposureRate: number | null
     initialConfig: RunningTimeConfig
+    isCalculating: boolean
     isComplete: boolean
     isManualMode: boolean
     isSaving: boolean
@@ -249,6 +251,13 @@ export interface runningTimeLogicMeta {
             experiment: Experiment
         ) => number | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
+        isCalculating: (
+            isManualMode: boolean,
+            featureFlags: FeatureFlagsSet,
+            primaryMetricsResultsLoading: boolean,
+            isRecalculating: boolean,
+            automaticCalculationLoading: boolean
+        ) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -285,6 +294,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 [
                     'primaryMetricsResults as recalcPrimaryMetricsResults',
                     'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
+                    'isRecalculating',
                 ],
                 modalsLogic,
                 ['isRunningTimeConfigModalOpen'],
@@ -471,8 +481,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 if (!firstMetric?.metric || !firstMetric?.result?.baseline) {
                     return null
                 }
+                const metricType = getCalculatorMetricType(firstMetric.metric)
+                if (!hasRequiredBaselineStats(metricType, firstMetric.result.baseline)) {
+                    return null
+                }
                 return {
-                    metric_type: getCalculatorMetricType(firstMetric.metric),
+                    metric_type: metricType,
                     minimum_detectable_effect: mde,
                     number_of_variants: numberOfVariants,
                     baseline_stats: baselineStatsFromResults(firstMetric.result.baseline),
@@ -540,7 +554,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 rate: number | null,
                 experiment: Experiment
             ): number | null => {
-                if (!target || !rate || rate <= 0) {
+                if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
 
@@ -566,6 +580,36 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (s) => [s.currentExposures, s.targetSampleSize],
             (current: number | null, target: number | null): boolean =>
                 current !== null && target !== null && current >= target,
+        ],
+        // True while the estimate is still resolving: metric results loading or the automatic calculation
+        // request in flight. Lets the UI distinguish "still loading" from "settled but can't estimate"
+        // instead of flashing a pending state during the gap between the two. Manual mode has no async
+        // estimate to wait on, so it never counts as calculating.
+        isCalculating: [
+            (s) => [
+                s.isManualMode,
+                s.featureFlags,
+                s.primaryMetricsResultsLoading,
+                s.isRecalculating,
+                s.automaticCalculationLoading,
+            ],
+            (
+                isManualMode: boolean,
+                featureFlags: FeatureFlagsSet,
+                primaryMetricsResultsLoading: boolean,
+                isRecalculating: boolean,
+                automaticCalculationLoading: boolean
+            ): boolean => {
+                if (isManualMode) {
+                    return false
+                }
+                // The recalculation flow sources results from experimentMetricsLogic, the legacy flow from
+                // experimentLogic. Watch whichever is active so neither path flashes a pending state on load.
+                const metricsLoading = featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
+                    ? isRecalculating
+                    : primaryMetricsResultsLoading
+                return metricsLoading || automaticCalculationLoading
+            },
         ],
         manualFormPreview: [
             (s) => [s.manualPreviewInput, s.manualPreview],
@@ -613,7 +657,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 isManualMode ||
                 !isLaunched(experiment) ||
                 remainingDays === null ||
-                targetSampleSize === null
+                targetSampleSize === null ||
+                // Never store a non-positive estimate — a negative sample size or running time is
+                // meaningless and would surface in the header and list view.
+                remainingDays < 0 ||
+                targetSampleSize <= 0
             ) {
                 return
             }
@@ -634,6 +682,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             // carry the handshake and absorb the response — otherwise every open tab of a running
             // experiment goes silently stale on results load and later scalar saves 409.
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
                 const response: Experiment = await api.update(
                     `api/projects/${currentProjectId}/experiments/${props.experiment.id}`,
                     {
@@ -641,7 +690,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                         running_time_calculation: updatedRunningTimeCalculation,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     running_time_calculation: response.running_time_calculation ?? updatedRunningTimeCalculation,
                 })
@@ -653,10 +702,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 // and resync the snapshot so this tab stops being stale (and the guard above stops
                 // re-persisting the same values against fresh server state).
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsRetrieve() from 'products/experiments/frontend/generated/api' instead.
                     const fresh: Experiment = await api.get(
                         `api/projects/${currentProjectId}/experiments/${props.experiment.id}`
                     )
-                    actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(fresh)))
+                    actions.setUnmodifiedExperiment(structuredClone(fresh))
                     actions.setExperiment({ running_time_calculation: fresh.running_time_calculation })
                 } catch {
                     // Leave state as-is; the next full experiment load resyncs the snapshot.

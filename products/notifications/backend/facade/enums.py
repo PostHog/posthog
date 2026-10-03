@@ -1,7 +1,6 @@
 from enum import Enum
 from typing import Union
 
-from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES
 from posthog.scopes import APIScopeObject
 
 
@@ -21,6 +20,8 @@ class NotificationType(str, Enum):
     SUBSCRIPTION_NUDGE = "subscription_nudge"
     EMAIL_REPUTATION = "email_reputation"
     MATERIALIZATION_FAILURE = "materialization_failure"
+    NOTIFICATION_SETTINGS_CHANGED = "notification_settings_changed"
+    DATA_QUALITY_CHECK_FAILURE = "data_quality_check_failure"
 
 
 class Priority(str, Enum):
@@ -65,5 +66,3 @@ class NotificationOnlyResourceType(str, Enum):
 # Derived from APIScopeObject (used by ACCESS_CONTROL_RESOURCES) — keep in sync
 # if ACCESS_CONTROL_RESOURCES changes its element type
 type NotificationResourceType = Union[APIScopeObject, NotificationOnlyResourceType]
-
-AC_RESOURCE_TYPES: set[str] = set(ACCESS_CONTROL_RESOURCES)

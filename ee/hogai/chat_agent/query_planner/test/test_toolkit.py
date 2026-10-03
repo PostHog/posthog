@@ -1,12 +1,20 @@
 from datetime import UTC, datetime, timedelta
 from textwrap import dedent
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
+from parameterized import parameterized
 
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
+)
+
+from posthog.models import Team
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -111,17 +119,134 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             result,
         )
 
+    def test_retrieve_entity_properties_pages_person_definitions(self):
+        # The person branch used to read every stored definition, so a team with millions of them
+        # walked its whole index range. The group branch already paged.
+        for i in range(4):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"person_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("person", max_properties=2)
+
+        listed = [name for name in (f"person_prop_{i}" for i in range(4)) if f"- {name}" in result]
+        self.assertEqual(len(listed), 2)
+        self.assertIn("This list stops at 2 properties and person has more.", result)
+
+    @parameterized.expand(
+        [
+            ["person", "person"],
+            ["group", "group"],
+        ]
+    )
+    def test_retrieve_entity_properties_omits_truncation_note_when_under_limit(self, _name: str, entity: str):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="only_person_prop",
+            property_type=PropertyType.String,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="only_group_prop",
+            property_type=PropertyType.String,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties(entity, max_properties=500)
+
+        self.assertNotIn("This list stops at", result)
+
+    def test_retrieve_entity_properties_notes_truncation_for_groups(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        for i in range(3):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=0,
+                name=f"group_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("group", max_properties=1)
+
+        self.assertIn("This list stops at 1 properties and group has more.", result)
+
     def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
         toolkit = DummyToolkit(self.team, self.user)
         result = toolkit.retrieve_entity_properties("person")
         self.assertIn("$virt_initial_channel_type", result)
         self.assertIn("$virt_revenue", result)
 
+    @parameterized.expand(
+        [
+            ["plural table name", "sessions", "$session_duration"],
+            ["mixed case", "Session", "$session_duration"],
+            ["plural person", "persons", "$virt_initial_channel_type"],
+        ]
+    )
+    def test_retrieve_entity_properties_accepts_the_name_a_query_uses(
+        self, _name: str, entity: str, expected_property: str
+    ):
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties(entity)
+
+        self.assertIn(f"- {expected_property}", result)
+
+    def test_retrieve_entity_properties_names_the_entities_it_has(self):
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties("sesion")
+
+        self.assertEqual(
+            result,
+            "The entity sesion does not exist in the taxonomy. You must use one of the following: person, session.",
+        )
+
+    def test_retrieve_entity_properties_lists_the_session_fields_web_analytics_breaks_down_by(self):
+        breakdown_fields = (
+            "$entry_pathname",
+            "$entry_hostname",
+            "$end_pathname",
+            "$end_hostname",
+            "$entry_referring_domain",
+            "$entry_utm_source",
+            "$entry_utm_medium",
+            "$entry_utm_campaign",
+            "$entry_utm_term",
+            "$entry_utm_content",
+            "$channel_type",
+            "$last_external_click_url",
+        )
+
+        result = DummyToolkit(self.team, self.user).retrieve_entity_properties("session")
+
+        self.assertEqual([name for name in breakdown_fields if f"- {name} " not in result], [])
+
     def test_retrieve_entity_property_values(self):
         toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "$session_duration"),
             "30, 146, 2 and many more distinct values.",
+        )
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("sessions", "$session_duration"),
+            "30, 146, 2 and many more distinct values.",
+        )
+        self.assertEqual(
+            toolkit.retrieve_entity_property_values("session", "$entry_utm_source"),
+            '"Google", "Bing", "Twitter", "Facebook" and many more distinct values.',
         )
         self.assertEqual(
             toolkit.retrieve_entity_property_values("session", "nonsense"),
@@ -145,13 +270,13 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         base_time = datetime.now(UTC)
         for i in range(25):
             id = f"person{i}"
-            with freeze_time(base_time - timedelta(minutes=25 - i)):
+            with time_machine.travel(base_time - timedelta(minutes=25 - i), tick=False):
                 _create_person(
                     distinct_ids=[id],
                     properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
-        with freeze_time(base_time):
+        with time_machine.travel(base_time, tick=False):
             _create_person(
                 distinct_ids=["person25"],
                 properties={"taxonomy_email": "person25@example.com", "id": 25},
@@ -183,14 +308,14 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
         for i in range(7):
             id = f"group{i}"
-            with freeze_time(f"2024-01-01T{i}:00:00Z"):
+            with time_machine.travel(f"2024-01-01T{i}:00:00Z", tick=False):
                 create_group(
                     group_type_index=0,
                     group_key=id,
                     properties={"test": i},
                     team_id=self.team.pk,
                 )
-        with freeze_time(f"2024-01-02T00:00:00Z"):
+        with time_machine.travel(f"2024-01-02T00:00:00Z", tick=False):
             create_group(
                 group_type_index=1,
                 group_key="org",
@@ -357,6 +482,37 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             # Virtual properties are surfaced even though they never appear in stored event data.
             self.assertIn("- $virt_is_bot", prompt)
 
+    def test_fetch_event_property_types_resolves_all_names(self):
+        names = [f"prop_{i}" for i in range(5)]
+        for name in names:
+            PropertyDefinition.objects.create(
+                team=self.team, type=PropertyDefinition.Type.EVENT, name=name, property_type=PropertyType.String
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        resolved = toolkit._fetch_event_property_types(names)
+
+        self.assertEqual(resolved, dict.fromkeys(names, PropertyType.String))
+
+    def test_fetch_event_property_types_resolves_sibling_environment_definitions(self):
+        # Definitions are project-scoped: a property defined under a sibling environment of the
+        # same project resolves, matching what the taxonomy REST API returns for this team.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        # project is set explicitly, as the production writers do — a definition row with a NULL
+        # project_id is scoped to its own team only under COALESCE(project_id, team_id).
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="sibling_prop",
+            property_type=PropertyType.Numeric,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        resolved = toolkit._fetch_event_property_types(["sibling_prop"])
+
+        self.assertEqual(resolved, {"sibling_prop": PropertyType.Numeric})
+
     def test_retrieve_event_or_action_property_values(self):
         self._create_taxonomy()
         toolkit = DummyToolkit(self.team, self.user)
@@ -391,6 +547,61 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert toolkit.retrieve_event_or_action_property_values("event1", "$virt_is_bot") == "true, false"
+
+    @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
+    def test_retrieve_event_or_action_property_values_resolves_sibling_environment_definitions(
+        self, mock_retrieve: MagicMock
+    ) -> None:
+        # The stored definition decides the formatting: found as a String the value is quoted, not found
+        # the toolkit reports the property as missing from the taxonomy.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="sibling_tier",
+            property_type=PropertyType.String,
+        )
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_retrieve.return_value = (
+            CachedEventTaxonomyQueryResponse(
+                cache_key="test",
+                is_cached=True,
+                last_refresh=now,
+                next_allowed_client_refresh=now,
+                results=[EventTaxonomyItem(property="sibling_tier", sample_count=1, sample_values=["gold"])],
+                timezone="UTC",
+            ),
+            "event event1",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        self.assertEqual(toolkit.retrieve_event_or_action_property_values("event1", "sibling_tier"), '"gold"')
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_resolves_sibling_environment_definitions(
+        self, mock_runner_class: MagicMock
+    ) -> None:
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.PERSON,
+            name="sibling_tier",
+            property_type=PropertyType.String,
+        )
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[ActorsPropertyTaxonomyResponse(sample_count=1, sample_values=["gold"])],
+            timezone="UTC",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        self.assertEqual(toolkit.retrieve_entity_property_values("person", "sibling_tier"), '"gold"')
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
         toolkit = DummyToolkit(self.team, self.user)

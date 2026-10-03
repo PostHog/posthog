@@ -1,5 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
+import { ComponentProps } from 'react'
 
 import {
     IconDatabase,
@@ -13,16 +14,15 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -48,13 +48,22 @@ import { ProjectModal } from './ProjectModal'
 import { ProjectSwitcher } from './ProjectSwitcher'
 
 interface AccountMenuProps {
-    isLayoutNavCollapsed: boolean
+    isLayoutNavCollapsed?: boolean
+    renderTrigger?: ComponentProps<typeof Menu.Trigger>['render']
+    side?: ComponentProps<typeof Menu.Positioner>['side']
+    align?: ComponentProps<typeof Menu.Positioner>['align']
+    sideOffset?: number
 }
 
-export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.Element {
+export function NewAccountMenu({
+    isLayoutNavCollapsed = false,
+    renderTrigger,
+    side,
+    align,
+    sideOffset = 4,
+}: AccountMenuProps): JSX.Element {
     const { user } = useValues(userLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
     const { logout } = useActions(userLogic)
@@ -65,10 +74,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
     const hasPendingInvites = pendingInvites.length > 0
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { canAccessBilling } = useValues(billingLogic)
+    const { billingEntryUrl } = useValues(billingLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
+    const projectSubmenu = useSubmenuSafeTriangle()
+    const organizationSubmenu = useSubmenuSafeTriangle()
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -79,59 +90,62 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
         <>
             <Menu.Root open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
                 <Menu.Trigger
-                    render={(props) => (
-                        <ButtonPrimitive
-                            {...props}
-                            iconOnly={isLayoutNavCollapsed}
-                            className={cn('relative flex-1 py-1 min-w-0 group', {
-                                'pl-[3px] gap-[6px]': !isLayoutNavCollapsed,
-                            })}
-                            data-attr="new-account-menu-button"
-                            tooltip={
-                                <div className="flex flex-col gap-1">
-                                    <div>
-                                        Account menu
-                                        <RenderKeybind keybind={[keyBinds.newAccountMenu]} className="ml-1" />
+                    render={
+                        renderTrigger ??
+                        ((props) => (
+                            <ButtonPrimitive
+                                {...props}
+                                iconOnly={isLayoutNavCollapsed}
+                                className={cn('relative flex-1 py-1 min-w-0 group', {
+                                    'pl-[3px] pr-1 gap-[2px]': !isLayoutNavCollapsed,
+                                })}
+                                data-attr="new-account-menu-button"
+                                tooltip={
+                                    <div className="flex flex-col gap-1">
+                                        <div>
+                                            Account menu
+                                            <RenderKeybind keybind={[keyBinds.newAccountMenu]} className="ml-1" />
+                                        </div>
+                                        <div>
+                                            Organization:{' '}
+                                            {currentOrganization ? currentOrganization.name : 'Select organization'}
+                                        </div>
+                                        <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
+                                        {hasPendingInvites && <div>You have a pending invitation</div>}
                                     </div>
-                                    <div>
-                                        Organization:{' '}
-                                        {currentOrganization ? currentOrganization.name : 'Select organization'}
-                                    </div>
-                                    <div>Project: {currentTeam ? currentTeam.name : 'Select project'}</div>
-                                    {hasPendingInvites && <div>You have a pending invitation</div>}
-                                </div>
-                            }
-                        >
-                            {currentOrganization ? (
-                                <UploadedLogo
-                                    name={currentOrganization.name}
-                                    entityId={currentOrganization.id}
-                                    mediaId={currentOrganization.logo_media_id}
-                                    size="small"
-                                />
-                            ) : (
-                                <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
-                            )}
-                            {!isLayoutNavCollapsed && (
-                                <span className="truncate text-secondary group-hover:text-primary">
-                                    {isAuthenticatedTeam(currentTeam)
-                                        ? (projectNameWithoutFirstEmoji ?? 'Project')
-                                        : 'Account menu'}
-                                </span>
-                            )}
-                            {hasPendingInvites && (
-                                <PendingInviteDot
-                                    className={isLayoutNavCollapsed ? 'absolute top-0.5 right-0.5' : 'mr-0.5'}
-                                />
-                            )}
-                        </ButtonPrimitive>
-                    )}
+                                }
+                            >
+                                {currentOrganization ? (
+                                    <UploadedLogo
+                                        name={currentOrganization.name}
+                                        entityId={currentOrganization.id}
+                                        mediaId={currentOrganization.logo_media_id}
+                                        size="small"
+                                    />
+                                ) : (
+                                    <UploadedLogo name="?" entityId="" mediaId="" size="xsmall" />
+                                )}
+                                {!isLayoutNavCollapsed && (
+                                    <span className="truncate text-secondary group-hover:text-primary">
+                                        {isAuthenticatedTeam(currentTeam)
+                                            ? (projectNameWithoutFirstEmoji ?? 'Project')
+                                            : 'Account menu'}
+                                    </span>
+                                )}
+                                {hasPendingInvites && (
+                                    <PendingInviteDot
+                                        className={isLayoutNavCollapsed ? 'absolute top-0 right-0' : 'ml-1 mr-0.5'}
+                                    />
+                                )}
+                            </ButtonPrimitive>
+                        ))
+                    }
                 />
 
                 <Menu.Portal>
                     <Menu.Backdrop className="fixed inset-0 z-[var(--z-modal)]" />
 
-                    <Menu.Positioner className="z-[var(--z-popover)]" sideOffset={4}>
+                    <Menu.Positioner className="z-[var(--z-popover)]" side={side} align={align} sideOffset={sideOffset}>
                         <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[250px] w-full">
                             <ScrollableShadows
                                 direction="vertical"
@@ -169,6 +183,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
                                             openOnHover={false}
+                                            ref={projectSubmenu.triggerRef}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
@@ -182,7 +197,6 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                     <span className="truncate font-semibold">
                                                         {currentTeam ? projectNameWithoutFirstEmoji : 'Select project'}
                                                     </span>
-                                                    {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                     <MenuOpenIndicator intent="sub" className="ml-auto" />
                                                 </ButtonPrimitive>
                                             }
@@ -192,7 +206,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 className="z-[var(--z-popover)]"
                                                 collisionPadding={{ top: 50, bottom: 50 }}
                                             >
-                                                <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
+                                                <Menu.Popup
+                                                    ref={projectSubmenu.popupRef}
+                                                    className="primitive-menu-content w-min max-w-[var(--available-width)]"
+                                                >
                                                     {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                     <div onKeyDown={(e) => e.stopPropagation()}>
                                                         <ProjectSwitcher dialog={false} />
@@ -268,6 +285,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
                                         openOnHover={false}
+                                        ref={organizationSubmenu.triggerRef}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem
@@ -288,6 +306,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                         ? currentOrganization.name
                                                         : 'Select organization'}
                                                 </span>
+                                                {hasPendingInvites && <PendingInviteDot className="mr-0.5" />}
                                                 <MenuOpenIndicator intent="sub" className="ml-auto" />
                                             </ButtonPrimitive>
                                         }
@@ -297,7 +316,10 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             className="z-[var(--z-popover)]"
                                             collisionPadding={{ top: 50, bottom: 50 }}
                                         >
-                                            <Menu.Popup className="primitive-menu-content w-min max-w-[var(--available-width)]">
+                                            <Menu.Popup
+                                                ref={organizationSubmenu.popupRef}
+                                                className="primitive-menu-content w-min max-w-[var(--available-width)]"
+                                            >
                                                 {/* We need to add a div here to prevent the keydown event from bubbling up to the menu. */}
                                                 <div onKeyDown={(e) => e.stopPropagation()}>
                                                     <OrgSwitcher dialog={false} />
@@ -307,16 +329,12 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </Menu.Portal>
                                 </Menu.SubmenuRoot>
 
-                                {isCloudOrDev && canAccessBilling ? (
+                                {isCloudOrDev && billingEntryUrl ? (
                                     <Menu.Item
                                         render={(props) => (
                                             <Link
                                                 {...props}
-                                                to={
-                                                    featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                        ? urls.organizationBillingSection('overview')
-                                                        : urls.organizationBilling()
-                                                }
+                                                to={billingEntryUrl}
                                                 buttonProps={{
                                                     className: 'flex items-center gap-2',
                                                     menuItem: true,
@@ -324,9 +342,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 }}
                                             >
                                                 <IconReceipt />
-                                                {featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
-                                                    ? 'Billing & usage'
-                                                    : 'Billing'}
+                                                Billing & usage
                                             </Link>
                                         )}
                                     />
@@ -421,14 +437,15 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                             render={(props) => (
                                                 <Link
                                                     {...props}
-                                                    to={urls.queryPerformance()}
+                                                    to={urls.experimentsStaffTools()}
                                                     buttonProps={{
                                                         menuItem: true,
                                                     }}
+                                                    // Stable autocapture contract: name stays query-performance even though the label and route are now experiments staff tools
                                                     data-attr="new-account-menu-query-performance"
                                                 >
                                                     <IconDatabase />
-                                                    Query performance
+                                                    Experiments staff tools
                                                 </Link>
                                             )}
                                         />

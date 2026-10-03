@@ -29,6 +29,16 @@ import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { posthogStatusLogic } from './posthogStatusLogic'
 
+function healthTooltip(unsnoozedCount: number, snoozedCount: number): string {
+    if (unsnoozedCount > 0) {
+        return `${unsnoozedCount} health issue${unsnoozedCount === 1 ? '' : 's'}`
+    }
+    if (snoozedCount > 0) {
+        return `${snoozedCount} snoozed health issue${snoozedCount === 1 ? '' : 's'}`
+    }
+    return 'All systems healthy'
+}
+
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { isHelpMenuOpen, triggerBadgeContent, triggerBadgeStatus } = useValues(helpMenuLogic)
@@ -39,7 +49,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { billing } = useValues(billingLogic)
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
-    const { totalIssues } = useValues(healthSummaryLogic)
+    const { unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -174,11 +184,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             {...props}
                                             to={urls.health()}
                                             buttonProps={{ menuItem: true }}
-                                            tooltip={
-                                                totalIssues > 0
-                                                    ? `${totalIssues} health issue${totalIssues === 1 ? '' : 's'}`
-                                                    : 'All systems healthy'
-                                            }
+                                            tooltip={healthTooltip(unsnoozedCount, snoozedCount)}
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-health-button"

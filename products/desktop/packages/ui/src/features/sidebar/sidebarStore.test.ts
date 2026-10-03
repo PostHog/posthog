@@ -1,127 +1,73 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { CUSTOMIZABLE_NAV_ITEMS, isNavItemVisible } from "./constants";
+import {
+  DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
+} from "@posthog/core/canvas/channelItems";
+import { describe, expect, it } from "vitest";
 import { useSidebarStore } from "./sidebarStore";
 
-describe("sidebarStore navItemOverrides", () => {
-  beforeEach(() => {
-    useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
-  });
+describe("sidebarStore", () => {
+  it("rehydration sanitizes list item metadata fields", async () => {
+    localStorage.setItem(
+      "sidebar-storage",
+      JSON.stringify({
+        state: {
+          listItemMetadataFields: ["creator", "unknown", "branch", "creator"],
+        },
+        version: 0,
+      }),
+    );
 
-  it.each(
-    CUSTOMIZABLE_NAV_ITEMS.map(
-      (item) => [item.id, item.defaultVisible] as const,
-    ),
-  )("%s is visible=%s by default", (id, defaultVisible) => {
-    const overrides = useSidebarStore.getState().navItemOverrides;
-    expect(isNavItemVisible(overrides, id)).toBe(defaultVisible);
-  });
+    await useSidebarStore.persist.rehydrate();
 
-  it.each(CUSTOMIZABLE_NAV_ITEMS.map((item) => item.id))(
-    "setNavItemVisible(%s) overrides in both directions",
-    (id) => {
-      useSidebarStore.getState().setNavItemVisible(id, true);
-      expect(
-        isNavItemVisible(useSidebarStore.getState().navItemOverrides, id),
-      ).toBe(true);
-
-      useSidebarStore.getState().setNavItemVisible(id, false);
-      expect(
-        isNavItemVisible(useSidebarStore.getState().navItemOverrides, id),
-      ).toBe(false);
-    },
-  );
-
-  it("overriding one item leaves the others at their defaults", () => {
-    useSidebarStore.getState().setNavItemVisible("inbox", false);
-
-    const overrides = useSidebarStore.getState().navItemOverrides;
-    for (const item of CUSTOMIZABLE_NAV_ITEMS) {
-      if (item.id === "inbox") continue;
-      expect(isNavItemVisible(overrides, item.id)).toBe(item.defaultVisible);
-    }
+    expect(useSidebarStore.getState().listItemMetadataFields).toEqual([
+      "creator",
+      "branch",
+    ]);
+    localStorage.removeItem("sidebar-storage");
   });
 
   it.each([
-    ["a string", "corrupt"],
-    ["an array", ["search"]],
-    ["null", null],
-    ["a number", 7],
-  ])(
-    "rehydration falls back to defaults when persisted overrides are %s",
-    async (_label, corrupt) => {
-      localStorage.setItem(
-        "sidebar-storage",
-        JSON.stringify({ state: { navItemOverrides: corrupt }, version: 0 }),
-      );
-
-      await useSidebarStore.persist.rehydrate();
-
-      expect(useSidebarStore.getState().navItemOverrides).toEqual({});
-      localStorage.removeItem("sidebar-storage");
+    {
+      label: "the old default",
+      version: 0,
+      source: "any",
+      expected: [DESKTOP_SOURCE],
     },
-  );
-
-  it("rehydration falls back to defaults when persisted state predates overrides", async () => {
-    localStorage.setItem(
-      "sidebar-storage",
-      JSON.stringify({ state: { open: true }, version: 0 }),
-    );
-
-    await useSidebarStore.persist.rehydrate();
-
-    expect(useSidebarStore.getState().navItemOverrides).toEqual({});
-    localStorage.removeItem("sidebar-storage");
-  });
-
-  it("rehydration sanitizes navItemOrder to known unique ids", async () => {
+    {
+      label: "an old explicit source",
+      version: 0,
+      source: "slack",
+      expected: ["slack"],
+    },
+    {
+      label: "the old Any source choice",
+      version: 1,
+      source: "any",
+      expected: [],
+    },
+    {
+      label: "an old single source",
+      version: 1,
+      source: "slack",
+      expected: ["slack"],
+    },
+  ])("rehydration preserves $label", async ({ version, source, expected }) => {
+    const { sources: _, ...filters } = DEFAULT_CHANNEL_ITEM_FILTERS;
     localStorage.setItem(
       "sidebar-storage",
       JSON.stringify({
         state: {
-          navItemOrder: ["loops", "retired-item", 7, "inbox", "loops"],
+          channelItemFilters: { ...filters, source },
         },
-        version: 0,
+        version,
       }),
     );
 
     await useSidebarStore.persist.rehydrate();
 
-    expect(useSidebarStore.getState().navItemOrder).toEqual(["loops", "inbox"]);
-    localStorage.removeItem("sidebar-storage");
-  });
-
-  it("rehydration falls back to default order when the persisted order is not an array", async () => {
-    localStorage.setItem(
-      "sidebar-storage",
-      JSON.stringify({ state: { navItemOrder: "corrupt" }, version: 0 }),
-    );
-
-    await useSidebarStore.persist.rehydrate();
-
-    expect(useSidebarStore.getState().navItemOrder).toEqual([]);
-    localStorage.removeItem("sidebar-storage");
-  });
-
-  it("rehydration drops unknown ids and non-boolean values", async () => {
-    localStorage.setItem(
-      "sidebar-storage",
-      JSON.stringify({
-        state: {
-          navItemOverrides: {
-            inbox: true,
-            "retired-item": true,
-            skills: "yes",
-          },
-        },
-        version: 0,
-      }),
-    );
-
-    await useSidebarStore.persist.rehydrate();
-
-    expect(useSidebarStore.getState().navItemOverrides).toEqual({
-      inbox: true,
-    });
+    const { channelItemFilters } = useSidebarStore.getState();
+    expect(channelItemFilters.sources).toEqual(expected);
+    expect(channelItemFilters).not.toHaveProperty("source");
     localStorage.removeItem("sidebar-storage");
   });
 });

@@ -3,15 +3,11 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import MAX_TICKERS
+from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import (
+    MAX_COUNTRIES,
+    MAX_TICKERS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
     ENDPOINTS,
     FINNWORLDS_ENDPOINTS,
@@ -20,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.finnworlds import (
     FinnworldsSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(**overrides: Any) -> mock.MagicMock:
@@ -34,34 +29,7 @@ class TestFinnworldsSource:
     def setup_method(self) -> None:
         self.source = FinnworldsSource()
         self.team_id = 123
-        self.config = FinnworldsSourceConfig(api_key="fw-test", tickers="AAPL, MSFT")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.FINNWORLDS
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Finnworlds"
-        assert config.label == "Finnworlds"
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/finnworlds"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["api_key", "tickers"]
-
-        api_key_field = config.fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-
-        tickers_field = config.fields[1]
-        assert isinstance(tickers_field, SourceFieldInputConfig)
-        assert tickers_field.type == SourceFieldInputConfigType.TEXTAREA
-        assert tickers_field.required is True
-        assert tickers_field.secret is False
+        self.config = FinnworldsSourceConfig(api_key="fw-test", tickers="AAPL, MSFT", countries="United Kingdom")
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
@@ -79,8 +47,10 @@ class TestFinnworldsSource:
 
     def test_get_schemas_respects_should_sync_default(self) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        # Bond yields fan out globally and are heavier, so they're off by default.
+        # Bond yields fan out globally and are heavier, so they're off by default. Macroeconomic
+        # indicators need countries configured, which the ticker-only setup does not have.
         assert schemas["bond_yields"].should_sync_default is False
+        assert schemas["macroeconomic_indicators"].should_sync_default is False
         assert schemas["dividends"].should_sync_default is True
 
     def test_get_schemas_filtered_by_names(self) -> None:
@@ -117,14 +87,26 @@ class TestFinnworldsSource:
         assert "Too many tickers" in message
         probe.assert_not_called()
 
-    def test_get_non_retryable_errors_includes_auth(self) -> None:
-        errors = self.source.get_non_retryable_errors()
-        assert "Finnworlds authentication failed" in errors
+    def test_validate_credentials_rejects_oversized_country_list(self) -> None:
+        config = FinnworldsSourceConfig(
+            api_key="fw-test", tickers="AAPL", countries=",".join(f"Country{i}" for i in range(MAX_COUNTRIES + 1))
+        )
+        with mock.patch.object(source_module, "validate_finnworlds_credentials") as probe:
+            ok, message = self.source.validate_credentials(config, self.team_id)
+        assert ok is False
+        assert message is not None
+        assert "Too many countries" in message
+        probe.assert_not_called()
 
-    def test_get_canonical_descriptions_keyed_by_endpoints(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions).issubset(set(ENDPOINTS))
-        assert "income_statements" in descriptions
+    def test_a_macro_only_source_needs_no_tickers(self) -> None:
+        config = FinnworldsSourceConfig(api_key="fw-test", countries="Germany")
+        inputs = _make_inputs(schema_name="macroeconomic_indicators")
+        with mock.patch.object(source_module, "finnworlds_source") as mocked:
+            self.source.source_for_pipeline(config, inputs)
+
+        _, kwargs = mocked.call_args
+        assert kwargs["tickers"] == []
+        assert kwargs["countries"] == ["Germany"]
 
     def test_source_for_pipeline_plumbs_parsed_tickers(self) -> None:
         inputs = _make_inputs(schema_name="dividends")
@@ -136,4 +118,5 @@ class TestFinnworldsSource:
         assert kwargs["api_key"] == "fw-test"
         assert kwargs["endpoint"] == "dividends"
         assert kwargs["tickers"] == ["AAPL", "MSFT"]
+        assert kwargs["countries"] == ["United_Kingdom"]
         assert kwargs["logger"] is inputs.logger

@@ -16,12 +16,13 @@ use serde_json::Value;
 
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter, EventInfo,
 };
 use capture::router::router;
-use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::v0_request::AiLanePredicate;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 
@@ -31,13 +32,8 @@ struct MemorySink {
 }
 
 #[async_trait]
-impl Event for MemorySink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().unwrap().push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for MemorySink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().unwrap().extend(events);
         Ok(())
     }
@@ -127,7 +123,7 @@ async fn setup_router_with_limits(
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -135,19 +131,22 @@ async fn setup_router_with_limits(
         None, // event_restriction_service
         None, // recorder_handle
         CaptureMode::Events,
-        None,             // concurrency_limit
-        1024 * 1024,      // event_payload_size_limit
-        false,            // enable_historical_rerouting
-        1,                // historical_rerouting_threshold_days
-        false,            // is_mirror_deploy
-        0.0,              // verbose_sample_percent
-        26_214_400,       // ai_max_sum_of_parts_bytes (25MB)
+        None,        // concurrency_limit
+        1024 * 1024, // event_payload_size_limit
+        false,       // enable_historical_rerouting
+        1,           // historical_rerouting_threshold_days
+        false,       // is_mirror_deploy
+        0.0,         // verbose_sample_percent
+        26_214_400,  // ai_max_sum_of_parts_bytes (25MB)
+        983_040,     // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -1180,7 +1179,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1195,12 +1194,15 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         false,
         0.0,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -1271,7 +1273,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1286,12 +1288,15 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         false,
         0.0,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -1366,7 +1371,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1381,12 +1386,15 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
@@ -1798,7 +1806,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis,
         None,
         quota_limiter,
@@ -1813,12 +1821,15 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
+        AiLanePredicate::Allowlist,
         None,             // body_chunk_read_timeout_ms
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         None,             // overflow_limiter
         None,             // ai_events_overflow_limiter
+        None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch

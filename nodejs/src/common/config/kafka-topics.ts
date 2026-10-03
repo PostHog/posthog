@@ -52,9 +52,9 @@ export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_f
 // Kafka has no delayed delivery, so a retry waits in a topic whose period is fixed. The period
 // belongs to the topic rather than to the record, so the records leave in the order they become
 // ready and an hour-long wait never sits in front of a one minute wait.
-export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}session_replay_image_fetch_retry_1m${suffix}`
-export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}session_replay_image_fetch_retry_10m${suffix}`
-export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}session_replay_image_fetch_retry_1h${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_retry_1m${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_retry_10m${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_retry_1h${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
@@ -67,6 +67,8 @@ export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events$
 export const KAFKA_CLICKHOUSE_HEATMAP_EVENTS = `${prefix}clickhouse_heatmap_events${suffix}`
 // write AI events to ClickHouse
 export const KAFKA_CLICKHOUSE_AI_EVENTS_JSON = `${prefix}clickhouse_ai_events_json${suffix}`
+// write flag evaluations ($feature_flag_called telemetry) to ClickHouse
+export const KAFKA_CLICKHOUSE_FLAG_EVALUATIONS = `${prefix}clickhouse_flag_evaluations${suffix}`
 
 // log entries for ingestion into ClickHouse
 export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
@@ -82,6 +84,9 @@ export const KAFKA_CDP_FUNCTION_OVERFLOW = `${prefix}cdp_function_overflow${suff
 export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
+// One completion marker per processor partition, certifying that a reconcile run replayed a
+// cohort's full membership. Produced by the cohort-stream-processor (Rust).
+export const KAFKA_COHORT_RECONCILE_MARKERS = `${prefix}cohort_reconcile_markers${suffix}`
 // Cross-partition merge protocol trigger consumed by the cohort-stream-processor (Rust).
 export const KAFKA_PERSON_MERGE_EVENTS = `${prefix}person_merge_events${suffix}`
 

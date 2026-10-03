@@ -138,8 +138,9 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool):
                         uuid=str(uuid),
                         team_id=team_id,
                         properties={},
-                        version=int(version or 0)
-                        + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+                        # Keep this tombstone version in sync with deletePerson in
+                        # nodejs/src/common/persons/repositories/postgres-person-repository.ts.
+                        version=int(version or 0) + 100,
                         is_deleted=True,
                     )
 

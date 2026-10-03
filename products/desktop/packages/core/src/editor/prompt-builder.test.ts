@@ -6,6 +6,19 @@ import {
 } from "./prompt-builder";
 
 describe("buildChannelContextText", () => {
+  it("uses a wiki pointer instead of injecting the legacy body", () => {
+    const text = buildChannelContextText(
+      "legacy body must not be injected",
+      "growth",
+      "chan-1",
+      "projects/12/spaces/growth.md",
+    );
+
+    expect(text).toContain("projects/12/spaces/growth.md");
+    expect(text).not.toContain("legacy body must not be injected");
+    expect(text).not.toContain("channel-instructions-update");
+  });
+
   it.each([[undefined], ["   \n "]] as const)(
     "returns null when there is no content and no channel identity (%s)",
     (input) => {

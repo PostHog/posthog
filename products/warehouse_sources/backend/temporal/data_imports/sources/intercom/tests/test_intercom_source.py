@@ -1,14 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldOauthConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intercom import (
     IntercomSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source import IntercomSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"contacts", "conversations", "tickets", "activity_logs", "conversation_parts"}
 
@@ -18,9 +15,11 @@ class TestIntercomSource:
         self.source = IntercomSource()
         self.team_id = 123
         self.config = IntercomSourceConfig(intercom_integration_id=456)
+        self.manager = mock.MagicMock()
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.INTERCOM
+    @pytest.mark.parametrize("schema_name,expected", [("contacts", True), ("companies", False)])
+    def test_retry_budget_excludes_companies_scroll(self, schema_name, expected):
+        assert self.source.resume_covers_run(incremental_or_append=False, schema_name=schema_name) is expected
 
     def test_default_version_is_latest(self):
         # New sources are stamped with the default; keep it on the newest supported version.
@@ -45,36 +44,10 @@ class TestIntercomSource:
         inputs.api_version = pinned
         inputs.should_use_incremental_field = False
 
-        self.source.source_for_pipeline(self.config, inputs)
+        self.source.source_for_pipeline(self.config, self.manager, inputs)
 
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["api_version"] == expected
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Intercom"
-        assert config.releaseStatus == "beta"
-        assert not config.unreleasedSource
-
-        oauth_field = config.fields[0]
-        assert isinstance(oauth_field, SourceFieldOauthConfig)
-        assert oauth_field.name == "intercom_integration_id"
-        assert oauth_field.kind == "intercom"
-        assert oauth_field.required is True
-
-    @pytest.mark.parametrize(
-        "key",
-        [
-            "401 Client Error",
-            "403 Client Error",
-            "Missing integration ID",
-            "Integration not found",
-            "Intercom access token not found",
-        ],
-    )
-    def test_get_non_retryable_errors(self, key):
-        assert key in self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -102,6 +75,36 @@ class TestIntercomSource:
         # stealing the workspace's single scroll slot) 404s on continuation. `companies` is
         # full-refresh, so a fresh Temporal attempt restarts cleanly — this should stay out
         # of error tracking as noise rather than be flagged as a real failure.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "400 Client Error: Bad Request for url: https://api.intercom.io/companies/scroll",
+        ],
+    )
+    def test_companies_scroll_exists_exhaustion_is_retryable(self, error_msg):
+        # Opening a companies scroll retries a `scroll_exists` lock inline (see
+        # `_open_companies_scroll`), but a lock held longer than that budget exhausts it and
+        # the raw error propagates. A fresh Temporal attempt opens cleanly once the stale
+        # scroll expires, so this should stay out of error tracking the same way the 404
+        # scroll-expiry case above does.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in error_msg for key in retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "503 Server Error: Service Temporarily Unavailable for url: https://api.intercom.io/conversations/1",
+            "500 Server Error: Internal Server Error for url: https://api.intercom.io/contacts",
+        ],
+    )
+    def test_transient_server_error_is_retryable(self, error_msg):
+        # Every Intercom call already retries a 429/5xx at the transport level
+        # (`_INTERCOM_RETRY`) before `raise_for_status` can raise, so a `HTTPError` reaching here
+        # has exhausted that budget — a transient blip, not a bug. Temporal retries the whole
+        # activity next, so this should stay out of error tracking as noise.
         retryable_errors = self.source.get_retryable_errors()
         assert any(key in error_msg for key in retryable_errors)
 
@@ -173,12 +176,12 @@ class TestIntercomSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
     )
     def test_validate_credentials_integration_value_error(self, mock_get_integration):
-        mock_get_integration.side_effect = ValueError("integration not found")
+        mock_get_integration.side_effect = ValueError("Integration not found: 162559")
 
         is_valid, error = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error == "integration not found"
+        assert error == "Intercom integration not found. Please reconnect your Intercom integration."
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"
@@ -209,7 +212,7 @@ class TestIntercomSource:
         inputs.incremental_field = "updated_at"
         inputs.db_incremental_field_last_value = "1700000000"
 
-        result = self.source.source_for_pipeline(self.config, inputs)
+        result = self.source.source_for_pipeline(self.config, self.manager, inputs)
 
         assert result is sentinel
         mock_intercom_source.assert_called_once_with(
@@ -218,6 +221,7 @@ class TestIntercomSource:
             team_id=self.team_id,
             job_id="job-1",
             api_version="2.13",
+            resumable_source_manager=self.manager,
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",
@@ -240,7 +244,7 @@ class TestIntercomSource:
         inputs.incremental_field = "updated_at"
         inputs.db_incremental_field_last_value = "1700000000"
 
-        self.source.source_for_pipeline(self.config, inputs)
+        self.source.source_for_pipeline(self.config, self.manager, inputs)
 
         _, kwargs = mock_intercom_source.call_args
         assert kwargs["incremental_field"] is None
@@ -258,4 +262,4 @@ class TestIntercomSource:
         inputs.schema_name = "contacts"
 
         with pytest.raises(ValueError, match="Intercom access token not found for job job-1"):
-            self.source.source_for_pipeline(self.config, inputs)
+            self.source.source_for_pipeline(self.config, self.manager, inputs)

@@ -10,10 +10,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     first_per_pk_table,
     normalize_column_name,
     realign_decimal_buffers,
+    relax_batch_nullability,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
     delta_merge_spill_kwargs,
+    ensure_table_properties,
     execute_with_conflict_retry,
 )
 
@@ -56,6 +59,11 @@ class Scd2DeltaWriter:
         # whose take() output is freshly allocated, so realigning `data` here covers both the
         # close and the append.
         data = realign_decimal_buffers(data)
+
+        # A source can declare a column NOT NULL and still send nulls in it, and both delta calls
+        # below refuse such a batch. Correct the claim before either runs (see
+        # relax_batch_nullability).
+        data = relax_batch_nullability(data)
 
         delta_table = await self._table.get_delta_table()
 
@@ -120,6 +128,7 @@ class Scd2DeltaWriter:
                 table_uri=delta_uri,
                 schema=data.schema,
                 storage_options=storage_options,
+                configuration=DELTA_TABLE_PROPERTIES,
             )
 
         await asyncio.to_thread(
@@ -133,4 +142,6 @@ class Scd2DeltaWriter:
 
         delta_table = await self._table.get_delta_table()
         assert delta_table is not None
+
+        await ensure_table_properties(delta_table, self._logger)
         return delta_table

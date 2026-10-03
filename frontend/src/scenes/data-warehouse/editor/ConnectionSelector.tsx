@@ -13,6 +13,7 @@ import {
     CONFIGURE_SOURCES,
     type ConnectionSelectOption,
     POSTHOG_WAREHOUSE,
+    addHiddenSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
 } from './connectionSelectorLogic'
@@ -37,7 +38,9 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
     useOnMountEffect(() => {
         maybeLoadConnectionOptions()
     })
-    const connectionSelectorValue = getConnectionSelectorValue(
+    const connectionSelectorValue = getConnectionSelectorValue(connectionOptionsLoading, selectedConnectionId)
+    const displayedConnectionSelectOptions = addHiddenSelectedConnectionOption(
+        connectionSelectOptions,
         connectionOptions,
         connectionOptionsLoading,
         selectedConnectionId
@@ -95,7 +98,7 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
                 } as typeof sourceQuery)
                 syncUrlWithQuery()
             }}
-            options={connectionSelectOptions.map((group) => ({
+            options={displayedConnectionSelectOptions.map((group) => ({
                 options: group.options.map(toLemonSelectOption),
             }))}
         />
@@ -113,6 +116,7 @@ function toLemonSelectOption(option: ConnectionSelectOption): LemonSelectOption<
         value: option.value as string,
         label: option.label,
         icon,
+        hidden: option.hidden,
         sideAction: option.managementUrl
             ? {
                   onClick: () => newInternalTab(option.managementUrl),

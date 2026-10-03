@@ -21,12 +21,13 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from ..facade import api, contracts
@@ -37,32 +38,52 @@ from ..facade.contracts import (
     CreateRepoInput,
     CreateRunInput,
     FinalizeRunRequestInput,
+    LiftOnMergeInput,
     QuarantineInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
+from ..facade.enums import ActorType
 from .serializers import (
     AddSnapshotsInputSerializer,
     AddSnapshotsResultSerializer,
     ApproveRunInputSerializer,
     BaselineOverviewSerializer,
+    CompleteRunInputSerializer,
     CreateRepoInputSerializer,
     CreateRunInputSerializer,
     CreateRunResultSerializer,
     FinalizeResultSerializer,
     FinalizeRunInputSerializer,
+    FlakinessOverviewSerializer,
+    LiftOnMergeInputSerializer,
     MarkToleratedInputSerializer,
     QuarantinedIdentifierEntrySerializer,
     QuarantineInputSerializer,
+    QuarantineLiftEntrySerializer,
     RecomputeResultSerializer,
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
+    RunSnapshotsQuerySerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
     ToleratedHashEntrySerializer,
+    TolerationPileupsQuerySerializer,
+    TolerationPileupsSerializer,
+    UnquarantineQuerySerializer,
     UpdateRepoInputSerializer,
 )
+
+
+def _actor(request: Request) -> ActorType:
+    """Who is making this write, for attribution on the row it creates.
+
+    `is_mcp_request` needs both a scoped token and the MCP server's user agent, so a
+    browser session is never recorded as an agent. The marker is client-supplied, so
+    this attributes a write and must never gate one.
+    """
+    return ActorType.AGENT if is_mcp_request(request) else ActorType.HUMAN
 
 
 def _parse_uuid(value: str, field: str = "id") -> UUID:
@@ -77,10 +98,43 @@ def _parse_uuid(value: str, field: str = "id") -> UUID:
         raise ValidationError({field: "Must be a valid UUID."})
 
 
-class SnapshotsPagination(LimitOffsetPagination):
+# Both run-scoped snapshot lookups need a run id AND a snapshot identifier. Clients that
+# read only the prose kept sending one of the two, so the pair is described in one place
+# and each side names the other as required.
+_RUN_ID_PATH_PARAMETER = OpenApiParameter(
+    "id",
+    OpenApiTypes.UUID,
+    OpenApiParameter.PATH,
+    required=True,
+    description=(
+        "UUID of the visual review run to look the snapshot up from. This is a run id, not the "
+        "`id` of a snapshot inside that run. The run supplies the repo and run type to search, so "
+        "the `identifier` query parameter is required alongside it."
+    ),
+)
+
+_SNAPSHOT_IDENTIFIER_PARAMETER = OpenApiParameter(
+    "identifier",
+    str,
+    required=True,
+    description=(
+        "Identifier of the snapshot to look up, for example a Storybook story id plus theme. Read "
+        "it from the `identifier` field of a snapshot in the run. It is a name rather than a UUID, "
+        "and it is required in addition to the run id in the path."
+    ),
+)
+
+_MISSING_IDENTIFIER_DETAIL = (
+    "The identifier query parameter is required. Pass the `identifier` of the snapshot you want, "
+    "which you can read from the run's snapshot list."
+)
+
+
+class SnapshotsPagination(PrecountedLimitOffsetPagination):
     """Adds quarantined_count to the paginated snapshots envelope so a client can
-    show "N quarantined hidden" without a second request. The action sets
-    `quarantined_count` on the paginator instance before rendering the response."""
+    show "N quarantined hidden" without a second request. The action pages in SQL
+    through the facade, then sets the total and `quarantined_count` on the paginator
+    instance before rendering the response."""
 
     quarantined_count = 0
 
@@ -94,8 +148,8 @@ class SnapshotsPagination(LimitOffsetPagination):
         schema["properties"]["quarantined_count"] = {
             "type": "integer",
             "description": (
-                "Count of this run's snapshots whose identifier is currently quarantined. "
-                "Excluded from results unless include_quarantined=true is passed."
+                "Count of this run's snapshots that match the other filters and whose identifier "
+                "is currently quarantined. Excluded from results unless include_quarantined=true is passed."
             ),
         }
         return schema
@@ -116,6 +170,8 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list_quarantined",
         "thumbnail",
         "baselines",
+        "flakiness",
+        "toleration_pileups",
     ]
 
     @extend_schema(responses={200: RepoSerializer(many=True)})
@@ -169,6 +225,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repo_id=_parse_uuid(pk),
             baseline_file_paths=body.baseline_file_paths,
             enable_pr_comments=body.enable_pr_comments,
+            debt_digest_enabled=body.debt_digest_enabled,
         )
 
         try:
@@ -181,6 +238,16 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[
             OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
             OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "run_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the lookup to one run type. The same identifier under two run types is "
+                    "two different images, so omit this only when the caller shows one run type."
+                ),
+            ),
         ],
         responses={200: OpenApiResponse(description="WebP thumbnail image")},
     )
@@ -195,7 +262,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             patch_cache_control(resp, no_store=True)
             return resp
 
-        thumb_hash = api.get_thumbnail_hash_for_identifier(repo_id, identifier)
+        thumb_hash = api.get_thumbnail_hash_for_identifier(
+            repo_id, identifier, request.query_params.get("run_type") or None
+        )
         if thumb_hash is None:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)
@@ -257,22 +326,23 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 input=request.validated_data,
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                source=_actor(request),
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(QuarantinedIdentifierEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
-        request_serializer=QuarantineInputSerializer,
+        request_serializer=UnquarantineQuerySerializer,
         responses={204: None},
     )
     @action(detail=True, methods=["post"], url_path=r"quarantine/(?P<run_type>[^/]+)/expire")
-    def unquarantine(self, request: TypedRequest[QuarantineInput], pk: str, run_type: str, **kwargs) -> Response:
+    def unquarantine(self, request: TypedRequest, pk: str, run_type: str, **kwargs) -> Response:
         """Expire all active quarantine entries for an identifier."""
         try:
             api.unquarantine_identifier(
                 repo_id=_parse_uuid(pk),
-                identifier=request.validated_data.identifier,
+                identifier=request.validated_data["identifier"],
                 run_type=run_type,
                 team_id=self.team_id,
             )
@@ -301,6 +371,69 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
         result = api.get_baselines_overview(repo_id)
         return Response(BaselineOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        responses={200: FlakinessOverviewSerializer},
+        description=(
+            "Snapshots in a repo whose rendering cannot be trusted: those that failed the gate or "
+            "were absorbed by a toleration on a recent default-branch run, and those under an "
+            "active quarantine. Everything else is omitted, so this is far smaller than the "
+            "baselines universe; `totals.tracked` gives the full denominator. Each entry carries "
+            f"the share of the last {contracts.FLAKINESS_RATE_DAYS} days of default-branch runs "
+            "that failed the gate (`hard_rate`) and the share a toleration absorbed "
+            "(`soft_rate`), plus `headroom`, the fraction of the diff threshold its worst "
+            "absorbed run leaves free. Capped at "
+            f"{contracts.FLAKINESS_MAX_ENTRIES} entries, which sets `truncated`. Filtering, "
+            "faceting and search are done client-side; this endpoint takes no filter query params."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="flakiness")
+    def flakiness(self, request: Request, pk: str, **kwargs) -> Response:
+        repo_id = _parse_uuid(pk)
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        result = api.get_flakiness_overview(repo_id, self.team_id)
+        return Response(FlakinessOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH)],
+        description=(
+            "Snapshots that keep getting tolerated, counted across baselines, most manual tolerations "
+            "first. A toleration accepts one exact rendering, so a snapshot that keeps needing them "
+            "renders differently from run to run, and the fix belongs in the story. With no parameters "
+            f"this is the weekly debt digest's rule ({contracts.VARIANT_PILEUP_MIN} or more tolerations by a "
+            f"person or agent in {contracts.TOLERATION_PILEUP_WINDOW_DAYS} days), except that quarantined "
+            "snapshots are kept and marked with `is_quarantined`. The list is small and returns fast; "
+            "start here to find flaky stories worth fixing, then read one snapshot's history with the "
+            "per-snapshot tools."
+        ),
+    )
+    @validated_request(
+        query_serializer=TolerationPileupsQuerySerializer,
+        responses={200: OpenApiResponse(response=TolerationPileupsSerializer)},
+    )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
+    @action(detail=True, methods=["get"], url_path="toleration-pileups", pagination_class=None)
+    def toleration_pileups(self, request: TypedRequest, pk: str, **kwargs) -> Response:
+        repo_id = _parse_uuid(pk)
+        try:
+            api.get_repo(repo_id, team_id=self.team_id)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        query = request.validated_query_data
+        result = api.get_toleration_pileups(
+            repo_id,
+            window_days=query["window_days"],
+            min_tolerations=query["min_tolerations"],
+            min_automatic_tolerations=query.get("min_automatic_tolerations"),
+            include_quarantined=query["include_quarantined"],
+            run_type=query.get("run_type"),
+            limit=query["limit"],
+        )
+        return Response(TolerationPileupsSerializer(instance=result).data)
 
 
 class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -414,8 +547,18 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "recompute",
         "mark_tolerated",
         "finalize",
+        "lift_on_merge",
+        "cancel_quarantine_lift",
     ]
-    scope_object_read_actions = ["list", "retrieve", "snapshots", "counts", "snapshot_history", "tolerated_hashes"]
+    scope_object_read_actions = [
+        "list",
+        "retrieve",
+        "snapshots",
+        "counts",
+        "snapshot_history",
+        "tolerated_hashes",
+        "quarantine_lifts",
+    ]
     serializer_class = RunSerializer
 
     @extend_schema(
@@ -487,33 +630,32 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(RunSerializer(instance=run).data)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "include_quarantined",
-                OpenApiTypes.BOOL,
-                description=(
-                    "Whether to include snapshots whose identifier is currently quarantined. "
-                    "Defaults to false: quarantined snapshots are excluded from results and reported "
-                    "in quarantined_count instead, since they are noise when reviewing real changes."
-                ),
-            ),
-        ],
+    @validated_request(
+        query_serializer=RunSnapshotsQuerySerializer,
         responses={200: SnapshotSerializer(many=True)},
     )
     @action(detail=True, methods=["get"], pagination_class=SnapshotsPagination)
-    def snapshots(self, request: Request, pk: str, **kwargs) -> Response:
+    def snapshots(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Get a run's snapshots with diff results, excluding quarantined ones by default."""
-        include_quarantined = request.query_params.get("include_quarantined", "").lower() in ("1", "true")
+        query = request.validated_query_data
+        paginator = cast(SnapshotsPagination, self.paginator)
         try:
             result = api.get_run_snapshots(
-                _parse_uuid(pk), team_id=self.team_id, include_quarantined=include_quarantined
+                _parse_uuid(pk),
+                team_id=self.team_id,
+                include_quarantined=query["include_quarantined"],
+                exclude_unchanged=query["exclude_unchanged"],
+                snapshot_id=query.get("snapshot_id"),
+                quarantined_only=query["quarantined_only"],
+                limit=paginator.get_limit(request),
+                offset=paginator.get_offset(request),
             )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        paginator.set_count(result.total_count)
+        paginator.quarantined_count = result.quarantined_count
         page = self.paginate_queryset(result.snapshots)
         if page is not None:
-            cast(SnapshotsPagination, self.paginator).quarantined_count = result.quarantined_count
             serializer = SnapshotSerializer(instance=page, many=True)
             return self.get_paginated_response(serializer.data)
         return Response(SnapshotSerializer(instance=result.snapshots, many=True).data)
@@ -531,6 +673,7 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 snapshot_id=request.validated_data["snapshot_id"],
                 user_id=cast(int, request.user.id),
                 team_id=self.team_id,
+                actor=_actor(request),
             )
         except api.RunNotFoundError:
             return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -539,26 +682,31 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(SnapshotSerializer(instance=snapshot).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        parameters=[
+            _RUN_ID_PATH_PARAMETER,
+            _SNAPSHOT_IDENTIFIER_PARAMETER,
+        ],
         responses={200: ToleratedHashEntrySerializer(many=True)},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["get"], url_path="tolerated-hashes")
     def tolerated_hashes(self, request: Request, pk: str, **kwargs) -> Response:
         """List known tolerated hashes for a snapshot identifier."""
         identifier = request.query_params.get("identifier")
         if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
+            scope = api.get_run_scope(_parse_uuid(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
-        entries = api.get_tolerated_hashes(run.repo_id, identifier)
+        entries = api.get_tolerated_hashes(scope.repo_id, identifier)
         page = self.paginate_queryset(entries)
         if page is not None:
             return self.get_paginated_response(ToleratedHashEntrySerializer(instance=page, many=True).data)
         return Response(ToleratedHashEntrySerializer(instance=entries, many=True).data)
 
     @extend_schema(request=AddSnapshotsInputSerializer, responses={200: AddSnapshotsResultSerializer})
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["post"], url_path="add-snapshots")
     @validated_request(AddSnapshotsInputSerializer)
     def add_snapshots(self, request: TypedRequest[AddSnapshotsInput], pk: str, **kwargs) -> Response:
@@ -576,33 +724,44 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(AddSnapshotsResultSerializer(instance=result).data)
 
     @extend_schema(
-        parameters=[OpenApiParameter("identifier", str, required=True, description="Snapshot identifier")],
+        parameters=[
+            _RUN_ID_PATH_PARAMETER,
+            _SNAPSHOT_IDENTIFIER_PARAMETER,
+        ],
         responses={200: SnapshotHistoryEntrySerializer(many=True)},
     )
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(detail=True, methods=["get"], url_path="snapshot-history")
     def snapshot_history(self, request: Request, pk: str, **kwargs) -> Response:
         """Recent change history for a snapshot identifier across runs."""
         identifier = request.query_params.get("identifier")
         if not identifier:
-            return Response({"detail": "identifier query param required"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": _MISSING_IDENTIFIER_DETAIL}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            run = api.get_run(_parse_uuid(pk), team_id=self.team_id)
+            scope = api.get_run_scope(_parse_uuid(pk), team_id=self.team_id)
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        history = api.get_snapshot_history(run.repo_id, identifier, run.run_type)
+        history = api.get_snapshot_history(scope.repo_id, identifier, scope.run_type)
         page = self.paginate_queryset(history)
         if page is not None:
             return self.get_paginated_response(SnapshotHistoryEntrySerializer(instance=page, many=True).data)
         return Response(SnapshotHistoryEntrySerializer(instance=history, many=True).data)
 
-    @extend_schema(request=None, responses={200: RunSerializer})
+    @validated_request(
+        request_serializer=CompleteRunInputSerializer,
+        responses={200: OpenApiResponse(response=RunSerializer)},
+    )
     @action(detail=True, methods=["post"])
-    def complete(self, request: Request, pk: str, **kwargs) -> Response:
+    def complete(self, request: TypedRequest, pk: str, **kwargs) -> Response:
         """Complete a run: detect removals, verify uploads, trigger diff processing."""
         try:
-            run = api.complete_run(_parse_uuid(pk), team_id=self.team_id)
+            run = api.complete_run(
+                _parse_uuid(pk),
+                team_id=self.team_id,
+                check_run_id=request.validated_data.get("check_run_id"),
+            )
         except api.RunNotFoundError:
             return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
         except api.GitHubRateLimitError as e:
@@ -624,7 +783,9 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Mark snapshots reviewed (DB only).
 
         Records the per-snapshot "Accept change" decision. Does not commit the baseline
-        or change the GitHub gate — call finalize to ship the run.
+        or change the GitHub gate — call finalize to ship the run. Works on a quarantined
+        snapshot too: a quarantined snapshot approved here is committed by finalize, which
+        updates a quarantined story's baseline entry without lifting the quarantine.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)
@@ -653,8 +814,10 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
         and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
-        any still-pending changed/new snapshot is approved first. With commit_to_github=false
-        the server returns the signed baseline YAML instead of committing it.
+        any still-pending changed/new snapshot is approved first; quarantined snapshots are
+        skipped, but a quarantined snapshot approved by identifier is still committed.
+        With commit_to_github=false the server returns the signed baseline YAML instead of
+        committing it.
         """
         body = request.validated_data
         run_id = _parse_uuid(pk)
@@ -714,3 +877,74 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": "Run must be completed and not yet approved"}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(RecomputeResultSerializer(instance=result).data)
+
+    @validated_request(
+        request_serializer=LiftOnMergeInputSerializer,
+        responses={201: OpenApiResponse(response=QuarantineLiftEntrySerializer)},
+        description=(
+            "Lift a quarantined snapshot's quarantine once this run's pull request merges. The lift applies "
+            "only after a default-branch run that contains the merge renders the expected picture, and the "
+            "baseline entry holds that same picture. Requesting a lift never approves a picture: approve a "
+            "changed or new snapshot by identifier first. Requesting again from the same pull request "
+            "replaces the pending request."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="lift_on_merge")
+    def lift_on_merge(self, request: TypedRequest[LiftOnMergeInput], pk: str, **kwargs) -> Response:
+        try:
+            entry = api.request_quarantine_lift_on_merge(
+                run_id=_parse_uuid(pk),
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+                source=_actor(request),
+            )
+        except api.RunNotFoundError:
+            return Response({"detail": "Snapshot or run not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.StaleRunError as e:
+            return Response({"detail": str(e), "code": "stale_run"}, status=status.HTTP_409_CONFLICT)
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(QuarantineLiftEntrySerializer(instance=entry).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH)],
+        responses={200: QuarantineLiftEntrySerializer(many=True)},
+        description=(
+            "Every request to lift a quarantine when this run's pull request merges, newest first, in any "
+            "state. Empty for a run without a pull request."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="quarantine_lifts", pagination_class=None)
+    def quarantine_lifts(self, request: Request, pk: str, **kwargs) -> Response:
+        try:
+            entries = api.list_quarantine_lifts_for_run(_parse_uuid(pk), team_id=self.team_id)
+        except api.RunNotFoundError:
+            return Response({"detail": "Run not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(QuarantineLiftEntrySerializer(instance=entries, many=True).data)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.UUID, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "request_id",
+                OpenApiTypes.UUID,
+                OpenApiParameter.PATH,
+                description="UUID of a pending lift request for this run's pull request.",
+            ),
+        ],
+        request=None,
+        responses={204: None},
+        description="Withdraw a pending request to lift a quarantine when this run's pull request merges.",
+    )
+    @action(detail=True, methods=["post"], url_path=r"quarantine_lifts/(?P<request_id>[^/]+)/cancel")
+    def cancel_quarantine_lift(self, request: Request, pk: str, request_id: str, **kwargs) -> Response:
+        try:
+            api.cancel_quarantine_lift(
+                run_id=_parse_uuid(pk),
+                request_id=_parse_uuid(request_id, field="request_id"),
+                team_id=self.team_id,
+            )
+        except (api.RunNotFoundError, api.QuarantineLiftRequestNotFoundError):
+            return Response({"detail": "Pending lift request not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)

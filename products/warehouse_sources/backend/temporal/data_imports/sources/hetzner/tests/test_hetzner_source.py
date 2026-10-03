@@ -2,24 +2,25 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import (
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
     HetznerSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.hetzner import HetznerResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.settings import (
+    ENDPOINTS,
+    HETZNER_METRICS_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source import HetznerSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestHetznerSource:
     def setup_method(self) -> None:
         self.source = HetznerSource()
         self.team_id = 1
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.HETZNER
 
     def test_config_has_single_secret_token_field(self) -> None:
         # The token is a credential — it must render as a masked password input and be marked secret,
@@ -36,19 +37,17 @@ class TestHetznerSource:
         assert field.required is True
         assert field.secret is True
 
-    def test_all_endpoints_are_full_refresh_only(self) -> None:
-        # Hetzner exposes no server-side timestamp filter, so no table may advertise incremental or
-        # append — otherwise the picker offers a mode that either syncs nothing new or duplicates rows.
+    def test_only_metrics_endpoints_are_incremental(self) -> None:
+        # List endpoints have no server-side timestamp filter, so they must not advertise incremental
+        # or append. Metrics take a start/end window, but re-read their newest sample each run, so
+        # they are merge-only: append would duplicate that sample.
         schemas = self.source.get_schemas(mock.MagicMock(), self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
         for schema in schemas:
-            assert schema.supports_incremental is False, schema.name
+            is_metrics = schema.name in HETZNER_METRICS_ENDPOINTS
+            assert schema.supports_incremental is is_metrics, schema.name
             assert schema.supports_append is False, schema.name
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(mock.MagicMock(), self.team_id, names=["servers", "volumes"])
-        assert {s.name for s in schemas} == {"servers", "volumes"}
+            assert [f["field"] for f in schema.incremental_fields] == (["timestamp"] if is_metrics else [])
 
     @parameterized.expand(
         [
@@ -76,28 +75,20 @@ class TestHetznerSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable)
 
-    def test_validate_credentials_delegates_to_transport(self) -> None:
-        config = HetznerSourceConfig(api_token="tok")
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.hetzner.source.validate_hetzner_credentials",
-            return_value=(True, None),
-        ) as validate:
-            result = self.source.validate_credentials(config, self.team_id)
-        validate.assert_called_once_with("tok")
-        assert result == (True, None)
-
-    def test_resumable_manager_bound_to_resume_config(self) -> None:
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is HetznerResumeConfig
-
-    def test_source_for_pipeline_plumbs_schema_name(self) -> None:
+    @parameterized.expand(
+        [
+            ("list", "servers", ["id"]),
+            ("server_metrics", "server_metrics", ["server_id", "metric", "timestamp"]),
+            ("load_balancer_metrics", "load_balancer_metrics", ["load_balancer_id", "metric", "timestamp"]),
+        ]
+    )
+    def test_source_for_pipeline_routes_schema(self, _name: str, schema_name: str, primary_keys: list[str]) -> None:
         config = HetznerSourceConfig(api_token="tok")
         inputs = mock.MagicMock()
-        inputs.schema_name = "servers"
+        inputs.schema_name = schema_name
         response = self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-        assert response.name == "servers"
-        assert response.primary_keys == ["id"]
+        assert response.name == schema_name
+        assert response.primary_keys == primary_keys
 
     def test_documented_tables_published_for_docs(self) -> None:
         # lists_tables_without_credentials must stay on so the public docs render the table catalog.

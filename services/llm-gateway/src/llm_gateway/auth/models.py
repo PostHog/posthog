@@ -14,6 +14,10 @@ class AuthenticatedUser:
     is_staff: bool = False
     scoped_teams: list[int] | None = None
     scoped_organizations: list[str] | None = None
+    # The sandbox run this token was minted for, stamped server-side at mint time. Unlike the
+    # attribution headers a caller sends, a sandbox can't rewrite it, so it's the one identifier
+    # a per-run budget can safely key on.
+    sandbox_task_id: str | None = None
 
 
 def resolve_distinct_id(auth_user: AuthenticatedUser, end_user_id: str | None) -> str:

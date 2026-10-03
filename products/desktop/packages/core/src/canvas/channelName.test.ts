@@ -1,11 +1,69 @@
 import { describe, expect, it } from "vitest";
 import {
+  type ChannelIdentity,
   channelDisplayLabel,
   channelDisplayReference,
+  isGeneralChannel,
+  isPersonalChannel,
+  isPrivateChannel,
   normalizeChannelName,
   normalizeChannelNameInput,
   validateChannelName,
 } from "./channelName";
+
+describe("isPersonalChannel / isGeneralChannel / isPrivateChannel", () => {
+  it.each([
+    [
+      "system_role wins over channel_type/name when present (personal)",
+      { system_role: "personal", channel_type: "public", name: "not-me" },
+      true,
+      false,
+      false,
+    ],
+    [
+      "system_role wins over channel_type/name when present (general)",
+      { system_role: "general", channel_type: "personal", name: "not-general" },
+      false,
+      true,
+      false,
+    ],
+    [
+      "null system_role falls back to the legacy checks and matches",
+      { system_role: null, channel_type: "personal", name: "me" },
+      true,
+      false,
+      false,
+    ],
+    [
+      "null system_role falls back to the legacy checks and matches general",
+      { system_role: null, channel_type: "public", name: "general" },
+      false,
+      true,
+      false,
+    ],
+    [
+      "neither system_role nor the legacy checks match",
+      { system_role: null, channel_type: "public", name: "growth" },
+      false,
+      false,
+      false,
+    ],
+    [
+      "a private space is private, and neither personal nor general",
+      { system_role: null, channel_type: "private", name: "squad" },
+      false,
+      false,
+      true,
+    ],
+  ] satisfies [string, ChannelIdentity, boolean, boolean, boolean][])(
+    "%s",
+    (_label, channel, expectedPersonal, expectedGeneral, expectedPrivate) => {
+      expect(isPersonalChannel(channel)).toBe(expectedPersonal);
+      expect(isGeneralChannel(channel)).toBe(expectedGeneral);
+      expect(isPrivateChannel(channel)).toBe(expectedPrivate);
+    },
+  );
+});
 
 describe("normalizeChannelName", () => {
   it.each([
@@ -35,6 +93,8 @@ describe("channelDisplayLabel", () => {
     ["personal", "personal" as const, "personal"],
     ["personal", "public" as const, "#personal"],
     ["engineering", "public" as const, "#engineering"],
+    // A private space is shared, so it wears a hash like any other named space.
+    ["squad", "private" as const, "#squad"],
   ])("formats %j (%s) as %j", (name, channelType, expected) => {
     expect(channelDisplayLabel(name, channelType)).toBe(expected);
   });
@@ -79,7 +139,16 @@ describe("validateChannelName", () => {
   it.each(["personal", "me", "  personal  "])(
     "reserves %j for the private space",
     (name) => {
-      expect(validateChannelName(name)).toContain("reserved");
+      expect(validateChannelName(name)).toContain("private space");
+    },
+  );
+
+  // The API rejects this name too, so accepting it here submits a form that
+  // comes back 400 with nothing pointing at the field that caused it.
+  it.each(["general", "  general  "])(
+    "reserves %j for the shared space",
+    (name) => {
+      expect(validateChannelName(name)).toContain("shared space");
     },
   );
 });

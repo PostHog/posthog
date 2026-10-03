@@ -1,4 +1,4 @@
-import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { RasterizationError, asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
 
 describe('RasterizationError', () => {
     it('sets name, message, retryable, and code', () => {
@@ -42,6 +42,40 @@ describe('RasterizationError', () => {
             const json = err.toJSON()
             expect(json).not.toHaveProperty('cause')
             expect(json).not.toHaveProperty('stack')
+        })
+    })
+
+    describe('asRasterizationError', () => {
+        it('returns a RasterizationError unchanged', () => {
+            const err = new RasterizationError('boom', false, 'NO_SNAPSHOTS')
+            expect(asRasterizationError(err)).toBe(err)
+        })
+
+        // One case per way puppeteer words a dead target, because that is what varies. The CDP
+        // method name in the message does not: the classifier never reads it, so a case per method
+        // would be the same assertion three times.
+        it.each([
+            ['bare rejection from the in-flight callback', 'Target closed', 'Error'],
+            [
+                'CDP session already closed',
+                'Protocol error (Page.captureScreenshot): Session closed. Most likely the page has been closed.',
+                'Error',
+            ],
+            ['a wording only the error name catches', 'Page closed!', 'TargetCloseError'],
+        ])('classifies %s as a retryable TARGET_CLOSED', (_label, message, name) => {
+            const raw = new Error(message)
+            raw.name = name
+            const classified = asRasterizationError(raw)
+            expect(classified).toMatchObject({
+                code: 'TARGET_CLOSED',
+                retryable: true,
+                message: 'chrome target closed mid-render',
+            })
+            expect(classified?.cause).toBe(raw)
+        })
+
+        it('returns null for an unrelated error', () => {
+            expect(asRasterizationError(new Error('S3 access denied'))).toBeNull()
         })
     })
 })

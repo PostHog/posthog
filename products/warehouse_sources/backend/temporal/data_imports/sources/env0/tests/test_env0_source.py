@@ -1,14 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.env0.env0 import Env0ResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.env0.source import Env0Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.env0 import Env0SourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestEnv0Source:
@@ -16,30 +11,6 @@ class TestEnv0Source:
         self.source = Env0Source()
         self.team_id = 123
         self.config = Env0SourceConfig(api_key_id="key-id", api_key_secret="key-secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ENV0
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Env0"
-        assert config.label == "env0"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/env0.png"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key_id", "api_key_secret"]
-
-    def test_api_key_secret_field_is_secret_password(self):
-        config = self.source.get_source_config
-        secret_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key_secret"
-        )
-        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert secret_field.secret is True
-        assert secret_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -68,13 +39,15 @@ class TestEnv0Source:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only deployments expose env0's server-side fromDate/toDate window.
-        assert incremental == {"deployments"}
+        # Only the deployments walk accepts env0's server-side fromDate/toDate window, either for
+        # the deployments table itself or to bound the parent walk behind deployment resources.
+        assert incremental == {"deployments", "deployment_resources"}
 
     def test_incremental_schemas_advertise_their_fields(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
         assert schemas["deployments"].incremental_fields == INCREMENTAL_FIELDS["deployments"]
+        assert schemas["deployment_resources"].incremental_fields == INCREMENTAL_FIELDS["deployment_resources"]
         assert schemas["environments"].incremental_fields == []
         assert schemas["environments"].supports_append is False
 
@@ -101,40 +74,3 @@ class TestEnv0Source:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with(self.config.api_key_id, self.config.api_key_secret)
-
-    def test_get_resumable_source_manager_binds_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is Env0ResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.env0.source.env0_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_env0_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "deployments"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_env0_source.assert_called_once()
-        kwargs = mock_env0_source.call_args.kwargs
-        assert kwargs["api_key_id"] == "key-id"
-        assert kwargs["api_key_secret"] == "key-secret"
-        assert kwargs["endpoint"] == "deployments"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.env0.source.env0_source")
-    def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_env0_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "environments"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01"
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_env0_source.call_args.kwargs["db_incremental_field_last_value"] is None

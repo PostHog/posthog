@@ -62,6 +62,7 @@ PROXY_HEADER_ALLOWLIST = frozenset(
         "accept",
         "authorization",
         "user-agent",
+        "x-forwarded-for",
     }
 )
 

@@ -1,30 +1,44 @@
-import annotationPlugin from 'chartjs-plugin-annotation'
 import { useState } from 'react'
 
-import { Chart } from 'lib/Chart'
-import { useChart } from 'lib/hooks/useChart'
+import {
+    type AnomalyMarker,
+    AnomalyPointsLayer,
+    DEFAULT_Y_AXIS_ID,
+    ReferenceLine,
+    type Series,
+    TimeSeriesLineChart,
+    useChartTheme,
+} from '@posthog/quill-charts'
+
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { DetectorConfig } from '~/queries/schema/schema-general'
+import { DetectorConfig, DetectorType } from '~/queries/schema/schema-general'
 
+import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
+
+import { DEFAULT_LLM_DETECTION_CONFIDENCE } from '../logic/detectorConfigDefaults'
 import { AlertSimulationResult, BreakdownSimulationResult } from '../types'
 
-Chart.register(annotationPlugin)
+const handleChartError = makeChartErrorHandler('alerts-simulation-chart')
+
+interface SimSeriesMeta {
+    isScore: boolean
+}
 
 /** Format a date string compactly: "Mar 16, 11:00" or "Mar 16" if midnight. */
 function formatSimDate(dateStr: string): string {
-    const d = new Date(dateStr)
-    if (isNaN(d.getTime())) {
+    // dayjs reads a date-only label as a local calendar day. `new Date()` would read it as
+    // UTC midnight, which shows the previous day to anyone west of UTC.
+    const d = dayjs(dateStr)
+    if (!d.isValid()) {
         return dateStr
     }
-    const month = d.toLocaleString('en-US', { month: 'short' })
-    const day = d.getDate()
-    const hours = d.getHours()
-    const mins = d.getMinutes()
-    if (hours === 0 && mins === 0) {
-        return `${month} ${day}`
+    if (d.hour() === 0 && d.minute() === 0) {
+        return d.format('MMM D')
     }
-    return `${month} ${day}, ${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`
+    return d.format('MMM D, HH:mm')
 }
 
 /** Extract the sensitivity threshold from detector config (0-1 range). */
@@ -37,8 +51,22 @@ function getThreshold(config: DetectorConfig | null | undefined): number | null 
     if (c.type === 'ensemble' || c.type === 'threshold') {
         return null
     }
-    return typeof c.threshold === 'number' ? c.threshold : null
+    if (typeof c.threshold === 'number' && !Number.isNaN(c.threshold)) {
+        return c.threshold
+    }
+    // An AI config created through the API or MCP can omit the threshold, and the simulation
+    // is judged against the same default. Draw the line the points were actually judged against.
+    return c.type === DetectorType.LLM ? DEFAULT_LLM_DETECTION_CONFIDENCE : null
 }
+
+// Sub-detector score line colors.
+const SCORE_COLORS = [
+    'rgba(245, 158, 11, 0.7)', // amber
+    'rgba(16, 185, 129, 0.7)', // green
+    'rgba(139, 92, 246, 0.7)', // purple
+    'rgba(236, 72, 153, 0.7)', // pink
+    'rgba(6, 182, 212, 0.7)', // cyan
+]
 
 function SimulationChart({
     result,
@@ -47,167 +75,93 @@ function SimulationChart({
     result: AlertSimulationResult
     detectorConfig?: DetectorConfig | null
 }): JSX.Element {
+    const theme = useChartTheme()
     const triggeredSet = new Set(result.triggered_indices)
     const threshold = getThreshold(detectorConfig)
 
     const subScores = result.sub_detector_scores
-    const hasSubScores = subScores && subScores.length > 0
+    const hasSubScores = !!subScores && subScores.length > 0
 
-    // Colors for sub-detector score lines
-    const scoreColors = [
-        'rgba(245, 158, 11, 0.7)', // amber
-        'rgba(16, 185, 129, 0.7)', // green
-        'rgba(139, 92, 246, 0.7)', // purple
-        'rgba(236, 72, 153, 0.7)', // pink
-        'rgba(6, 182, 212, 0.7)', // cyan
-    ]
+    // SQL insights carry no dates (their rows aren't a time axis) — label by row position.
+    const labels = result.dates.length > 0 ? result.dates : result.data.map((_, i) => `Row ${i + 1}`)
 
-    const scoreDatasets = hasSubScores
+    const scoreSeries: Series<SimSeriesMeta>[] = hasSubScores
         ? subScores.map((sub, i) => ({
+              key: `score-${i}`,
               label: sub.type,
-              data: sub.scores.map((s) => (s != null ? s : 0)),
-              borderColor: scoreColors[i % scoreColors.length],
-              borderWidth: 1,
-              backgroundColor: 'transparent',
-              fill: false,
-              pointRadius: 0,
-              yAxisID: 'yScore' as const,
+              data: sub.scores.map((s) => s ?? NaN),
+              color: SCORE_COLORS[i % SCORE_COLORS.length],
+              yAxisId: 'yScore',
+              meta: { isScore: true },
           }))
         : [
               {
-                  label: 'Score',
-                  data: result.scores.map((s) => (s != null ? s : 0)),
-                  borderColor: 'rgba(245, 158, 11, 0.6)',
-                  borderWidth: 1,
-                  backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                  fill: true,
-                  pointRadius: 0,
-                  yAxisID: 'yScore' as const,
+                  key: 'score',
+                  label: detectorConfig?.type === DetectorType.LLM ? 'Model confidence' : 'Score',
+                  data: result.scores.map((s) => s ?? NaN),
+                  points: detectorConfig?.type === DetectorType.LLM ? { radius: 3 } : undefined,
+                  color: 'rgba(245, 158, 11, 0.8)',
+                  yAxisId: 'yScore',
+                  fill: { opacity: 0.1 },
+                  meta: { isScore: true },
               },
           ]
 
-    const { canvasRef } = useChart({
-        getConfig: () => ({
-            type: 'line' as const,
-            data: {
-                // SQL insights carry no dates (their rows aren't a time axis) — label by row position.
-                labels: result.dates.length > 0 ? result.dates : result.data.map((_, i) => `Row ${i + 1}`),
-                datasets: [
-                    // Data series (left y-axis)
-                    {
-                        label: 'Value',
-                        data: result.data,
-                        borderColor: 'rgba(99, 102, 241, 0.8)',
-                        borderWidth: 1.5,
-                        pointRadius: result.data.map((_, i) => (triggeredSet.has(i) ? 3 : 0)),
-                        pointBackgroundColor: result.data.map((_, i) =>
-                            triggeredSet.has(i) ? 'rgba(220, 38, 38, 0.9)' : 'transparent'
-                        ),
-                        pointBorderColor: result.data.map((_, i) =>
-                            triggeredSet.has(i) ? 'rgba(153, 27, 27, 1)' : 'transparent'
-                        ),
-                        pointBorderWidth: result.data.map((_, i) => (triggeredSet.has(i) ? 1 : 0)),
-                        fill: false,
-                        yAxisID: 'y',
-                    },
-                    ...scoreDatasets,
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: hasSubScores
-                        ? {
-                              display: true,
-                              position: 'bottom' as const,
-                              labels: {
-                                  filter: (item: any) => item.text !== 'Value',
-                                  boxWidth: 8,
-                                  boxHeight: 2,
-                                  font: { size: 9 },
-                                  padding: 6,
-                              },
-                          }
-                        : { display: false },
-                    tooltip: {
-                        enabled: true,
-                        callbacks: {
-                            label: (ctx) => {
-                                if (ctx.datasetIndex === 0) {
-                                    const idx = ctx.dataIndex
-                                    const score = result.scores[idx]
-                                    const base = `Value: ${ctx.parsed.y}`
-                                    if (triggeredSet.has(idx) && score != null) {
-                                        return `${base} — Anomaly: ${Math.round(score * 100)}%`
-                                    }
-                                    return base
-                                }
-                                const label = ctx.dataset.label || 'Score'
-                                return `${label}: ${((ctx.parsed.y ?? 0) * 100).toFixed(0)}%`
-                            },
-                        },
-                    },
-                    annotation: threshold
-                        ? {
-                              annotations: {
-                                  thresholdLine: {
-                                      type: 'line' as const,
-                                      yMin: threshold,
-                                      yMax: threshold,
-                                      yScaleID: 'yScore',
-                                      borderColor: 'rgba(220, 38, 38, 0.5)',
-                                      borderWidth: 1.5,
-                                      borderDash: [4, 4],
-                                      label: {
-                                          content: `Threshold ${Math.round(threshold * 100)}%`,
-                                          display: true,
-                                          position: 'start' as const,
-                                          font: { size: 9 },
-                                          color: 'rgba(220, 38, 38, 0.8)',
-                                          backgroundColor: 'transparent',
-                                      },
-                                  },
-                              },
-                          }
-                        : undefined,
-                },
-                scales: {
-                    x: { display: false },
-                    y: {
-                        display: true,
-                        position: 'left' as const,
-                        ticks: { maxTicksLimit: 3, font: { size: 10 } },
-                        grid: { drawTicks: false },
-                    },
-                    yScore: {
-                        display: true,
-                        position: 'right' as const,
-                        min: 0,
-                        max: 1,
-                        title: {
-                            display: true,
-                            text: 'Anomaly score',
-                            font: { size: 9 },
-                            padding: 0,
-                        },
-                        ticks: {
-                            maxTicksLimit: 3,
-                            font: { size: 9 },
-                            callback: (value: string | number) => `${Math.round(Number(value) * 100)}%`,
-                        },
-                        grid: { display: false },
-                    },
-                },
-                elements: { line: { tension: 0 } },
-            },
-        }),
-        deps: [result, threshold],
-    })
+    const series: Series<SimSeriesMeta>[] = [
+        { key: 'value', label: 'Value', data: result.data, color: 'rgba(99, 102, 241, 0.9)', meta: { isScore: false } },
+        ...scoreSeries,
+    ]
+
+    const anomalyMarkers: AnomalyMarker[] = result.data.flatMap((value, index) =>
+        triggeredSet.has(index)
+            ? [{ dataIndex: index, value, color: 'rgba(220, 38, 38, 0.9)', yAxisId: DEFAULT_Y_AXIS_ID }]
+            : []
+    )
 
     return (
-        <div className="h-32">
-            <canvas ref={canvasRef} />
+        <div className="h-32 flex flex-col">
+            <TimeSeriesLineChart<SimSeriesMeta>
+                series={series}
+                labels={labels}
+                theme={theme}
+                config={{
+                    xAxis: { hide: true },
+                    yAxis: [
+                        { id: DEFAULT_Y_AXIS_ID, position: 'left', tickFormatter: (v) => humanFriendlyNumber(v) },
+                        {
+                            id: 'yScore',
+                            position: 'right',
+                            format: 'percentage_scaled',
+                            label: detectorConfig?.type === DetectorType.LLM ? 'Confidence' : 'Anomaly score',
+                            // Floating it to the data max drops a threshold above every score: an
+                            // off-plot reference line doesn't draw at all.
+                            min: 0,
+                            max: 1,
+                        },
+                    ],
+                    showGrid: true,
+                    legend: hasSubScores ? { show: true, position: 'bottom' } : undefined,
+                    tooltip: {
+                        valueFormatter: (value, entry) =>
+                            (entry.series.meta as SimSeriesMeta | undefined)?.isScore
+                                ? `${Math.round(value * 100)}%`
+                                : humanFriendlyNumber(value),
+                    },
+                }}
+                onError={handleChartError}
+            >
+                <AnomalyPointsLayer markers={anomalyMarkers} />
+                {threshold != null && (
+                    <ReferenceLine
+                        value={threshold}
+                        orientation="horizontal"
+                        yAxisId="yScore"
+                        variant="alert"
+                        label={`Threshold ${Math.round(threshold * 100)}%`}
+                        labelPosition="start"
+                    />
+                )}
+            </TimeSeriesLineChart>
         </div>
     )
 }

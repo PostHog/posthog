@@ -1,9 +1,12 @@
+import io
+import zipfile
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from bingads.v13.reporting import ReportingException
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads import (
@@ -16,10 +19,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.s
     BingAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import (
+    REPORT_GENERATION_ATTEMPTS,
     BingAdsResumeConfig,
-    download_and_extract_report_csv,
     fetch_data_in_yearly_chunks,
-    parse_csv_to_dicts,
+    iter_csv_row_pages,
+    iter_report_row_pages,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -37,35 +41,60 @@ def _mock_resumable_manager(
 class TestBingAdsHelperFunctions:
     """Test helper functions in bing_ads.py and utils.py."""
 
-    def test_parse_csv_to_dicts_valid_data(self):
-        """Test parsing valid CSV report data."""
+    def test_iter_csv_row_pages_valid_data(self):
         csv_data = """TimePeriod,CampaignId,CampaignName,Impressions,Clicks
 2024-01-01,123,Test Campaign,1000,50
 2024-01-02,123,Test Campaign,1200,60"""
 
-        result = parse_csv_to_dicts(csv_data)
+        pages = list(iter_csv_row_pages(io.StringIO(csv_data, newline="")))
 
-        assert len(result) == 2
-        assert result[0]["TimePeriod"] == "2024-01-01"
-        assert result[0]["CampaignId"] == "123"
-        assert result[0]["Impressions"] == "1000"
-        assert result[1]["TimePeriod"] == "2024-01-02"
+        assert len(pages) == 1
+        rows = pages[0]
+        assert len(rows) == 2
+        assert rows[0]["TimePeriod"] == "2024-01-01"
+        assert rows[0]["CampaignId"] == "123"
+        assert rows[0]["Impressions"] == "1000"
+        assert rows[1]["TimePeriod"] == "2024-01-02"
 
-    def test_parse_csv_to_dicts_with_null_values(self):
-        """Test parsing CSV with null values (--) and empty strings."""
+    def test_iter_csv_row_pages_with_null_values(self):
         csv_data = """TimePeriod,CampaignId,CampaignName,Impressions,Clicks
 2024-01-01,123,Test Campaign,--,
 2024-01-02,456,--,1000,50"""
 
-        result = parse_csv_to_dicts(csv_data)
+        rows = [row for page in iter_csv_row_pages(io.StringIO(csv_data, newline="")) for row in page]
 
-        assert len(result) == 2
-        assert result[0]["Impressions"] is None
-        assert result[0]["Clicks"] is None
-        assert result[1]["CampaignName"] is None
+        assert len(rows) == 2
+        assert rows[0]["Impressions"] is None
+        assert rows[0]["Clicks"] is None
+        assert rows[1]["CampaignName"] is None
+
+    @parameterized.expand([(1, [1, 1, 1, 1, 1]), (2, [2, 2, 1]), (5, [5]), (50, [5])])
+    def test_iter_csv_row_pages_splits_into_bounded_pages(self, page_rows: int, expected_sizes: list[int]):
+        header = "TimePeriod,CampaignId\n"
+        body = "".join(f"2024-01-0{day},{day}\n" for day in range(1, 6))
+
+        pages = list(iter_csv_row_pages(io.StringIO(header + body, newline=""), page_rows=page_rows))
+
+        assert [len(page) for page in pages] == expected_sizes
+        assert [row["CampaignId"] for page in pages for row in page] == ["1", "2", "3", "4", "5"]
+
+    def test_iter_csv_row_pages_reads_lazily(self):
+        # Draining the source before the first page would hold the whole report, whatever the page size.
+        header = "TimePeriod,CampaignId\n"
+        lines_read = 0
+
+        def counting_lines() -> Iterator[str]:
+            nonlocal lines_read
+            for line in [header, *(f"2024-01-0{day},{day}\n" for day in range(1, 6))]:
+                lines_read += 1
+                yield line
+
+        pages = iter_csv_row_pages(counting_lines(), page_rows=2)
+        next(pages)
+
+        assert lines_read < 6
 
     def test_fetch_data_in_yearly_chunks_single_chunk(self):
-        """Test fetching data within a single year."""
         mock_client = Mock()
         mock_client.get_data_by_resource.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
 
@@ -92,7 +121,6 @@ class TestBingAdsHelperFunctions:
         )
 
     def test_fetch_data_in_yearly_chunks_multiple_chunks(self):
-        """Test fetching data across multiple years."""
         mock_client = Mock()
         mock_client.get_data_by_resource.side_effect = [
             iter([[{"year": "2023"}]]),
@@ -220,20 +248,86 @@ class TestBingAdsHelperFunctions:
         # The skipped chunk still advances the checkpoint, so all three chunks are accounted for
         assert manager.save_state.call_count == 3
 
-    def test_download_and_extract_report_csv_no_file_returns_empty(self):
+    def test_iter_report_row_pages_streams_the_zipped_csv(self, tmp_path):
+        # The BOM Bing prefixes the report with must not survive into the first column name.
+        report_zip = tmp_path / "report.zip"
+        with zipfile.ZipFile(report_zip, "w") as archive:
+            rows = "".join(f"2024-01-0{day},{day}\n" for day in range(1, 5))
+            archive.writestr("report.csv", ("\ufeffTimePeriod,CampaignId\n" + rows).encode("utf-8"))
+
+        manager = Mock()
+        manager.download_file.return_value = str(report_zip)
+
+        pages = list(
+            iter_report_row_pages(
+                reporting_service_manager=manager,
+                report_request=Mock(),
+                report_type="CampaignPerformanceReportRequest",
+                account_id=12345,
+                page_rows=3,
+            )
+        )
+
+        assert [len(page) for page in pages] == [3, 1]
+        assert pages[0][0] == {"TimePeriod": "2024-01-01", "CampaignId": "1"}
+
+    def test_iter_report_row_pages_no_file_yields_nothing(self):
         # Bing returns no file (download_file -> None) when a report has zero rows for the range;
         # treat it as an empty report instead of crashing on Path(None).
         manager = Mock()
         manager.download_file.return_value = None
 
-        result = download_and_extract_report_csv(
-            reporting_service_manager=manager,
-            report_request=Mock(),
-            report_type="CampaignPerformanceReportRequest",
-            account_id=12345,
+        result = list(
+            iter_report_row_pages(
+                reporting_service_manager=manager,
+                report_request=Mock(),
+                report_type="CampaignPerformanceReportRequest",
+                account_id=12345,
+            )
         )
 
-        assert result == ""
+        assert result == []
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils.time.sleep")
+    def test_iter_report_row_pages_resubmits_failed_report_generation(self, _mock_sleep):
+        # Bing sometimes finishes building a report in a failed state and the SDK raises a detail-free
+        # ReportingException. Resubmitting recovers it, instead of failing the run over a Bing-side flake.
+        manager = Mock()
+        manager.download_file.side_effect = [
+            ReportingException("Exceptions while reporting download.", "Error"),
+            None,
+        ]
+
+        result = list(
+            iter_report_row_pages(
+                reporting_service_manager=manager,
+                report_request=Mock(),
+                report_type="KeywordPerformanceReportRequest",
+                account_id=12345,
+            )
+        )
+
+        assert result == []
+        assert manager.download_file.call_count == 2
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils.time.sleep")
+    def test_iter_report_row_pages_gives_up_after_repeated_generation_failures(self, _mock_sleep):
+        # A report that keeps failing to build propagates, so the sync fails and the pipeline can
+        # retry it, instead of recording an empty report.
+        manager = Mock()
+        manager.download_file.side_effect = ReportingException("Exceptions while reporting download.", "Error")
+
+        with pytest.raises(ReportingException):
+            list(
+                iter_report_row_pages(
+                    reporting_service_manager=manager,
+                    report_request=Mock(),
+                    report_type="KeywordPerformanceReportRequest",
+                    account_id=12345,
+                )
+            )
+
+        assert manager.download_file.call_count == REPORT_GENERATION_ATTEMPTS
 
     def test_fetch_data_in_yearly_chunks_resumes_from_saved_state(self):
         """When resume state exists, the loop starts at the saved chunk boundary and does not re-fetch earlier chunks."""
@@ -330,7 +424,6 @@ class TestBingAdsSource:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_campaigns(self, mock_integrations, mock_client_class):
-        """Test source function for campaigns (non-report endpoint)."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         mock_client = Mock()
@@ -362,7 +455,6 @@ class TestBingAdsSource:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_report_full_refresh(self, mock_integrations, mock_client_class, mock_fetch_chunks):
-        """Test source function for report endpoint with full refresh."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         mock_client = Mock()
@@ -407,7 +499,6 @@ class TestBingAdsSource:
     def test_bing_ads_source_report_incremental(
         self, _name, last_value, mock_integrations, mock_client_class, mock_fetch_chunks
     ):
-        """Test source function for report endpoint with incremental sync."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         mock_client = Mock()
@@ -472,7 +563,6 @@ class TestBingAdsSource:
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_missing_developer_token(self, mock_integrations):
-        """Test source function raises error when developer token is missing."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = None
 
         result = bing_ads_source(
@@ -548,7 +638,6 @@ class TestBingAdsSource:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_incremental_missing_field(self, mock_integrations, mock_client_class):
-        """Test source function raises error when incremental field is missing."""
         mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
 
         result = bing_ads_source(

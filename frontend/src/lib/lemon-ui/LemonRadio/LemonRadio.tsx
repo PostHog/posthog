@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useId } from 'react'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
@@ -18,6 +19,9 @@ export interface LemonRadioProps<T extends React.Key> {
     className?: string
     radioPosition?: 'center' | 'top'
     orientation?: 'vertical' | 'horizontal'
+    /** Accessible name for the radio group, announced by screen readers. */
+    'aria-label'?: string
+    'data-attr'?: string
 }
 
 /** Single choice radio. */
@@ -28,9 +32,16 @@ export function LemonRadio<T extends React.Key>({
     className,
     radioPosition,
     orientation = 'vertical',
+    'aria-label': ariaLabel,
+    'data-attr': dataAttr,
 }: LemonRadioProps<T>): JSX.Element {
+    // A shared name makes the inputs one native radio group, so arrow keys move between them.
+    const groupName = useId()
     return (
         <div
+            role="radiogroup"
+            aria-label={ariaLabel}
+            data-attr={dataAttr}
             className={clsx(
                 'flex font-medium',
                 orientation === 'vertical' ? 'flex-col gap-2' : 'flex-row gap-4',
@@ -55,6 +66,7 @@ export function LemonRadio<T extends React.Key>({
                         <input
                             type="radio"
                             className="cursor-pointer"
+                            name={groupName}
                             checked={value === selectedValue}
                             value={String(value)}
                             onChange={() => {

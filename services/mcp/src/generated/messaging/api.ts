@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Opt every recipient in the list out of the category named on their entry, or a default category.
  * @summary Add multiple recipients to the opt-out list
  */
-export const MessagingPreferencesBulkAddOptOutsCreateParams = /* @__PURE__ */ zod.object({
+export const MessagingPreferencesBulkAddOptOutsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -22,7 +22,7 @@ export const MessagingPreferencesBulkAddOptOutsCreateParams = /* @__PURE__ */ zo
 
 export const messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax = 512
 
-export const MessagingPreferencesBulkAddOptOutsCreateBody = /* @__PURE__ */ zod.object({
+export const MessagingPreferencesBulkAddOptOutsCreateBody = () => zod.object({
     opt_outs: zod
         .array(
             zod.object({
@@ -49,7 +49,7 @@ export const MessagingPreferencesBulkAddOptOutsCreateBody = /* @__PURE__ */ zod.
  * Get opt-outs filtered by category or overall opt-outs if no category specified
  * @summary List recipients opted out of a message category
  */
-export const MessagingPreferencesOptOutsRetrieveParams = /* @__PURE__ */ zod.object({
+export const MessagingPreferencesOptOutsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -57,7 +57,9 @@ export const MessagingPreferencesOptOutsRetrieveParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const messagingPreferencesOptOutsRetrieveQuerySearchMax = 512
+
+export const MessagingPreferencesOptOutsRetrieveQueryParams = () => zod.object({
     category_key: zod
         .string()
         .optional()
@@ -66,13 +68,18 @@ export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zo
         ),
     page: zod.number().optional(),
     page_size: zod.number().optional(),
+    search: zod
+        .string()
+        .max(messagingPreferencesOptOutsRetrieveQuerySearchMax)
+        .optional()
+        .describe('Case-insensitive substring match on the recipient identifier.'),
 })
 
 /**
  * Opt a recipient back in to a specific category, or to all marketing messages.
  * @summary Remove a recipient from the opt-out list
  */
-export const MessagingPreferencesRemoveOptOutCreateParams = /* @__PURE__ */ zod.object({
+export const MessagingPreferencesRemoveOptOutCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -82,7 +89,7 @@ export const MessagingPreferencesRemoveOptOutCreateParams = /* @__PURE__ */ zod.
 
 export const messagingPreferencesRemoveOptOutCreateBodyIdentifierMax = 512
 
-export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.object({
+export const MessagingPreferencesRemoveOptOutCreateBody = () => zod.object({
     identifier: zod
         .string()
         .max(messagingPreferencesRemoveOptOutCreateBodyIdentifierMax)

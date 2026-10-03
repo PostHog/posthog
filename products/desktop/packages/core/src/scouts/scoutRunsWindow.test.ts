@@ -1,4 +1,7 @@
-import type { ScoutRun } from "@posthog/api-client/posthog-client";
+import type {
+  ScoutRun,
+  ScoutRunsQueryParams,
+} from "@posthog/api-client/posthog-client";
 import { describe, expect, it } from "vitest";
 import {
   fetchScoutRunsWindow,
@@ -17,6 +20,9 @@ function makeRun(id: string, startedAt: string | null): ScoutRun {
     skill_version: 1,
     status: "completed",
     started_at: startedAt,
+    created_at: startedAt
+      ? new Date(new Date(startedAt).getTime() + 30_000).toISOString()
+      : undefined,
     completed_at: startedAt,
     task_id: null,
     task_run_id: null,
@@ -29,10 +35,9 @@ function makeRun(id: string, startedAt: string | null): ScoutRun {
 
 function clientFromPages(pages: ScoutRun[][]): {
   client: ScoutRunsClient;
-  calls: Array<{ date_from?: string; date_to?: string; limit?: number }>;
+  calls: ScoutRunsQueryParams[];
 } {
-  const calls: Array<{ date_from?: string; date_to?: string; limit?: number }> =
-    [];
+  const calls: ScoutRunsQueryParams[] = [];
   let index = 0;
   return {
     calls,
@@ -85,12 +90,22 @@ describe("fetchScoutRunsWindow", () => {
     const second = [boundary, makeRun("p2-0", "2026-06-10T01:00:00.000Z")];
     const { client, calls } = clientFromPages([first, second]);
 
-    const window = await fetchScoutRunsWindow(client, 1, NOW);
+    const window = await fetchScoutRunsWindow(
+      client,
+      1,
+      NOW,
+      undefined,
+      "signals-scout-general",
+    );
 
     expect(window.complete).toBe(true);
     expect(window.runs).toHaveLength(101);
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.date_to).toBe(boundary.started_at);
+    expect(calls.map((call) => call.skill_name)).toEqual([
+      "signals-scout-general",
+      "signals-scout-general",
+    ]);
+    expect(calls[1]?.date_to).toBe(boundary.created_at);
   });
 
   it("reports an incomplete window when the cursor cannot advance", async () => {

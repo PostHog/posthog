@@ -5,7 +5,7 @@ import { fetch } from '~/common/utils/request'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
 
-import { BLOCK_REQUEST_PREFIX, BlockProxy } from './block-proxy'
+import { BLOCK_REQUEST_PREFIX, BlockSource } from './block-proxy'
 import { CapturePage } from './capture-page'
 
 const PROXY_TIMEOUT_MS = 10_000
@@ -17,7 +17,7 @@ const NONCE_PLACEHOLDER = '__CSP_NONCE__'
 
 /**
  * Centralizes all Puppeteer request interception: serves the player HTML,
- * forwards block requests to {@link BlockProxy}, proxies sub-frame
+ * forwards block requests to {@link BlockSource}, proxies sub-frame
  * stylesheets, and aborts sub-frame media to prevent beginFrame deadlocks.
  *
  * {@link waitForSettled} gates beginFrame until proxied stylesheets resolve.
@@ -29,7 +29,7 @@ export class RequestInterceptor {
 
     constructor(
         private capturePage: CapturePage,
-        private blockProxy: BlockProxy,
+        private blockProxy: BlockSource,
         private log: Logger = createLogger(),
         private enablePlayerCsp: boolean = config.enablePlayerCsp
     ) {
@@ -154,15 +154,24 @@ export class RequestInterceptor {
     private async proxyStylesheet(request: HTTPRequest): Promise<void> {
         const url = request.url()
         try {
-            const headers = request.headers()
-            delete headers['host']
-            delete headers['connection']
-            delete headers['content-length']
+            // Forward an allowlist rather than the browser's full header set: the URL is
+            // attacker-controlled (a <link href> in a recorded sub-frame), and the browser's
+            // Referer would disclose the internal player URL to arbitrary third-party hosts.
+            const browserHeaders = request.headers()
+            const headers: Record<string, string> = {}
+            for (const name of ['accept', 'accept-language', 'user-agent']) {
+                if (browserHeaders[name]) {
+                    headers[name] = browserHeaders[name]
+                }
+            }
             const resp = await fetch(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
             const body = await resp.text()
             await request.respond({
                 status: resp.status,
                 contentType: resp.headers['content-type'] || 'text/css',
+                // A `<link crossorigin>` makes Chrome CORS-check this response, and without the header it
+                // drops the stylesheet and the frame renders unstyled. The fetch above carries no credentials.
+                headers: { 'access-control-allow-origin': '*' },
                 body,
             })
         } catch (err) {

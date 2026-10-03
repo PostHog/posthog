@@ -5,6 +5,18 @@ export function parseList(text: string | undefined): string[] {
     return text.split(',').map((item) => item.trim())
 }
 
+// parseInt returns NaN on junk, and NaN flows silently into Worker.create / pool sizing,
+// so every numeric env var goes through a fallback plus a positivity bound.
+export function parsePositiveInt(raw: string | undefined, fallback: number): number {
+    const n = parseInt(raw ?? '', 10)
+    return Number.isFinite(n) && n > 0 ? n : fallback
+}
+
+export function parseFraction(raw: string | undefined, fallback: number): number {
+    const n = parseFloat(raw ?? '')
+    return Number.isFinite(n) && n > 0 && n <= 1 ? n : fallback
+}
+
 export const config = {
     // Temporal
     temporalHost: process.env.TEMPORAL_HOST || '127.0.0.1',
@@ -17,13 +29,23 @@ export const config = {
 
     // Worker
     logLevel: (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error',
-    maxConcurrentActivities: parseInt(process.env.MAX_CONCURRENT_ACTIVITIES || '4', 10),
-    browserRecycleAfter: parseInt(process.env.BROWSER_RECYCLE_AFTER || '100', 10),
+    maxConcurrentActivities: parsePositiveInt(process.env.MAX_CONCURRENT_ACTIVITIES, 4),
+    // Above these fractions of the cgroup limit, the worker takes no activity beyond its first slot.
+    tunerTargetMemoryUsage: parseFraction(process.env.TUNER_TARGET_MEMORY_USAGE, 0.7),
+    tunerTargetCpuUsage: parseFraction(process.env.TUNER_TARGET_CPU_USAGE, 0.9),
+    tunerRampThrottleMs: parsePositiveInt(process.env.TUNER_RAMP_THROTTLE_MS, 10_000),
+    browserRecycleAfter: parsePositiveInt(process.env.BROWSER_RECYCLE_AFTER, 100),
+    // Browsers held warm beyond this are closed on release: each idle Chromium pins 100-250MB RSS,
+    // and a pod that once ran at full concurrency would otherwise keep that footprint forever.
+    maxIdleBrowsers: parsePositiveInt(process.env.MAX_IDLE_BROWSERS, 2),
     disableBrowserSecurity: process.env.DISABLE_BROWSER_SECURITY === '1',
     captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
     screenshotFormat: (process.env.SCREENSHOT_FORMAT || 'jpeg') as 'png' | 'jpeg',
-    screenshotJpegQuality: parseInt(process.env.SCREENSHOT_JPEG_QUALITY || '80', 10),
-    metricsPort: parseInt(process.env.METRICS_PORT || '6738', 10),
+    // Hard cap on a single beginFrame; mass-image-decode stalls legitimately run 30-60s, so keep
+    // this well above that. It only exists to bound a truly wedged compositor.
+    beginFrameTimeoutMs: parsePositiveInt(process.env.BEGINFRAME_TIMEOUT_MS, 120_000),
+    screenshotJpegQuality: parsePositiveInt(process.env.SCREENSHOT_JPEG_QUALITY, 80),
+    metricsPort: parsePositiveInt(process.env.METRICS_PORT, 6738),
 
     // Encryption
     secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,
@@ -32,15 +54,26 @@ export const config = {
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
     s3Region: process.env.VIDEO_EXPORT_OBJECT_STORAGE_REGION || 'us-east-1',
+    // `s3://bucket/prefix/` entries a render's source_s3_uri may point into. Empty disables file sources.
+    sourceS3Prefixes: parseList(process.env.RASTERIZER_SOURCE_S3_PREFIXES ?? '').filter(Boolean),
+    // Bounds a zstd source's decompressed size, which its compressed size under the gate above does not. The
+    // body reaches the page as base64 text, so it has to stay well under V8's string limit.
+    maxSourceDecompressedBytes: parsePositiveInt(process.env.MAX_SOURCE_DECOMPRESSED_BYTES, 256 * 1024 * 1024),
 
-    // Recording API
-    recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6738',
+    // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
+    recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',
     recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
+    // The listing hits ClickHouse through recording-api, so internalFetch's 3s default aborts it under load.
+    blockListingTimeoutMs: parsePositiveInt(process.env.BLOCK_LISTING_TIMEOUT_MS, 30_000),
+    // Renders above this many compressed bytes fail permanently instead of loading the pod into its
+    // memory limit. Deliberately generous: the every-render byte log is what tightens it over time.
+    maxRecordingCompressedBytes: parsePositiveInt(process.env.MAX_RECORDING_COMPRESSED_BYTES, 512 * 1024 * 1024),
 
     // Player
     siteUrl: process.env.SITE_URL || 'http://localhost:8000',
     playerHtmlPath: process.env.PLAYER_HTML_PATH || '/code/common/replay-headless/dist/player.html',
-    // Opt-in: serve the player under a script-locking CSP (nonce). Off by default so it can be
-    // rolled out and verified in dev before enabling in production.
-    enablePlayerCsp: process.env.ENABLE_PLAYER_CSP === '1',
+    // Serve the player under a script-locking CSP (nonce). On by default: recordings are untrusted,
+    // and the CSP is the backstop if the replay iframe sandbox ever regresses. ENABLE_PLAYER_CSP=0
+    // is the escape hatch if a player build ships without the nonce placeholder.
+    enablePlayerCsp: process.env.ENABLE_PLAYER_CSP !== '0',
 }

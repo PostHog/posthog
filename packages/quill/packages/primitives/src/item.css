@@ -1,7 +1,7 @@
 /* stylelint-disable selector-class-pattern -- escaped Tailwind group classes (.group\/item, .group\/item-group) fall outside strict BEM */
 @layer components {
     .quill-item {
-        font-size: var(--text-xs, 0.75rem);
+        font-size: var(--text-ui, 0.8125rem);
         line-height: 1.625;
         border: 1px solid transparent;
         border-radius: var(--radius-sm);
@@ -252,7 +252,7 @@
         align-items: center;
         width: fit-content;
         overflow: hidden;
-        font-size: var(--text-sm, 0.875rem);
+        font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
         line-height: 1.375;
         text-underline-offset: 4px;

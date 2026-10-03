@@ -9,7 +9,6 @@ import type {
 import { fetch } from "expo/fetch";
 import {
   authedFetch,
-  createTimeoutSignal,
   getAccessToken,
   getBaseUrl,
   getProjectId,
@@ -363,49 +362,6 @@ export async function sendCloudCommand(
     );
   }
   return data?.result;
-}
-
-export interface SessionLogsPage {
-  entries: StoredLogEntry[];
-  hasMore: boolean;
-}
-
-export async function fetchSessionLogs(
-  taskId: string,
-  runId: string,
-  options: { limit?: number; offset?: number } = {},
-): Promise<SessionLogsPage> {
-  return withRetry(
-    async () => {
-      const baseUrl = getBaseUrl();
-      const projectId = getProjectId();
-
-      const params = new URLSearchParams({
-        limit: String(options.limit ?? 5000),
-        offset: String(options.offset ?? 0),
-      });
-
-      const response = await authedFetch(
-        `${baseUrl}/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/session_logs/?${params}`,
-        { signal: createTimeoutSignal(10_000) },
-      );
-
-      if (!response.ok) {
-        throw new HttpError(
-          response.status,
-          response.statusText,
-          "Failed to fetch session logs",
-        );
-      }
-
-      const entries = (await response.json()) as StoredLogEntry[];
-      return {
-        entries,
-        hasMore: response.headers.get("X-Has-More") === "true",
-      };
-    },
-    { shouldRetry: isRetryableError },
-  );
 }
 
 export interface StreamCloudTaskOptions {

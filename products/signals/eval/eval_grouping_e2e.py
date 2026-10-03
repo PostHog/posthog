@@ -39,10 +39,12 @@ from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_meas
 from tqdm import tqdm
 
 from products.signals.backend.emission.pipeline import (
-    _check_actionability,
+    check_actionability,
     summarize_long_descriptions as _summarize_long_descriptions,
 )
 from products.signals.backend.temporal.grouping import (
+    GenerateSearchQueriesInput,
+    MatchSignalToReportInput,
     generate_search_queries,
     match_signal_to_report,
     verify_match_specificity,
@@ -178,11 +180,13 @@ class EvalGroupingPipeline:
         """Generate search queries and compute all embeddings. No store mutations."""
 
         queries = await generate_search_queries(
-            team_id=EVAL_TEAM_ID,
-            description=description,
-            source_product=case.signal.config.source_product,
-            source_type=case.signal.config.source_type,
-            signal_type_examples=self.store.get_type_examples(),
+            GenerateSearchQueriesInput(
+                team_id=EVAL_TEAM_ID,
+                description=description,
+                source_product=case.signal.config.source_product,
+                source_type=case.signal.config.source_type,
+                signal_type_examples=self.store.get_type_examples(),
+            )
         )
 
         all_embeddings = await asyncio.gather(
@@ -206,13 +210,15 @@ class EvalGroupingPipeline:
         candidates = [self.store.search(emb) for emb in query_embeddings]
 
         match_result = await match_signal_to_report(
-            team_id=EVAL_TEAM_ID,
-            description=description,
-            source_product=case.signal.config.source_product,
-            source_type=case.signal.config.source_type,
-            queries=queries,
-            query_results=candidates,
-            report_contexts=self.report_store.get_contexts(),
+            MatchSignalToReportInput(
+                team_id=EVAL_TEAM_ID,
+                description=description,
+                source_product=case.signal.config.source_product,
+                source_type=case.signal.config.source_type,
+                queries=queries,
+                query_results=candidates,
+                report_contexts=self.report_store.get_contexts(),
+            )
         )
         specificity_match_result = match_result
 
@@ -295,8 +301,12 @@ class EvalGroupingPipeline:
         output = outputs[0]
 
         if config.actionability_prompt:
-            is_actionable = await _check_actionability(
-                self.gateway_client, EVAL_TEAM_ID, output, config.actionability_prompt
+            is_actionable = await check_actionability(
+                self.gateway_client,
+                EVAL_TEAM_ID,
+                output,
+                config.actionability_prompt,
+                context_fields=config.actionability_context_fields,
             )
             await self._capture_pre_emit_actionability(case, None, is_actionable)
             if not is_actionable:

@@ -1,3 +1,11 @@
+import math
+import logging
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
+
+from products.ai_observability.backend.llm.types import StreamChunk
+
+
 class LLMError(Exception):
     """Base exception for LLM client errors"""
 
@@ -26,6 +34,22 @@ class RateLimitError(LLMError):
     """Raised when rate limit is exceeded"""
 
 
+class RetryableRateLimitError(RateLimitError):
+    def __init__(self, message: str, retry_after: str | None = None) -> None:
+        super().__init__(message)
+        self.retry_after: float | None = None
+        if retry_after:
+            try:
+                delay = float(retry_after)
+            except ValueError:
+                try:
+                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
+                except (ValueError, TypeError, OverflowError):
+                    return
+            if math.isfinite(delay):
+                self.retry_after = max(1, min(delay, 60))
+
+
 class QuotaExceededError(LLMError):
     """Raised when API quota is exceeded"""
 
@@ -34,6 +58,30 @@ class ProviderConnectionError(LLMError):
     """Raised on a transient network/transport error talking to the provider — connection reset,
     read timeout, DNS failure. Retryable: callers should retry rather than treat it as a hard error,
     and should not log it as an exception since it's usually resolved on the next attempt."""
+
+
+class ProviderTimeoutError(ProviderConnectionError):
+    def __init__(self, timeout: float) -> None:
+        super().__init__(
+            f"The endpoint did not finish within {timeout:g} seconds. Check the endpoint's response time before trying again."
+        )
+
+
+RESPONSE_LIMIT_MESSAGE = (
+    "The endpoint returned a compressed or oversized response. "
+    "Configure it to return uncompressed responses no larger than 1 MiB."
+)
+
+
+class ProviderRequestRejectedError(LLMError):
+    """A non-retryable request rejection with a message safe to show to the user."""
+
+
+class ProviderConfigurationError(LLMError):
+    """Raised when a provider key's stored configuration cannot be used as it stands — a base URL
+    that no longer passes the SSRF allowlist, or a required endpoint that was never set. The user
+    has to change the key, so callers should surface the message as a 400 rather than an internal
+    error: the configuration will not fix itself on a retry."""
 
 
 class ProviderMismatchError(LLMError):
@@ -77,6 +125,23 @@ def is_context_window_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
 
 
+class OutputTokenLimitError(LLMError):
+    """Raised when the model stopped because it hit its output token limit.
+
+    Providers report an exhausted output budget in a 400 or through a `length` finish reason,
+    which the OpenAI SDK raises as `LengthFinishReasonError`. Rejected token settings stay
+    separate because the request must change before the model can generate a reply.
+    """
+
+
+_OUTPUT_LIMIT_ERROR_MARKERS = ("output limit was reached",)
+
+
+def is_output_limit_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -86,3 +151,109 @@ class ModelPermissionError(LLMError):
             f"API key doesn't have access to model '{model}'" if model else "API key doesn't have access to this model"
         )
         super().__init__(msg)
+
+
+def provider_error_detail(error: Exception | None) -> str | None:
+    """The provider's own sentence, without the SDK's `Error code: NNN - {...}` wrapper.
+
+    `str(e)` on an OpenAI or Anthropic error embeds the whole response dict, so read the parsed
+    body instead. google-genai carries the same text on `message`.
+    """
+    body = getattr(error, "body", None)
+    if isinstance(body, dict):
+        detail = body.get("error")
+        if isinstance(detail, dict):
+            detail = detail.get("message")
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+    message = getattr(error, "message", None)
+    if isinstance(message, str) and message.strip():
+        return message.strip()
+    return None
+
+
+def user_facing_error_message(error: Exception | None) -> str:
+    """Turn a provider failure into copy someone can act on.
+
+    Streaming has no exception channel, so whatever text goes onto the wire is the whole
+    explanation the user gets. Raw SDK output leaks provider internals without naming a next
+    step, so every branch here says what to do instead.
+
+    A failure with no branch keeps the provider's own reason. Most of those are 400s the request
+    itself caused — an unsupported parameter, a malformed tool schema — where "try again" is
+    advice that cannot work and the provider's sentence is the only actionable thing we have.
+    """
+    if isinstance(error, ModelNotFoundError):
+        return f"Model '{error.model}' is not available. Pick a different model and try again."
+    if isinstance(error, UnsupportedModelError):
+        return f"Model '{error.model}' is not supported. Pick a different model and try again."
+    if isinstance(error, ModelPermissionError):
+        if error.model:
+            return f"Your API key does not have access to '{error.model}'. Pick a different model, or use a key with access to it."
+        return (
+            "Your API key does not have access to this model. Pick a different model, or use a key with access to it."
+        )
+    if isinstance(error, AuthenticationError):
+        return "Your provider API key was rejected. Check the key in AI observability settings."
+    if isinstance(error, QuotaExceededError):
+        return "Your provider API key is out of quota. Check your billing with the provider, then try again."
+    if isinstance(error, RateLimitError):
+        return "The provider is rate limiting this key. Wait a moment, then try again."
+    if isinstance(error, ContextWindowExceededError):
+        return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, OutputTokenLimitError):
+        return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, (ProviderTimeoutError, ProviderRequestRejectedError)):
+        return str(error)
+    if isinstance(error, ProviderConnectionError):
+        return "Could not reach the model provider. Try again."
+    if isinstance(error, StructuredOutputParseError):
+        return "The model returned a response we could not read. Try again."
+    if isinstance(error, UnsupportedProviderError):
+        return f"Provider '{error.provider}' is not supported. Pick a model from another provider."
+    if isinstance(error, ProviderMismatchError):
+        return (
+            f"This key is for {error.key_provider}, but the request asks for {error.request_provider}. "
+            "Pick a model from the key's provider, or switch keys."
+        )
+    detail = provider_error_detail(error)
+    if detail:
+        return f"The model provider rejected this request: {detail}"
+    return "The request to the model provider failed. Try again."
+
+
+def stream_error_chunk(
+    error: Exception,
+    mapped: LLMError | None,
+    *,
+    logger: logging.Logger,
+    provider: str,
+) -> StreamChunk:
+    """Log a streaming failure and render the one chunk that has to explain it to the user.
+
+    A connection error usually resolves on the next attempt, so it stays a warning rather than
+    spamming error tracking.
+    """
+    if isinstance(mapped, ProviderConnectionError):
+        logger.warning(f"{provider} connection error when streaming response: {error}")
+    else:
+        logger.exception(f"{provider} API error when streaming response: {error}")
+    return StreamChunk(
+        type="error",
+        data={"error": user_facing_error_message(mapped if mapped is not None else error)},
+    )
+
+
+def error_field_for_message(
+    table: tuple[tuple[str, str], ...],
+    error_message: str | None,
+) -> str | None:
+    """Map a `validate_key` error message to the UI form field that should be highlighted.
+
+    Each provider owns its own prefix table, because the messages are the provider's. Keep a
+    table aligned with the `return` statements in that provider's `validate_key`: editing a
+    message string there without updating the table silently breaks field routing.
+    """
+    if not error_message:
+        return None
+    return next((field for prefix, field in table if error_message.startswith(prefix)), None)

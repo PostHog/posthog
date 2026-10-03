@@ -8,11 +8,14 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import pandas as pd
 
+from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    DEPOT_JOB_ATTEMPTS_COLUMNS,
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -20,11 +23,13 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     GITHUB_SOURCE_PREFIX,
     _pr_row,
     _run_row,
+    create_depot_source,
     create_github_source,
     link_schema,
+    seeding_object_storage,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain
@@ -79,8 +84,8 @@ def _ago(days: int) -> str:
 
 
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
-    # Seed dates relative to real time: HogQL now() runs server-side and ignores
-    # freezegun, so window/age assertions must share the clock the query uses.
+    # Seed dates relative to real time: HogQL now() runs server-side and ignores the
+    # frozen clock, so window/age assertions must share the clock the query uses.
     started_at = _seed_now() - timedelta(days=days)
     updated_at = started_at + timedelta(seconds=duration_seconds)
     fmt = "%Y-%m-%d %H:%M:%S"
@@ -103,10 +108,20 @@ def _job_row(
     *,
     run_attempt: int = 1,
     labels: str = '["depot-ubuntu-22.04-4"]',
-    started: str = "2026-01-01 00:00:00",
-    completed: str = "2026-01-01 00:02:00",
+    started: str | None = None,
+    completed: str | None = None,
     head_branch: str = "main",
+    head_sha: str = "sha60",
 ) -> dict[str, Any]:
+    # Default to the same relative anchor the seeded runs use, not a fixed calendar date. GitHub
+    # creates a job when its run attempt starts, so a job's created_at tracks its run's start — and
+    # the cost queries' jobs-scan floor is derived from exactly that relationship (see
+    # _workflow_filters.run_windowed_job_created_floor_constant). Jobs pinned to 2026-01-01 under runs
+    # seeded at _ago(n) modelled a shape the source cannot produce, and the floor rightly dropped them.
+    # Keeps the 2-minute duration the cost assertions are written against.
+    default_started, default_completed = _ago_with_duration(1, 120)
+    started = started if started is not None else default_started
+    completed = completed if completed is not None else default_completed
     return {
         "id": job_id,
         "run_id": run_id,
@@ -115,7 +130,7 @@ def _job_row(
         "workflow_name": "CI",
         "status": "completed",
         "conclusion": conclusion,
-        "head_sha": "sha60",
+        "head_sha": head_sha,
         "head_branch": head_branch,
         "labels": labels,
         "runner_name": "runner-1",
@@ -157,11 +172,11 @@ def _header(
 class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
     """Seeds warehouse tables behind a connected GitHub source with a non-default prefix,
     so the full resolve -> build -> query path runs end to end against `myprefixgithub_*`
-    tables. Skips when object storage is unreachable so the suite still runs without the
-    dev stack."""
+    tables."""
 
     def setUp(self) -> None:
         super().setUp()
+        cache.clear()
         self._github_source: ExternalDataSource | None = None
 
     def _create_table(
@@ -172,6 +187,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         *,
         source: ExternalDataSource | None = None,
         prefix: str = GITHUB_SOURCE_PREFIX,
+        schema_name: str | None = None,
     ) -> None:
         # Defaults to the mixin's single shared source; pass source + prefix to seed a second
         # source (e.g. one GitHub source per repository) under a distinct table prefix.
@@ -184,7 +200,7 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
         df.to_csv(tmp.name, index=False)
         tmp.close()
         self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
+        with seeding_object_storage(self):
             table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
                 csv_path=Path(tmp.name),
                 table_name=base_name,
@@ -194,17 +210,29 @@ class _WarehouseMixin(ClickhouseTestMixin, BaseTest):
                 source=source,
                 source_prefix=prefix,
             )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
         self.addCleanup(cleanup)
-        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix.
-        link_schema(self.team, source, name=base_name.removeprefix("github_"), table=table)
+        # base_name is "github_<endpoint>"; the synced schema/endpoint is its suffix. Non-GitHub
+        # sources (Trunk) pass their endpoint's schema name explicitly.
+        link_schema(self.team, source, name=schema_name or base_name.removeprefix("github_"), table=table)
+
+    def _create_depot_table(self, rows: list[dict[str, Any]]) -> None:
+        # A Depot source joins the GitHub source that syncs the same repository.
+        if self._github_source is None:
+            self._github_source = create_github_source(self.team, repository="PostHog/posthog")
+        depot = create_depot_source(self.team, prefix="ci", repository="PostHog/posthog")
+        self._create_table(
+            "depot_job_attempts",
+            DEPOT_JOB_ATTEMPTS_COLUMNS,
+            rows,
+            source=depot,
+            prefix="ci",
+            schema_name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+        )
 
 
 class _EndpointsWarehouseMixin(_WarehouseMixin):
     """End-to-end aggregates over real warehouse tables. Seeds dates relative to
-    real time (HogQL now() is server-side). Skips when object storage is
-    unreachable."""
+    real time (HogQL now() is server-side)."""
 
     def _seed(self) -> None:
         self._create_table(
@@ -234,9 +262,17 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 _run_row(2001, "CI", "sha10", "completed", "failure", _ago(1), _ago(1), pr_number=10),
                 _run_row(2002, "CI", "sha11", "completed", "success", _ago(2), _ago(2), pr_number=11),
                 # A second push on PR 10 (new head SHA) that was re-run -> pushes=2, rerun_cycles=1.
-                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs.
+                # A non-CI workflow so the CI workflow-health assertions stay at 2 runs. It starts a
+                # minute before sha10, so a push-history cap of 1 drops this re-run push.
                 _run_row(
-                    2003, "Deploy", "sha10b", "completed", "success", _ago(1), _ago(1), pr_number=10, run_attempt=2
+                    2003,
+                    "Deploy",
+                    "sha10b",
+                    "completed",
+                    "success",
+                    *_ago_offset_with_duration(1, -60, 0),
+                    pr_number=10,
+                    run_attempt=2,
                 ),
                 # PR 10 queued to merge: the gate run is credited to PR 10 (its branch names it) but
                 # its head SHA is a rebase the queue made, so it must not read as a third push.

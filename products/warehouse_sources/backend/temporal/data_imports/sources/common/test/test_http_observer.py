@@ -3,11 +3,9 @@ import time
 import pytest
 from unittest.mock import patch
 
-import structlog
 from requests import PreparedRequest, Response
 from structlog.testing import capture_logs
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import context as ctx_mod
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.context import scoped_job_context
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import (
     RequestRecord,
@@ -30,17 +28,6 @@ def _make_response(status_code: int = 200, body: bytes = b"", content_length: st
     if content_length is not None:
         resp.headers["Content-Length"] = content_length
     return resp
-
-
-@pytest.fixture(autouse=True)
-def _reset_contextvar():
-    token = ctx_mod._current_job_context.set(None)
-    structlog.contextvars.clear_contextvars()
-    try:
-        yield
-    finally:
-        ctx_mod._current_job_context.reset(token)
-        structlog.contextvars.clear_contextvars()
 
 
 @pytest.fixture
@@ -147,6 +134,21 @@ def test_log_redacts_credential_in_non_denylisted_query_param(captured_logs):
     assert "sk_live_leaky" not in entry["url"]
     assert "REDACTED" in entry["url"]
     assert "page=2" in entry["url"]
+
+
+def test_log_redacts_credential_embedded_in_path_from_url_template(captured_logs):
+    # A path-based credential (e.g. Workiz's token-in-URL auth) isn't numeric,
+    # UUID, or hex, so `url_template`'s own ID-shaped heuristics won't mask it --
+    # it must be caught by value-based redaction like the full `url` field is.
+    request = _make_request(url="https://api.workiz.com/api/v1/not-hex-token-value/team/all/")
+    response = _make_response(status_code=200)
+
+    record_request(request, response, started_at_monotonic=time.monotonic(), redact_values=("not-hex-token-value",))
+
+    entry = _entries(captured_logs)[-1]
+    assert "not-hex-token-value" not in entry["url"]
+    assert "not-hex-token-value" not in entry["url_template"]
+    assert "REDACTED" in entry["url_template"]
 
 
 def test_log_includes_job_context_fields(captured_logs, job_ctx):

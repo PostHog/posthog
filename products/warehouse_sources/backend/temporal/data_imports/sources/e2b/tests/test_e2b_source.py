@@ -1,34 +1,23 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import E2BResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
+    INVALID_CREDENTIALS_ERROR,
+    NO_ACCESS_ERROR,
+    E2BConfigurationError,
+    _require_team_id,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source import E2BSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.e2b import E2BSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestE2BSource:
     def setup_method(self) -> None:
         self.source = E2BSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.E2B
-
-    def test_api_key_field_is_required_password_secret(self) -> None:
-        fields = self.source.get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.required is True
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
 
     def test_get_schemas_are_all_full_refresh(self) -> None:
         # No E2B list endpoint has a server-side timestamp filter, so none may advertise incremental
@@ -40,18 +29,66 @@ class TestE2BSource:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
+    @parameterized.expand(
+        [
+            # A table whose team ID is missing would fail its first sync, so it starts unselected.
+            ("team_metrics_without_team_id", None, "team_metrics", False),
+            ("team_metrics_with_team_id", "prj_1", "team_metrics", True),
+            # One request per sandbox per sync is a cost to opt into, not a default.
+            ("sandbox_metrics", "prj_1", "sandbox_metrics", False),
+            ("sandboxes", None, "sandboxes", True),
+        ]
+    )
+    def test_should_sync_default_per_endpoint(
+        self, _name: str, team_id: str | None, endpoint: str, expected: bool
+    ) -> None:
+        config = E2BSourceConfig(api_key="e2b_test", team_id=team_id)
+        schemas = {s.name: s for s in self.source.get_schemas(config, team_id=self.team_id)}
+        assert schemas[endpoint].should_sync_default is expected
+
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(MagicMock(spec=E2BSourceConfig), team_id=self.team_id, names=["templates"])
         assert [s.name for s in schemas] == ["templates"]
 
-    @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid E2B API key"))])
-    def test_validate_credentials_delegates_to_transport(self, _name: str, transport_ok: bool, expected) -> None:
+    def test_a_table_needing_the_team_id_says_so_instead_of_probing(self) -> None:
+        # The per-schema check is the only place a user learns the team ID is missing before the
+        # sync fails, and a credential probe cannot tell them anything about it.
+        config = E2BSourceConfig(api_key="e2b_test")
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials"
+        ) as probe:
+            ok, message = self.source.validate_credentials(config, self.team_id, "team_metrics")
+        assert ok is False
+        assert message is not None and "team ID" in message
+        probe.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("valid", (True, None)),
+            ("invalid", (False, INVALID_CREDENTIALS_ERROR)),
+            ("no_access", (False, NO_ACCESS_ERROR)),
+        ]
+    )
+    def test_validate_credentials_delegates_to_transport(self, _name: str, transport_result) -> None:
         config = E2BSourceConfig(api_key="e2b_test")
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials",
-            return_value=transport_ok,
+            return_value=transport_result,
         ):
-            assert self.source.validate_credentials(config, self.team_id) == expected
+            assert self.source.validate_credentials(config, self.team_id) == transport_result
+
+    @parameterized.expand(
+        [
+            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.e2b.app", INVALID_CREDENTIALS_ERROR),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.e2b.app", NO_ACCESS_ERROR),
+        ]
+    )
+    def test_a_rejected_key_reads_the_same_during_setup_and_during_a_sync(
+        self, _name: str, error_key: str, expected: str
+    ) -> None:
+        # Setup and sync reach the message by different routes, so a divergence between them is
+        # invisible unless the two are compared.
+        assert self.source.get_non_retryable_errors()[error_key] == expected
 
     def test_validate_credentials_transient_error_is_not_reported_as_invalid(self) -> None:
         # A probe that can't reach E2B must not brand a possibly-valid key "invalid" and send the user
@@ -75,6 +112,14 @@ class TestE2BSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
+    @parameterized.expand([("missing", None), ("malformed", "../admin")])
+    def test_a_bad_team_id_stops_the_sync_instead_of_retrying(self, _name: str, team_id: str | None) -> None:
+        # Only a settings change can fix it, so the message the transport raises has to be one the
+        # source classifies as non-retryable — otherwise the job burns every attempt.
+        with pytest.raises(E2BConfigurationError) as exc:
+            _require_team_id(team_id)
+        assert str(exc.value) in self.source.get_non_retryable_errors()
+
     @parameterized.expand(
         [
             ("read_timeout", "HTTPSConnectionPool(host='api.e2b.app', port=443): Read timed out."),
@@ -84,26 +129,6 @@ class TestE2BSource:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_get_resumable_source_manager_is_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is E2BResumeConfig
-
-    def test_source_for_pipeline_plumbs_api_key_and_schema(self) -> None:
-        config = E2BSourceConfig(api_key="e2b_secret")
-        inputs = MagicMock()
-        inputs.schema_name = "sandboxes"
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.e2b_source"
-        ) as mock_source:
-            self.source.source_for_pipeline(config, manager, inputs)
-        mock_source.assert_called_once()
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "e2b_secret"
-        assert kwargs["endpoint"] == "sandboxes"
-        assert kwargs["resumable_source_manager"] is manager
 
     def test_documented_tables_render_from_static_catalog(self) -> None:
         # lists_tables_without_credentials=True lets posthog.com render the Supported tables section

@@ -5,7 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { firstErroredScannerStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
+import { firstErroredScannerStep, scannerEditorSceneLogic, scannerStepErrors } from './scannerEditorSceneLogic'
 
 describe('firstErroredScannerStep', () => {
     it.each([
@@ -15,6 +15,25 @@ describe('firstErroredScannerStep', () => {
         ['no errors maps nowhere', {}, null],
     ])('%s', (_label, errors, expected) => {
         expect(firstErroredScannerStep(errors)).toBe(expected)
+    })
+})
+
+describe('scannerStepErrors', () => {
+    it('carries the field-level messages through to each step', () => {
+        expect(
+            scannerStepErrors({
+                scanner_config: { prompt: 'Prompt is required' },
+                sampling_rate: 'Sampling rate must be between 0% and 100%',
+                duration: 'Duration filters above 1 hour match nothing',
+            })
+        ).toEqual({
+            template: [],
+            overview: [],
+            details: [],
+            configure: ['Prompt is required'],
+            triggers: ['Duration filters above 1 hour match nothing'],
+            budget: ['Sampling rate must be between 0% and 100%'],
+        })
     })
 })
 
@@ -71,8 +90,37 @@ describe('scannerEditorSceneLogic', () => {
     })
 
     describe('breadcrumbs', () => {
-        it('labels the new-scanner trail when creating', async () => {
+        it('points the back-arrow crumb at the template step past it when creating', async () => {
+            // The scene back arrow navigates to the second-to-last crumb, so the crumb before
+            // the current step must be the template picker or the wizard cannot go back.
             router.actions.push(urls.replayVisionScannerConfigure('new'))
+            await expectLogic(logic).toMatchValues({
+                breadcrumbs: [
+                    expect.objectContaining({ key: 'replay-vision', name: 'Replay vision' }),
+                    expect.objectContaining({
+                        key: 'new-scanner',
+                        name: 'New scanner',
+                        path: urls.replayVisionTemplates(),
+                    }),
+                    expect.objectContaining({ key: 'new-scanner-step', name: 'Configure' }),
+                ],
+            })
+        })
+
+        it('keeps the template param on the back-arrow crumb, so going back preserves the type lock', async () => {
+            router.actions.push(urls.replayVisionScannerConfigure('new'), { template: 'dead_end' })
+            await expectLogic(logic).toMatchValues({
+                breadcrumbs: expect.arrayContaining([
+                    expect.objectContaining({
+                        key: 'new-scanner',
+                        path: `${urls.replayVisionTemplates()}?template=dead_end`,
+                    }),
+                ]),
+            })
+        })
+
+        it('shows no step crumb on the template step, so the back arrow exits to the list', async () => {
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
             await expectLogic(logic).toMatchValues({
                 breadcrumbs: [
                     expect.objectContaining({ key: 'replay-vision', name: 'Replay vision' }),

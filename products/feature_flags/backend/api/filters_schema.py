@@ -211,20 +211,24 @@ class PropertyKeyField(serializers.CharField):
         return super().to_internal_value(data)
 
 
-class FiniteFloatField(serializers.FloatField):
-    """FloatField that rejects bools, numeric strings, and non-finite values.
+class FinitePercentageField(serializers.FloatField):
+    """Percentage field that rejects bools, numeric strings, and non-finite values.
 
     JSON parsed with stdlib `json.loads` can contain NaN/Infinity tokens, which compare
     False against min_value/max_value and then crash percentage math downstream.
+
+    Whole numbers stay ints. Validated filters are persisted and then served verbatim to
+    SDKs, and the .NET and Java clients type rollout percentages as int, so widening 100
+    to 100.0 here breaks their local evaluation.
     """
 
-    def to_internal_value(self, data: Any) -> float:
+    def to_internal_value(self, data: Any) -> int | float:
         if isinstance(data, bool) or not isinstance(data, int | float):
             self.fail("invalid")
         value = float(data)
         if not math.isfinite(value):
             self.fail("invalid")
-        return value
+        return int(value) if value.is_integer() else value
 
 
 def _reject_json_constant(name: str) -> None:
@@ -359,7 +363,7 @@ class FlagConditionGroupSerializer(DropsUnknownKeysMixin, serializers.Serializer
         default=list,
         help_text="Property conditions for this release condition group.",
     )
-    rollout_percentage = FiniteFloatField(
+    rollout_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         required=False,
@@ -439,7 +443,7 @@ class FlagMultivariateVariantSerializer(DropsUnknownKeysMixin, serializers.Seria
         allow_blank=True,
         help_text="Human-readable name for this variant.",
     )
-    rollout_percentage = FiniteFloatField(
+    rollout_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         help_text="Variant rollout percentage, between 0 and 100.",
@@ -475,7 +479,7 @@ class FlagHoldoutSerializer(DropsUnknownKeysMixin, serializers.Serializer):
         max_value=I64_MAX,
         help_text="ID of the experiment holdout this flag belongs to.",
     )
-    exclusion_percentage = FiniteFloatField(
+    exclusion_percentage = FinitePercentageField(
         min_value=0,
         max_value=100,
         help_text="Percentage of users held out from the flag, between 0 and 100.",

@@ -363,17 +363,22 @@ export const CanvasReplayerPlugin = (
             }
 
             if (node.nodeName === 'CANVAS' && node.nodeType === 1) {
-                const el = containers.get(id) || document.createElement('img')
                 const canvasElement = node as HTMLCanvasElement
+                // The <img> takes the recorded canvas's place, so it is built in that canvas's own
+                // document. A blob: URL is fetched under the Content-Security-Policy of the document
+                // that owns the element, and the element owns that policy from the moment `src` is
+                // assigned, which happens below while the <img> is still detached. Building it in the
+                // app's document therefore puts every replayed canvas frame under the app's policy.
+                const el = containers.get(id) || canvasElement.ownerDocument.createElement('img')
 
                 for (let i = 0; i < canvasElement.attributes.length; i++) {
                     const attr = canvasElement.attributes[i]
                     const name = attr.name.toLowerCase()
-                    // The reconstructed <img> lives in the top-level document, so it inherits only
-                    // presentational attributes from the recorded canvas. Skip inline event handlers
-                    // (every handler is named `on<event>`, so this covers the whole class) and the
-                    // URL-loading attributes — the plugin points `src` at the rendered canvas blob
-                    // itself, so a copied `src`/`srcset` would only fetch an attacker-controlled URL.
+                    // The reconstructed <img> inherits only presentational attributes from the
+                    // recorded canvas. Skip inline event handlers (every handler is named
+                    // `on<event>`, so this covers the whole class) and the URL-loading attributes,
+                    // because the plugin points `src` at the rendered canvas blob itself, so a
+                    // copied `src`/`srcset` would only fetch an attacker-controlled URL.
                     if (name.startsWith('on') || name === 'src' || name === 'srcset') {
                         continue
                     }

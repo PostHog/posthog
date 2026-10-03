@@ -49,11 +49,15 @@ ARITHMETIC_OPERATIONS = {
 }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class Local:
     name: str
     depth: int
     is_captured: bool
+    # False between declaring a variable and compiling its initializer. The slot is reserved in
+    # self.locals but nothing has pushed a value onto the stack for it yet, so resolving a name to
+    # it emits a GET_LOCAL the VM cannot satisfy. See _reject_uninitialized_local.
+    initialized: bool = True
 
 
 @dataclasses.dataclass
@@ -162,15 +166,28 @@ class BytecodeCompiler(Visitor):
                 response.append(Operation.POP)
         return response
 
-    def _declare_local(self, name: str) -> int:
+    def _declare_local(self, name: str, initialized: bool = True) -> int:
         for local in reversed(self.locals):
             if local.depth < self.scope_depth:
                 break
             if local.name == name:
                 raise QueryError(f"Variable `{name}` already declared in this scope")
 
-        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
+        self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False, initialized=initialized))
         return len(self.locals) - 1
+
+    def _reject_uninitialized_local(self, local: Local):
+        # Reached when a name inside a variable's own initializer resolves to that variable, as in
+        # `let output := lower(output)` where `output` is also a global. The local shadows the outer
+        # name from the moment it is declared, so the reference compiles to its slot rather than to
+        # the global, and that slot holds no value yet. At runtime the VM then reads whatever sits
+        # at that stack position: past the top of the stack it raises IndexError, and within it an
+        # unrelated intermediate value is scored as if it were the variable. Neither is recoverable
+        # once compiled, so refuse it here instead.
+        if not local.initialized:
+            raise QueryError(
+                f"Variable `{local.name}` cannot be used inside its own declaration. Rename the new variable."
+            )
 
     def _declare_iife_local(self) -> int:
         # Clear it manually by running self.locals.pop()
@@ -350,6 +367,7 @@ class BytecodeCompiler(Visitor):
 
         for index, local in reversed(list(enumerate(self.enclosing.locals))):
             if local.name == name:
+                self._reject_uninitialized_local(local)
                 local.is_captured = True
                 return self._add_upvalue(index, True)
 
@@ -363,6 +381,7 @@ class BytecodeCompiler(Visitor):
         ops: list[str | int] = []
         for index, local in reversed(list(enumerate(self.locals))):
             if local.name == node.chain[0]:
+                self._reject_uninitialized_local(local)
                 ops = [Operation.GET_LOCAL, index]
                 break
 
@@ -430,7 +449,56 @@ class BytecodeCompiler(Visitor):
         else:
             raise QueryError(f"Constant type `{type(node.value)}` is not supported")
 
+    def _check_call_arity(self, node: ast.Call, arg_count: int) -> None:
+        # The VM rejects a wrong argument count at run time, so a caller that declares its functions
+        # gets the same check here, where the person writing the expression can see it.
+        if self.context.allowed_functions is None or node.name not in self.context.allowed_functions:
+            return
+        min_args, max_args = self.context.allowed_functions[node.name]
+        if min_args <= arg_count and (max_args is None or arg_count <= max_args):
+            return
+        if max_args is None:
+            expected = f"at least {min_args}"
+        elif min_args == max_args:
+            expected = f"exactly {min_args}"
+        else:
+            expected = f"{min_args} to {max_args}"
+        self.context.add_error(
+            start=node.start,
+            end=node.end,
+            message=f"Hog function `{node.name}` takes {expected} arguments, got {arg_count}",
+        )
+
+    def _names_a_variable(self, name: str) -> bool:
+        return any(local.name == name for local in self.locals) or self._resolve_upvalue(name) != -1
+
+    def _check_declared_call(self, node: ast.Call) -> None:
+        # Runs before the intrinsics below lower `if`, `sql` and the like, which otherwise never reach
+        # the generic check and would accept an argument count or a name the runtime does not have.
+        if self.context.allowed_functions is None or self._names_a_variable(node.name):
+            return
+        if node.name in self.supported_functions:
+            return
+        if node.name not in self.context.allowed_functions:
+            self.context.add_error(
+                start=node.start, end=node.end, message=f"Hog function `{node.name}` is not implemented"
+            )
+            return
+        arg_count = len(node.params if node.params is not None else node.args)
+        self._check_call_arity(node, arg_count)
+        # multiIf pairs every condition with a value and needs a last one to fall back to. An
+        # argument count is all the contract can carry, so it cannot say that, and an even count
+        # lowers into bytecode that leaves nothing to return when no condition matches.
+        if node.name == "multiIf" and arg_count > 3 and arg_count % 2 == 0:
+            self.context.add_error(
+                start=node.start,
+                end=node.end,
+                message=f"Hog function `multiIf` takes an odd number of arguments, got {arg_count}. "
+                f"Add a last value to fall back to.",
+            )
+
     def visit_call(self, node: ast.Call):
+        self._check_declared_call(node)
         if node.name == "not" and len(node.args) == 1:
             return [*self.visit(node.args[0]), Operation.NOT]
         if node.name == "and" and len(node.args) > 1:
@@ -510,10 +578,20 @@ class BytecodeCompiler(Visitor):
             if upvalue != -1:
                 response.extend([Operation.GET_UPVALUE, upvalue, Operation.CALL_LOCAL, len(args)])
             else:
-                if self.context.globals and node.name in self.context.globals:
+                # The VM resolves a direct call against its function tables only, never against
+                # the globals it was given. A caller that declares allowed_functions has named
+                # every function its runtime can invoke, so a data global of the same name is not
+                # one of them.
+                if (
+                    self.context.allowed_functions is None
+                    and self.context.globals
+                    and node.name in self.context.globals
+                ):
                     self.context.add_notice(
                         start=node.start, end=node.end, message="Global variable: " + str(node.name)
                     )
+                elif self.context.allowed_functions is not None:
+                    pass  # checked by _check_declared_call
                 elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
                     pass
                 else:
@@ -533,6 +611,19 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_expr_call(self, node: ast.ExprCall):
+        # `person.properties.email.startsWith('a')` parses as a call on a value. The runtime resolves
+        # the value, which is never a function, so a caller with a declared contract refuses it.
+        if (
+            self.context.allowed_functions is not None
+            and isinstance(node.expr, ast.Field)
+            and not self._names_a_variable(str(node.expr.chain[0]))
+        ):
+            self.context.add_error(
+                start=node.start,
+                end=node.end,
+                message=f"`{'.'.join(str(part) for part in node.expr.chain)}` is a value, not a function. "
+                f"Write the function name first, as in lower(properties.name)",
+            )
         response = []
         for expr in node.args:
             response.extend(self.visit(expr))
@@ -568,6 +659,12 @@ class BytecodeCompiler(Visitor):
         response = self.visit(node.expr)
         response.append(Operation.POP)
         return response
+
+    def visit_type_cast(self, node: ast.TypeCast) -> list[Any]:
+        raise QueryError("Type casts are not supported in Hog. Use a conversion function such as toInt instead.")
+
+    def visit_try_cast(self, node: ast.TryCast) -> list[Any]:
+        raise QueryError("try_cast is not supported in Hog. Use a conversion function such as toInt instead.")
 
     def visit_return_statement(self, node: ast.ReturnStatement):
         if node.expr:
@@ -818,10 +915,12 @@ class BytecodeCompiler(Visitor):
         return response
 
     def visit_variable_declaration(self, node: ast.VariableDeclaration):
-        self._declare_local(node.name)
-        if node.expr:
-            return self.visit(node.expr)
-        return [Operation.NULL]
+        # A lambda body runs after the assignment completes, so it may refer to the variable it is
+        # being assigned to and recurse. Any other initializer runs before the slot is filled.
+        index = self._declare_local(node.name, initialized=isinstance(node.expr, ast.Lambda))
+        response = self.visit(node.expr) if node.expr else [Operation.NULL]
+        self.locals[index].initialized = True
+        return response
 
     def visit_variable_assignment(self, node: ast.VariableAssignment):
         if isinstance(node.left, ast.TupleAccess):

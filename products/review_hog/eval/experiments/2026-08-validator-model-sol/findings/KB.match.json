@@ -1,0 +1,52 @@
+{
+    "KB1": {
+        "cluster": 39,
+        "confidence": "high",
+        "reason": "Same claim as cluster 39: find_task_run selects one row across all teams and the facade's post-hoc team_id recheck returns None instead of the requested team's matching run (the shadowing mode KA5/W8/T8 evaluated); runner-up cluster 73 is the branch-fallback binding an unrelated run."
+    },
+    "KB2": {
+        "cluster": 35,
+        "confidence": "high",
+        "reason": "Identical to cluster 35: _format_self_driving hard-codes the 'draft on purpose' provenance text, so a re-review after the PR is marked ready feeds the reviewer a false draft state; runner-up cluster 5 (trusted provenance rendered solely off the flag) is the broader framing."
+    },
+    "KB3": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same claim as cluster 58: the initial inbox dispatch is fire-and-forget, so a broker publish failure caught after commit leaves no durable record or retry and silently drops the initial review (KA13 precedent); runner-up cluster 54 is the unguarded .delay raising into the caller."
+    },
+    "KB4": {
+        "cluster": 58,
+        "confidence": "high",
+        "reason": "Same root cause as cluster 58's 'exhaustion of the task's three retries' angle (M6/L9): no durable reconciliation after process_inbox_pr_review's max_retries=3 is spent, recovery only via a later receiver refire; runner-up cluster 32 names the stranded-QUEUED symptom but via the disproven on_commit-ordering mechanism, which KB4 does not claim."
+    },
+    "KB5": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Same claim as cluster 2 in documentation form: process_inbox_pr_review stamps inbox_review from caller-supplied IDs with no PR-to-run linkage check, contradicting the AGENTS.md/activities.py assertion that both trigger paths verify linkage (cluster 2 already lists AGENTS.md:110 and L4 cites the false comment); runner-up cluster 17 (facade trusts caller-supplied acting_user_id) is narrower."
+    },
+    "KB6": {
+        "cluster": 2,
+        "confidence": "high",
+        "reason": "Identical to cluster 2 (KA10 precedent): the receiver leg trusts agent-writable output.pr_url and the supplied task/report IDs, skipping the bot, fork, task-linkage, and current-toggle checks the webhook leg performs, so an unrelated open PR can be stamped as an inbox review and approved; runner-up cluster 6 covers the downstream draft/bot gate keyed on the flag."
+    },
+    "KB7": {
+        "cluster": 1,
+        "confidence": "high",
+        "reason": "Same stale non-internal invariant as cluster 1: auto_start.py creates the implementation task with internal=True, and member W11 already identified the receiver's `if task.internal: return` guard at receivers.py:104 as killing both dispatches, so this is the receiver-leg face of the same issue rather than a new one."
+    },
+    "KB8": {
+        "cluster": 57,
+        "confidence": "high",
+        "reason": "Identical to cluster 57 (KA4 precedent): both the initial dispatch and the webhook resolver check only the single selected acting reviewer's toggle, so another assigned reviewer's opt-in is ignored."
+    },
+    "KB9": {
+        "cluster": 9,
+        "confidence": "high",
+        "reason": "Identical to cluster 9: process_inbox_pr_review performs a live GitHub get_pr on every receiver refire before the head-keyed dedupe, wasting rate limit and Celery capacity; runner-up cluster 69 is the unconditional broker round trip for teams without Stamphog."
+    },
+    "KB10": {
+        "cluster": 31,
+        "confidence": "high",
+        "reason": "Identical to cluster 31 (KA1 precedent): the toggle is checked at queue time in the receiver and process_inbox_pr_review never re-resolves the acting reviewer's current setting, so a review can run and approve after the user opts out."
+    }
+}

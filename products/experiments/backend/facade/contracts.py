@@ -7,7 +7,90 @@ between the experiments product and the rest of the system.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.schema import MaxExperimentSummaryContext
+
+# Metrics per section (primary/secondary) included in the AI results summary
+MAX_METRICS_TO_SUMMARIZE = 50
+
+
+@frozen
+class ExperimentSummaryData:
+    """Result of fetching experiment data for the AI results summary."""
+
+    context: "MaxExperimentSummaryContext"
+    last_refresh: datetime | None
+    pending_calculation: bool
+    omitted_metric_count: int
+
+
+@frozen
+class TargetableExperiment:
+    """A launched experiment whose exposed sessions a replay surface can narrow to."""
+
+    id: int
+    name: str
+    description: str
+    # The variant keys a caller may ask for, excluded variants already removed.
+    variants: tuple[str, ...]
+
+
+@frozen
+class ExperimentVariantPromptContext:
+    """One variant, as an LLM prompt describes it."""
+
+    key: str
+    # The flag variant's display name, which the experiment UI treats as the variant's description.
+    description: str
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentPromptContext:
+    """What an LLM prompt needs to describe an experiment and the change under test."""
+
+    id: int
+    name: str
+    # The experiment's description field, which carries the hypothesis and expected outcomes.
+    description: str
+    feature_flag_key: str
+    # Requestable variants only, excluded variants already removed.
+    variants: tuple[ExperimentVariantPromptContext, ...]
+    primary_metric_names: tuple[str, ...]
+
+
+@frozen
+class SessionAttribution:
+    """One person's attribution in an experiment's exposed population, as the analysis buckets it."""
+
+    variant: str
+    # The person's earliest exposure in the experiment window. A session that ended before this
+    # predates the exposure, so surfaces comparing variants must not count it.
+    first_exposure_time: datetime | None
+
+
+@frozen
+class ExperimentStatus:
+    """The lifecycle facts a replay surface reads to decide whether an experiment is still worth watching."""
+
+    # Public status string: draft, running, paused, exposure_frozen, or stopped.
+    status: str
+    start_date: datetime | None
+    end_date: datetime | None
+    archived: bool
+    # The running-time calculator's recommended length in days, when one was set.
+    planned_duration_days: float | None
+
+    @property
+    def is_active(self) -> bool:
+        """True until the experiment ends or is archived. A paused experiment (its flag turned
+        off) stays active: it collects no exposures while paused, but it resumes without a
+        lifecycle change, so a watcher should keep watching."""
+        return self.start_date is not None and self.end_date is None and not self.archived
 
 
 @dataclass(frozen=True)

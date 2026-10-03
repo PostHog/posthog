@@ -91,19 +91,50 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
+    async fn delete_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Err(self.error.clone())
     }
 
-    async fn delete_persons_batch_for_team(
+    async fn delete_tombstoned_persons(
         &self,
         _team_id: i64,
-        _batch_size: i64,
+        _uuids: &[Uuid],
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
+        Err(self.error.clone())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Err(self.error.clone())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
     ) -> storage::StorageResult<i64> {
         Err(self.error.clone())
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Err(self.error.clone())
+    }
+
+    async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -147,6 +178,7 @@ impl storage::DistinctIdLookup for FailingStorage {
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Err(self.error.clone())
     }
@@ -473,19 +505,50 @@ impl storage::PersonLookup for SuccessStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
-    }
-
-    async fn delete_persons_batch_for_team(
+    async fn delete_persons(
         &self,
         _team_id: i64,
-        _batch_size: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
+        Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Ok(Vec::new())
+    }
+
+    async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -529,6 +592,7 @@ impl storage::DistinctIdLookup for SuccessStorage {
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Ok(Vec::new())
     }
@@ -914,19 +978,50 @@ impl storage::PersonLookup for PopulatedStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
-    }
-
-    async fn delete_persons_batch_for_team(
+    async fn delete_persons(
         &self,
         _team_id: i64,
-        _batch_size: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
+        Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Ok(Vec::new())
+    }
+
+    async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -970,6 +1065,7 @@ impl storage::DistinctIdLookup for PopulatedStorage {
         _person_id: i64,
         _consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         Ok(Vec::new())
     }
@@ -1331,19 +1427,50 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
             .collect())
     }
 
-    async fn delete_persons(&self, _team_id: i64, _uuids: &[Uuid]) -> storage::StorageResult<i64> {
-        Ok(0)
-    }
-
-    async fn delete_persons_batch_for_team(
+    async fn delete_persons(
         &self,
         _team_id: i64,
-        _batch_size: i64,
+        _uuids: &[Uuid],
+        _mode: storage::DeletePersonsMode,
+    ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
+        Ok(storage::DeletePersonsOutcome::default())
+    }
+
+    async fn delete_tombstoned_persons(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+        _max_rows: i64,
+    ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
+        Ok(storage::TombstonedDeleteOutcome::default())
+    }
+
+    async fn get_person_tombstones(
+        &self,
+        _team_id: i64,
+        _uuids: &[Uuid],
+    ) -> storage::StorageResult<Vec<storage::types::TombstonedPerson>> {
+        Ok(Vec::new())
+    }
+
+    async fn ack_person_tombstones(
+        &self,
+        _team_id: i64,
+        _acked: &[(Uuid, i64)],
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
+    async fn list_person_tombstone_queue(
+        &self,
+        _after: (i64, Uuid),
+        _team_id: Option<i64>,
+        _limit: i64,
+    ) -> storage::StorageResult<Vec<storage::types::PersonTombstoneQueueEntry>> {
+        Ok(Vec::new())
+    }
+
+    async fn delete_persons_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -1387,6 +1514,7 @@ impl storage::DistinctIdLookup for ConsistencyTrackingStorage {
         _person_id: i64,
         consistency: storage::postgres::ConsistencyLevel,
         _limit: Option<i64>,
+        _cursor_id: Option<i64>,
     ) -> storage::StorageResult<Vec<storage::DistinctIdWithVersion>> {
         self.record(consistency);
         Ok(Vec::new())

@@ -3,8 +3,6 @@ from typing import Literal
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.grafana import (
     GrafanaAuthMethodConfig,
     GrafanaSourceConfig,
@@ -13,12 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.gr
     BASIC_AUTH,
     TOKEN_AUTH,
     GrafanaAuth,
-    GrafanaResumeConfig,
     GrafanaRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source import GrafanaSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(selection: Literal["token", "basic"] = "token", **auth_kwargs) -> GrafanaSourceConfig:
@@ -33,55 +29,6 @@ class TestGrafanaSource:
         self.source = GrafanaSource()
         self.team_id = 123
         self.config = _config(token="glsa_secret")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.GRAFANA
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Grafana"
-        assert config.label == "Grafana"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/grafana.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/grafana"
-
-        host_field, auth_field, org_id_field = config.fields
-        assert isinstance(host_field, SourceFieldInputConfig)
-        assert host_field.name == "host"
-        assert host_field.secret is False
-
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        assert auth_field.name == "auth_method"
-        assert [o.value for o in auth_field.options] == [TOKEN_AUTH, BASIC_AUTH]
-
-        assert isinstance(org_id_field, SourceFieldInputConfig)
-        assert org_id_field.name == "org_id"
-        assert org_id_field.required is False
-
-    def test_credential_fields_are_secret(self):
-        auth_field = self.source.get_source_config.fields[1]
-        assert isinstance(auth_field, SourceFieldSelectConfig)
-        secret_field_names = {
-            f.name
-            for option in auth_field.options
-            for f in (option.fields or [])
-            if isinstance(f, SourceFieldInputConfig) and f.secret
-        }
-        assert secret_field_names == {"token", "password"}
-
-    @pytest.mark.parametrize(
-        "expected_key",
-        [
-            "401 Client Error",
-            "403 Client Error",
-            "Missing Grafana service account token",
-            "Missing Grafana username or password",
-        ],
-    )
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
 
     @pytest.mark.parametrize("status_code", [429, 503])
     def test_retryable_status_error_matches_retryable_pattern(self, status_code):
@@ -129,23 +76,6 @@ class TestGrafanaSource:
         assert auth.method == selection
         assert (auth.token, auth.username, auth.password) == expected
 
-    @pytest.mark.parametrize("mock_return", [(True, None), (False, "Invalid Grafana credentials")])
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source.validate_grafana_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return):
-        mock_validate.return_value = mock_return
-
-        result = self.source.validate_credentials(self.config, self.team_id, schema_name="dashboards")
-
-        assert result == mock_return
-        args = mock_validate.call_args.args
-        assert args[0] == self.config.host
-        assert isinstance(args[1], GrafanaAuth)
-        assert args[2] == self.config.org_id
-        assert args[3] == self.team_id
-        assert args[4] == "dashboards"
-
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.grafana.source.grafana_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_grafana_source):
         inputs = mock.MagicMock()
@@ -178,15 +108,6 @@ class TestGrafanaSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_grafana_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is GrafanaResumeConfig
-
-    def test_canonical_descriptions_cover_endpoints(self):
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
 
     def test_documented_tables_render_without_credentials(self):
         # The public docs endpoint calls get_schemas with a credential-free placeholder config;

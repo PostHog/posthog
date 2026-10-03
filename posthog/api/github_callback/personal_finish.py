@@ -9,6 +9,7 @@ import requests
 import structlog
 
 from posthog.api.github_callback import state
+from posthog.api.github_callback.install_requests import record_install_request
 from posthog.api.github_callback.types import (
     FinishResult,
     FlowKind,
@@ -58,6 +59,15 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     connect_from_value = authorize_state.connect_from
     flow = authorize_state.flow
     installation_ids: list[str] = []
+    redirect_uri = github_oauth_redirect_uri() if flow.is_oauth_redirect else None
+
+    if request.GET.get("setup_action") == "request" and not request.GET.get("installation_id"):
+        # Not an org owner: GitHub only requested approval instead of installing. It still
+        # sends an OAuth `code` when the App asks for user authorization on install, so this
+        # has to be checked before the code branches. Same code the team flow surfaces, so
+        # the desktop treats both paths as one pending state.
+        record_install_request(user, code, redirect_uri=redirect_uri)
+        return _error("github_install_pending")
 
     if not code:
         # GitHub omits the OAuth `code` when the App is already installed on the
@@ -71,6 +81,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=discover_token,
                     flow=FlowKind.OAUTH_DISCOVER,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),
@@ -107,7 +119,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
             installation_ids = [installation_id]
 
     if flow.is_oauth_redirect:
-        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=github_oauth_redirect_uri())
+        authorization = GitHubIntegration.github_user_from_code(code, redirect_uri=redirect_uri)
     else:
         authorization = GitHubIntegration.github_user_from_code(code)
     if authorization is None:
@@ -142,6 +154,8 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 GitHubAuthorizeState(
                     token=token,
                     flow=FlowKind.PERSONAL_INSTALL,
+                    originating_organization_id=authorize_state.originating_organization_id,
+                    flow_id=authorize_state.flow_id,
                     user_id=user.id,
                     connect_from=connect_from_value,
                 ),
@@ -185,7 +199,12 @@ def finish_personal(request: HttpRequest) -> FinishResult:
                 logger.warning("github_link: failed to fetch installation info", exc_info=True)
             return _error(exc.code)
 
-        user_github_integration_from_installation(user, installation_access, authorization)
+        user_github_integration_from_installation(
+            user,
+            installation_access,
+            authorization,
+            originating_organization_id=authorize_state.originating_organization_id,
+        )
 
     if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])

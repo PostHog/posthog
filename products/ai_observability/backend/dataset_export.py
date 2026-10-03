@@ -10,8 +10,8 @@ from uuid import UUID
 from django.db.models import Q, QuerySet
 
 from posthog.permissions import posthog_feature_flag_value
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.dataset_limits import MAX_DATASET_EXPORT_BYTES, MAX_DATASET_EXPORT_MEGABYTES
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision

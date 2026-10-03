@@ -1,6 +1,4 @@
-import { type ReactNode } from 'react'
-
-import { LemonBanner, LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -56,135 +54,6 @@ export function validateAzureContainerName(name: string | undefined): string | u
     return undefined
 }
 
-// S3-family region list spanning AWS, Google Cloud Storage, Cloudflare R2, and OVHcloud. Non-AWS
-// entries are prefixed with their provider; AWS-style codes are left bare because S3-compatible
-// providers (MinIO, Wasabi, etc.) commonly reuse them (e.g. `us-east-1`) as a default region.
-export const S3_REGION_OPTIONS: { value: string; label: string }[] = [
-    // AWS
-    { value: 'us-east-1', label: 'US East (N. Virginia)' },
-    { value: 'us-east-2', label: 'US East (Ohio)' },
-    { value: 'us-west-1', label: 'US West (N. California)' },
-    { value: 'us-west-2', label: 'US West (Oregon)' },
-    { value: 'af-south-1', label: 'Africa (Cape Town)' },
-    { value: 'ap-east-1', label: 'Asia Pacific (Hong Kong)' },
-    { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
-    { value: 'ap-northeast-3', label: 'Asia Pacific (Osaka-Local)' },
-    { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
-    { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
-    { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
-    { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
-    { value: 'ca-central-1', label: 'Canada (Central)' },
-    { value: 'cn-north-1', label: 'China (Beijing)' },
-    { value: 'cn-northwest-1', label: 'China (Ningxia)' },
-    { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
-    { value: 'eu-west-1', label: 'Europe (Ireland)' },
-    { value: 'eu-west-2', label: 'Europe (London)' },
-    { value: 'eu-south-1', label: 'Europe (Milan)' },
-    { value: 'eu-west-3', label: 'Europe (Paris)' },
-    { value: 'eu-north-1', label: 'Europe (Stockholm)' },
-    { value: 'me-east-1', label: 'Middle East (Dubai)' },
-    { value: 'me-south-1', label: 'Middle East (Bahrain)' },
-    { value: 'me-central-1', label: 'Middle East (Riyadh)' },
-    { value: 'sa-east-1', label: 'South America (São Paulo)' },
-    // Google Cloud Storage (via the S3-compatible XML API). https://docs.cloud.google.com/storage/docs/locations
-    { value: 'northamerica-northeast1', label: 'GCP — Montréal (northamerica-northeast1)' },
-    { value: 'northamerica-northeast2', label: 'GCP — Toronto (northamerica-northeast2)' },
-    { value: 'northamerica-south1', label: 'GCP — Querétaro (northamerica-south1)' },
-    { value: 'us-central1', label: 'GCP — Iowa (us-central1)' },
-    { value: 'us-east1', label: 'GCP — South Carolina (us-east1)' },
-    { value: 'us-east4', label: 'GCP — Northern Virginia (us-east4)' },
-    { value: 'us-east5', label: 'GCP — Columbus (us-east5)' },
-    { value: 'us-south1', label: 'GCP — Dallas (us-south1)' },
-    { value: 'us-west1', label: 'GCP — Oregon (us-west1)' },
-    { value: 'us-west2', label: 'GCP — Los Angeles (us-west2)' },
-    { value: 'us-west3', label: 'GCP — Salt Lake City (us-west3)' },
-    { value: 'us-west4', label: 'GCP — Las Vegas (us-west4)' },
-    { value: 'southamerica-east1', label: 'GCP — São Paulo (southamerica-east1)' },
-    { value: 'southamerica-west1', label: 'GCP — Santiago (southamerica-west1)' },
-    { value: 'europe-central2', label: 'GCP — Warsaw (europe-central2)' },
-    { value: 'europe-north1', label: 'GCP — Finland (europe-north1)' },
-    { value: 'europe-north2', label: 'GCP — Stockholm (europe-north2)' },
-    { value: 'europe-southwest1', label: 'GCP — Madrid (europe-southwest1)' },
-    { value: 'europe-west1', label: 'GCP — Belgium (europe-west1)' },
-    { value: 'europe-west2', label: 'GCP — London (europe-west2)' },
-    { value: 'europe-west3', label: 'GCP — Frankfurt (europe-west3)' },
-    { value: 'europe-west4', label: 'GCP — Netherlands (europe-west4)' },
-    { value: 'europe-west6', label: 'GCP — Zürich (europe-west6)' },
-    { value: 'europe-west8', label: 'GCP — Milan (europe-west8)' },
-    { value: 'europe-west9', label: 'GCP — Paris (europe-west9)' },
-    { value: 'europe-west10', label: 'GCP — Berlin (europe-west10)' },
-    { value: 'europe-west12', label: 'GCP — Turin (europe-west12)' },
-    { value: 'asia-east1', label: 'GCP — Taiwan (asia-east1)' },
-    { value: 'asia-east2', label: 'GCP — Hong Kong (asia-east2)' },
-    { value: 'asia-northeast1', label: 'GCP — Tokyo (asia-northeast1)' },
-    { value: 'asia-northeast2', label: 'GCP — Osaka (asia-northeast2)' },
-    { value: 'asia-northeast3', label: 'GCP — Seoul (asia-northeast3)' },
-    { value: 'asia-south1', label: 'GCP — Mumbai (asia-south1)' },
-    { value: 'asia-south2', label: 'GCP — Delhi (asia-south2)' },
-    { value: 'asia-southeast1', label: 'GCP — Singapore (asia-southeast1)' },
-    { value: 'asia-southeast2', label: 'GCP — Jakarta (asia-southeast2)' },
-    { value: 'asia-southeast3', label: 'GCP — Bangkok (asia-southeast3)' },
-    { value: 'me-central1', label: 'GCP — Doha (me-central1)' },
-    { value: 'me-central2', label: 'GCP — Dammam (me-central2)' },
-    { value: 'me-west1', label: 'GCP — Tel Aviv (me-west1)' },
-    { value: 'australia-southeast1', label: 'GCP — Sydney (australia-southeast1)' },
-    { value: 'australia-southeast2', label: 'GCP — Melbourne (australia-southeast2)' },
-    { value: 'africa-south1', label: 'GCP — Johannesburg (africa-south1)' },
-    { value: 'US', label: 'GCP — US (multi-region)' },
-    { value: 'EU', label: 'GCP — EU (multi-region)' },
-    { value: 'ASIA', label: 'GCP — Asia (multi-region)' },
-    // Cloudflare R2 (location hints)
-    { value: 'auto', label: 'Cloudflare R2 — Automatic (AUTO)' },
-    { value: 'apac', label: 'Cloudflare R2 — Asia Pacific (APAC)' },
-    { value: 'eeur', label: 'Cloudflare R2 — Eastern Europe (EEUR)' },
-    { value: 'enam', label: 'Cloudflare R2 — Eastern North America (ENAM)' },
-    { value: 'oc', label: 'Cloudflare R2 — Oceania (OC)' },
-    { value: 'weur', label: 'Cloudflare R2 — Western Europe (WEUR)' },
-    { value: 'wnam', label: 'Cloudflare R2 — Western North America (WNAM)' },
-    // OVHcloud
-    { value: 'gra', label: 'OVH — Gravelines (GRA)' },
-    { value: 'rbx', label: 'OVH — Roubaix (RBX)' },
-    { value: 'sbg', label: 'OVH — Strasbourg (SBG)' },
-    { value: 'eu-west-par', label: 'OVH — Paris (PAR)' },
-    { value: 'eu-south-mil', label: 'OVH — Milan (MIL)' },
-    { value: 'de', label: 'OVH — Frankfurt (DE)' },
-    { value: 'uk', label: 'OVH — London (UK)' },
-    { value: 'waw', label: 'OVH — Warsaw (WAW)' },
-    { value: 'bhs', label: 'OVH — Beauharnois (BHS)' },
-    { value: 'ca-east-tor', label: 'OVH — Toronto (TOR)' },
-    { value: 'sgp', label: 'OVH — Singapore (SGP)' },
-    { value: 'ap-southeast-syd', label: 'OVH — Sydney (SYD)' },
-    { value: 'ap-south-mum', label: 'OVH — Mumbai (MUM)' },
-]
-
-// AWS-only region subset used for the Redshift COPY S3 staging bucket.
-export const AWS_ONLY_REGION_OPTIONS: { value: string; label: string }[] = [
-    { value: 'us-east-1', label: 'US East (N. Virginia)' },
-    { value: 'us-east-2', label: 'US East (Ohio)' },
-    { value: 'us-west-1', label: 'US West (N. California)' },
-    { value: 'us-west-2', label: 'US West (Oregon)' },
-    { value: 'af-south-1', label: 'Africa (Cape Town)' },
-    { value: 'ap-east-1', label: 'Asia Pacific (Hong Kong)' },
-    { value: 'ap-south-1', label: 'Asia Pacific (Mumbai)' },
-    { value: 'ap-northeast-3', label: 'Asia Pacific (Osaka-Local)' },
-    { value: 'ap-northeast-2', label: 'Asia Pacific (Seoul)' },
-    { value: 'ap-southeast-1', label: 'Asia Pacific (Singapore)' },
-    { value: 'ap-southeast-2', label: 'Asia Pacific (Sydney)' },
-    { value: 'ap-northeast-1', label: 'Asia Pacific (Tokyo)' },
-    { value: 'ca-central-1', label: 'Canada (Central)' },
-    { value: 'cn-north-1', label: 'China (Beijing)' },
-    { value: 'cn-northwest-1', label: 'China (Ningxia)' },
-    { value: 'eu-central-1', label: 'Europe (Frankfurt)' },
-    { value: 'eu-west-1', label: 'Europe (Ireland)' },
-    { value: 'eu-west-2', label: 'Europe (London)' },
-    { value: 'eu-south-1', label: 'Europe (Milan)' },
-    { value: 'eu-west-3', label: 'Europe (Paris)' },
-    { value: 'eu-north-1', label: 'Europe (Stockholm)' },
-    { value: 'me-south-1', label: 'Middle East (Bahrain)' },
-    { value: 'me-central-1', label: 'Middle East (Riyadh)' },
-    { value: 'sa-east-1', label: 'South America (São Paulo)' },
-]
-
 export const FILE_FORMAT_OPTIONS: { value: string; label: string }[] = [
     { value: 'Parquet', label: 'Apache Parquet' },
     { value: 'JSONLines', label: 'JSON lines' },
@@ -204,6 +73,15 @@ const JSONLINES_COMPRESSION_OPTIONS = [
     { value: 'brotli', label: 'brotli' },
     { value: null, label: 'No compression' },
 ]
+
+// Mirrors COMPRESSION_EXTENSIONS in the backend's destinations/constants.py.
+const COMPRESSION_EXTENSIONS: Record<string, string> = {
+    gzip: 'gz',
+    snappy: 'sz',
+    brotli: 'br',
+    zstd: 'zst',
+    lz4: 'lz4',
+}
 
 export function isSelectedCompressionOptionValid(fileFormat: string | undefined, value: string | null): boolean {
     if (fileFormat === 'Parquet') {
@@ -244,6 +122,67 @@ export function FileFormatField(): JSX.Element {
             info="We recommend Parquet with zstd compression for the best performance"
         >
             <LemonSelect options={FILE_FORMAT_OPTIONS} />
+        </LemonField>
+    )
+}
+
+interface ParquetExtensionFieldProps {
+    isNew: boolean
+    fileFormat: string | undefined
+    compression: string | null | undefined
+    savedConfig?: Record<string, any> | null
+}
+
+// The setting only changes a name that carries a codec, so it needs compressed Parquet on both
+// sides: the form values say what the export is about to write, `savedConfig` what it has been
+// writing. Without a codec the name is `.parquet` either way and the switch would do nothing.
+//
+// Reading the saved side also stops the field disappearing the moment the user switches it on.
+export function shouldShowParquetExtensionField({
+    isNew,
+    fileFormat,
+    compression,
+    savedConfig,
+}: ParquetExtensionFieldProps): boolean {
+    if (isNew || fileFormat !== 'Parquet' || !compression || !COMPRESSION_EXTENSIONS[compression]) {
+        return false
+    }
+    const wroteCompressedParquet = savedConfig?.file_format === 'Parquet' && !!savedConfig.compression
+    return wroteCompressedParquet && savedConfig?.legacy_parquet_extension !== false
+}
+
+export function ParquetExtensionField(props: ParquetExtensionFieldProps): JSX.Element | null {
+    if (!shouldShowParquetExtensionField(props)) {
+        return null
+    }
+
+    const legacyExtension = `.parquet.${COMPRESSION_EXTENSIONS[props.compression as string]}`
+
+    return (
+        <LemonField
+            name="legacy_parquet_extension"
+            label="File extension"
+            help="Note: switching this on cannot be undone; after you save, the setting no longer appears for this export."
+            info={
+                <>
+                    Parquet records the compression codec inside the file, so the standard extension is{' '}
+                    <code>.parquet</code> regardless of the codec. This export writes <code>{legacyExtension}</code>{' '}
+                    instead. Turn this on to name new files <code>.parquet</code>. Files already exported keep their
+                    names.
+                </>
+            }
+        >
+            {({ value, onChange }) => (
+                <LemonSwitch
+                    label={`Use the standard .parquet extension rather than ${legacyExtension}`}
+                    // The stored setting names the legacy behaviour, so the switch reads the other
+                    // way round: turning it on opts the export out of that behaviour.
+                    checked={value === false}
+                    onChange={(checked) => onChange(!checked)}
+                    fullWidth
+                    bordered
+                />
+            )}
         </LemonField>
     )
 }
@@ -290,70 +229,41 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
     },
 }
 
-// Shared form fields for the S3-family destinations (S3 legacy, AwsS3, S3Compatible). Per-destination
-// definitions toggle the AWS-only (encryption/KMS) and S3-compatible-only (endpoint/virtual-style)
-// blocks and supply the region option set; everything else is identical.
+// Shared form fields for the AwsS3 and S3Compatible destinations. Per-destination definitions toggle
+// the AWS-only (encryption/KMS) and S3-compatible-only (virtual-style) blocks and supply the region
+// option set; everything else is identical.
 //
-// New AwsS3/S3Compatible exports authenticate via a linked Integration (pass `integrationKind`);
-// grandfathered exports created before integrations existed keep their inline credential UI, detected
-// by the absence of a linked integration. Mirrors the Postgres destination's `useIntegration` pattern.
+// Credentials, and the endpoint URL for S3-compatible providers, live in the linked Integration, so
+// this form only picks the integration.
 export function S3FamilyFields({
     isNew,
     formValues,
+    savedConfig,
     regionOptions,
-    awsBranded,
     allowCustomRegion = false,
     showEncryption,
-    showEndpointUrl,
-    endpointUrlRequired = false,
     showVirtualStyleAddressing,
-    endpointHelpText,
     integrationKind,
-    migrationNotice,
 }: {
     isNew: boolean
     formValues: Record<string, any>
+    savedConfig?: Record<string, any> | null
     regionOptions: { value: string; label: string }[]
-    // Prefix the credential labels with "AWS" — only true for AWS S3, not the S3-compatible catch-all.
-    awsBranded: boolean
     // Let users type a region not in the preset list. True for the S3-compatible catch-all, where we
     // can't enumerate every provider's regions; false for AWS S3, whose regions are a closed set.
     allowCustomRegion?: boolean
     showEncryption: boolean
-    showEndpointUrl: boolean
-    endpointUrlRequired?: boolean
     showVirtualStyleAddressing: boolean
-    endpointHelpText?: ReactNode
-    // When set, this destination authenticates via an Integration of this kind. The credential and
-    // endpoint inputs are replaced by an integration picker for new and integration-backed exports.
-    integrationKind?: IntegrationKind
-    // Banner shown above the fields whenever the inline (non-integration) UI is rendered — used to
-    // tell users the export will be migrated to integrations automatically.
-    migrationNotice?: ReactNode
+    // This destination authenticates via an Integration of this kind.
+    integrationKind: IntegrationKind
 }): JSX.Element {
-    // New exports must pick an integration; existing ones keep whatever they were created with.
-    const useIntegration = !!integrationKind && (isNew || !!formValues.integration_id)
-
-    // The KMS key is a config field (not a credential) that only applies to aws:kms encryption. With
-    // inline credentials it sits in the credentials row; in the integration form that row is gone, so
-    // it's surfaced next to the encryption select instead. Rendered in exactly one place either way.
-    const kmsKeyIdField = showEncryption && formValues.encryption == 'aws:kms' && (
-        <LemonField name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
-            <LemonInput placeholder={isNew ? 'e.g. 1234abcd-12ab-34cd-56ef-1234567890ab' : 'leave unchanged'} />
-        </LemonField>
-    )
-
     return (
         <>
-            {!useIntegration && migrationNotice ? <LemonBanner type="warning">{migrationNotice}</LemonBanner> : null}
-
-            {useIntegration && integrationKind ? (
-                <LemonField name="integration_id" label="Integration">
-                    {({ value, onChange }) => (
-                        <IntegrationChoice integration={integrationKind} value={value} onChange={onChange} />
-                    )}
-                </LemonField>
-            ) : null}
+            <LemonField name="integration_id" label="Integration">
+                {({ value, onChange }) => (
+                    <IntegrationChoice integration={integrationKind} value={value} onChange={onChange} />
+                )}
+            </LemonField>
 
             <div className="flex gap-4">
                 <LemonField name="bucket_name" label="Bucket" className="flex-1">
@@ -416,64 +326,27 @@ export function S3FamilyFields({
                     </LemonField>
                 )}
 
-                {/* With an integration the credentials row is hidden, so the KMS key lives here instead. */}
-                {useIntegration && kmsKeyIdField}
+                {/* The KMS key is config, not a credential, and only applies to aws:kms encryption. */}
+                {showEncryption && formValues.encryption == 'aws:kms' && (
+                    <LemonField name="kms_key_id" label="AWS KMS Key ID" className="flex-1">
+                        <LemonInput
+                            placeholder={isNew ? 'e.g. 1234abcd-12ab-34cd-56ef-1234567890ab' : 'leave unchanged'}
+                        />
+                    </LemonField>
+                )}
             </div>
 
-            {!useIntegration && (
-                <div className="flex gap-4">
-                    <LemonField
-                        name="aws_access_key_id"
-                        label={awsBranded ? 'AWS Access Key ID' : 'Access Key ID'}
-                        className="flex-1"
-                    >
-                        <LemonInput
-                            placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
-                            autoComplete="off"
-                        />
-                    </LemonField>
-
-                    <LemonField
-                        name="aws_secret_access_key"
-                        label={awsBranded ? 'AWS Secret Access Key' : 'Secret Access Key'}
-                        className="flex-1"
-                    >
-                        <LemonInput
-                            placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
-                            type="password"
-                            autoComplete="new-password"
-                        />
-                    </LemonField>
-
-                    {kmsKeyIdField}
-                </div>
-            )}
-
-            {!useIntegration && showEndpointUrl && (
-                <LemonField
-                    name="endpoint_url"
-                    label="Endpoint URL"
-                    showOptional={!endpointUrlRequired}
-                    info={
-                        endpointHelpText ?? (
-                            <>
-                                The endpoint URL corresponding to your provider (e.g. Cloudflare R2, DigitalOcean
-                                Spaces, Supabase, etc.). Works with any S3-compatible storage.
-                            </>
-                        )
-                    }
-                >
-                    <LemonInput
-                        placeholder={isNew ? 'e.g. https://<account-id>.r2.cloudflarestorage.com' : 'Leave unchanged'}
-                    />
-                </LemonField>
-            )}
+            <ParquetExtensionField
+                isNew={isNew}
+                fileFormat={formValues.file_format}
+                compression={formValues.compression}
+                savedConfig={savedConfig}
+            />
 
             {showVirtualStyleAddressing && (
                 <LemonField
                     name="use_virtual_style_addressing"
                     label="Virtual style addressing"
-                    showOptional
                     info={
                         <>
                             Some non-AWS S3-compatible destinations may require this setting enabled. Check your

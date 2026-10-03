@@ -36,17 +36,18 @@ body.ExporterBody {
         }
 
         @include screen($md) {
-            display: flex;
-            gap: 1rem;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 50%) minmax(0, 1fr);
             align-items: center;
-            justify-content: space-between;
 
             .SharedDashboard-header-title {
-                max-width: 50%;
+                grid-column: 2;
                 text-align: center;
             }
 
             .SharedDashboard-header-team {
+                grid-column: 3;
+                justify-self: end;
                 margin-top: 0;
             }
         }

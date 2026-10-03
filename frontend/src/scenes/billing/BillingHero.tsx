@@ -130,7 +130,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                     .
                 </p>
                 <p className="text-xs text-secondary mb-0">
-                    Credits can't be used for every product and tool. Check{' '}
+                    Credits can't be used for every product. Check{' '}
                     <Link to="https://posthog.com/startups" target="_blank">
                         posthog.com/startups
                     </Link>{' '}
@@ -145,7 +145,10 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
         backgroundColor: 'bg-warning-highlight',
         getDescription: (_billingPlan: BillingPlan, scrollToProduct: (productType: string) => void) => (
             <>
-                <p>You'll get $50K in credits every year, forever. Your credits will renew automatically.</p>
+                <p>
+                    You'll get $50K in credits every year, forever, until you hit $25M in funding. Your credits will
+                    renew automatically.
+                </p>
                 <p>
                     If you're growing like crazy, you might want to check out our{' '}
                     {scrollToProduct ? (
@@ -156,7 +159,7 @@ const BADGE_CONFIG: Record<BillingPlan | StartupProgramLabel, CopyVariation> = {
                     .
                 </p>
                 <p className="text-xs text-secondary mb-0">
-                    Credits can't be used for every product and tool. Check{' '}
+                    Credits can't be used for every product. Check{' '}
                     <Link to="https://posthog.com/startups" target="_blank">
                         posthog.com/startups
                     </Link>{' '}

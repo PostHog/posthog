@@ -90,7 +90,7 @@ export const CompactIssuesList: Story = {
         data: buildData(),
         layout: 'compact',
         xAxis: 'minimal',
-        className: 'w-[200px] h-10',
+        className: 'w-[200px] h-20',
     },
 }
 

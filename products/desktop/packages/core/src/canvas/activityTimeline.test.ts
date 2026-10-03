@@ -318,6 +318,8 @@ describe("activity events", () => {
         artifactType: "",
         version: 1,
         runId: null,
+        referenceType: null,
+        objectKind: null,
       },
     });
   });
@@ -345,6 +347,33 @@ describe("activity events", () => {
       ).toBeNull();
     },
   );
+
+  it("keeps PostHog reference artifacts in the timeline", () => {
+    expect(
+      parseActivityEvent({
+        event: "artifact_created",
+        payload: {
+          artifact_id: "phref-1",
+          name: "Checkout funnel",
+          artifact_type: "reference",
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          run_id: "run-1",
+        },
+      }),
+    ).toEqual({
+      kind: "artifact_created",
+      payload: {
+        artifactId: "phref-1",
+        name: "Checkout funnel",
+        artifactType: "reference",
+        version: 1,
+        runId: "run-1",
+        referenceType: "posthog_object",
+        objectKind: "insight",
+      },
+    });
+  });
 
   it("drops a pull request event with no url, since it can't be opened", () => {
     expect(parseActivityEvent({ event: "pr_merged", payload: {} })).toBeNull();

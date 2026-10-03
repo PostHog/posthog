@@ -1,3 +1,4 @@
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
     apply_dashboard_variables_to_dict,
@@ -5,10 +6,10 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.insight.query_executor import execute_and_format_query
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
@@ -23,6 +24,9 @@ class InsightContext:
 
     Accepts insight data directly and provides methods to format schema or execute and format results.
     Supports optional dashboard filter/variable overrides before execution.
+
+    `insight_id` is only the identifier shown to the model; `insight_short_id` is the one that resolves to a
+    URL, so an ephemeral artifact passes the former and leaves the latter unset.
     """
 
     def __init__(
@@ -40,9 +44,13 @@ class InsightContext:
         dashboard_filters: dict | None = None,
         filters_override: dict | None = None,
         variables_override: dict | None = None,
-    ):
+        event_source: EventSource = EventSource.POSTHOG_AI,
+        max_sql_result_chars: int | None = None,
+    ) -> None:
         self.team = team
         self.user = user
+        self.event_source = event_source
+        self.max_sql_result_chars = max_sql_result_chars
         self.query = query
         self.name = name
         self.description = description
@@ -57,7 +65,7 @@ class InsightContext:
     def insight_url(self) -> str | None:
         """Generate insight URL from insight_short_id if available."""
         if self.insight_short_id:
-            return build_insight_url(self.team, self.insight_short_id)
+            return build_insight_url(self.insight_short_id)
         return None
 
     @classmethod
@@ -93,13 +101,17 @@ class InsightContext:
                 truncate_results=truncate_results,
                 user=self.user,
                 include_prompt_framing=include_prompt_framing,
+                event_source=self.event_source,
+                max_sql_result_chars=self.max_sql_result_chars,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"
             if return_exceptions:
                 results = error_message
+            elif isinstance(e, MaxToolError):
+                raise
             else:
-                raise MaxToolRetryableError(error_message)
+                raise MaxToolRetryableError(error_message, error_type="internal") from e
 
         return format_prompt_string(
             prompt_template,
@@ -108,7 +120,6 @@ class InsightContext:
             insight_description=self.description,
             query_schema=query_schema,
             results=results,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 
@@ -122,7 +133,6 @@ class InsightContext:
             insight_id=self.insight_id,
             insight_description=self.description,
             query_schema=query_schema,
-            include_url_reminder=self.insight_id is None,
             insight_url=self.insight_url,
         )
 

@@ -3,7 +3,7 @@
 //! never away.
 
 use std::fmt;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -129,6 +129,9 @@ pub struct Config {
     #[envconfig(default = "")]
     pub clickhouse_password: String,
 
+    #[envconfig(default = "")]
+    pub clickhouse_password_file: String,
+
     #[envconfig(default = "default")]
     pub clickhouse_database: String,
 
@@ -161,6 +164,49 @@ pub struct Config {
     #[envconfig(default = "5")]
     pub seeder_max_chunk_attempts: u32,
 
+    /// The first retry's wait ceiling after a chunk fails; it doubles per attempt up to
+    /// [`Config::seeder_retry_backoff_cap_secs`]. Without a wait, the poll loop re-claims a chunk
+    /// that failed for a durable reason within seconds and spends its whole attempt budget on the
+    /// same failure, which fails the run.
+    #[envconfig(default = "30")]
+    pub seeder_retry_backoff_base_secs: u64,
+
+    /// The longest a failed chunk waits before it is claimable again.
+    ///
+    /// This bounds how long a durably-failing chunk holds its run open, and the bound is a sum over
+    /// attempts rather than the cap alone: the ceilings double from
+    /// [`Config::seeder_retry_backoff_base_secs`] until they reach the cap, and the jitter draws
+    /// uniformly from `[0, ceiling]`, so the expected drain is half the worst case. At the defaults
+    /// (base 30s, cap 1800s) the doubling reaches the cap on the 7th attempt, so the sum is about
+    /// 15 minutes at 5 attempts and 3.5 hours at 12 — the cap times the attempt count is a real
+    /// upper bound but a loose one, and reading it as the answer overstates a small budget by an
+    /// order of magnitude.
+    ///
+    /// A run cannot complete until every chunk is `confirmed`, so that whole window is time the run
+    /// holds its cohort's uniqueness slot against every future backfill for that cohort.
+    /// `charts/apps/cohort-seeder/values.prod-us.yaml` is where the deployed
+    /// `SEEDER_MAX_CHUNK_ATTEMPTS` lives; the two must be sized together.
+    ///
+    /// The chunk lease budget is not the comparison to make. A `failed` chunk holds no lease and
+    /// cannot heartbeat, so the two quantities never meet in any predicate.
+    #[envconfig(default = "1800")]
+    pub seeder_retry_backoff_cap_secs: u64,
+
+    /// ClickHouse resource errors in a row on one run before the seeder stops claiming its chunks.
+    #[envconfig(default = "3")]
+    pub seeder_ch_breaker_threshold: u32,
+
+    /// The first opening's length. Each later opening doubles it, up to the cap.
+    #[envconfig(default = "300")]
+    pub seeder_ch_breaker_cooldown_base_secs: u64,
+
+    #[envconfig(default = "1800")]
+    pub seeder_ch_breaker_cooldown_cap_secs: u64,
+
+    /// The opening, counted since the last confirmed chunk, that fails the run instead.
+    #[envconfig(default = "4")]
+    pub seeder_ch_breaker_max_trips: u32,
+
     #[envconfig(default = "3000")]
     pub seeder_tiles_per_sec: u32,
 
@@ -171,11 +217,26 @@ pub struct Config {
     pub seeder_max_lookback_days: u32,
 
     /// Person-hash bands each planned day is split into, bounding one chunk's in-memory aggregate
-    /// to roughly `uniq(person, condition) / bands`. Safe to raise mid-run: planning is idempotent
-    /// per (run, day, band) and tile application is max-merge idempotent, so a re-planned day only
-    /// adds narrower re-scans.
+    /// to roughly `uniq(person, condition) / bands`.
+    ///
+    /// Never change it while a behavioral run is seeding. A claim takes its divisor from the day's
+    /// band count at claim time and confirmed bands are not rescanned, so some persons fall in no
+    /// scanned band while the run still stamps readiness.
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
+
+    /// How long after a run's boundary the stream processor may take to start counting a new cohort
+    /// leaf. Keep it at least the processor's `FILTER_CATALOG_REFRESH_SECS` plus
+    /// `FILTER_CATALOG_REFRESH_JITTER_SECS`. The seeder plans every day this reaches as a trailing
+    /// day, so a boundary set just before midnight also seeds the minutes the live path missed of
+    /// the next day.
+    #[envconfig(default = "420")]
+    pub seeder_live_tracking_lag_secs: u64,
+
+    /// How long the seeder waits after a trailing day ends, in the run's timezone, before it scans
+    /// that day. An event ingested for the day after the scan is missing from its tile.
+    #[envconfig(default = "1800")]
+    pub seeder_trailing_day_grace_secs: u64,
 
     /// Enable the person-property seed path: discovery widens to `person_property` runs and the
     /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and
@@ -224,10 +285,30 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_person_max_concurrent_chunks: usize,
 
-    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
-    /// only a point-read on absent records (the consumer's no-create rule).
+    /// Which scanned persons a person chunk emits.
+    ///
+    /// On, this is the healer cadence: every scanned person is seeded, including empty-`matched`
+    /// ones, which is what retracts stale TRUE state. It has to see everyone, so it prunes nothing
+    /// and asks ClickHouse for no key filter.
+    ///
+    /// Off, a chunk emits only a person whose leaf truths can move a participating cohort's verdict
+    /// against an absent prior. Conditions whose keys the person's blob lacks are decided from a
+    /// verdict cached at validation instead of through the VM, and when every condition is decidable
+    /// that way the scan drops key-less rows in ClickHouse rather than transferring them.
     #[envconfig(default = "true")]
     pub seeder_person_emit_nonmatchers: bool,
+
+    /// Run the legacy wide scan alongside the projected scan and diff the resulting tiles.
+    ///
+    /// On by default, because taking this measurement is the only reason the layer exists and a
+    /// run that silently skipped it reads exactly like a clean one. Nothing downstream depends on
+    /// it either way: the projected arm's tiles are what a chunk emits regardless.
+    ///
+    /// Turn it off in charts to finish a long reseed at full speed once the measurement is in
+    /// hand, then delete the layer. While it is on a chunk pays its projected scan plus a full
+    /// wide one.
+    #[envconfig(default = "true")]
+    pub seeder_scan_shadow_compare: bool,
 
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
@@ -238,15 +319,26 @@ pub struct Config {
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
 
-    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
-    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
-    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
-    /// an OOM that takes unrelated queries down with it.
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries. Exceeding it throws a set-size
+    /// error rather than pushing the server toward an OOM that takes unrelated queries down.
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_in_set: u64,
 
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,
+
+    /// This and the next two settings are sent only when set. The `cohort_seeder` profile constrains
+    /// them, and ClickHouse rejects a query that sends a value above a constraint, so a default could
+    /// fail every scan. Not 0, which ClickHouse reads as one thread per core.
+    pub seeder_ch_max_threads: Option<NonZeroU64>,
+
+    /// Not 0, which ClickHouse reads as unlimited.
+    pub seeder_ch_max_memory_usage: Option<NonZeroU64>,
+
+    /// ClickHouse ranks a shard's replicas by recent error count before `<priority>`. A high value
+    /// treats a replica with up to that many recent errors as healthy, so a shard's read stays on its
+    /// offline replica instead of moving to an online one.
+    pub seeder_ch_distributed_replica_max_ignored_errors: Option<u64>,
 
     #[envconfig(default = "100")]
     pub seeder_queue_full_backoff_ms: u64,
@@ -414,6 +506,15 @@ mod tests {
         let config = default_config();
         assert!(config.clickhouse_verify);
         assert!(config.clickhouse_ca.is_empty());
+    }
+
+    /// A default of off would make the validation run a silent no-op: the compare emits nothing,
+    /// so its counters are absent rather than zero, and an unmeasured run is indistinguishable
+    /// from a clean one. The measurement is the whole point of the layer, so it is what a pod does
+    /// unless an operator says otherwise.
+    #[test]
+    fn the_shadow_compare_runs_unless_an_operator_turns_it_off() {
+        assert!(default_config().seeder_scan_shadow_compare);
     }
 
     #[test]

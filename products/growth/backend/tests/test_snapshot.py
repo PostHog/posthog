@@ -17,7 +17,7 @@ class TestSignupEnrichmentSnapshot(BaseTest):
             company_type="startup",
             headcount=42,
             industry="software",
-            icp_score=80,
+            icp_fit_score=80,
         )
 
         properties = snapshot.to_event_properties()
@@ -26,9 +26,17 @@ class TestSignupEnrichmentSnapshot(BaseTest):
             "company_type_at_signup": "startup",
             "headcount_at_signup": 42,
             "industry_at_signup": "software",
-            "icp_score_at_signup": 80,
+            "icp_fit_score_at_signup": 80,
         }
         assert "country_at_signup" not in properties
+
+    def test_icp_fit_status_rides_along_without_a_numeric_score(self) -> None:
+        # An insufficient_data evaluation at signup snapshots the status alone, keeping
+        # "insufficient at signup" distinguishable from "never evaluated" forever.
+        snapshot = SignupEnrichmentSnapshot(company_type="startup", icp_fit_status="insufficient_data")
+        properties = snapshot.to_event_properties()
+        assert properties["icp_fit_status_at_signup"] == "insufficient_data"
+        assert "icp_fit_score_at_signup" not in properties
 
     def test_emits_person_scoped_event_when_snapshot_lands(self) -> None:
         pha_client = MagicMock()
@@ -88,15 +96,13 @@ class TestSignupEnrichmentSnapshot(BaseTest):
 
     @parameterized.expand(
         [
-            ("present", "2026-07-01", True),
+            ("present", "v0.5", True),
             ("absent", None, False),
         ]
     )
-    def test_icp_score_version_in_properties(
-        self, _name: str, icp_score_version: str | None, expect_version: bool
-    ) -> None:
+    def test_icp_fit_version_in_properties(self, _name: str, icp_fit_version: str | None, expect_version: bool) -> None:
         pha_client = MagicMock()
-        snapshot = SignupEnrichmentSnapshot(icp_score=90, icp_score_version=icp_score_version)
+        snapshot = SignupEnrichmentSnapshot(icp_fit_score=90, icp_fit_version=icp_fit_version)
 
         capture_signup_enrichment_snapshot(
             pha_client,
@@ -106,7 +112,7 @@ class TestSignupEnrichmentSnapshot(BaseTest):
         )
 
         _, kwargs = pha_client.capture.call_args
-        assert kwargs["properties"]["icp_score_at_signup"] == 90
-        assert ("icp_score_version_at_signup" in kwargs["properties"]) is expect_version
+        assert kwargs["properties"]["icp_fit_score_at_signup"] == 90
+        assert ("icp_fit_version_at_signup" in kwargs["properties"]) is expect_version
         if expect_version:
-            assert kwargs["properties"]["icp_score_version_at_signup"] == icp_score_version
+            assert kwargs["properties"]["icp_fit_version_at_signup"] == icp_fit_version

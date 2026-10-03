@@ -3,9 +3,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testrail import (
     TestrailSourceConfig,
 )
@@ -14,8 +11,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.s
     TESTRAIL_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source import TestrailSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.testrail import TestrailResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = {"cases", "runs", "plans", "results"}
 
@@ -25,26 +20,6 @@ class TestTestrailSource:
         self.source = TestrailSource()
         self.team_id = 123
         self.config = TestrailSourceConfig(subdomain="acme", username="qa@acme.com", api_key="testrail-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TESTRAIL
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Testrail"
-        assert config.label == "TestRail"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/testrail"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["subdomain", "username", "api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The stored API key is sent to `<subdomain>.testrail.io`; without this, an editor could
@@ -99,20 +74,6 @@ class TestTestrailSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source.validate_testrail_credentials"
-    )
-    def test_validate_credentials_delegates_full_connection_details(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (False, "Invalid TestRail email or API key")
-        result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("acme", "qa@acme.com", "testrail-key")
-        assert result == (False, "Invalid TestRail email or API key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TestrailResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source.testrail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

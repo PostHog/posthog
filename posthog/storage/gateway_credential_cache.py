@@ -5,7 +5,8 @@ One blob per phs_ project secret key / pha_ OAuth token, keyed by the credential
 so the secret never sits in a Redis key. Public phc_ project tokens can't dispatch.
 
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
-    Body: {team_id, project_token, scopes, billing_mode, revoked_at, overspend_allowance_usd?}
+    Body: {team_id, project_token, scopes, billing_mode, revoked_at,
+           overspend_allowance_usd?, tier?}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
 gateway derives identically. A credential holding llm_gateway:read attributes to its team
@@ -28,16 +29,20 @@ from django.db import OperationalError
 from django.utils import timezone
 
 import structlog
+import redis.exceptions
+from django_redis.exceptions import ConnectionInterrupted
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
+from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
-from posthog.rbac.user_access_control import UserAccessControl, ordered_access_levels
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, ordered_access_levels
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +72,13 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "billing_mode",
     "revoked_at",
 ]
+
+# Tier (gateway-defined, internal/auth/gateway_credential.go) feeds the
+# rate-limit/shed bucket. Settings-driven rather than a Team column: a handful of
+# internal teams, and a settings change lands on the hourly reprojection with no
+# signal wiring.
+TIER_KEY = "tier"
+GATEWAY_KNOWN_TIERS = {"free", "pro", "enterprise"}
 
 # Overspend allowance wire contract (gateway-defined, internal/auth/gateway_credential.go):
 # fixed-point USD string, 6dp, present only when set. Out-of-range/malformed clamps to 0 there,
@@ -210,12 +222,19 @@ def _ttl_for_credential(credential: Credential) -> float:
 def _oauth_authorization_ok(credential: OAuthAccessToken, team: Any, team_id: int, memo: "_RefreshMemo | None") -> bool:
     """Authorization checks that only apply to an OAuth credential.
 
-    OAuth tokens carry a user, an expiry, and scoped_* narrowing the gateway can't
-    see — all enforced here, since the gateway authenticates from the cached blob
-    alone (and the hourly refresh re-checks). Returns False to fail closed.
+    OAuth tokens carry a user, an expiry, scoped_* narrowing, and the user's email
+    verification state, none of which the gateway can see. All of it is enforced
+    here, since the gateway authenticates from the cached blob alone (and the hourly
+    refresh re-checks). Returns False to fail closed.
     """
+    from posthog.api.email_verification import (  # noqa: PLC0415 - keeps the email task stack off django.setup()
+        email_verification_pending,
+    )
+
     user = credential.user
     if user is None or not user.is_active:
+        return False
+    if email_verification_pending(user):
         return False
     if credential.application_id is None:
         return False
@@ -289,7 +308,38 @@ def _policy_for_credential(
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
 
+    # Absent means tier-unknown on the gateway, so ordinary teams' blobs stay
+    # byte-identical.
+    tier = _team_tier_overrides().get(str(team.id))
+    if tier is not None:
+        # isinstance first: an unhashable value from the JSON setting would raise on
+        # the membership test, inside a projection whose failure expires every blob.
+        if isinstance(tier, str) and tier in GATEWAY_KNOWN_TIERS:
+            policy[TIER_KEY] = tier
+        else:
+            # The gateway never sees the value, so this is the only signal a typo gets.
+            logger.warning("gateway_credential: unrecognized tier override, not projecting", team_id=team.id, tier=tier)
+
     return policy
+
+
+def _team_tier_overrides() -> dict[str, str]:
+    """Explicit team_id (string) -> tier map for the gateway's rate-limit bucket. A
+    non-mapping value degrades to no overrides rather than failing the projection.
+    """
+    raw = getattr(settings, "AI_GATEWAY_TEAM_TIER_OVERRIDES", {}) or {}
+    if not isinstance(raw, dict):
+        logger.warning("gateway_credential: tier overrides setting is not a mapping, ignoring")
+        return {}
+    return raw
+
+
+def oauth_credential_authorized(credential: OAuthAccessToken, team: Any) -> bool:
+    """Whether an OAuth credential is still authorized for team right now: the user
+    is active, a member, and still has project access. Callers outside the
+    projection need it because a token's scoped_teams is frozen at consent.
+    """
+    return _oauth_authorization_ok(credential, team, team.id, None)
 
 
 def _resolve_credential(hash_key: str) -> Credential | None:
@@ -363,6 +413,11 @@ def clear_gateway_credential(credential_or_hash: Credential | str) -> None:
     gateway_credential_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
 
 
+# Infrastructure failures that count toward aborting the refresh.
+_REFRESH_INFRA_ERRORS = (ConnectionInterrupted, redis.exceptions.RedisError, OSError, OperationalError)
+REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES = 3
+
+
 def refresh_all_gateway_credentials() -> int:
     """Re-project every credential currently granted llm_gateway:read, keeping entries warm.
 
@@ -370,26 +425,44 @@ def refresh_all_gateway_credentials() -> int:
     removal. The team resolution and the per-OAuth membership/RBAC checks are memoized by team /
     (org, user) / (team, user) so the run does O(distinct teams/users) lookups, and .iterator()
     keeps the working set flat. The secret-key scopes lookup rides the projectsecretapikey_scopes_gin
-    index; the OAuth scope regex rides the oauthaccesstoken_scope_trgm trigram GIN index.
+    index; the OAuth scope lookup rides the oauthaccesstoken_scopes_gin expression GIN index.
     """
     now = timezone.now()
     memo = _RefreshMemo()
     querysets = (
         ProjectSecretAPIKey.objects.select_related("team").filter(scopes__contains=[GATEWAY_CREDENTIAL_REQUIRED_SCOPE]),
-        OAuthAccessToken.objects.select_related("user", "application").filter(
-            scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
-            user__is_active=True,
-            application_id__isnull=False,
-            expires__gt=now,
-        ),
+        OAuthAccessToken.with_scope(GATEWAY_CREDENTIAL_REQUIRED_SCOPE)
+        .select_related("user", "application")
+        .filter(user__is_active=True, expires__gt=now),
     )
 
     count = 0
+    failed = 0
+    infra_failures_in_a_row = 0
+    first_error: Exception | None = None
     for queryset in querysets:
         for credential in queryset.iterator(chunk_size=1000):
-            project_gateway_credential(credential, memo)
+            # Skip a failing credential: secret-key blobs expire within hours without this refresh.
+            try:
+                project_gateway_credential(credential, memo)
+            except Exception as e:
+                failed += 1
+                first_error = first_error or e
+                if isinstance(e, _REFRESH_INFRA_ERRORS):
+                    infra_failures_in_a_row += 1
+                    # An outage: fail the task now, since every remaining credential would time out too.
+                    if infra_failures_in_a_row >= REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES:
+                        logger.warning("gateway_credential refresh aborted", failed=failed, projected=count)
+                        raise
+                continue
             count += 1
+            infra_failures_in_a_row = 0
 
+    if first_error is not None and count == 0:
+        raise first_error
+    if first_error is not None:
+        logger.warning("gateway_credential refresh skipped failing credentials", failed=failed, projected=count)
+        capture_exception(first_error)
     return count
 
 

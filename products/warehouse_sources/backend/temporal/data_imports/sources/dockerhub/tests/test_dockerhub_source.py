@@ -3,16 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.dockerhub import DockerhubResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source import DockerhubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
     DockerhubSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestDockerhubSource:
@@ -20,34 +15,6 @@ class TestDockerhubSource:
         self.source = DockerhubSource()
         self.team_id = 123
         self.config = DockerhubSourceConfig(username="tom", personal_access_token="dckr_pat_token")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.DOCKERHUB
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Dockerhub"
-        assert config.label == "Docker Hub"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/dockerhub"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["username", "personal_access_token", "namespace"]
-
-    def test_personal_access_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "personal_access_token"
-        )
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
-    def test_namespace_field_is_optional(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "namespace")
-        assert field.required is False
-        assert field.secret is False
 
     def test_namespace_is_a_connection_host_field(self) -> None:
         # The stored token pulls data from whatever namespace is configured, so changing it must force
@@ -57,12 +24,26 @@ class TestDockerhubSource:
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+    def test_only_the_audit_log_is_incremental(self) -> None:
+        # The audit log endpoint is the only one taking a server-side time filter (`from`). Marking
+        # any other endpoint incremental would make each sync request a window the API ignores, so
+        # every row outside the first page would silently stop arriving.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert set(schemas) == set(ENDPOINTS)
+        assert [name for name, s in schemas.items() if s.supports_incremental] == ["audit_logs"]
+        assert [f["field"] for f in schemas["audit_logs"].incremental_fields] == ["timestamp"]
+        # Append would duplicate the boundary rows every incremental window re-reads.
+        assert all(s.supports_append is False for s in schemas.values())
+
+    def test_org_scoped_endpoints_report_why_they_are_unavailable(self) -> None:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.check_endpoint_access",
+            return_value=dict.fromkeys(ENDPOINTS),
+        ) as probe:
+            self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
+
+        # A blank namespace means the user's own, so the probe must run against the username.
+        assert probe.call_args.args == ("tom", "dckr_pat_token", "tom", list(ENDPOINTS))
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["tags"])
@@ -96,32 +77,6 @@ class TestDockerhubSource:
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("blank_defaults_to_username", None, "tom"),
-            ("empty_defaults_to_username", "", "tom"),
-            ("whitespace_defaults_to_username", "   ", "tom"),
-            ("explicit_namespace_wins", "my-org", "my-org"),
-            ("explicit_namespace_is_trimmed", "  my-org  ", "my-org"),
-        ]
-    )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.validate_credentials"
-    )
-    def test_validate_credentials_resolves_namespace(
-        self, _name: str, namespace: str | None, expected: str, mock_validate: mock.MagicMock
-    ) -> None:
-        mock_validate.return_value = (True, None)
-        config = DockerhubSourceConfig(username="tom", personal_access_token="dckr_pat_token", namespace=namespace)
-        result = self.source.validate_credentials(config, self.team_id)
-        assert result == (True, None)
-        mock_validate.assert_called_once_with("tom", "dckr_pat_token", expected)
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DockerhubResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.dockerhub_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

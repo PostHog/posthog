@@ -7,8 +7,10 @@ import {
   type ChannelItemSort,
   channelItemSources,
   DEFAULT_CHANNEL_ITEM_FILTERS,
+  DESKTOP_SOURCE,
   filterChannelItems,
   groupChannelItems,
+  hasActiveChannelItemFilters,
   sortChannelItems,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
@@ -36,8 +38,9 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     id: "d1",
     channelId: "c1",
     name: "Canvas",
+    kind: "freeform" as const,
+    description: "",
     templateId: "freeform",
-    context: "",
     createdAt: 0,
     updatedAt: 1_000,
     ...over,
@@ -70,12 +73,13 @@ function build(options: Partial<Parameters<typeof buildChannelItems>[0]> = {}) {
 describe("buildChannelItems", () => {
   it("merges canvases and tasks newest-first", () => {
     const items = build({
-      dashboards: [canvas({ id: "old", updatedAt: 1_000 })],
+      dashboards: [canvas({ id: "old", updatedAt: 1_000, createdByUser: ME })],
       feedTasks: [
         task({ id: "new", updated_at: new Date(5_000).toISOString() }),
       ],
     });
     expect(items.map((i) => i.key)).toEqual(["task:new", "canvas:old"]);
+    expect(items.map((item) => item.authorUser)).toEqual([ME, ME]);
   });
 
   it("drops archived tasks but keeps canvases", () => {
@@ -101,6 +105,33 @@ describe("buildChannelItems", () => {
       feedTasks: [task({ title: "" })],
     });
     expect(item.title).toBe("Untitled task");
+  });
+
+  it("ranks a session by its activity, not by when its row was last written", () => {
+    const items = build({
+      feedTasks: [
+        task({
+          id: "still-running",
+          created_at: new Date(1_000).toISOString(),
+          updated_at: new Date(1_000).toISOString(),
+          last_activity_at: new Date(9_000).toISOString(),
+        }),
+        task({
+          id: "filed-later",
+          created_at: new Date(5_000).toISOString(),
+          updated_at: new Date(5_000).toISOString(),
+          last_activity_at: new Date(5_000).toISOString(),
+        }),
+      ],
+    });
+    expect(sortChannelItems(items, "recent").map((i) => i.id)).toEqual([
+      "still-running",
+      "filed-later",
+    ]);
+    expect(sortChannelItems(items, "created").map((i) => i.id)).toEqual([
+      "filed-later",
+      "still-running",
+    ]);
   });
 
   it("treats an unparseable updated_at as epoch rather than NaN", () => {
@@ -150,20 +181,54 @@ describe("buildChannelItems", () => {
       sessionFacts: {
         needsInputTaskIds: NONE,
         viewedTimestamps: {},
-        workspaceModeByTaskId: new Map(mode ? [["t1", mode]] : []),
+        workspaceByTaskId: new Map(mode ? [["t1", { mode }]] : []),
       },
     });
     expect(item.environment).toBe(expected);
   });
 
-  it("reads a filed session's source, and none for one started here", () => {
+  it("resolves a session's repository and branch once, checkout first", () => {
+    const [item] = build({
+      feedTasks: [task({ id: "t1", repository: "PostHog/code" })],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {},
+        workspaceByTaskId: new Map([
+          ["t1", { folderPath: "/src/code", branch: "posthog/session-list" }],
+        ]),
+      },
+    });
+
+    expect(item.repository).toEqual({
+      key: "posthog/code",
+      label: "PostHog/code",
+    });
+    expect(item.branch).toBe("posthog/session-list");
+  });
+
+  it("does not treat a scratch workspace's folder as a repository", () => {
+    const [item] = build({
+      feedTasks: [task({ id: "t1" })],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {},
+        workspaceByTaskId: new Map([
+          ["t1", { folderPath: "/scratch/t1", isScratch: true }],
+        ]),
+      },
+    });
+
+    expect(item.repository).toBeNull();
+  });
+
+  it("reads the source for filed and Desktop sessions", () => {
     const items = build({
       feedTasks: [
         task({ id: "filed", origin_product: "slack" }),
         task({ id: "own", origin_product: "user_created" }),
       ],
     });
-    expect(items.map((i) => i.source)).toEqual(["slack", null]);
+    expect(items.map((i) => i.source)).toEqual(["slack", DESKTOP_SOURCE]);
   });
 
   it("marks the sessions asking for input and the ones you haven't read", () => {
@@ -180,7 +245,7 @@ describe("buildChannelItems", () => {
         viewedTimestamps: {
           unread: { lastViewedAt: 1_000, lastActivityAt: null },
         },
-        workspaceModeByTaskId: new Map(),
+        workspaceByTaskId: new Map(),
       },
     });
     expect(items.map((i) => [i.id, i.needsInput, i.unread])).toEqual([
@@ -188,6 +253,26 @@ describe("buildChannelItems", () => {
       ["unread", false, true],
       ["quiet", false, false],
     ]);
+  });
+
+  it("marks a session unread from activity its row write time didn't capture", () => {
+    const [item] = build({
+      feedTasks: [
+        task({
+          id: "streamed",
+          updated_at: new Date(1_000).toISOString(),
+          last_activity_at: new Date(3_000).toISOString(),
+        }),
+      ],
+      sessionFacts: {
+        needsInputTaskIds: NONE,
+        viewedTimestamps: {
+          streamed: { lastViewedAt: 2_000, lastActivityAt: null },
+        },
+        workspaceByTaskId: new Map(),
+      },
+    });
+    expect(item.unread).toBe(true);
   });
 
   it("returns everything when the owner is unknown", () => {
@@ -242,13 +327,15 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     pinned: false,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
     authorUser: ME,
     authorName: null,
     authorUuid: ME.uuid,
     templateId: null,
+    repository: null,
+    branch: null,
     task: null,
     ...over,
   };
@@ -312,6 +399,7 @@ describe("filterChannelItems", () => {
     model({ id: "local", environment: "local" }),
     model({ id: "cloud", environment: "cloud" }),
     model({ id: "from-slack", source: "slack" }),
+    model({ id: "from-tracker", source: "error_tracking" }),
     model({ id: "quiet" }),
   ];
 
@@ -321,7 +409,11 @@ describe("filterChannelItems", () => {
     { filter: { pinned: "pinned" }, kept: ["pinned"] },
     { filter: { environment: "local" }, kept: ["local"] },
     { filter: { environment: "cloud" }, kept: ["cloud"] },
-    { filter: { source: "slack" }, kept: ["from-slack"] },
+    { filter: { sources: ["slack"] }, kept: ["from-slack"] },
+    {
+      filter: { sources: ["slack", "error_tracking"] },
+      kept: ["from-slack", "from-tracker"],
+    },
   ] as const)("keeps only $kept for $filter", ({ filter, kept }) => {
     const result = filterChannelItems(CANDIDATES, {
       query: "",
@@ -350,15 +442,36 @@ describe("filterChannelItems", () => {
   });
 });
 
+describe("hasActiveChannelItemFilters", () => {
+  it.each([
+    { sources: [DESKTOP_SOURCE, "slack"], active: false },
+    { sources: ["slack", DESKTOP_SOURCE], active: false },
+    { sources: ["slack"], active: true },
+    { sources: [], active: true },
+  ])("is $active for sources $sources", ({ sources, active }) => {
+    expect(
+      hasActiveChannelItemFilters(filters({ sources }), {
+        ...DEFAULT_CHANNEL_ITEM_FILTERS,
+        sources: [DESKTOP_SOURCE, "slack"],
+      }),
+    ).toBe(active);
+  });
+});
+
 describe("channelItemSources", () => {
-  it("offers each source once, and nothing for sessions started here", () => {
+  it("offers each source once", () => {
     const items = [
       model({ id: "a", source: "slack" }),
       model({ id: "b", source: "slack" }),
       model({ id: "c", source: "error_tracking" }),
+      model({ id: "desktop", source: DESKTOP_SOURCE }),
       model({ id: "d", source: null }),
     ];
-    expect(channelItemSources(items)).toEqual(["error_tracking", "slack"]);
+    expect(channelItemSources(items)).toEqual([
+      "error_tracking",
+      "slack",
+      DESKTOP_SOURCE,
+    ]);
   });
 });
 
@@ -388,6 +501,21 @@ describe("sortChannelItems", () => {
       expect(sortChannelItems(pinnedLast, sort)[0]?.id).toBe("pin");
     }
   });
+
+  // The Work column's Recent list is one of these: a pin there marks the row
+  // and nothing else, so holding it at the top would move a row nobody moved.
+  it("leaves a pin in place for a list with no pinned run", () => {
+    const pinnedOldest = [
+      ...items,
+      model({ id: "pin", title: "Z", ts: 0, createdAt: 0, pinned: true }),
+    ];
+
+    expect(
+      sortChannelItems(pinnedOldest, "recent", { pinnedRun: false }).map(
+        (i) => i.id,
+      ),
+    ).toEqual(["newest", "middle", "oldest", "pin"]);
+  });
 });
 
 describe("groupChannelItems", () => {
@@ -400,6 +528,33 @@ describe("groupChannelItems", () => {
       (section) => [section.label, ...section.items.map((i) => i.id)],
     );
   }
+
+  it("files rows under their repository, unnamed ones last, when asked to", () => {
+    const withRepo = (id: string, key: string | null, label = "") =>
+      model({
+        id,
+        ts: at(29, 9),
+        repository: key ? { key, label } : null,
+      });
+
+    expect(
+      groupChannelItems(
+        [
+          withRepo("code-1", "posthog/code", "PostHog/code"),
+          withRepo("loose", null),
+          withRepo("code-2", "posthog/code", "posthog/code"),
+          withRepo("web", "posthog/posthog", "PostHog/posthog"),
+        ],
+        "recent",
+        NOW,
+        "repository",
+      ).map((section) => [section.label, ...section.items.map((i) => i.id)]),
+    ).toEqual([
+      ["PostHog/code", "code-1", "code-2"],
+      ["PostHog/posthog", "web"],
+      ["No repository", "loose"],
+    ]);
+  });
 
   it("runs a day's items under one header", () => {
     expect(
@@ -426,6 +581,19 @@ describe("groupChannelItems", () => {
       ["Pinned", "kept"],
       ["Today", "today"],
     ]);
+  });
+
+  it("dates a pin with the rest for a list with no pinned run", () => {
+    const items = [
+      model({ id: "today", ts: at(29, 9) }),
+      model({ id: "kept", ts: at(29, 8), pinned: true }),
+    ];
+
+    expect(
+      groupChannelItems(items, "recent", NOW, "date", undefined, {
+        pinnedRun: false,
+      }).map((section) => [section.label, ...section.items.map((i) => i.id)]),
+    ).toEqual([["Today", "today", "kept"]]);
   });
 
   // Dating a created-first list by last activity would reopen a day the list

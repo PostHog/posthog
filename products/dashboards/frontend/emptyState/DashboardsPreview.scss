@@ -1,0 +1,258 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.DashboardPreview {
+    --dashboard-preview-accent: var(--empty-state-accent, var(--color-product-dashboards-light));
+
+    display: flex;
+    flex-direction: column;
+
+    // Hidden range selection. A direct child of .DashboardPreview so `:checked ~` reaches the board.
+    &__radio {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__board {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Range variants are stacked on one grid cell and crossfaded, so switching the
+    // range never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__on-30d {
+        @include preview-swap-hidden;
+    }
+
+    &__on-7d {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__ranges {
+        display: flex;
+        gap: 0.25rem;
+        padding: 0.125rem;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: var(--radius);
+    }
+
+    &__range {
+        padding: 0.125rem 0.4375rem;
+        font-size: 0.625rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        user-select: none;
+        border-radius: calc(var(--radius) - 1px);
+        transition:
+            background 150ms ease,
+            color 150ms ease;
+    }
+
+    // Tiles
+
+    &__grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+        padding: 0.625rem 0.75rem;
+    }
+
+    &__tile {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        min-height: 4.5rem;
+        padding: 0.5rem 0.625rem;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: var(--radius);
+    }
+
+    &__tile-title {
+        font-size: 0.5625rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+
+    &__tile-value {
+        font-size: 1.125rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+    }
+
+    &__tile-delta {
+        font-size: 0.5625rem;
+
+        @include preview-accent-text(var(--dashboard-preview-accent));
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--dashboard-preview-accent) 15%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--dashboard-preview-accent) 35%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--dashboard-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: DashboardPreview__trace 3.2s linear infinite;
+    }
+
+    &__funnel {
+        display: flex;
+        gap: 0.25rem;
+        align-items: flex-end;
+        height: 1.75rem;
+    }
+
+    &__bar {
+        flex: 1;
+        background: var(--dashboard-preview-accent);
+        border-radius: 2px 2px 0 0;
+        transition: height 250ms ease;
+    }
+
+    &__bar--1 {
+        height: 100%;
+    }
+
+    &__bar--2 {
+        height: 62%;
+        opacity: 0.7;
+    }
+
+    &__bar--3 {
+        height: 31%;
+        opacity: 0.45;
+    }
+
+    &__list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1875rem;
+    }
+
+    &__list-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        font-size: 0.5625rem;
+    }
+
+    &__list-key {
+        overflow: hidden;
+        font-family: var(--font-mono);
+        color: var(--color-text-secondary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__list-value {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    &__foot {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 0.75rem 0.625rem;
+    }
+
+    &__hint {
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+    }
+
+    @include preview-sparkline;
+}
+
+// 7-day range (the default)
+
+.DashboardPreview__radio#dashboard-preview-7d:checked ~ .DashboardPreview__board .DashboardPreview__range--7d {
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+}
+
+// 30-day range
+
+.DashboardPreview__radio#dashboard-preview-30d:checked ~ .DashboardPreview__board .DashboardPreview__on-30d {
+    @include preview-swap-visible;
+}
+
+.DashboardPreview__radio#dashboard-preview-30d:checked ~ .DashboardPreview__board .DashboardPreview__on-7d {
+    @include preview-swap-hidden;
+}
+
+.DashboardPreview__radio#dashboard-preview-30d:checked ~ .DashboardPreview__board .DashboardPreview__range--30d {
+    color: var(--color-text-primary);
+    background: var(--color-bg-surface-primary);
+}
+
+// The funnel shape answers to the range too, so the tile is not static decoration.
+.DashboardPreview__radio#dashboard-preview-30d:checked ~ .DashboardPreview__board .DashboardPreview__bar--2 {
+    height: 54%;
+}
+
+.DashboardPreview__radio#dashboard-preview-30d:checked ~ .DashboardPreview__board .DashboardPreview__bar--3 {
+    height: 27%;
+}
+
+// The radios stay keyboard-focusable while visually hidden, so the labels they drive
+// need a visible focus indicator (WCAG 2.4.7).
+.DashboardPreview__radio#dashboard-preview-7d:focus-visible ~ .DashboardPreview__board .DashboardPreview__range--7d,
+.DashboardPreview__radio#dashboard-preview-30d:focus-visible ~ .DashboardPreview__board .DashboardPreview__range--30d {
+    outline: 2px solid var(--dashboard-preview-accent);
+    outline-offset: 1px;
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes DashboardPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; switching the
+// range still redraws the tiles (transitions only).
+@include preview-motion-guards('DashboardPreview');

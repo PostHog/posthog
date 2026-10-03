@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -30,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.constants import (
     LIGHTSPEED_RETAIL_API_VERSION_2_0,
     LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+    LIGHTSPEED_RETAIL_API_VERSION_2026_07,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lightspeed_retail.lightspeed_retail import (
     LightspeedRetailResumeConfig,
@@ -45,8 +44,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, LightspeedRetailResumeConfig]):
-    supported_versions = (LIGHTSPEED_RETAIL_API_VERSION_2_0, LIGHTSPEED_RETAIL_API_VERSION_2026_01)
-    default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_01
+    supported_versions = (
+        LIGHTSPEED_RETAIL_API_VERSION_2_0,
+        LIGHTSPEED_RETAIL_API_VERSION_2026_01,
+        LIGHTSPEED_RETAIL_API_VERSION_2026_07,
+    )
+    default_version = LIGHTSPEED_RETAIL_API_VERSION_2026_07
     api_docs_url = "https://x-series-api.lightspeedhq.com/docs/introduction"
     # X-Series deprecated the legacy 2.0 version; no firm sunset date is published (deprecated
     # endpoints increasingly return 410 Gone before an eventual retirement).
@@ -82,7 +85,7 @@ class LightspeedRetailSource(ResumableSource[LightspeedRetailSourceConfig, Light
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.LIGHTSPEED_RETAIL,
+            name=ExternalDataSourceType.LIGHTSPEEDRETAIL,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             keywords=["lightspeed"],
             label="Lightspeed Retail",

@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { useCanvasFrameStore } from "./canvasFrameStore";
 import { FreeformCanvas } from "./FreeformCanvas";
 
-// Persistent warm-iframe pool, mounted once by WebsiteLayout so it survives every
+// Persistent warm-iframe pool, mounted once by ShellLayout so it survives every
 // in-space navigation. Each pool slot is a long-lived FreeformCanvas (keyed by slot
 // index, never re-parented) overlaid onto the active canvas's placeholder rect. The
 // active slot is visible + interactive; warm-but-hidden slots keep their iframe (and

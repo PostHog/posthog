@@ -16,9 +16,10 @@ from pydantic import BaseModel, ValidationError
 from posthog.schema import ApprovalResumePayload, AssistantTool, ClientToolResultPayload
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
+
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.core.context import get_node_path, set_node_path
@@ -380,7 +381,12 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         if preview is None:
             raise ValueError("preview must be provided for dangerous operations")
 
-        proposal_id = str(uuid.uuid4())
+        # Other parallel approvals can resume while this tool stays interrupted.
+        proposal_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"{self._get_conversation_id()}:{self._original_tool_call_id}")
+            if self._original_tool_call_id
+            else uuid.uuid4()
+        )
         serialized_payload = self._serialize_kwargs_for_storage(kwargs)
 
         approval_request = ApprovalRequest(

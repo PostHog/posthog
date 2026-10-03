@@ -18,6 +18,7 @@ import { AnyPropertyFilter, type CohortType, PropertyOperator, type TeamPublicTy
 
 import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/frontend/settings/revenueAnalyticsSettingsLogic'
 
+import { ApplyTestAccountFilterToExistingInsights } from './ApplyTestAccountFilterToExistingInsights'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
 function createTestAccountFilterWarningLabels(
@@ -155,6 +156,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 label="Filter out internal and test users from revenue analytics"
                 bordered
             />
+            <ApplyTestAccountFilterToExistingInsights />
         </div>
     )
 }

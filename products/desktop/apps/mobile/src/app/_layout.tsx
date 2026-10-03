@@ -6,7 +6,7 @@ import { router, Stack, usePathname } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useColorScheme } from "nativewind";
 import { PostHogProvider } from "posthog-react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -15,6 +15,7 @@ import {
   OfflineBanner,
 } from "@/components/OfflineBanner";
 import { useAuthStore } from "@/features/auth";
+import { useOrgConsent } from "@/features/consent/hooks/useOrgConsent";
 import { setupNotificationResponseListener } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
@@ -37,6 +38,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
   const { isAuthenticated, isLoading, initializeAuth } = useAuthStore();
   const themeColors = useThemeColors();
   const pathname = usePathname();
+  const consent = useOrgConsent();
 
   useScreenTracking();
   useIdentifyUser();
@@ -64,7 +66,38 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
     router.replace(next ? { pathname: "/auth", params: { next } } : "/auth");
   }, [isAuthenticated, isLoading, pathname]);
 
-  if (isLoading) {
+  // Consent gate. Keep a signed-in user out of the app until their organization
+  // has met both consent requirements, even if a deep link drops them straight
+  // onto a protected route. Wait for the status to resolve before routing so we
+  // never bounce a user whose consent we haven't checked yet.
+  const consentSatisfied = consent.status === "resolved" && consent.satisfied;
+  // Where the user was heading when the gate intercepted, so a deep link opened
+  // before consent is restored once both requirements are met.
+  const pendingHrefRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || pathname === "/auth") return;
+    if (consent.status === "loading") return;
+    if (!consentSatisfied) {
+      if (pathname !== "/consent") {
+        if (pathname !== "/") pendingHrefRef.current = pathname;
+        router.replace("/consent");
+      }
+    } else if (pathname === "/consent") {
+      const next = pendingHrefRef.current ?? "/(tabs)/tasks";
+      pendingHrefRef.current = null;
+      router.replace(next);
+    }
+  }, [isAuthenticated, isLoading, consent.status, consentSatisfied, pathname]);
+
+  // Hold the app on a spinner while an authenticated user's consent is unknown
+  // or unmet, so no protected route renders for a frame before the gate
+  // redirects to /consent.
+  const blockUntilConsent =
+    isAuthenticated &&
+    !consentSatisfied &&
+    pathname !== "/consent" &&
+    pathname !== "/auth";
+  if (isLoading || blockUntilConsent) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
         <ActivityIndicator size="large" color={themeColors.accent[9]} />
@@ -84,6 +117,7 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
     >
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="auth" options={{ headerShown: false }} />
+      <Stack.Screen name="consent" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
 
       {/* Tinder-style inbox review */}
@@ -126,35 +160,6 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen
         name="task/[id]"
         options={{ presentation: "modal", headerShown: false }}
-      />
-      <Stack.Screen
-        name="automation/index"
-        options={{
-          presentation: "modal",
-          headerShown: true,
-          title: "Create automation",
-          headerStyle: { backgroundColor: themeColors.background },
-          headerTintColor: themeColors.gray[12],
-        }}
-      />
-      <Stack.Screen
-        name="automation/create"
-        options={{
-          presentation: "modal",
-          headerShown: true,
-          title: "New automation",
-          headerStyle: { backgroundColor: themeColors.background },
-          headerTintColor: themeColors.gray[12],
-        }}
-      />
-      <Stack.Screen
-        name="automation/[id]"
-        options={{
-          presentation: "modal",
-          headerShown: true,
-          headerStyle: { backgroundColor: themeColors.background },
-          headerTintColor: themeColors.gray[12],
-        }}
       />
       <Stack.Screen
         name="pr-diff"

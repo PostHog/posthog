@@ -43,12 +43,18 @@ export const renderTooltipContent = (
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Total value:</span>
-                <span className="font-semibold">{humanFriendlyNumber(variantResult.sum)}</span>
+                <span className="font-semibold">
+                    {variantResult.sum != null ? humanFriendlyNumber(variantResult.sum) : '–'}
+                </span>
             </div>
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Exposures:</span>
-                <span className="font-semibold">{variantResult.number_of_samples}</span>
+                <span className="font-semibold">
+                    {variantResult.number_of_samples != null
+                        ? humanFriendlyNumber(variantResult.number_of_samples)
+                        : '–'}
+                </span>
             </div>
 
             {isBayesianResult(variantResult) ? (
@@ -60,7 +66,7 @@ export const renderTooltipContent = (
                 </>
             ) : (
                 <div className="flex justify-between items-center">
-                    <span className="text-muted-alt font-semibold">P-value:</span>
+                    <span className="text-muted-alt font-semibold">p-value:</span>
                     <span className="font-semibold">{formatPValue(variantResult.p_value)}</span>
                 </div>
             )}
@@ -71,7 +77,7 @@ export const renderTooltipContent = (
                     {isBaseline ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
-                        <span className={winning ? 'text-success' : 'text-danger'}>
+                        <span className={winning === undefined ? undefined : winning ? 'text-success' : 'text-danger'}>
                             {formatDeltaPercent(variantResult)}
                         </span>
                     )}

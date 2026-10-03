@@ -12,7 +12,7 @@ class GitHubSyncPlanStatus(models.TextChoices):
 
 
 class GitHubSyncPlan(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     team_id: int
 
     config = models.ForeignKey("data_modeling.GitHubSyncConfig", on_delete=models.CASCADE, related_name="sync_plans")

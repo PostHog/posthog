@@ -1,7 +1,7 @@
 import re
 import json
 import base64
-from typing import Any, Literal, TypedDict, Union, cast
+from typing import Any, Literal, TypedDict, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -35,7 +35,10 @@ from social_django.utils import load_backend, load_strategy
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.sso import UNVERIFIED_SOCIAL_EMAIL_ERROR
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
+from posthog.models.identity_provider_config import IdentityProviderConfig, has_verified_organization_domain_q
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -48,7 +51,6 @@ saml_logger = structlog.get_logger("posthog.auth.saml")
 
 
 def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[str, Any]:
-    from posthog.models.user import User
 
     ctx: dict[str, Any] = {
         "masked_email": mask_email(email),
@@ -56,7 +58,7 @@ def _saml_log_context(email: str, organization_id: UUID | None = None) -> dict[s
     }
 
     try:
-        user = User.objects.filter(email__iexact=email).first()
+        user = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if user:
             ctx["user_id"] = str(user.id)
             if organization_id:
@@ -132,8 +134,8 @@ class MultitenantSAMLAuth(SAMLAuth):
         configs = list(
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing by IdP entity id; the assertion signature is verified afterwards)
             IdentityProviderConfig.objects.filter(
+                has_verified_organization_domain_q(),
                 saml_entity_id=issuer,
-                domains__verified_at__isnull=False,
             ).distinct()
         )
         if len(configs) != 1:
@@ -168,8 +170,8 @@ class MultitenantSAMLAuth(SAMLAuth):
             # nosemgrep: idor-lookup-without-org (pre-auth SAML routing check by IdP config identifier)
             return (
                 IdentityProviderConfig.objects.filter(
+                    has_verified_organization_domain_q(),
                     saml_relay_state=candidate,
-                    domains__verified_at__isnull=False,
                 )
                 .distinct()
                 .exists()
@@ -190,20 +192,20 @@ class MultitenantSAMLAuth(SAMLAuth):
             return None
         return (OneLogin_Saml2_XML.element_text(issuer_nodes[0]) or "").strip() or None
 
-    def get_idp(self, organization_domain_or_id: Union["OrganizationDomain", str, None]) -> SAMLIdentityProvider:
-        if organization_domain_or_id is None:
+    def get_idp(self, identity_provider_config_or_id: IdentityProviderConfig | str | None) -> SAMLIdentityProvider:
+        if identity_provider_config_or_id is None:
             saml_logger.warning("saml_idp_lookup_failed", idp_id="None")
             raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
-        if isinstance(organization_domain_or_id, OrganizationDomain):
-            idp_config = organization_domain_or_id.idp_config
+        if isinstance(identity_provider_config_or_id, IdentityProviderConfig):
+            idp_config = identity_provider_config_or_id
         else:
             try:
                 # nosemgrep: idor-lookup-without-org (pre-auth SAML flow, lookup by config identifier on verified configs)
                 idp_config = (
                     IdentityProviderConfig.objects.filter(
-                        saml_relay_state=organization_domain_or_id,
-                        domains__verified_at__isnull=False,
+                        has_verified_organization_domain_q(),
+                        saml_relay_state=identity_provider_config_or_id,
                     )
                     .distinct()
                     .get()
@@ -213,7 +215,7 @@ class MultitenantSAMLAuth(SAMLAuth):
                 IdentityProviderConfig.MultipleObjectsReturned,
                 DjangoValidationError,
             ):
-                saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
+                saml_logger.warning("saml_idp_lookup_failed", idp_id=str(identity_provider_config_or_id))
                 raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
 
         if not idp_config.organization.is_feature_available(AvailableFeature.SAML):
@@ -238,29 +240,27 @@ class MultitenantSAMLAuth(SAMLAuth):
         )
 
     def auth_url(self):
-        """
-        Overridden to use the config from the relevant OrganizationDomain
-        Get the URL to which we must redirect in order to
-        authenticate the user
-        """
         email = self.strategy.request_data().get("email")
 
         if not email:
             raise AuthMissingParameter(self, "email")
 
-        instance = OrganizationDomain.objects.get_verified_for_email_address(email=email)
-
-        if not instance or not instance.has_saml:
+        idp_configs = list(IdentityProviderConfig.objects.saml_for_email(email)[:2])
+        if len(idp_configs) == 0:
             saml_logger.warning("saml_not_configured", **_saml_log_context(email))
             raise AuthFailed(self, "SAML not configured for this user.")
+        if len(idp_configs) > 1:
+            saml_logger.warning("saml_multiple_configs", **_saml_log_context(email))
+            raise AuthFailed(self, "Multiple SAML configurations found for this user.")
 
+        idp_config = idp_configs[0]
         saml_logger.info(
             "saml_auth_redirect",
-            domain=instance.domain,
-            organization_id=str(instance.organization_id),
-            **_saml_log_context(email, instance.organization_id),
+            organization_id=str(idp_config.organization_id),
+            **_saml_log_context(email, idp_config.organization_id),
         )
-        auth = self._create_saml_auth(idp=self.get_idp(instance))
+        identity_provider = self.get_idp(idp_config)
+        auth = self._create_saml_auth(idp=identity_provider)
         # `return_to` sets the RelayState, a value the IdP echoes back in its POST to the
         # (shared) auth_complete URL. The session cookie is SameSite=Lax and so is dropped on
         # the IdP's cross-site POST, which would otherwise lose `next` and send the user to `/`;
@@ -269,7 +269,7 @@ class MultitenantSAMLAuth(SAMLAuth):
         # We deliberately omit the session key that upstream `SAMLAuth.auth_url` also packs into
         # RelayState: it would be disclosed to the (potentially attacker-controlled) IdP in the
         # redirect, and `next` alone is enough to recover the redirect without it.
-        relay_state = {"idp": instance.idp_config.saml_relay_state, "next": self.data.get("next")}
+        relay_state = {"idp": identity_provider.name, "next": self.data.get("next")}
         return auth.login(return_to=json.dumps(relay_state))
 
     def _get_attr(
@@ -373,7 +373,9 @@ class MultitenantSAMLAuth(SAMLAuth):
         # A config can back several verified domains, and an assertion is valid for any of them.
         configured_domains = {
             domain.lower()
-            for domain in idp_config.domains.filter(verified_at__isnull=False).values_list("domain", flat=True)
+            for domain in idp_config.organization_domains.filter(verified_at__isnull=False).values_list(
+                "domain", flat=True
+            )
         }
         if email.rsplit("@", 1)[-1].lower() in configured_domains:
             return
@@ -473,6 +475,10 @@ class CustomGoogleOAuth2(GoogleOAuth2):
         try:
             # Second try: Find and migrate legacy user using email as uid
             social_auth = UserSocialAuth.objects.get(provider="google-oauth2", uid=email)
+            # This lookup resolves the account by email address, so the email has to be verified,
+            # the same as for `associate_by_email`.
+            if response.get("email_verified") is not True:
+                raise AuthFailed(self, UNVERIFIED_SOCIAL_EMAIL_ERROR)
             # Migrate user from email to sub
             social_auth.uid = sub
             social_auth.save()
@@ -494,7 +500,7 @@ def _get_bearer_token(request: Request) -> str | None:
     return None
 
 
-class VercelAuthentication(authentication.BaseAuthentication):
+class VercelAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Implements Vercel Marketplace API authentication.
     This authentication uses the OpenID Connect Protocol (OIDC).
@@ -505,6 +511,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
     https://vercel.com/docs/integrations/create-integration/marketplace-api#marketplace-partner-api-authentication
     """
 
+    activity_credential_type = "vercel"
     VercelAuthType = Literal["user", "system"]
 
     VERCEL_AUTH_TYPES: tuple[VercelAuthType, ...] = ("user", "system")
@@ -521,6 +528,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token, auth_type)
+            self.record_activity_actor(None, str(payload.installation_id))
             return VercelUser(claims=payload), None
         except jwt.InvalidTokenError as e:
             logger.warning("Vercel auth failed", auth_type=auth_type, error=str(e), integration="vercel")
@@ -568,6 +576,7 @@ class VercelAuthentication(authentication.BaseAuthentication):
                 user_avatar_url=payload.get("user_avatar_url"),
                 user_name=payload.get("user_name"),
                 user_email=payload.get("user_email"),
+                user_email_verified=payload.get("user_email_verified"),
             )
         elif auth_type == "system":
             self._validate_system_claims(payload)
@@ -650,7 +659,7 @@ class BillingServiceUser:
         return True
 
 
-class BillingServiceAuthentication(authentication.BaseAuthentication):
+class BillingServiceAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates requests from the billing service to PostHog.
 
@@ -658,6 +667,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
     uses when calling the billing service, but in reverse direction).
     """
 
+    activity_credential_type = "billing_service"
     EXPECTED_AUDIENCE = "billing:posthog-proxy"
 
     def authenticate(self, request: Request) -> tuple[BillingServiceUser, None] | None:
@@ -686,6 +696,7 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
             logger.warning("Billing service token missing organization_id")
             raise AuthenticationFailed("Missing organization_id in token")
 
+        self.record_activity_actor(None)
         return BillingServiceUser(organization_id=organization_id), None
 
     def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:

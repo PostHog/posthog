@@ -30,8 +30,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/user_research': ['UserInterviews', 'userInterviews'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/user_research/:id': ['UserInterview', 'userInterview'],
     },
     redirects: {
@@ -48,7 +51,7 @@ export const manifest: ProductManifest = {
             name: 'User research',
             iconType: 'user_interview',
             href: (ref: string) => urls.userInterview(ref),
-            iconColor: ['var(--color-product-user-interviews-light)'],
+            iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
             filterKey: 'user_interview',
             flag: FEATURE_FLAGS.USER_INTERVIEWS,
         },
@@ -63,7 +66,10 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.USER_INTERVIEWS,
             tags: ['alpha'],
             iconType: 'user_interview',
-            iconColor: ['var(--color-product-user-interviews-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-user-interviews-light)',
+                'var(--color-product-user-interviews-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'UserInterviews',
         },
     ],

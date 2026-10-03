@@ -4,6 +4,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests_mock
 from parameterized import parameterized
 from requests.exceptions import HTTPError
 
@@ -11,8 +12,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import ENDPOINTS, SPRIG_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.settings import (
+    ENDPOINTS,
+    SPRIG_API_BASE_URL,
+    SPRIG_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.sprig.sprig import (
+    SprigRedirectError,
     SprigResumeConfig,
     _format_incremental_value,
     get_resource,
@@ -241,3 +247,43 @@ class TestValidateCredentials:
 
         with pytest.raises(HTTPError):
             validate_credentials("key")
+
+
+class TestRedirectsRefused:
+    # A redirected request lands on a host that answers 403 with a bot challenge, which must not
+    # be read as an auth failure. Redirects are refused so the token never leaves the API host.
+    API_URL = f"{SPRIG_API_BASE_URL}/v1/surveys"
+    TARGET_URL = "https://sprig.com/v1/surveys"
+
+    @parameterized.expand([("moved_permanently", 301), ("found", 302)])
+    def test_sync_refuses_redirect_and_keeps_token_on_api_host(self, _label: str, status: int) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=status, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            source = sprig_source(
+                api_key="key",
+                endpoint="Surveys",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+            )
+            with pytest.raises(ValueError, match="Unexpected redirect .*refusing to follow"):
+                list(cast(Any, source.items()))
+
+            assert [r.hostname for r in m.request_history] == ["api.sprig.com"]
+            assert m.request_history[0].headers["Authorization"] == "Bearer key"
+
+    def test_validate_credentials_refuses_redirect_instead_of_reporting_a_valid_key(self) -> None:
+        with requests_mock.Mocker() as m:
+            m.get(self.API_URL, status_code=302, headers={"Location": self.TARGET_URL})
+            m.get(self.TARGET_URL, status_code=403)
+
+            with pytest.raises(SprigRedirectError, match="redirected the API request to sprig.com"):
+                validate_credentials("key")
+
+            assert [r.hostname for r in m.request_history] == ["api.sprig.com"]

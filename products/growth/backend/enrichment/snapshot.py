@@ -17,7 +17,7 @@ SNAPSHOT_EVENT_NAME = "enrichment_snapshot_at_signup"
 SNAPSHOT_PROPERTY_SUFFIX = "_at_signup"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SignupEnrichmentSnapshot:
     """PII-light firmographic values captured at signup.
 
@@ -33,8 +33,13 @@ class SignupEnrichmentSnapshot:
     founded_year: Optional[int] = None
     funding_stage: Optional[str] = None
     is_yc_company: Optional[bool] = None
-    icp_score: Optional[int] = None
-    icp_score_version: Optional[str] = None
+    # The fit evaluation as it stood at signup. A numeric score snapshots with its version;
+    # a score-less evaluation snapshots the status alone, so "insufficient at signup" stays
+    # distinguishable from "never evaluated" forever. (The legacy clay icp_score was never
+    # fed into the snapshot, so these are the first score keys the event actually carries.)
+    icp_fit_score: Optional[int] = None
+    icp_fit_version: Optional[str] = None
+    icp_fit_status: Optional[str] = None
 
     def to_event_properties(self) -> dict[str, Any]:
         """Return the snapshot as `*_at_signup` event properties, dropping unset values."""

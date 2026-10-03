@@ -8,7 +8,6 @@ import type { SignalReport } from "@posthog/shared/types";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCallback, useMemo } from "react";
 
-/** Bounded to keep the note within the analytics client's per-property limit. */
 export const FEEDBACK_NOTE_MAX_LENGTH = 4000;
 
 /**
@@ -46,7 +45,7 @@ export function useReportFeedbackTracker(
       track(ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE, {
         ...base,
         sentiment,
-        note: text.slice(0, FEEDBACK_NOTE_MAX_LENGTH),
+        note: text,
       });
     },
     [base],

@@ -1,10 +1,13 @@
+import json
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
+from redis import exceptions as redis_exceptions
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
@@ -17,6 +20,7 @@ from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DUPLICATE_PRIMARY_KEYS_ERROR,
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
     MissingPrimaryKeysException,
@@ -30,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.row_tracking impor
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import resolve_merge_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
     extract_available_column_names,
 )
@@ -41,6 +46,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportDataActivityInputs,
     )
@@ -60,6 +66,10 @@ async def _get_redis():
         await redis.ping()
     except Exception as e:
         capture_exception(e)
+        # get_async_client only builds a lazy client, so a failed ping means redis is
+        # still unreachable - reset it to None so callers' `if redis_client is None` guard
+        # actually skips the real command instead of raising the same error uncaught.
+        redis = None
 
     yield redis
 
@@ -69,21 +79,84 @@ def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: s
 
 
 NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
+NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE = timedelta(minutes=10)
+
+
+UNREADABLE_JOB_INPUTS_MESSAGE = (
+    "Can't read this source's saved connection settings. Reconnect the source to fix the sync."
+)
+
+
+class UnreadableJobInputsError(Exception):
+    """A stored `job_inputs` value that holds no mapping, so no run of this source can read it.
+
+    Raised as the cause of a `NonRetryableException` because the workflow reads the customer-facing
+    error text off the cause, not off the wrapper.
+    """
+
+
+def _decode_job_inputs(job_inputs: str) -> dict[str, Any]:
+    """Recover the config mapping from a `job_inputs` value stored as a JSON string.
+
+    `EncryptedJSONField` encrypts a mapping value by value, but stringifies and encrypts anything
+    else whole, and its read path hands a scalar straight back without parsing it. So a config
+    written as a JSON string instead of a mapping decodes to that same string on every later read,
+    with the mapping still inside it as plain JSON. `Config.from_dict` recovers such a config the
+    same way, so decoding here keeps the two readers in agreement.
+    """
+    try:
+        decoded = json.loads(job_inputs)
+    except ValueError:
+        # Text that holds no JSON and JSON that holds no mapping leave the caller with the same
+        # unusable config, so both take the branch below.
+        decoded = None
+
+    if not isinstance(decoded, dict):
+        raise NonRetryableException() from UnreadableJobInputsError(UNREADABLE_JOB_INPUTS_MESSAGE)
+
+    return decoded
 
 
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
-    if not source.job_inputs:
+    decoded_from_string = isinstance(source.job_inputs, str)
+    if decoded_from_string:
+        job_inputs = _decode_job_inputs(source.job_inputs)
+    elif isinstance(source.job_inputs, dict):
+        job_inputs = source.job_inputs
+    else:
+        # An unconfigured source (`None`) or any other non-mapping has no keys to trim. The config
+        # parse in the import activity reports an unusable value.
         return
 
-    did_update_inputs = False
-    for key, value in source.job_inputs.items():
+    # A value decoded out of a string is saved even when no key needs trimming, so the row is
+    # rewritten as a mapping once instead of every run reading the string back.
+    did_update_inputs = decoded_from_string
+    for key, value in job_inputs.items():
         if isinstance(value, str):
             if value.startswith(" ") or value.endswith(" "):
-                source.job_inputs[key] = value.strip()
+                job_inputs[key] = value.strip()
                 did_update_inputs = True
 
     if did_update_inputs:
+        source.job_inputs = job_inputs
         await database_sync_to_async_pool(source.save)()
+
+
+def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:
+    """The source type behind a dying run, so a death event is diagnosable per connector without
+    joining against the source table. Best-effort: the death event must survive a failed lookup."""
+    try:
+        from products.warehouse_sources.backend.models.external_data_source import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+            ExternalDataSource,
+        )
+
+        return (
+            ExternalDataSource.objects.filter(id=inputs.source_id, team_id=inputs.team_id)
+            .values_list("source_type", flat=True)
+            .first()
+        )
+    except Exception:
+        return None
 
 
 def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: FilteringBoundLogger) -> None:
@@ -160,6 +233,7 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                 "workflow_run_id": info.workflow_run_id,
                 "workflow_type": info.workflow_type,
                 "attempt": info.attempt,
+                "source_type": _source_type_for_death_event(inputs),
             }
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
@@ -231,10 +305,19 @@ async def handle_non_retryable_error(
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
-        attempts = await redis_client.incr(retry_key)
+        try:
+            attempts = await redis_client.incr(retry_key)
+            if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
+                await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+        except redis_exceptions.RedisError as e:
+            # A successful ping doesn't guarantee later commands still have a Redis to talk to -
+            # treat that the same as a `None` client instead of letting it surface unwrapped and
+            # mask the already-classified `error` behind an ordinary retryable activity failure.
+            capture_exception(e)
+            await logger.adebug(f"Redis became unreachable tracking a non-retryable error. error={error_msg}")
+            raise NonRetryableException() from error
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
-            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
@@ -253,12 +336,20 @@ async def reset_rows_synced_if_needed(
     is_incremental: bool,
     reset_pipeline: bool,
     should_resume: bool,
+    *,
+    incremental_cursor_staged: bool = False,
 ) -> None:
-    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout
+    # Reset the rows_synced count - this may not be 0 if the job restarted due to a heartbeat timeout.
+    #
+    # Incremental syncs are exempt only when the durable cursor advances per batch (pipeline v2), so
+    # a retried attempt resumes past the rows already counted. When the cursor is staged and only
+    # promoted on completion (pipeline v3), a retried attempt re-extracts the whole window from
+    # batch 0, so keeping the previous attempt's count double-counts every re-read row —
+    # `rows_synced` feeds billed usage via `Sum("rows_synced")` in usage reports.
     if (
         job.rows_synced is not None
         and job.rows_synced != 0
-        and (not is_incremental or reset_pipeline is True)
+        and (not is_incremental or reset_pipeline is True or incremental_cursor_staged)
         and not should_resume
     ):
         job.rows_synced = 0
@@ -279,21 +370,24 @@ def resolve_primary_keys(
 
     Returns None when no key can be resolved, so the keyless-table guardrail still fires.
     """
-    if schema.primary_key_columns:
-        return schema.primary_key_columns
-    if resource.primary_keys:
-        return list(resource.primary_keys)
-    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
-    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
-    id_column = next(
-        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    return resolve_merge_keys(
+        schema.primary_key_columns,
+        resource.primary_keys,
+        extract_available_column_names(schema.schema_metadata),
     )
-    if id_column is not None:
-        return [id_column]
-    return None
 
 
 async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    await _persist_detected_primary_keys(schema, resource, is_incremental, logger)
+    await persist_verified_primary_keys(schema, resource, logger)
+
+
+async def _persist_detected_primary_keys(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
     is_incremental: bool,
@@ -306,7 +400,11 @@ async def persist_primary_keys(
     inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
     must not fail an otherwise successful sync.
     """
-    if not is_incremental or schema.primary_key_columns:
+    # A CDC schema snapshots as full_refresh but streams incrementally, so its key has to be
+    # persisted during that first non-incremental run or the streaming phase has none.
+    if schema.primary_key_columns:
+        return
+    if not is_incremental and not schema.is_cdc:
         return
     primary_keys = resource.primary_keys
     if not primary_keys:
@@ -333,16 +431,43 @@ async def persist_primary_keys(
         await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
+async def persist_verified_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the key a full-table probe proved unique, so later runs only probe what they read.
+
+    Best-effort: losing this costs another full probe next run, not correctness.
+    """
+    verified = resource.verified_primary_keys
+    if not verified or list(verified) == list(schema.verified_primary_keys or []):
+        return
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            updates={"verified_primary_keys": list(verified)},
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist verified primary keys into sync_type_config")
+
+
 def validate_incremental_sync(
     is_incremental: bool,
     resource: SourceResponse,
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
-            f"The primary keys for this table are not unique. We can't sync incrementally until the table "
+            f"{DUPLICATE_PRIMARY_KEYS_ERROR}. We can't sync incrementally until the table "
             f"has a unique primary key. Primary keys being used are: {resource.primary_keys}"
         )
 
@@ -665,6 +790,14 @@ async def update_row_tracking_after_batch(
     await decrement_rows(team_id, schema_id, row_count)
 
 
+def _is_young_first_attempt() -> bool:
+    if not activity.in_activity():
+        return False
+
+    info = activity.info()
+    return info.attempt == 1 and datetime.now(UTC) - info.started_time < NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE
+
+
 def should_check_shutdown(
     schema: "ExternalDataSchema",
     resource: SourceResponse,
@@ -674,12 +807,13 @@ def should_check_shutdown(
     # Only raise if we're not running in descending order, otherwise we'll often not
     # complete the job before the incremental value can be updated. Or if the source is
     # resumable
-    # TODO: raise when we're within `x` time of the worker being forced to shutdown
+    # Let a new attempt leave a shutting-down worker before it holds the worker for hours.
+    # Limit handoffs to attempt one so full refresh keeps two attempts for retries.
     # Raising during a full reset will reset our progress back to 0 rows
     incremental_sync_raise_during_shutdown = (
         schema.should_use_incremental_field and resource.sort_mode != "desc" and not reset_pipeline
     )
-    return incremental_sync_raise_during_shutdown or source_is_resumable
+    return incremental_sync_raise_during_shutdown or source_is_resumable or _is_young_first_attempt()
 
 
 async def finalize_desc_sort_incremental_value(
@@ -704,31 +838,28 @@ async def finalize_desc_sort_incremental_value(
             await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
 
-async def advance_xmin_state(
-    resource: SourceResponse,
+async def commit_source_cursor(
+    source_cursor_manager: "SourceCursorManager[Any] | None",
     schema: "ExternalDataSchema",
     logger: FilteringBoundLogger,
+    *,
+    staging_run_uuid: str | None,
     log_prefix: str = "",
 ) -> None:
-    """Persist the xmin ceiling captured at sync start, once the run's data is durable.
+    """Persist the cursor the source staged, once this run's rows are durable or about to be.
 
-    Persist-then-advance: the ceiling was captured before streaming and is stored only here, at
-    completion, so a mid-run crash re-reads the window next time (the upsert on PK is idempotent).
-    Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
-    wraparound-unsafe for xmin.
+    With `staging_run_uuid`, the cursor waits in the staged slot until the loader promotes it with
+    the final batch, so a load that fails never leaves the cursor past rows it did not write.
+    Without it, the caller has already written every row and the cursor is stored directly.
     """
-    if (
-        not schema.is_xmin
-        or resource.xmin_ceiling_xid is None
-        or resource.xmin_ceiling_xid8 is None
-        or resource.xmin_num_wraparound is None
-    ):
+    if source_cursor_manager is None:
+        return
+    payload = source_cursor_manager.staged_payload()
+    if payload is None:
         return
 
-    await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")
-    await database_sync_to_async_pool(schema.refresh_from_db)()
-    await database_sync_to_async_pool(schema.update_xmin_state)(
-        ceiling_xid=resource.xmin_ceiling_xid,
-        ceiling_xid8=resource.xmin_ceiling_xid8,
-        num_wraparound=resource.xmin_num_wraparound,
-    )
+    await logger.adebug(f"{log_prefix}Committing source cursor", kind=payload["kind"], staged=staging_run_uuid)
+    if staging_run_uuid is not None:
+        await database_sync_to_async_pool(schema.stage_source_cursor)(staging_run_uuid, payload)
+    else:
+        await database_sync_to_async_pool(schema.update_source_cursor)(payload)

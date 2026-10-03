@@ -132,5 +132,12 @@ import { Sparkline } from '@posthog/quill-charts'
 
 ## More
 
+- Choosing a chart, the gotchas, and the docs index → [AGENTS.md](../AGENTS.md)
+- Per-chart behavior (scatter, funnel, slope, pie, metric card) → [docs/chart-types.md](./docs/chart-types.md)
+- Axes, ranges, multi-axis, chrome → [docs/axes.md](./docs/axes.md)
+- Bars: layouts, per-bar overrides, `minBarSize`, `trackData` → [docs/bars.md](./docs/bars.md)
+- Tooltips → [docs/tooltips.md](./docs/tooltips.md); legend → [docs/legend.md](./docs/legend.md)
+- Overlays, built-in and custom → [docs/overlays.md](./docs/overlays.md)
+- Clicks, drag-to-zoom, brush → [docs/interactions.md](./docs/interactions.md)
 - Building a new chart type, library architecture, conventions → [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md)
 - Writing tests against a chart, or against code that uses one → [docs/TESTING.md](./docs/TESTING.md)

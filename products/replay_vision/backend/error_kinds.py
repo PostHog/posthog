@@ -15,6 +15,18 @@ class IneligibleSessionKind(StrEnum):
     # Usually a property of the recording, but it can be a timing artifact (snapshots still ingesting, a
     # backfill landing late), so the retry endpoint accepts ineligible rows and the UI offers a retry here.
     NO_SNAPSHOTS = "no_snapshots"
+    # The recording's snapshot blocks exceed the rasterizer's size cap, so the render is refused before it starts.
+    # This is a fixed property of the recording, so no retry can make the scan succeed.
+    TOO_LARGE = "too_large"
+    # An experiment scanner's session whose person the exposure data does not attribute to a watched
+    # variant: never exposed, exposed only outside the selected variants, or set aside as
+    # multiple-variant. Also a session outside the experiment's run: ended before the person's first
+    # exposure, or after the experiment ended. Decided before any model call, so it costs no credits.
+    NOT_EXPOSED = "not_exposed"
+    # An experiment scanner whose experiment cannot answer for its exposed population right now
+    # (deleted, a removed flag or variant, or no principal with access). The sweep disables the
+    # scanner when the experiment is gone for good; this covers the scans already in flight.
+    EXPERIMENT_UNRESOLVED = "experiment_unresolved"
 
 
 class FailureKind(StrEnum):

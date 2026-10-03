@@ -17,6 +17,10 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "owner_id": {
+            "description": "Filter skills by the ID of a user who owns them. Ownership is keyed on the logical skill, so this is stable across versions — unlike created_by_id, which tracks whoever published the latest version.",
+            "type": "number"
+        },
         "search": {
             "description": "Optional substring filter applied to skill names and descriptions.",
             "type": "string"

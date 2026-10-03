@@ -1,4 +1,7 @@
+import json
 import uuid
+import hashlib
+import datetime as dt
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -18,7 +21,6 @@ import dlt.extract.incremental.transform
 from clickhouse_driver.errors import ServerException
 from structlog.types import FilteringBoundLogger
 
-from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import retry_on_db_connection_drop
@@ -27,8 +29,12 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_initial_sync_complete,
+    update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -37,12 +43,87 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import advance_query_folder_pointer
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+)
 
 LOGGER = get_logger(__name__)
+
+
+def _record_query_folder_pointer(
+    schema_id: uuid.UUID,
+    team_id: int,
+    previous_folder: Optional[str],
+    queryable_folder: str,
+    job_id: str,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Record the pointer move, so the publish step knows when each slot stopped being read.
+
+    Written right after the pointer write rather than inside it, because the pointer lives on the
+    table row and the record on the schema row. A crash between the two leaves a move unrecorded,
+    which the next record detects and treats as unknown history, so the gap is safe. Best effort for
+    the same reason: the pointer has landed, and failing the sync here would discard a load that
+    succeeded.
+    """
+
+    def _mutate(config: dict[str, Any]) -> None:
+        advance_query_folder_pointer(
+            config, previous_folder=previous_folder, queryable_folder=queryable_folder, job_id=job_id
+        )
+
+    try:
+        retry_on_db_connection_drop(lambda: update_sync_type_config_keys(schema_id, team_id, mutate=_mutate))
+    except Exception:
+        logger.warning(f"Could not record the query folder pointer move to {queryable_folder}", exc_info=True)
+
+
+# `sync_type_config` key holding the fingerprint of the inputs the table's `columns` were last built
+# from, so a sync whose inputs match can skip introspecting the table again.
+REGISTERED_SCHEMA_FINGERPRINT_KEY = "registered_schema_fingerprint"
+
+
+def registered_schema_fingerprint(
+    delta_schema_json: str,
+    table_schema_dict: dict[str, str],
+    enabled_columns: Any,
+    primary_keys: Any,
+    incremental_field: Any,
+) -> str:
+    """Hash of everything `columns` is a pure function of, apart from the introspection itself.
+
+    The ClickHouse DESCRIBE reads the Delta log's schema, so the same Delta schema gives the same
+    introspection. The rest are the projection inputs applied after it, which a user can change
+    between syncs (the column picker, a primary key) and which must invalidate the skip.
+    """
+    payload = {
+        "delta_schema": delta_schema_json,
+        "table_schema": table_schema_dict,
+        "enabled_columns": enabled_columns,
+        "primary_keys": primary_keys,
+        "incremental_field": incremental_field,
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _record_registered_schema_fingerprint(
+    schema_id: uuid.UUID, team_id: int, fingerprint: str, logger: FilteringBoundLogger
+) -> None:
+    # Best effort: without the stamp the next sync introspects again, which is the safe direction.
+    try:
+        retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(
+                schema_id, team_id, updates={REGISTERED_SCHEMA_FINGERPRINT_KEY: fingerprint}
+            )
+        )
+    except Exception:
+        logger.warning("Could not record the registered schema fingerprint", exc_info=True)
 
 
 def merge_columns(
@@ -52,17 +133,21 @@ def merge_columns(
 ) -> dict[str, Any]:
     """Build column metadata, preserving StringJSONDatabaseField from prior runs.
 
+    db_columns comes from ClickHouse introspection of the published files, so it is the
+    authority on which columns exist and what each one holds. table_schema_dict only refines
+    that typing: ClickHouse reports a plain string column and a JSON string column both as
+    String, and the Arrow schema of the written data is the only place that distinction
+    survives. A column the Arrow schema never carried is therefore still a real column, so it
+    takes its type from ClickHouse. Do not skip such a column, because skipping it removes it
+    from the table metadata, and so from HogQL, on every sync.
+
     Columns present in existing_columns but absent from db_columns are preserved
     to avoid losing schema information when get_columns() returns incomplete
     results during a sync (e.g., transient S3/ClickHouse introspection failures).
     """
     columns: dict[str, Any] = {}
     for column_name, db_column_type in db_columns.items():
-        hogql_type = table_schema_dict.get(column_name)
-
-        if hogql_type is None:
-            capture_exception(Exception(f"HogQL type not found for column: {column_name}"))
-            continue
+        hogql_type = table_schema_dict.get(column_name) or hogql_type_name_for_clickhouse_type(db_column_type)
 
         existing_column = existing_columns.get(column_name)
         existing_hogql_type = existing_column.get("hogql") if isinstance(existing_column, dict) else None
@@ -121,17 +206,46 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
-        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        schema.last_synced_at = job.created_at
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
-        schema.save(skip_activity_log=True)
+        # `last_full_run_at` rides along in the same locked write: only a run that reached
+        # post-load extracted anything, which is what bounds how long a schema can go on
+        # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
+        # also stops this save from clobbering a concurrent `sync_type_config` update.
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
+            extra_model_fields={"last_synced_at": job.created_at},
+        )
 
     await _update()
 
 
-async def set_initial_sync_complete(schema_id: str, team_id: int) -> None:
-    await database_sync_to_async_pool(mark_initial_sync_complete)(schema_id=schema_id, team_id=team_id)
+def _purge_stale_buffer_then_mark_initial_sync_complete(
+    schema_id: str, team_id: int, logger: FilteringBoundLogger
+) -> None:
+    # cdc.source_manager pulls in pipeline_v3, whose package __init__ imports common.load, which
+    # imports this module back — a true cycle only a deferred import breaks.
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (  # noqa: PLC0415
+        purge_buffer_before_handover,
+    )
+
+    # The row lock is held from the marker read through the flip. Capture sets the marker under the
+    # same lock before it writes the table's first file, so it cannot mark the table and write
+    # between the read and a purge that would delete what it wrote.
+    with transaction.atomic():
+        schema = ExternalDataSchema.objects.select_for_update().exclude(deleted=True).get(id=schema_id, team_id=team_id)
+        # About to flip a CDC schema snapshot→streaming, after which the consumer merges the buffer, so
+        # what it must not replay goes first. A concurrent capture tick is the one other writer, and the
+        # consumer's position guard covers what it leaves.
+        if schema.is_cdc and not schema.initial_sync_complete and schema.cdc_mode == "snapshot":
+            purge_buffer_before_handover(schema, logger)
+        mark_initial_sync_complete(schema_id=schema_id, team_id=team_id)
+
+
+async def set_initial_sync_complete(schema_id: str, team_id: int, logger: FilteringBoundLogger) -> None:
+    await database_sync_to_async_pool(_purge_stale_buffer_then_mark_initial_sync_complete)(
+        schema_id=schema_id, team_id=team_id, logger=logger
+    )
 
 
 def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBoundLogger, context: str) -> None:
@@ -145,15 +259,33 @@ def _refresh_cumulative_row_count(table: DataWarehouseTable, logger: FilteringBo
         logger.warning(f"Could not refresh cumulative row count for {context}, keeping previous value", exc_info=True)
 
 
+def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -> DataWarehouseTable | None:
+    """The schema's linked table, unless the link is its `_cdc` companion.
+
+    cdc_only links the schema to its companion table. Reusing that link after a switch to a mode that
+    writes the consolidated table would publish the consolidated data under the companion's record,
+    and the consolidated table would never get a record of its own. A pinned folder can give the
+    schema's own table the companion's name, and then the link is right.
+    """
+    table = schema.table
+    if table is None:
+        return None
+    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+    table_name = build_table_name(pipeline, names.table_storage_name)
+    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
+    return None if table.name == companion_name != table_name else table
+
+
 async def validate_schema_and_update_table(
     run_id: str,
     team_id: int,
     schema_id: uuid.UUID,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
+    delta_schema_json: Optional[str] = None,
 ) -> None:
     """
     Async version of validate_schema_and_update_table_sync.
@@ -168,12 +300,11 @@ async def validate_schema_and_update_table(
         row_count: The count of synced rows
         table_format: The format of the table
         table_schema_dict: The schema of the table
+        delta_schema_json: The Delta table's schema. When given and unchanged since the columns were
+            last registered (together with the projection inputs), the ClickHouse introspection and
+            the column write are skipped; the pointer flip and the row count still happen.
     """
     logger = LOGGER.bind(team_id=team_id)
-
-    if row_count == 0:
-        logger.warning("Skipping `validate_schema_and_update_table` due to `row_count` being 0")
-        return
 
     @database_sync_to_async_pool
     def _validate_and_update():
@@ -214,13 +345,38 @@ async def validate_schema_and_update_table(
             # held the Postgres transaction (and the select_for_update row lock below) open for
             # minutes, surfacing as "idle in transaction" connections that stalled vacuum and
             # exhausted the connection pool.
-            table_created: DataWarehouseTable | None = external_data_schema.table
+            table_created: DataWarehouseTable | None = own_linked_table(external_data_schema, job.pipeline)
+
+            if table_created is None:
+                # The ServerException handler below can leave a created table unlinked, so look for
+                # that orphan before the skip decides no table exists. Two schema names can resolve
+                # to one table name, so require that no schema owns the row.
+                table_created = DataWarehouseTable.objects.filter(
+                    team_id=team_id,
+                    name=table_name,
+                    external_data_source_id=job.pipeline.id,
+                    deleted=False,
+                    externaldataschema__isnull=True,
+                ).first()
+                if table_created is not None:
+                    logger.debug(f"Found existing table {table_created.id} - reusing it for schema {_schema_id}")
+
+            # A reported row_count of 0 does not always mean the run wrote nothing: the v3 consumer
+            # can read 0 on a redelivered final batch, and a resumed run counts only its own attempt.
+            # A publish step with nothing to make queryable is what an empty first sync looks like.
+            if row_count == 0 and table_created is None:
+                logger.warning("Skipping table creation: row_count is 0 and no table exists yet")
+                return
+
             if table_created:
                 table = table_created
+                previous_queryable_folder = table.queryable_folder
                 table.format = table_params["format"]
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
-                if external_data_schema.table_row_count_is_cumulative:
+                if external_data_schema.table_row_count_is_cumulative or row_count == 0:
+                    # A reported 0 can under-count a real write (see above), so read the true count
+                    # from the just-published files rather than zero a table we are republishing.
                     _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
                 else:
                     table.row_count = row_count
@@ -235,26 +391,49 @@ async def validate_schema_and_update_table(
                         internally_computed_url_pattern=True,
                     )
                 )
-
-            if not table_created:
-                # Check if we already have an orphaned table that we can repurpose
-                existing_tables = DataWarehouseTable.objects.filter(
-                    team_id=team_id, name=table_name, external_data_source_id=job.pipeline.id, deleted=False
+                _record_query_folder_pointer(
+                    _schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
                 )
-                existing_tables_count = existing_tables.count()
-                if existing_tables_count > 0:
-                    table_created = existing_tables[0]
-                    logger.debug(
-                        f"Found {existing_tables_count} existing tables - skipping creating and using {table_created.id}"
-                    )
 
-                if not table_created:
-                    logger.debug(f"Creating table for schema: {str(schema_id)}")
-                    table_created = DataWarehouseTable.objects.create(
-                        external_data_source_id=job.pipeline.id, **table_params
-                    )
+            else:
+                logger.debug(f"Creating table for schema: {str(schema_id)}")
+                table = DataWarehouseTable.objects.create(
+                    external_data_source_id=job.pipeline.id,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    **table_params,
+                )
+                _record_query_folder_pointer(_schema_id, team_id, None, queryable_folder, run_id, logger)
+                if row_count == 0:
+                    # table_params holds 0 for a table an earlier attempt already filled. get_count()
+                    # can block long enough for the pooled connection to go stale, as above.
+                    _refresh_cumulative_row_count(table, logger, f"{_schema_name} ({_schema_id})")
+                    retry_on_db_connection_drop(lambda: table.save(update_fields=["row_count"]))
+                table_created = table
 
             assert isinstance(table_created, DataWarehouseTable) and table_created is not None
+
+            # Prefer source-detected PKs (always present) over the schema model's PKs (only set
+            # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
+            effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
+
+            fingerprint: Optional[str] = None
+            if delta_schema_json is not None:
+                fingerprint = registered_schema_fingerprint(
+                    delta_schema_json,
+                    table_schema_dict or {},
+                    external_data_schema.enabled_columns,
+                    effective_primary_keys,
+                    external_data_schema.incremental_field,
+                )
+                if (
+                    fingerprint == (external_data_schema.sync_type_config or {}).get(REGISTERED_SCHEMA_FINGERPRINT_KEY)
+                    and table_created.columns
+                    and external_data_schema.table_id == table_created.id
+                ):
+                    logger.debug(
+                        f"Registered schema unchanged for {_schema_name} ({_schema_id}), skipping introspection"
+                    )
+                    return
 
             # safe_expose_ch_error=False keeps failures as ServerException (see except clause below)
             # instead of the generic, user-facing Exception get_columns() raises by default.
@@ -273,9 +452,6 @@ async def validate_schema_and_update_table(
                     columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
                     # Project to enabled_columns so disabled columns the user already deselected don't
                     # creep back into HogQL via the Delta schema (which still contains them historically).
-                    # Prefer source-detected PKs (always present) over the schema model's PKs (only set
-                    # for CDC and user-picked incremental keys) so non-CDC schemas don't drop their PKs.
-                    effective_primary_keys = primary_keys or external_data_schema.primary_key_columns
                     columns = filter_dwh_columns_by_enabled_columns(
                         columns,
                         external_data_schema.enabled_columns,
@@ -302,6 +478,8 @@ async def validate_schema_and_update_table(
             # stale. A dropped connection mid-atomic-block rolls the block back, so retrying it whole
             # is safe.
             retry_on_db_connection_drop(_persist_columns)
+            if fingerprint is not None:
+                _record_registered_schema_fingerprint(_schema_id, team_id, fingerprint, logger)
 
         except ServerException as err:
             # 636 (CANNOT_EXTRACT_TABLE_STRUCTURE) and 742 (DELTA_KERNEL_ERROR, "No files in log
@@ -334,7 +512,7 @@ async def register_cdc_companion_table(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
@@ -383,6 +561,7 @@ async def register_cdc_companion_table(
                 deleted=False,
             ).first()
 
+            previous_queryable_folder = companion_table.queryable_folder if companion_table else None
             if companion_table:
                 table = companion_table
                 table.format = table_format
@@ -405,8 +584,13 @@ async def register_cdc_companion_table(
             else:
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
-                    external_data_source_id=job.pipeline.id, **table_params
+                    external_data_source_id=job.pipeline.id,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
+                    **table_params,
                 )
+            _record_query_folder_pointer(
+                schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
+            )
 
             raw_db_columns = companion_table.get_columns()
             db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}

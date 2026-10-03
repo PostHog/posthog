@@ -129,6 +129,36 @@ describe('signalSourcesLogic', () => {
         expect(logic.values.dataSourceSetupSource).toBe(setup)
     })
 
+    it('carries the card guidance onto an error tracking signal type turned on later', async () => {
+        // Error tracking is one guidance box over three rows. A row created after the guidance was
+        // written would otherwise start empty, so that one trigger would report everything while the
+        // card still reads as steered.
+        const steeredRow = (sourceType: SignalSourceType): any => ({
+            ...githubIssuesConfig,
+            id: `config-${sourceType}`,
+            source_product: SignalSourceProduct.ErrorTracking,
+            source_type: sourceType,
+            config: { steering: 'Ignore errors from localhost.' },
+        })
+        const create = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig as any)
+        logic.actions.loadSourceConfigsSuccess([
+            steeredRow(SignalSourceType.IssueCreated),
+            steeredRow(SignalSourceType.IssueReopened),
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.toggleErrorTrackingType(SignalSourceType.IssueSpiking)
+        }).toDispatchActions(['loadSourceConfigs'])
+
+        expect(create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                source_type: SignalSourceType.IssueSpiking,
+                config: { steering: 'Ignore errors from localhost.' },
+            })
+        )
+        create.mockRestore()
+    })
+
     it('keeps an enabled source enabled when its config loads during the source lookup', async () => {
         let resolveSources!: (sources: Awaited<ReturnType<typeof api.externalDataSources.list>>) => void
         const sourcesPromise = new Promise<Awaited<ReturnType<typeof api.externalDataSources.list>>>((resolve) => {
@@ -227,22 +257,22 @@ describe('signalSourcesLogic', () => {
         {
             name: 'when the recent data check fails',
             arrange: (mountedLogic: typeof logic) => {
-                mountedLogic.actions.loadToolDataEventsSuccess(new Set(['$exception']))
-                mountedLogic.actions.loadToolDataEventsFailure('Failed')
+                mountedLogic.actions.loadProductDataEventsSuccess(new Set(['$exception']))
+                mountedLogic.actions.loadProductDataEventsFailure('Failed')
             },
             enabled: null,
             dataStatus: 'error',
         },
         {
             name: 'when a successful check finds no recent exceptions',
-            arrange: (mountedLogic: typeof logic) => mountedLogic.actions.loadToolDataEventsSuccess(new Set()),
+            arrange: (mountedLogic: typeof logic) => mountedLogic.actions.loadProductDataEventsSuccess(new Set()),
             enabled: false,
             dataStatus: 'none',
         },
         {
             name: 'when a successful check finds recent exceptions',
             arrange: (mountedLogic: typeof logic) =>
-                mountedLogic.actions.loadToolDataEventsSuccess(new Set(['$exception'])),
+                mountedLogic.actions.loadProductDataEventsSuccess(new Set(['$exception'])),
             enabled: true,
             dataStatus: 'recent',
         },
@@ -254,10 +284,10 @@ describe('signalSourcesLogic', () => {
 
         arrange(logic)
 
-        expect(logic.values.toolStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
+        expect(logic.values.productStatusBySource.error_tracking).toMatchObject({ enabled, dataStatus })
     })
 
-    it('uses only recently seen event definitions as tool data', async () => {
+    it('uses only recently seen event definitions as product data', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/event_definitions/': ({ request }) => {
@@ -282,19 +312,19 @@ describe('signalSourcesLogic', () => {
         })
 
         await expectLogic(logic, () => {
-            logic.actions.loadToolDataEvents()
+            logic.actions.loadProductDataEvents()
         }).toFinishAllListeners()
 
-        expect(logic.values.toolDataEvents).toEqual(new Set(['$exception']))
-        expect(logic.values.toolStatusBySource.error_tracking).toMatchObject({
+        expect(logic.values.productDataEvents).toEqual(new Set(['$exception']))
+        expect(logic.values.productStatusBySource.error_tracking).toMatchObject({
             enabled: true,
             dataStatus: 'recent',
         })
-        expect(logic.values.toolStatusBySource.analytics?.dataStatus).toBe('none')
-        expect(logic.values.toolStatusBySource.llm_analytics?.dataStatus).toBe('none')
+        expect(logic.values.productStatusBySource.analytics?.dataStatus).toBe('none')
+        expect(logic.values.productStatusBySource.llm_analytics?.dataStatus).toBe('none')
     })
 
-    it('keeps tool enablement loading until the refreshed team is available', async () => {
+    it('keeps product enablement loading until the refreshed team is available', async () => {
         const enablementResponse = deferred<[number, { results: Record<string, string> }]>()
         const teamResponse = deferred<[number, typeof MOCK_DEFAULT_TEAM]>()
         const teamRequestStarted = deferred<void>()
@@ -314,12 +344,12 @@ describe('signalSourcesLogic', () => {
             autocapture_exceptions_opt_in: false,
         })
 
-        logic.actions.enableSourceTool('error_tracking')
-        expect(logic.values.enablingTool).toBe('error_tracking')
+        logic.actions.enableSourceProduct('error_tracking')
+        expect(logic.values.enablingProduct).toBe('error_tracking')
 
         enablementResponse.resolve([200, { results: { error_tracking: 'enabled' } }])
         await teamRequestStarted.promise
-        expect(logic.values.enablingTool).toBe('error_tracking')
+        expect(logic.values.enablingProduct).toBe('error_tracking')
 
         teamResponse.resolve([
             200,
@@ -330,7 +360,7 @@ describe('signalSourcesLogic', () => {
         ])
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.enablingTool).toBeNull()
-        expect(logic.values.toolStatusBySource.error_tracking?.enabled).toBe(true)
+        expect(logic.values.enablingProduct).toBeNull()
+        expect(logic.values.productStatusBySource.error_tracking?.enabled).toBe(true)
     })
 })

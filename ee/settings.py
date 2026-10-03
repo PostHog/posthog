@@ -12,6 +12,7 @@ from posthog.utils import str_to_bool
 AUTHENTICATION_BACKENDS = [
     *AUTHENTICATION_BACKENDS,
     "ee.api.authentication.MultitenantSAMLAuth",
+    "posthog.api.oidc.MultitenantOIDCAuth",
     "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
@@ -77,6 +78,8 @@ MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS = get_from_env("MATERIALIZE_COLUMNS_BAC
 MATERIALIZE_COLUMNS_MAX_AT_ONCE = get_from_env("MATERIALIZE_COLUMNS_MAX_AT_ONCE", 100, type_cast=int)
 
 BILLING_SERVICE_URL = get_from_env("BILLING_SERVICE_URL", "https://billing.posthog.com")
+# Lifetime of the access token PostHog mints for the public billing API (ee/billing/access_token.py).
+BILLING_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("BILLING_ACCESS_TOKEN_TTL_SECONDS", 15 * 60, type_cast=int)
 
 # Whether to enable the admin portal. Default false for self-hosted as if not setup properly can pose security issues.
 ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_cast=str_to_bool)
@@ -163,5 +166,5 @@ SCIM_SERVICE_PROVIDER = {
         }
     ],
     # User model is already configured via AUTH_USER_MODEL = "posthog.User"
-    "GROUP_MODEL": "ee.models.rbac.role.Role",
+    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
 }

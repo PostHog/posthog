@@ -87,7 +87,11 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                     forceIcon: <IconNotification />,
                 }}
             />
-            <PayGateMini feature={AvailableFeature.AUDIT_LOGS} overrideShouldShowGate={user?.is_impersonated}>
+            <PayGateMini
+                feature={AvailableFeature.AUDIT_LOGS}
+                featureDetail="advanced-activity-logs"
+                overrideShouldShowGate={user?.is_impersonated}
+            >
                 <LemonTabs
                     activeKey={isOrganizationView ? 'logs' : activeTab}
                     onChange={(key) => setActiveTab(key as 'logs' | 'exports')}

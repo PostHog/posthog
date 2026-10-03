@@ -11,6 +11,21 @@ vi.mock("@/features/auth", () => ({
   getCloudUrlFromRegion: () => null,
 }));
 
+vi.mock("@/lib/theme", () => ({
+  useThemeColors: () => ({
+    gray: { 11: "#444444", 12: "#000000" },
+    status: { success: "#00aa00", error: "#cc0000" },
+  }),
+  toRgba: (hex: string, alpha: number) => `${hex}/${alpha}`,
+  MERGED_COLOR: "#8e4ec6",
+}));
+
+vi.mock("@/lib/openExternalUrl", () => ({ openExternalUrl: vi.fn() }));
+
+vi.mock("../../tasks/hooks/usePrStatus", () => ({
+  usePrStatus: () => ({ data: undefined }),
+}));
+
 function renderTree(content: string): string {
   let renderer: ReturnType<typeof create> | null = null;
   act(() => {
@@ -45,6 +60,32 @@ describe("MarkdownText", () => {
       content: "- [ ] Alpha\n- [x] Beta",
       present: ["☐", "☑"],
       absent: ["•", "1."],
+    },
+    {
+      name: "object tag renders its label without the raw markup",
+      content: 'Check the <insight id="9pQx3">checkout funnel</insight> now',
+      present: ["checkout funnel", "Check the", "now"],
+      absent: ["<insight", "</insight"],
+    },
+    {
+      name: "still-streaming object tag renders nothing",
+      content: 'Loading <flag id="4',
+      present: ["Loading"],
+      absent: ["<flag"],
+    },
+    {
+      name: "bare review-comment link labels the comment",
+      content:
+        "[https://github.com/o/r/pull/12#discussion_r99](https://github.com/o/r/pull/12#discussion_r99)",
+      present: ["Comment on PR #12"],
+      absent: ["o/r#12"],
+    },
+    {
+      name: "review-comment link with explicit text keeps that text",
+      content:
+        "[see the review](https://github.com/o/r/pull/12#discussion_r99)",
+      present: ["see the review"],
+      absent: ["Comment on PR"],
     },
   ])("$name", ({ content, present, absent }) => {
     const tree = renderTree(content);

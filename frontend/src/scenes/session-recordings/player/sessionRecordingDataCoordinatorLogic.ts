@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { EventType, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
+import { EventType, IncrementalSource, customEvent, eventWithTime } from 'posthog-js/rrweb-types'
 
 import {
     getHrefFromSnapshot,
@@ -55,6 +55,168 @@ import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
+
+// Tab-freezing recordings are both large overall and made of huge individual events (giant DOM
+// mutations); most large recordings are ordinary small events and play fine, so both must trip
+export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
+export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
+type ScrollEventData = { id: number; x: number; y: number }
+
+function isScrollEvent(event: eventWithTime): boolean {
+    return event.type === EventType.IncrementalSnapshot && event.data?.source === IncrementalSource.Scroll
+}
+
+// null unless both sides are present, so a real gap of 0 stays distinct from "unknown"
+function nullableDiff(a: number | null, b: number | null): number | null {
+    return a !== null && b !== null ? a - b : null
+}
+
+function toMs(isoTime: string | null | undefined): number | null {
+    return isoTime ? dayjs(isoTime).valueOf() : null
+}
+
+function firstTimestamp(events: eventWithTime[]): number | null {
+    return events[0]?.timestamp ?? null
+}
+
+function pickWindow(byWindowId: Record<number, eventWithTime[]>, windowId: number | null): eventWithTime[] {
+    return windowId !== null ? (byWindowId[windowId] ?? []) : []
+}
+
+// The window the player spends the timeline in (the most events), plus the processed total
+function summarizeWindows(snapshotsByWindowId: Record<number, eventWithTime[]>): {
+    windowCount: number
+    processedEventCount: number
+    primaryWindowId: number | null
+} {
+    const windowIds = Object.keys(snapshotsByWindowId)
+    let primaryWindowId: number | null = null
+    let primaryCount = -1
+    let processedEventCount = 0
+    for (const windowIdKey of windowIds) {
+        const windowId = Number(windowIdKey)
+        const rawCount = snapshotsByWindowId[windowId]?.length ?? 0
+        processedEventCount += rawCount
+        if (rawCount > primaryCount) {
+            primaryCount = rawCount
+            primaryWindowId = windowId
+        }
+    }
+    return { windowCount: windowIds.length, processedEventCount, primaryWindowId }
+}
+
+// The node scrolled most often — the main page scroll rather than an inner carousel or table
+function primaryScrollNode(events: eventWithTime[]): { nodeId: number | null; containerCount: number; maxY: number } {
+    const counts: Record<number, number> = {}
+    let maxY = 0
+    for (const event of events) {
+        if (!isScrollEvent(event)) {
+            continue
+        }
+        const data = event.data as ScrollEventData
+        counts[data.id] = (counts[data.id] ?? 0) + 1
+        maxY = Math.max(maxY, data.y)
+    }
+    const nodeIds = Object.keys(counts)
+    let nodeId: number | null = null
+    let best = -1
+    for (const key of nodeIds) {
+        const id = Number(key)
+        if (counts[id] > best) {
+            best = counts[id]
+            nodeId = id
+        }
+    }
+    return { nodeId, containerCount: nodeIds.length, maxY }
+}
+
+// The scroll offset of the main container at the first frame the viewer sees. This is the visible
+// symptom: a viewer whose playhead starts at the top reads y≈0, one that starts scrolled reads a large y.
+function scrollOffsetAt(
+    events: eventWithTime[],
+    nodeId: number | null,
+    anchorMs: number | null
+): {
+    x: number | null
+    y: number | null
+} {
+    if (nodeId === null || anchorMs === null) {
+        return { x: null, y: null }
+    }
+    let x: number | null = null
+    let y: number | null = null
+    for (const event of events) {
+        if (!isScrollEvent(event) || event.timestamp > anchorMs) {
+            continue
+        }
+        const data = event.data as ScrollEventData
+        if (data.id === nodeId) {
+            x = data.x
+            y = data.y
+        }
+    }
+    return { x, y }
+}
+
+function countSources(sources: SessionRecordingSnapshotSource[] | null): Record<string, number> {
+    const sourceCounts: Record<string, number> = {}
+    for (const source of sources ?? []) {
+        sourceCounts[source.source] = (sourceCounts[source.source] ?? 0) + 1
+    }
+    return sourceCounts
+}
+
+// One bounded snapshot of the values that decide which frame the player first draws. Two viewers of the
+// same recording who see different frames must differ in one of these fields, so capturing it on each
+// load lets us diff the two loads instead of guessing. Likely culprits: processed_vs_server_gap (fewer
+// events reached the player than the server counted — dropped bytes move the time base later),
+// start_gap_ms, base_shift_ms, a different source_counts set, or a scroll_y_at_start far down the page.
+export function buildAnchorDiagnostic(
+    meta: SessionRecordingType | null,
+    snapshotsByWindowId: Record<number, eventWithTime[]>,
+    start: Dayjs | null,
+    segments: RecordingSegment[],
+    sources: SessionRecordingSnapshotSource[] | null
+): Record<string, unknown> {
+    const windows = summarizeWindows(snapshotsByWindowId)
+    const primaryRaw = pickWindow(snapshotsByWindowId, windows.primaryWindowId)
+
+    const rawBaseMs = firstTimestamp(primaryRaw)
+    const eventStartMs = toMs(meta?.start_time)
+    const serverEventCount = meta?.event_count ?? null
+    const firstSegmentStartMs = segments[0]?.startTimestamp ?? null
+
+    // Evaluate scroll where the playhead first lands (or the base if segments are not built yet)
+    const scroll = primaryScrollNode(primaryRaw)
+    const scrollAtStart = scrollOffsetAt(primaryRaw, scroll.nodeId, firstSegmentStartMs ?? rawBaseMs)
+
+    return {
+        recording_id: meta?.id ?? null,
+        is_brave: !!(navigator as unknown as { brave?: unknown }).brave,
+        server_event_count: serverEventCount,
+        // Post-processing count (processAllSnapshots can synthesize full snapshots and patch meta events),
+        // so a clean load is not exactly 0. Read it by diffing the two loads: a large positive gap on one
+        // side means events did not reach that player.
+        processed_event_count: windows.processedEventCount,
+        processed_vs_server_gap: nullableDiff(serverEventCount, windows.processedEventCount),
+        server_total_size: meta?.total_size ?? null,
+        window_count: windows.windowCount,
+        event_start_ms: eventStartMs,
+        snapshot_start_ms: rawBaseMs,
+        chosen_start_ms: start?.valueOf() ?? null,
+        start_gap_ms: nullableDiff(rawBaseMs, eventStartMs),
+        raw_base_ms: rawBaseMs,
+        source_counts: countSources(sources),
+        source_count: sources?.length ?? 0,
+        primary_scroll_node_id: scroll.nodeId,
+        scroll_container_count: scroll.containerCount,
+        main_scroll_max_y: scroll.maxY,
+        scroll_x_at_start: scrollAtStart.x,
+        scroll_y_at_start: scrollAtStart.y,
+        segments_count: segments.length,
+        first_segment_start_ms: firstSegmentStartMs,
+    }
+}
 
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
@@ -117,6 +279,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
     processedSnapshots: RecordingSnapshot[]
+    recordingTooLargeToPlay: boolean
     reportedLoaded: boolean
     segments: RecordingSegment[]
     sessionPlayerData: SessionPlayerData
@@ -314,6 +477,7 @@ export interface sessionRecordingDataCoordinatorLogicActions {
 export interface sessionRecordingDataCoordinatorLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        recordingTooLargeToPlay: (sessionPlayerMetaData: SessionRecordingType | null) => boolean
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
         start: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -524,7 +688,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
 
         loadRecordingMetaSuccess: () => {
-            if (props.sessionRecordingId) {
+            if (props.sessionRecordingId && !values.recordingTooLargeToPlay) {
                 actions.loadSnapshotSources()
             }
             actions.reportUsageIfFullyLoaded()
@@ -655,10 +819,43 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             if (values.fullyLoaded && !values.reportedLoaded) {
                 actions.setRecordingReportedLoaded()
                 actions.reportRecordingLoaded(values.sessionPlayerData, values.sessionPlayerMetaData)
+                // TODO: temporary diagnostic for the cross-browser first-frame investigation.
+                // Remove this block and buildAnchorDiagnostic once the cause is found.
+                try {
+                    posthog.capture(
+                        'recording anchor diagnostic',
+                        buildAnchorDiagnostic(
+                            values.sessionPlayerMetaData,
+                            values.snapshotsByWindowId,
+                            values.start,
+                            values.segments,
+                            values.snapshotSources
+                        )
+                    )
+                } catch {
+                    // diagnostics must never break playback
+                }
             }
         },
     })),
     selectors(() => ({
+        recordingTooLargeToPlay: [
+            (s) => [s.sessionPlayerMetaData],
+            (meta: SessionRecordingType | null): boolean => {
+                // Mobile recordings are screenshot-based: large events, but cheap to play
+                if (meta?.snapshot_source !== 'web') {
+                    return false
+                }
+                const totalSize = meta?.total_size ?? 0
+                const eventCount = meta?.event_count ?? 0
+                return (
+                    totalSize > OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES &&
+                    eventCount > 0 &&
+                    totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
+                )
+            },
+        ],
+
         snapshots: [
             (s) => [s.processedSnapshots],
             (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {

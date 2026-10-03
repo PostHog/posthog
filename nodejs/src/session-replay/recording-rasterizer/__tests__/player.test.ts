@@ -135,6 +135,26 @@ describe('PlayerController', () => {
         jest.useRealTimers()
     })
 
+    it('waitForStart() surfaces an error that arrived before it was called', async () => {
+        const mp = mockCapturePage()
+        const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())
+        await controller.load(basePlayerConfig())
+
+        // Error lands between load() and waitForStart(); previously it was shelved and the wait
+        // idled into a bogus retryable TIMEOUT that masked the terminal code.
+        mp._emit({
+            type: 'error',
+            code: 'NO_SNAPSHOTS',
+            message: 'No snapshot data found',
+            retryable: false,
+        })
+
+        await expect(controller.waitForStart(basePlayerConfig(), 5000)).rejects.toMatchObject({
+            code: 'NO_SNAPSHOTS',
+            retryable: false,
+        })
+    })
+
     it('waitForStart() rejects when player sends error message', async () => {
         const mp = mockCapturePage()
         const controller = new PlayerController(mp.capturePage, mockBlockProxy, jest.fn())

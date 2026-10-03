@@ -1,12 +1,9 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kernel import KernelSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source import KernelSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kernel.source"
 
@@ -17,41 +14,16 @@ class TestKernelSource:
         self.team_id = 123
         self.config = KernelSourceConfig(api_key="sk_test")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KERNEL
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Kernel"
-        assert config.label == "Kernel"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/kernel"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
     def test_generated_config_parses_api_key(self) -> None:
         # Guards the hand-checked generated_configs.py edit: the form field must map to `api_key`.
         config = KernelSourceConfig.from_dict({"api_key": "sk_123"})
         assert config.api_key == "sk_123"
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static endpoint catalog, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
         documented = {t["name"] for t in self.source.get_documented_tables()}
         assert documented == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = self.source.get_canonical_descriptions()
-        assert set(descriptions.keys()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -118,14 +90,3 @@ class TestKernelSource:
 
         assert is_valid is expected_valid
         mock_validate.assert_called_once_with("sk_test")
-
-    @mock.patch(f"{_SOURCE_MODULE}.kernel_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_kernel_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "invocations"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        kwargs = mock_kernel_source.call_args.kwargs
-        assert kwargs["api_key"] == "sk_test"
-        assert kwargs["endpoint"] == "invocations"

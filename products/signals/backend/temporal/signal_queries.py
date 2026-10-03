@@ -21,9 +21,11 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
+    REASSIGN_SIGNAL_ROW_CAP,
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
     SIGNAL_DOCUMENT_TYPE,
+    _deduped_signals_subquery,
 )
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
@@ -58,85 +60,6 @@ def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
 # ---------------------------------------------------------------------------
 # Shared query builders
 # ---------------------------------------------------------------------------
-
-
-def _deduped_signals_subquery(
-    *, include_embedding: bool = False, extra_where: str | None = None, candidate_document_filter: str | None = None
-) -> str:
-    """Build the shared signal dedup subquery with an optional extra document_embeddings filter.
-
-    `candidate_document_filter` bounds the dedup to documents that ever matched the filter, via a
-    `document_id IN (SELECT DISTINCT ... WHERE <filter>)` prefilter — so the argMax aggregation runs
-    over that slice instead of the team's whole signal history (its memory otherwise scales with the
-    team's total signal count). Unlike `extra_where`, the filter selects candidate documents but does
-    NOT restrict which versions feed the argMax, so "latest version wins" is preserved and the caller's
-    own outer filter stays authoritative. Use it for re-groupable fields like `report_id`; use
-    `extra_where` only for fields that are stable across a document's versions (e.g. `source_id`).
-
-    Raises ValueError if both extra_where and candidate_document_filter are supplied — they are
-    mutually exclusive (the extra_where branch returns early and silently drops candidate_document_filter).
-    """
-    if extra_where and candidate_document_filter:
-        raise ValueError("_deduped_signals_subquery: extra_where and candidate_document_filter are mutually exclusive")
-    selected_columns = [
-        "document_id",
-        "argMax(content, inserted_at) as content",
-        "argMax(metadata, inserted_at) as metadata",
-    ]
-    if include_embedding:
-        selected_columns.append("argMax(embedding, inserted_at) as embedding")
-    selected_columns.extend(["argMax(timestamp, inserted_at) as timestamp", "max(inserted_at) as latest_inserted_at"])
-    selected_columns_sql = ",\n            ".join(selected_columns)
-
-    if extra_where:
-        # `extra_where` filters on the raw `metadata` JSON, but this SELECT also exposes
-        # `metadata` as an `argMax(...)` alias. HogQL resolves the name in WHERE to that
-        # aggregate alias and rejects the query ("aggregate function ... found in WHERE"),
-        # so any caller that filtered on `metadata` silently failed. Apply the predicate in
-        # a non-aggregating inner scan so it binds to the raw column, then dedupe in the
-        # outer aggregate. Pushing the filter down here (vs. the caller's outer query) keeps
-        # the dedup scan bounded to the matching rows.
-        raw_columns = ["document_id", "content", "metadata"]
-        if include_embedding:
-            raw_columns.append("embedding")
-        raw_columns.extend(["inserted_at", "timestamp"])
-        raw_columns_sql = ",\n                ".join(raw_columns)
-        return f"""
-        SELECT
-            {selected_columns_sql}
-        FROM (
-            SELECT
-                {raw_columns_sql}
-            FROM document_embeddings
-            WHERE model_name = {{model_name}}
-              AND product = 'signals'
-              AND document_type = 'signal'
-              AND {extra_where}
-        )
-        GROUP BY document_id
-    """
-
-    candidate_bound = ""
-    if candidate_document_filter:
-        candidate_bound = f"""
-          AND document_id IN (
-              SELECT DISTINCT document_id
-              FROM document_embeddings
-              WHERE model_name = {{model_name}}
-                AND product = 'signals'
-                AND document_type = 'signal'
-                AND {candidate_document_filter}
-          )"""
-
-    return f"""
-        SELECT
-            {selected_columns_sql}
-        FROM document_embeddings
-        WHERE model_name = {{model_name}}
-          AND product = 'signals'
-          AND document_type = 'signal'{candidate_bound}
-        GROUP BY document_id
-    """
 
 
 # Backwards-compatible aliases for callers that import the shared query constants directly.
@@ -231,6 +154,50 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             timestamp=_ensure_tz_aware(timestamp_raw),
             metadata=metadata,
         )
+
+
+def reassign_report_signals(*, source_report_id: str, survivor_report_id: str, team_id: int, team: Team) -> int:
+    """Re-emit a report's live ClickHouse signals under another report's id, and return how many.
+
+    The same trick as `soft_delete_report_signals`: keep each row's `document_id` and timestamp so
+    the re-emission replaces the original in its ReplacingMergeTree partition instead of adding a
+    second copy. Only live rows move, because a deleted signal is already retracted from semantic
+    search and moving it would resurrect it under the survivor.
+    """
+    result = execute_hogql_query(
+        query_type="SignalsReassignForReport",
+        query=_signals_for_report_query(limit=REASSIGN_SIGNAL_ROW_CAP),
+        team=team,
+        placeholders=_report_placeholders(source_report_id),
+    )
+
+    moved = 0
+    for row in result.results or []:
+        document_id, content, metadata_str, timestamp_raw, _inserted_at_raw = row
+        metadata = json.loads(metadata_str)
+        metadata["report_id"] = survivor_report_id
+
+        emit_embedding_request(
+            content=content,
+            team_id=team_id,
+            product=SIGNAL_DOCUMENT_PRODUCT,
+            document_type=SIGNAL_DOCUMENT_TYPE,
+            rendering=SIGNAL_DOCUMENT_RENDERING,
+            document_id=document_id,
+            models=[m.value for m in EmbeddingModelName],
+            timestamp=_ensure_tz_aware(timestamp_raw),
+            metadata=metadata,
+        )
+        moved += 1
+    if moved >= REASSIGN_SIGNAL_ROW_CAP:
+        logger.warning(
+            "signals_reassign_hit_row_cap",
+            team_id=team_id,
+            source_report_id=source_report_id,
+            survivor_report_id=survivor_report_id,
+            moved=moved,
+        )
+    return moved
 
 
 # ---------------------------------------------------------------------------

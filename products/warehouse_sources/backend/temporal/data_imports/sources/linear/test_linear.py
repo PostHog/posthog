@@ -521,6 +521,26 @@ class TestEndpointCatalog:
                 f"{endpoint_name} query does not select {required}"
             )
 
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_root_field_includes_archived_records(self, endpoint_name: str) -> None:
+        # Linear hides archived entities unless the connection asks for them, and it auto-archives
+        # closed cycles, issues and projects. Without this argument a row silently leaves the table
+        # once it is archived, so historical rows thin out over time instead of failing loudly.
+        query = QUERIES[endpoint_name]
+        root_args = re.search(r"\)\s*\{\s*\n\s*\w+\(([^)]*)\)", query)
+        assert root_args is not None, f"could not find root field arguments in the {endpoint_name} query"
+        assert "includeArchived: true" in root_args.group(1), (
+            f"{endpoint_name} query does not pass includeArchived on its root connection"
+        )
+
+    @parameterized.expand([(name,) for name in ENDPOINTS])
+    def test_query_selects_archived_at(self, endpoint_name: str) -> None:
+        # Archived rows now land in the same table as live ones, so without this column there is no
+        # way to tell them apart downstream.
+        assert re.search(r"^\s*archivedAt\s*$", QUERIES[endpoint_name], re.MULTILINE), (
+            f"{endpoint_name} query does not select archivedAt"
+        )
+
 
 class TestGetSchemas:
     def test_reports_every_endpoint_with_its_sync_capabilities(self) -> None:
@@ -543,11 +563,6 @@ class TestGetSchemas:
         }
         # Initiatives are plan-gated, so they must not be enabled for every new connection.
         assert {name for name, s in schemas.items() if not s.should_sync_default} == {"initiatives"}
-
-    def test_names_filter_narrows_the_schema_list(self) -> None:
-        schemas = LinearSource().get_schemas(cast(Any, None), team_id=1, names=["workflow_states"])
-
-        assert [s.name for s in schemas] == ["workflow_states"]
 
 
 class TestRateLimitBackoff:

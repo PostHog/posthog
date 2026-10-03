@@ -19,6 +19,7 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
 from posthog.uuidt import UUIDT
 
 SESSION_BUFFER_DAYS = 3
@@ -653,6 +654,14 @@ def extract_uuid_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+def top_level_conjuncts(expr: ast.Expr) -> list[ast.Expr]:
+    if isinstance(expr, ast.And):
+        return [conjunct for sub in expr.exprs for conjunct in top_level_conjuncts(sub)]
+    if isinstance(expr, ast.Call) and expr.name == "and":
+        return [conjunct for sub in expr.args for conjunct in top_level_conjuncts(sub)]
+    return [expr]
+
+
 def build_session_id_literal_pushdown_predicate(
     outer_node: ast.SelectQuery,
     join_to_add: LazyJoinToAdd,
@@ -673,14 +682,7 @@ def build_session_id_literal_pushdown_predicate(
     if events_table_type is None:
         return None
 
-    def flatten_and(expr: ast.Expr) -> list[ast.Expr]:
-        if isinstance(expr, ast.And):
-            return [t for sub in expr.exprs for t in flatten_and(sub)]
-        if isinstance(expr, ast.Call) and expr.name == "and":
-            return [t for sub in expr.args for t in flatten_and(sub)]
-        return [expr]
-
-    for term in flatten_and(outer_node.where):
+    for term in top_level_conjuncts(outer_node.where):
         if not isinstance(term, ast.CompareOperation) or term.op not in (
             CompareOperationOp.In,
             CompareOperationOp.Eq,
@@ -1298,6 +1300,12 @@ def references_joined_table(
     return finder.found_joined_reference
 
 
+@frozen
+class PushdownSplit:
+    inner_where: Optional[ast.Expr]
+    outer_where: Optional[ast.Expr]
+
+
 class EventsPredicatePushdownExtractor:
     """
     Extracts predicates from a WHERE clause that can be pushed down into an events subquery.
@@ -1320,12 +1328,12 @@ class EventsPredicatePushdownExtractor:
         self.events_table_type = events_table_type
         self.select_aliases = select_aliases or {}
 
-    def get_pushdown_predicates(self, where: ast.Expr) -> tuple[Optional[ast.Expr], Optional[ast.Expr]]:
+    def get_pushdown_predicates(self, where: ast.Expr) -> PushdownSplit:
         """
         Split a WHERE expression into inner (pushable) and outer (non-pushable) parts.
 
         Returns:
-            (inner_where, outer_where) tuple where:
+            PushdownSplit where:
             - inner_where: Predicates to push into events subquery (or None if none)
             - outer_where: Predicates to keep in outer query (or None if none)
         """
@@ -1334,7 +1342,7 @@ class EventsPredicatePushdownExtractor:
         inner_where = self._combine_with_and(inner_exprs)
         outer_where = self._combine_with_and(outer_exprs)
 
-        return (inner_where, outer_where)
+        return PushdownSplit(inner_where=inner_where, outer_where=outer_where)
 
     def _split_expression(self, expr: ast.Expr) -> tuple[list[ast.Expr], list[ast.Expr]]:
         """

@@ -3,6 +3,7 @@ import React, { Children, ReactNode, createContext, isValidElement, useContext, 
 
 import { StepProps, StepsProps } from '@posthog/shared-onboarding/steps'
 import { StepDefinition, StepModifier } from '@posthog/shared-onboarding/steps'
+import { PROSE_LANGUAGE } from '@posthog/shared-onboarding/steps'
 
 import { CodeSnippet, getLanguage } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -55,6 +56,22 @@ export interface OnboardingComponentsContext {
 }
 
 const OnboardingContext = createContext<OnboardingComponentsContext | null>(null)
+
+const SelectedFileContext = createContext<{
+    selectedFile: string | null
+    setSelectedFile: (file: string) => void
+} | null>(null)
+
+/**
+ * Keeps the code block file choice (for example Python or Node) outside the content wrapper, so a
+ * surface that swaps the whole instruction tree keeps the reader's choice instead of resetting it.
+ */
+export function OnboardingSelectedFileProvider({ children }: { children: ReactNode }): JSX.Element {
+    const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+    const value = useMemo(() => ({ selectedFile, setSelectedFile }), [selectedFile])
+
+    return <SelectedFileContext.Provider value={value}>{children}</SelectedFileContext.Provider>
+}
 
 function Steps({ children }: StepsProps): JSX.Element {
     let stepNumber = 0
@@ -194,7 +211,11 @@ function CodeBlock({
         const block = codeBlocks[0]
         return (
             <div className="my-4">
-                <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
+                {block.language === PROSE_LANGUAGE ? (
+                    <LemonMarkdown disableDocsRedirect={true}>{block.code}</LemonMarkdown>
+                ) : (
+                    <CodeSnippet language={getLanguage(block.language)}>{block.code}</CodeSnippet>
+                )}
                 {hostHint}
             </div>
         )
@@ -219,7 +240,11 @@ function CodeBlock({
                     }))}
                 />
             )}
-            <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
+            {selectedBlock.language === PROSE_LANGUAGE ? (
+                <LemonMarkdown disableDocsRedirect={true}>{selectedBlock.code}</LemonMarkdown>
+            ) : (
+                <CodeSnippet language={getLanguage(selectedBlock.language)}>{selectedBlock.code}</CodeSnippet>
+            )}
             {hostHint}
         </div>
     )
@@ -337,8 +362,17 @@ function MinimalSteps({ children }: StepsProps): JSX.Element {
     return <div className="space-y-4">{children}</div>
 }
 
-function MinimalStep({ children }: StepProps & { stepNumber?: number }): JSX.Element | null {
-    return <div className="space-y-4">{children}</div>
+function MinimalStep({ title, docsOnly, children }: StepProps): JSX.Element | null {
+    if (docsOnly) {
+        return null
+    }
+
+    return (
+        <div className="space-y-2">
+            {title && <h4 className="m-0">{title}</h4>}
+            <div className="space-y-4">{children}</div>
+        </div>
+    )
 }
 
 // This is a wrapper to share certain onboarding instructions with the main website repo.
@@ -356,7 +390,11 @@ export function OnboardingDocsContentWrapper({
     /** When true, code snippets show the reverse proxy domain (if one exists) instead of the default API host. */
     useReverseProxy?: boolean
 }): JSX.Element {
-    const [selectedFile, setSelectedFile] = React.useState<string | null>(null)
+    const [localSelectedFile, setLocalSelectedFile] = React.useState<string | null>(null)
+    const { selectedFile, setSelectedFile } = useContext(SelectedFileContext) ?? {
+        selectedFile: localSelectedFile,
+        setSelectedFile: setLocalSelectedFile,
+    }
     const { proxyRecords } = useValues(proxyLogic)
 
     const apiHost = useMemo(() => {

@@ -23,7 +23,7 @@ export type ServicesViewMode = 'list' | 'grid'
 export const SERVICES_PAGE_SIZE = 25
 
 /** Placeholder the backend substitutes for an empty service name; map back to '' when filtering. */
-const NO_SERVICE_LABEL = '(no service)'
+export const NO_SERVICE_LABEL = '(no service)'
 
 const EMPTY_SERVICES_RESPONSE: _LogsServicesResponseApi = {
     services: [],

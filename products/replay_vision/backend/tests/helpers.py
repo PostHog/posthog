@@ -2,7 +2,7 @@ from typing import Any
 
 from django.utils import timezone
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
 from products.experiments.backend.models.experiment import Experiment
@@ -54,11 +54,27 @@ def seed_scanner_spend(scanner: ReplayScanner, credits: int, *, observations: in
     )
 
 
-def create_experiment(team: Team, flag_key: str) -> Experiment:
-    """A launched-enough experiment with a multivariate flag, for targeting tests."""
-    flag = FeatureFlag.objects.create(
+def create_experiment(
+    team: Team,
+    flag_key: str,
+    created_by: User | None = None,
+    *,
+    launched: bool = False,
+    variants: list[str] | None = None,
+) -> Experiment:
+    """An experiment for targeting tests. `launched` plus `variants` makes it resolvable by
+    `resolve_exposure_linkage`, which the experiment scanner type's write path requires."""
+    filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+    if variants:
+        filters["multivariate"] = {
+            "variants": [{"key": key, "rollout_percentage": 100 // len(variants)} for key in variants]
+        }
+    flag = FeatureFlag.objects.create(team=team, key=flag_key, filters=filters)
+    return Experiment.objects.create(
         team=team,
-        key=flag_key,
-        filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        name=f"exp-{flag_key}",
+        feature_flag=flag,
+        created_by=created_by,
+        start_date=timezone.now() if launched else None,
+        exposure_criteria={},
     )
-    return Experiment.objects.create(team=team, name=f"exp-{flag_key}", feature_flag=flag)

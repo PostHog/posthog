@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -22,12 +24,12 @@ from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.feature_flag_role_access import FeatureFlagRoleAccess
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -109,7 +111,39 @@ class TestOrganizationAPI(APIBaseTest):
         else:
             mock_group_identify.assert_not_called()
 
+    def test_cannot_create_organization_with_default_role(self):
+        role = Role.objects.create(name="Existing organization role", organization=self.organization)
+
+        with self.is_cloud(True):
+            response = self.client.post("/api/organizations/", {"name": "New org", "default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Organization.objects.count(), 1)
+
     # Updating organizations
+
+    def test_update_organization_default_role(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        role = Role.objects.create(name="Default role", organization=self.organization)
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.default_role, role)
+
+    def test_cannot_update_organization_with_role_from_another_organization(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        other_organization = Organization.objects.create(name="Other organization")
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}", {"default_role_id": str(role.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.default_role)
 
     def test_update_organization_if_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -120,9 +154,17 @@ class TestOrganizationAPI(APIBaseTest):
         response_rename = self.client.patch(f"/api/organizations/{self.organization.id}", {"name": "QWERTY"})
 
         self.assertEqual(response_rename.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_rename.json()["slug"], "qwerty")
 
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+        self.assertEqual(self.organization.slug, "qwerty")
+
+        response_slug = self.client.patch(f"/api/organizations/{self.organization.id}", {"slug": "hijacked"})
+
+        self.assertEqual(response_slug.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.slug, "qwerty")
 
     def test_update_organization_if_owner(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -144,6 +186,34 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response_rename.status_code, status.HTTP_403_FORBIDDEN)
         self.organization.refresh_from_db()
         self.assertNotEqual(self.organization.name, "ASDFG")
+
+    def test_cannot_opt_into_ai_training_with_a_signed_baa(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.is_ai_training_opted_in = False
+        self.organization.save()
+
+        with patch("posthog.api.organization.has_signed_baa", return_value=True):
+            response = self.client.patch(
+                f"/api/organizations/{self.organization.id}/", {"is_ai_training_opted_in": True}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "locked")
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.is_ai_training_opted_in, False)
+
+    def test_listing_organizations_reads_the_baa_once_regardless_of_count(self):
+        Organization.objects.bootstrap(self.user)
+        Organization.objects.bootstrap(self.user)
+
+        with CaptureQueriesContext(connection) as context:
+            response = self.client.get("/api/organizations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(response.json()["results"]), 3)
+        legal_document_queries = [q for q in context.captured_queries if "legal_documents_legaldocument" in q["sql"]]
+        self.assertEqual(len(legal_document_queries), 1)
 
     def test_cant_update_plugins_access_level(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -977,7 +1047,9 @@ class TestOrganizationSerializer(APIBaseTest):
         [
             (
                 "access_control",
-                lambda self: AccessControl.objects.create(team=self.team, access_level="member", resource="project"),
+                lambda self: AccessControl.objects.create(
+                    team=self.team, access_level="member", resource="project", resource_id=str(self.team.id)
+                ),
             ),
             (
                 "explicit_team_membership",

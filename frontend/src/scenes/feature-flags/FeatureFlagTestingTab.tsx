@@ -12,6 +12,7 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { FeatureFlagType, PersonType } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
+import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
 import type { ConditionAnalysis, TestResult } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
@@ -98,21 +99,10 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         setIncludeTime,
         setSelectedResultDistinctId,
         clearTestForm,
-        testFlagEvaluation,
-        testAllDistinctIds,
+        submitTestEvaluation,
     } = useActions(logic)
 
     const isLoading = testEvaluationLoading || allEvaluationsLoading
-
-    const handleSubmit = (): void => {
-        if (hasMultipleDistinctIds) {
-            // Evaluate every merged distinct ID in one go so their variants can be
-            // compared side by side, rather than re-running the tool per ID.
-            testAllDistinctIds({ flagId: featureFlag.id!, distinctIds: personDistinctIds, formData })
-        } else {
-            testFlagEvaluation({ flagId: featureFlag.id!, formData })
-        }
-    }
 
     const hasConditions = !!result?.conditions?.length
     // The batch row whose detail is currently expanded — the explicit selection, or
@@ -131,6 +121,8 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                     Provides detailed explanations of why the flag matched or didn't match.
                 </p>
             </div>
+
+            <FeatureFlagNoConditionsWarning conditionSetCount={featureFlag.filters?.groups?.length ?? 0} />
 
             <div className="flex gap-6">
                 {/* Left Panel - Form */}
@@ -267,7 +259,7 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                         <LemonButton
                             type="primary"
                             loading={isLoading}
-                            onClick={handleSubmit}
+                            onClick={() => submitTestEvaluation()}
                             disabledReason={!hasValidPerson ? 'Please select a person' : undefined}
                         >
                             {hasMultipleDistinctIds
@@ -377,6 +369,12 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                 <FlagResultValue value={result.result} />
                                             </div>
                                         </div>
+
+                                        {/* Explains a non-match the coarse reason code can't convey, such as a
+                                            behavioral or realtime cohort whose membership isn't fully resolved here. */}
+                                        {result.reason_description && (
+                                            <LemonBanner type="info">{result.reason_description}</LemonBanner>
+                                        )}
 
                                         {/* Distinct ID used for rollout/variant bucketing. Only shown when the
                                             backend echoes an explicit value — it returns null when a different ID

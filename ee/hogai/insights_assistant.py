@@ -12,6 +12,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -56,6 +57,7 @@ class InsightsAssistant(BaseAgentRunner):
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
         is_agent_billable: bool = True,
+        event_source: EventSource = EventSource.POSTHOG_AI,
     ):
         super().__init__(
             team,
@@ -72,6 +74,7 @@ class InsightsAssistant(BaseAgentRunner):
             billing_context=billing_context,
             initial_state=initial_state,
             is_agent_billable=is_agent_billable,
+            event_source=event_source,
             stream_processor=ChatAgentStreamProcessor(
                 team=team,
                 user=user,

@@ -1,15 +1,17 @@
 use posthog_cli::{
     sourcemaps::{
         args::ReleaseMode,
-        content::SourceMapContent,
+        content::{MinifiedSourceFile, SourceMapContent, SourceMapFile},
         inject::{inject_pairs, inject_pairs_legacy},
-        plain::inject::is_javascript_file,
+        plain::inject::{is_javascript_file, is_stylesheet_file},
         source_pairs::SourcePair,
     },
-    utils::files::FileSelection,
+    utils::files::{FileSelection, SourceFile},
 };
 
 use anyhow::Result;
+use posthog_symbol_data::{read_symbol_data, SourceAndMap};
+use serde_json::json;
 
 use std::{
     fs,
@@ -64,6 +66,38 @@ fn test_search_without_multiple_files() {
     )
     .expect("Failed to read pairs");
     assert_eq!(pairs.len(), 2);
+}
+
+#[test]
+fn test_stylesheet_pair_is_discoverable_for_cleanup() {
+    let dir = tempfile::tempdir().expect("Failed to create stylesheet fixture directory");
+    let stylesheet_path = dir.path().join("app.css");
+    fs::write(
+        &stylesheet_path,
+        ".app { color: black; }\n/*# sourceMappingURL=app.css.map*/\n",
+    )
+    .expect("Failed to write stylesheet fixture");
+    fs::write(
+        dir.path().join("app.css.map"),
+        r#"{"version":3,"sources":[],"names":[],"mappings":""}"#,
+    )
+    .expect("Failed to write stylesheet sourcemap fixture");
+
+    let selection = FileSelection::from_roots(vec![dir.path().to_path_buf()])
+        .include(vec![])
+        .expect("Failed to select stylesheet fixture");
+    let pairs = posthog_cli::sourcemaps::source_pairs::read_pairs(
+        selection.into_iter().filter(is_stylesheet_file),
+        &None,
+    );
+
+    assert_eq!(pairs.len(), 1);
+    assert_eq!(
+        pairs[0].source.inner.path,
+        stylesheet_path
+            .canonicalize()
+            .expect("Failed to canonicalize stylesheet fixture")
+    );
 }
 
 #[test]
@@ -439,11 +473,11 @@ fn test_upload_set() {
 }
 
 #[test]
-fn test_event_mode_content_hash_is_stable_across_release_states() {
-    // The hash must not depend on which snippet variant is embedded. A chunk injected while
-    // no release was resolvable, the same chunk injected with a release, and the transition
-    // between the two all keep one chunk id, so they must hash identically or the server
-    // rejects the later upload as a content_hash_mismatch.
+fn test_event_mode_content_hash_tracks_the_snippet_variant() {
+    // The hash must ignore which release id is embedded, or every release re-uploads every
+    // chunk. It must still track whether a release id is embedded at all: the release snippet is
+    // longer, so it shifts the generated columns the uploaded map records. Equal hashes there
+    // make the server keep the first map and resolve later frames to the wrong positions.
     let case_path = get_case_path("inject");
     let load = || {
         read_pairs(vec![case_path.clone()], vec![], vec![], &None).expect("Failed to read pairs")
@@ -472,8 +506,284 @@ fn test_event_mode_content_hash_is_stable_across_release_states() {
         )
     };
 
-    assert_eq!(releaseless, with_release);
-    assert_eq!(releaseless, transitioned);
+    assert_ne!(
+        releaseless, with_release,
+        "a chunk that gains a release ships a different map, so it must not reuse the stored one"
+    );
+    assert_eq!(
+        with_release, transitioned,
+        "a different release id leaves the map identical, so the hash must not change"
+    );
+}
+
+const BUNDLER_DEBUG_ID: &str = "11111111-2222-4333-8444-555555555555";
+
+fn make_pair(source_content: &str, map_json: serde_json::Value) -> SourcePair {
+    make_named_pair("chunk.js", source_content, map_json)
+}
+
+fn make_named_pair(name: &str, source_content: &str, map_json: serde_json::Value) -> SourcePair {
+    SourcePair {
+        source: MinifiedSourceFile {
+            inner: SourceFile::new(PathBuf::from(name), source_content.to_string()),
+        },
+        sourcemap: SourceMapFile {
+            inner: SourceFile::new(
+                PathBuf::from(format!("{name}.map")),
+                serde_json::from_value(map_json).expect("Failed to build SourceMapContent"),
+            ),
+        },
+    }
+}
+
+fn source_with_debug_id(debug_id: &str) -> String {
+    format!("console.log(1);\n//# debugId={debug_id}\n//# sourceMappingURL=chunk.js.map\n")
+}
+
+fn map_with_debug_id(debug_id: Option<&str>) -> serde_json::Value {
+    let mut map = json!({
+        "version": 3,
+        "file": "chunk.js",
+        "sources": ["src/index.js"],
+        "sourcesContent": ["console.log(1)\n"],
+        "names": [],
+        "mappings": "AAAA",
+    });
+    if let Some(debug_id) = debug_id {
+        map["debugId"] = json!(debug_id);
+    }
+    map
+}
+
+#[test]
+fn test_inject_adopts_bundler_debug_id() {
+    // The bundler already stamped a debug id into the chunk and its map. Inject must adopt it
+    // as the chunk id and still apply the mapping adjustment for the prepended snippet — the
+    // old `alias = "debugId"` conflation made the map look already-processed and skipped it.
+    let source_before = source_with_debug_id(BUNDLER_DEBUG_ID);
+    let pair = make_pair(&source_before, map_with_debug_id(Some(BUNDLER_DEBUG_ID)));
+
+    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let pair = injected.first().unwrap();
+
+    assert_eq!(
+        pair.source.get_chunk_id().as_deref(),
+        Some(BUNDLER_DEBUG_ID)
+    );
+    assert!(pair
+        .source
+        .inner
+        .content
+        .contains(&format!("=\"{BUNDLER_DEBUG_ID}\"")));
+    let map = &pair.sourcemap.inner.content;
+    assert_eq!(map.chunk_id.as_deref(), Some(BUNDLER_DEBUG_ID));
+    assert_eq!(map.debug_id.as_deref(), Some(BUNDLER_DEBUG_ID));
+    assert_ne!(
+        map.fields.get("mappings").and_then(|v| v.as_str()),
+        Some("AAAA"),
+        "mapping adjustment for the prepended snippet was not applied"
+    );
+
+    // Undoing the injection must hand the bundler's bytes back exactly, debug id comment
+    // included — event-mode uploads hash that pristine form to dedupe across releases.
+    let mut pair = injected.into_iter().next().unwrap();
+    pair.remove_chunk_id(BUNDLER_DEBUG_ID.to_string())
+        .expect("Failed to remove chunk ID");
+    assert_eq!(pair.source.inner.content, source_before);
+}
+
+#[test]
+fn test_inject_ignores_malformed_debug_id() {
+    // Adopted ids flow into upload rows and SDK events; a bundler emitting a non-UUID debug id
+    // must not poison them — fall back to the content-derived chunk id.
+    let pair = make_pair(
+        "console.log(1);\n//# debugId=not-a-uuid\n//# sourceMappingURL=chunk.js.map\n",
+        map_with_debug_id(None),
+    );
+
+    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let chunk_id = injected.first().unwrap().source.get_chunk_id().unwrap();
+
+    assert_ne!(chunk_id, "not-a-uuid");
+    assert!(uuid::Uuid::parse_str(&chunk_id).is_ok());
+}
+
+#[test]
+fn test_inject_prefers_chunk_debug_id_over_sourcemap() {
+    // Sourcemaps can be shared across chunks, so the chunk's own debug id must win when the two
+    // disagree — flipping the precedence would stamp one chunk's id onto its siblings.
+    let map_debug_id = "99999999-8888-4777-8666-555555555555";
+    let pair = make_pair(
+        &source_with_debug_id(BUNDLER_DEBUG_ID),
+        map_with_debug_id(Some(map_debug_id)),
+    );
+
+    let injected = inject_pairs(vec![pair], None).expect("Failed to inject pairs");
+    let pair = injected.first().unwrap();
+
+    assert_eq!(
+        pair.source.get_chunk_id().as_deref(),
+        Some(BUNDLER_DEBUG_ID)
+    );
+}
+
+#[test]
+fn test_event_mode_content_hash_is_stable_across_releases_for_adopted_ids() {
+    // An adopted debug id keeps one chunk id across releases, so a fresh build and a re-injected
+    // dist must hash identically per release — the server keys its skip-or-overwrite decision on
+    // that hash, and drift would reject the upload as a content_hash_mismatch.
+    let load = || {
+        make_pair(
+            &source_with_debug_id(BUNDLER_DEBUG_ID),
+            map_with_debug_id(Some(BUNDLER_DEBUG_ID)),
+        )
+    };
+    let upload_of = |pair: SourcePair| {
+        pair.into_upload(ReleaseMode::Event)
+            .expect("Failed to convert to SymbolSetUpload")
+    };
+
+    let fresh = upload_of(
+        inject_pairs(vec![load()], Some("release-a"))
+            .expect("Failed to inject pairs")
+            .into_iter()
+            .next()
+            .unwrap(),
+    );
+    let transitioned = {
+        let injected = inject_pairs(vec![load()], Some("release-a")).expect("Failed to inject");
+        upload_of(
+            inject_pairs(injected, Some("release-b"))
+                .expect("Failed to re-inject pairs")
+                .into_iter()
+                .next()
+                .unwrap(),
+        )
+    };
+
+    assert_eq!(fresh.chunk_id, BUNDLER_DEBUG_ID);
+    assert_eq!(transitioned.chunk_id, BUNDLER_DEBUG_ID);
+    assert_eq!(fresh.content_hash, transitioned.content_hash);
+}
+
+const ENTRY_DEBUG_ID: &str = "22222222-3333-4444-8555-666666666666";
+const LAZY_DEBUG_ID: &str = "33333333-4444-4555-8666-777777777777";
+
+/// The debug ids stand in for chunk ids that stay the same across releases, like the ones
+/// `@posthog/rollup-plugin` derives.
+fn content_named_release(
+    release_id: &str,
+    entry_name: &str,
+    lazy_name: &str,
+    lazy_code: &str,
+) -> Vec<SourcePair> {
+    let chunk = |name: &str, code: &str, debug_id: &str| {
+        make_named_pair(
+            name,
+            &format!("{code}\n//# debugId={debug_id}\n//# sourceMappingURL={name}.map\n"),
+            json!({
+                "version": 3,
+                "file": name,
+                "sources": ["../src/index.js"],
+                "sourcesContent": ["import('./lazy.js')\n"],
+                "names": [],
+                "mappings": "AAAA",
+                "debugId": debug_id,
+            }),
+        )
+    };
+    inject_pairs(
+        vec![
+            chunk(
+                entry_name,
+                &format!("import(\"./{lazy_name}\");"),
+                ENTRY_DEBUG_ID,
+            ),
+            chunk(lazy_name, lazy_code, LAZY_DEBUG_ID),
+        ],
+        Some(release_id),
+    )
+    .expect("Failed to inject pairs")
+}
+
+fn event_mode_hashes(pairs: Vec<SourcePair>) -> Vec<String> {
+    pairs
+        .into_iter()
+        .map(|pair| {
+            pair.into_upload(ReleaseMode::Event)
+                .expect("Failed to convert to SymbolSetUpload")
+                .content_hash
+                .expect("event mode always sets a content hash")
+        })
+        .collect()
+}
+
+#[test]
+fn test_event_mode_content_hash_ignores_chunk_file_names() {
+    let release = |release_id, entry_name, lazy_name| {
+        content_named_release(release_id, entry_name, lazy_name, "console.log(1);")
+    };
+
+    assert_eq!(
+        event_mode_hashes(release(
+            "release-a",
+            "index-C3e2Htc9.js",
+            "lazy-BrAf3own.js"
+        )),
+        event_mode_hashes(release(
+            "release-b",
+            "index-CSi0TbGB.js",
+            "lazy-CGeNrzqs.js"
+        ))
+    );
+}
+
+#[test]
+fn test_event_mode_content_hash_still_tracks_code_changes() {
+    let before = event_mode_hashes(content_named_release(
+        "release-a",
+        "index-C3e2Htc9.js",
+        "lazy-BrAf3own.js",
+        "console.log(1);",
+    ));
+    let after = event_mode_hashes(content_named_release(
+        "release-b",
+        "index-CSi0TbGB.js",
+        "lazy-CGeNrzqs.js",
+        "console.log(2);",
+    ));
+
+    assert_eq!(
+        before[0], after[0],
+        "the entry changed only in the lazy chunk's name"
+    );
+    assert_ne!(before[1], after[1], "the lazy chunk's code changed");
+}
+
+#[test]
+fn test_event_mode_upload_keeps_the_file_names() {
+    let pair = content_named_release(
+        "release-a",
+        "index-C3e2Htc9.js",
+        "lazy-BrAf3own.js",
+        "console.log(1);",
+    )
+    .into_iter()
+    .next()
+    .unwrap();
+    let (source, map) = (
+        pair.source.inner.content.clone(),
+        serde_json::to_string(&pair.sourcemap.inner.content).unwrap(),
+    );
+
+    let upload = pair
+        .into_upload(ReleaseMode::Event)
+        .expect("Failed to convert to SymbolSetUpload");
+    let stored: SourceAndMap = read_symbol_data(&upload.data).expect("Failed to read upload");
+
+    assert!(source.contains("./lazy-BrAf3own.js"));
+    assert_eq!(stored.minified_source, source);
+    assert_eq!(stored.sourcemap, map);
 }
 
 #[test]

@@ -94,22 +94,22 @@ impl Iterator for TaskIterator {
 }
 
 pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowStage]) {
-    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("ID: {}", task.id);
-    println!("Title: {}", task.title);
+    crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    crate::safe_println!("ID: {}", task.id);
+    crate::safe_println!("Title: {}", task.title);
 
     if let Some(desc) = &task.description {
         if !desc.is_empty() {
-            println!("Description: {desc}");
+            crate::safe_println!("Description: {desc}");
         }
     }
 
-    println!("Origin Product: {}", task.origin_product);
-    println!("Position: {}", task.position);
+    crate::safe_println!("Origin Product: {}", task.origin_product);
+    crate::safe_println!("Position: {}", task.position);
 
     if let Some(workflow_id) = &task.workflow {
         if let Some(workflow) = workflows.iter().find(|w| &w.id == workflow_id) {
-            println!(
+            crate::safe_println!(
                 "Workflow: {}{}",
                 workflow.name,
                 if workflow.is_default {
@@ -119,40 +119,40 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
                 }
             );
         } else {
-            println!("Workflow: {workflow_id} (unknown)");
+            crate::safe_println!("Workflow: {workflow_id} (unknown)");
         }
     } else {
-        println!("Workflow: None");
+        crate::safe_println!("Workflow: None");
     }
 
     if let Some(stage_id) = &task.current_stage {
         if let Some(stage) = stages.iter().find(|s| &s.id == stage_id) {
-            println!("Stage: {} ({})", stage.name, stage.key);
+            crate::safe_println!("Stage: {} ({})", stage.name, stage.key);
         } else {
-            println!("Stage: {stage_id} (unknown)");
+            crate::safe_println!("Stage: {stage_id} (unknown)");
         }
     } else {
-        println!("Stage: None");
+        crate::safe_println!("Stage: None");
     }
 
     if let Some(primary_repo) = &task.primary_repository {
         if let Some(org) = primary_repo.get("organization").and_then(|v| v.as_str()) {
             if let Some(repo) = primary_repo.get("repository").and_then(|v| v.as_str()) {
-                println!("Repository: {org}/{repo}");
+                crate::safe_println!("Repository: {org}/{repo}");
             }
         }
     }
 
     if let Some(branch) = &task.github_branch {
-        println!("GitHub Branch: {branch}");
+        crate::safe_println!("GitHub Branch: {branch}");
     }
 
     if let Some(pr_url) = &task.github_pr_url {
-        println!("GitHub PR: {pr_url}");
+        crate::safe_println!("GitHub PR: {pr_url}");
     }
 
-    println!("Created: {}", task.created_at.format("%Y-%m-%d %H:%M UTC"));
-    println!("Updated: {}", task.updated_at.format("%Y-%m-%d %H:%M UTC"));
+    crate::safe_println!("Created: {}", task.created_at.format("%Y-%m-%d %H:%M UTC"));
+    crate::safe_println!("Updated: {}", task.updated_at.format("%Y-%m-%d %H:%M UTC"));
 }
 
 pub fn list_tasks(limit: Option<&usize>, offset: Option<&usize>) -> Result<()> {

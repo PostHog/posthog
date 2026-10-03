@@ -1,14 +1,12 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -65,7 +63,7 @@ class FeaturebaseSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.FEATUREBASE,
+            name=ExternalDataSourceType.FEATUREBASE,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Featurebase",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -150,6 +148,16 @@ class FeaturebaseSource(
             ),
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` (featurebase.py) already retries `FeaturebaseRetryableError` (429/5xx),
+        # read timeouts, connection errors, and chunked-encoding errors with backoff; if that
+        # budget still exhausts, Temporal retries the whole activity, so the failure is transient
+        # and self-recovering rather than a bug to page on.
+        return {
+            "Featurebase API error (retryable)",
+            "HTTPSConnectionPool(host='do.featurebase.app', port=443)",
+        }
+
     def get_schemas(
         self,
         config: FeaturebaseSourceConfig,
@@ -165,6 +173,8 @@ class FeaturebaseSource(
                     "Maps which users upvoted which post as one row per (post, voter). "
                     "Costs one request chain per post, so it's off by default"
                 )
+            if endpoint == "survey_responses":
+                return "Answers submitted to your surveys as one row per (survey, response)"
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:

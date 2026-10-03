@@ -8,9 +8,10 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 
 import { GroupType } from '~/types'
+
+import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
 
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
 

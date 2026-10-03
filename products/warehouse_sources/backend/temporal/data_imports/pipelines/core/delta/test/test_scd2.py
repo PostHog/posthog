@@ -25,6 +25,23 @@ def _make_writer(delta_uri: str) -> Scd2DeltaWriter:
 
 class TestScd2Write:
     @pytest.mark.asyncio
+    async def test_first_write_creates_the_table_with_a_short_checkpoint_interval(self, tmp_path: Path) -> None:
+        # The SCD2 writer has its own create path; a table it creates on delta-rs's default interval
+        # would replay a long uncheckpointed tail on every open.
+        delta_path = str(tmp_path / "scd2_table")
+        batch = pa.table(
+            {
+                "id": pa.array([1]),
+                "valid_from": pa.array([datetime(2026, 1, 1, tzinfo=UTC)], type=_TS_TYPE),
+                "valid_to": pa.array([None], type=_TS_TYPE),
+            }
+        )
+
+        await _make_writer(delta_path).write(data=batch, primary_keys=["id"])
+
+        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "25"
+
+    @pytest.mark.asyncio
     async def test_write_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:
         # The SCD2 write carries its own realignment guard; without it the
         # close-existing merge would hand delta-rs a misaligned decimal and abort the worker.
@@ -62,6 +79,43 @@ class TestScd2Write:
         assert set(final.column("amount").to_pylist()) == {5, 7}
         closed = final.filter(pc.equal(final.column("amount"), pa.scalar(Decimal("5.00"), type=pa.decimal128(10, 2))))
         assert closed.column("valid_to").to_pylist() == [ts2]
+
+    @pytest.mark.asyncio
+    async def test_write_batch_declaring_a_null_column_not_null(self, tmp_path: Path) -> None:
+        # CDC reads SQL sources, whose batch schema copies the source database's is_nullable
+        # metadata, so a column can claim NOT NULL and still arrive holding nulls. Both delta
+        # calls in the SCD2 write reject that batch: write_deltalake raises and merge panics.
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {
+                    "id": pa.array([1]),
+                    "note": pa.array(["first"]),
+                    "valid_from": pa.array([ts1], type=_TS_TYPE),
+                    "valid_to": pa.array([None], type=_TS_TYPE),
+                }
+            ),
+        )
+
+        batch_fields: list[pa.Field] = [
+            pa.field("id", pa.int64(), nullable=False),
+            pa.field("note", pa.string(), nullable=False),
+            pa.field("valid_from", _TS_TYPE, nullable=False),
+            pa.field("valid_to", _TS_TYPE, nullable=True),
+        ]
+        batch = pa.table(
+            {"id": [1], "note": [None], "valid_from": [ts2], "valid_to": [None]},
+            schema=pa.schema(batch_fields),
+        )
+
+        result = await _make_writer(delta_path).write(data=batch, primary_keys=["id"])
+
+        final = result.to_pyarrow_table()
+        assert final.num_rows == 2
+        assert sorted(final.column("note").to_pylist(), key=lambda x: x is not None) == [None, "first"]
 
     @pytest.mark.asyncio
     async def test_only_terminal_append_commit_carries_metadata(self, tmp_path: Path) -> None:

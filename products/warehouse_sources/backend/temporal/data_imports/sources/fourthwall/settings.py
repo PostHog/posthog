@@ -13,7 +13,7 @@ BASE_URL = "https://api.fourthwall.com"
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class FourthwallEndpointConfig:
     name: str
     # Path below `/open-api/{version}`; the version segment comes from the source's pin.
@@ -26,6 +26,9 @@ class FourthwallEndpointConfig:
     # Most endpoints wrap rows in a `{results, total, page, size, totalPages}` envelope; a few
     # return a bare JSON array with no pagination at all.
     paginated: bool = True
+    # A few endpoints carry a 1-based page number in the path (`.../page/{page}`) and return an
+    # envelope without `totalPages`, so they walk the path until a page is empty.
+    page_in_path: bool = False
     sort_mode: Literal["asc", "desc"] = "asc"
     # Webhook event types whose payload carries this table's row.
     webhook_events: tuple[str, ...] = ()
@@ -54,6 +57,17 @@ FOURTHWALL_ENDPOINTS: dict[str, FourthwallEndpointConfig] = {
         # The products list only filters by `search`, so there is no server-side timestamp
         # filter to sync incrementally against.
         partition_key="createdAt",
+    ),
+    "product_templates": FourthwallEndpointConfig(
+        name="product_templates",
+        # The page number is a 1-based path segment (`/product-templates/page/{page}`), so this
+        # `path` is the base the paginator appends the page number to.
+        path="/product-templates/page",
+        page_in_path=True,
+        # Rows are keyed by `productId`, not `id`.
+        primary_key=["productId"],
+        # The summary carries no timestamps and the endpoint takes no filter or sort parameter,
+        # so this table is full-refresh only with no partition key.
     ),
     "collections": FourthwallEndpointConfig(
         name="collections",

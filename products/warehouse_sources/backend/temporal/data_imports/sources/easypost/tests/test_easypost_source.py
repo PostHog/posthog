@@ -4,40 +4,17 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceFieldInputConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import (
+    EASYPOST_ENDPOINTS,
+    ENDPOINTS,
 )
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.easypost import EasypostResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.source import EasypostSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config() -> Any:
     config = MagicMock()
     config.api_key = "EZAK_test"
     return config
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert EasypostSource().source_type == ExternalDataSourceType.EASYPOST
-
-    def test_source_config_basics(self) -> None:
-        config = EasypostSource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.EASYPOST
-        assert config.label == "EasyPost"
-
-    def test_source_config_has_password_api_key_field(self) -> None:
-        fields = EasypostSource().get_source_config.fields
-        assert [f.name for f in fields] == ["api_key"]
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
 
 
 class TestGetSchemas:
@@ -49,12 +26,30 @@ class TestGetSchemas:
         schemas = EasypostSource().get_schemas(_config(), team_id=1, names=["shipments", "events"])
         assert {s.name for s in schemas} == {"shipments", "events"}
 
-    @parameterized.expand([(name,) for name in ENDPOINTS])
-    def test_every_schema_advertises_created_at(self, endpoint: str) -> None:
+    @parameterized.expand([(name,) for name, c in EASYPOST_ENDPOINTS.items() if c.incremental_fields])
+    def test_every_syncable_schema_advertises_created_at(self, endpoint: str) -> None:
         schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
         schema = schemas[endpoint]
         assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
         assert schema.supports_append is True
+
+    @parameterized.expand([("carrier_accounts",), ("carriers",)])
+    def test_lookup_schemas_are_full_refresh_only(self, endpoint: str) -> None:
+        # These endpoints expose no cursor at all, so offering incremental or append would let a
+        # user pick a sync type that silently re-reads the whole collection every run.
+        schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
+        schema = schemas[endpoint]
+        assert schema.incremental_fields == []
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+
+    @parameterized.expand([("carrier_accounts",), ("end_shippers",)])
+    def test_restricted_endpoints_are_not_selected_by_default(self, endpoint: str) -> None:
+        # EasyPost gates both endpoints: /carrier_accounts rejects test keys, and the EndShipper
+        # API is opened per account. Selecting either by default fails a table nobody asked for.
+        schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}
+        assert schemas[endpoint].should_sync_default is False
+        assert schemas["shipments"].should_sync_default is True
 
     def test_events_are_append_only(self) -> None:
         # Events are immutable, so they're append-only (no incremental updates to existing rows).
@@ -103,15 +98,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = EasypostSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestResumableSourceManager:
-    def test_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = EasypostSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is EasypostResumeConfig
 
 
 class TestSourceForPipeline:

@@ -1,13 +1,7 @@
 import { z } from "zod";
 import { cloudRegion, type oAuthTokenResponse } from "./oauth.schemas";
 
-export const authStatusSchema = z.enum([
-  "anonymous",
-  "restoring",
-  "authenticated",
-]);
-export type AuthStatus = z.infer<typeof authStatusSchema>;
-
+const authStatusSchema = z.enum(["anonymous", "restoring", "authenticated"]);
 export const orgProjectsSchema = z.object({
   orgName: z.string(),
   projects: z.array(z.object({ id: z.number(), name: z.string() })),
@@ -71,6 +65,44 @@ export function pickInitialProjectId(args: {
   return allProjectIds[0] ?? null;
 }
 
+const desktopAccessReasonSchema = z.enum(["startup_plan", "prepaid_credits"]);
+export const desktopAccessResponseSchema = z.union([
+  z.object({ allowed: z.literal(true), reason: z.null() }),
+  z.object({
+    allowed: z.literal(false),
+    reason: desktopAccessReasonSchema.nullable(),
+  }),
+]);
+
+export const desktopAccessSchema = z.discriminatedUnion("status", [
+  z.object({
+    projectId: z.number().nullable(),
+    status: z.literal("unchecked"),
+    reason: z.null(),
+  }),
+  z.object({
+    projectId: z.number().nullable(),
+    status: z.literal("checking"),
+    reason: z.null(),
+  }),
+  z.object({
+    projectId: z.number(),
+    status: z.literal("allowed"),
+    reason: z.null(),
+  }),
+  z.object({
+    projectId: z.number(),
+    status: z.literal("blocked"),
+    reason: desktopAccessReasonSchema.nullable(),
+  }),
+  z.object({
+    projectId: z.number().nullable(),
+    status: z.literal("error"),
+    reason: z.null(),
+  }),
+]);
+export type DesktopAccess = z.infer<typeof desktopAccessSchema>;
+
 export const authStateSchema = z.object({
   status: authStatusSchema,
   bootstrapComplete: z.boolean(),
@@ -78,7 +110,7 @@ export const authStateSchema = z.object({
   orgProjectsMap: orgProjectsMapSchema,
   currentOrgId: z.string().nullable(),
   currentProjectId: z.number().nullable(),
-  hasCodeAccess: z.boolean().nullable(),
+  desktopAccess: desktopAccessSchema,
   needsScopeReauth: z.boolean(),
   sessionType: z.enum(["persistent", "impersonated"]).nullable(),
   sessionExpiresAt: z.number().nullable(),
@@ -89,17 +121,9 @@ export type AuthState = z.infer<typeof authStateSchema>;
 export const loginInput = z.object({
   region: cloudRegion,
 });
-export type LoginInput = z.infer<typeof loginInput>;
-
 export const loginOutput = z.object({
   state: authStateSchema,
 });
-export type LoginOutput = z.infer<typeof loginOutput>;
-
-export const redeemInviteCodeInput = z.object({
-  code: z.string().min(1),
-});
-
 export const selectProjectInput = z.object({
   projectId: z.number(),
 });
@@ -107,8 +131,6 @@ export const selectProjectInput = z.object({
 export const switchOrgInput = z.object({
   orgId: z.string().min(1),
 });
-export type SwitchOrgInput = z.infer<typeof switchOrgInput>;
-
 export const validAccessTokenOutput = z.object({
   accessToken: z.string(),
   apiHost: z.string(),

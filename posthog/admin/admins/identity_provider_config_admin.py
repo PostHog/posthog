@@ -16,7 +16,7 @@ class IdentityProviderConfigAdmin(admin.ModelAdmin):
         "created_at",
     )
     list_filter = ("scim_enabled",)
-    search_fields = ("name", "organization__name", "domains__domain")
+    search_fields = ("name", "organization__name", "linked_identity_provider_configs__organization_domain__domain")
     readonly_fields = ("id", "created_at", "updated_at", "linked_domains")
     autocomplete_fields = ["organization"]
     fieldsets = (
@@ -42,5 +42,5 @@ class IdentityProviderConfigAdmin(admin.ModelAdmin):
 
     @admin.display(description="Linked domains")
     def linked_domains(self, obj):
-        domains = list(obj.domains.order_by("domain").values_list("domain", flat=True))
+        domains = list(obj.organization_domains.order_by("domain").values_list("domain", flat=True))
         return ", ".join(domains) if domains else "-"

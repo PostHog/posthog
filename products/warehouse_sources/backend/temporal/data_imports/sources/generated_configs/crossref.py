@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class CrossrefSourceConfig(config.Config):
-    pass
+    mailto: str | None = None
+    member_id: str | None = None
+    funder_id: str | None = None
+    issn: str | None = None

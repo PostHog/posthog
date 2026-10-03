@@ -139,6 +139,103 @@ class TestGetRows:
         assert session.send.call_count == 1
 
 
+class TestTimeOffCalendars:
+    """The calendars stream fans out over employee ids (POST search), so it hand-rolls its own
+    session.post calls rather than riding the shared rest_client."""
+
+    def _people_then_calendars(self, session, calendar_pages: list[Response], employees=None):
+        employees = employees if employees is not None else [{"id": "e1"}, {"id": "e2"}]
+        session.post.side_effect = [_response({"employees": employees}), *calendar_pages]
+
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_fans_out_employee_ids_and_normalizes_pointer_keys(self, mock_make_session):
+        session = mock_make_session.return_value
+        self._people_then_calendars(
+            session,
+            [
+                _response(
+                    {
+                        "items": [
+                            {
+                                "/employeeCalendar/employeeId": "e1",
+                                "/employeeCalendar/calendarId": "c1",
+                                "/employeeCalendar/calendarName": "UK",
+                                "/employeeCalendar/source": "site",
+                                "/employeeCalendar/siteId": "s1",
+                            },
+                            {
+                                "/employeeCalendar/employeeId": "e2",
+                                "/employeeCalendar/calendarId": None,
+                                "/employeeCalendar/source": "none",
+                                "/employeeCalendar/siteId": None,
+                            },
+                        ],
+                        "response_metadata": {"next_cursor": None},
+                    }
+                )
+            ],
+        )
+
+        rows = _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+
+        assert rows == [
+            {"employeeId": "e1", "calendarId": "c1", "calendarName": "UK", "source": "site", "siteId": "s1"},
+            {"employeeId": "e2", "calendarId": None, "source": "none", "siteId": None},
+        ]
+        search_call = session.post.call_args_list[1]
+        assert search_call.args[0] == "https://api.hibob.com/v1/timeoff/calendars/employees/search"
+        assert search_call.kwargs["json"]["filters"] == [
+            {"fieldId": "/employeeCalendar/employeeId", "operator": "equals", "values": ["e1", "e2"]}
+        ]
+
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_follows_cursor_until_exhausted(self, mock_make_session):
+        session = mock_make_session.return_value
+        self._people_then_calendars(
+            session,
+            [
+                _response(
+                    {"items": [{"/employeeCalendar/employeeId": "e1"}], "response_metadata": {"next_cursor": "n"}}
+                ),
+                _response(
+                    {"items": [{"/employeeCalendar/employeeId": "e2"}], "response_metadata": {"next_cursor": None}}
+                ),
+            ],
+            employees=[{"id": "e1"}],
+        )
+
+        rows = _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+
+        assert [row["employeeId"] for row in rows] == ["e1", "e2"]
+        assert session.post.call_count == 3  # people/search + two cursor pages
+        assert session.post.call_args_list[2].kwargs["json"]["cursor"] == "n"
+
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_splits_employee_ids_into_batches_of_5000(self, mock_make_session):
+        session = mock_make_session.return_value
+        empty_page = {"items": [], "response_metadata": {"next_cursor": None}}
+        self._people_then_calendars(
+            session,
+            [_response(empty_page), _response(empty_page)],
+            employees=[{"id": str(i)} for i in range(5001)],
+        )
+
+        _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+
+        assert session.post.call_count == 3  # people/search + two batched searches
+        assert len(session.post.call_args_list[1].kwargs["json"]["filters"][0]["values"]) == 5000
+        assert len(session.post.call_args_list[2].kwargs["json"]["filters"][0]["values"]) == 1
+
+    @mock.patch(HIBOB_SESSION_PATCH)
+    def test_auth_error_fails_loud(self, mock_make_session):
+        session = mock_make_session.return_value
+        # Repeated 401s trip HiBob's WAF, so the fan-out must raise rather than swallow the failure.
+        session.post.side_effect = [_response({"error": "unauthorized"}, status=401)]
+
+        with pytest.raises(Exception):
+            _rows(hibob_source("service-id", "token", "time_off_calendars", team_id=1, job_id="j"))
+
+
 class TestHiBobSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     @mock.patch(CLIENT_SESSION_PATCH)

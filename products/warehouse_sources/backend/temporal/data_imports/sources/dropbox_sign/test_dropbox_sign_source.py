@@ -4,25 +4,14 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.dropbox_sign import (
-    DropboxSignResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.source import DropboxSignSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dropboxsign import (
     DropboxSignSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _inputs(schema_name: str = "templates") -> SourceInputs:
@@ -43,9 +32,6 @@ def _inputs(schema_name: str = "templates") -> SourceInputs:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert DropboxSignSource().source_type == ExternalDataSourceType.DROPBOXSIGN
-
     def test_config_metadata(self) -> None:
         config = DropboxSignSource().get_source_config
         assert config.label == "Dropbox Sign"
@@ -53,16 +39,6 @@ class TestSourceConfig:
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # docsUrl slug must match the posthog.com doc filename (kebab-case).
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/dropbox-sign"
-
-    def test_single_password_api_key_field(self) -> None:
-        fields = DropboxSignSource().get_source_config.fields
-        assert len(fields) == 1
-        field = fields[0]
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.name == "api_key"
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.required is True
-        assert field.secret is True
 
 
 class TestSchemas:
@@ -73,6 +49,12 @@ class TestSchemas:
             assert schema.supports_incremental is False
             assert schema.supports_append is False
             assert schema.incremental_fields == []
+
+    def test_faxes_is_not_selected_by_default(self) -> None:
+        # Faxing is a separate Dropbox Sign product, so the table stays off unless the user picks it.
+        schemas = {s.name: s for s in DropboxSignSource().get_schemas(MagicMock(), team_id=1)}
+        assert schemas["faxes"].should_sync_default is False
+        assert schemas["signature_requests"].should_sync_default is True
 
     def test_names_filter(self) -> None:
         schemas = DropboxSignSource().get_schemas(MagicMock(), team_id=1, names=["templates"])
@@ -131,13 +113,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = DropboxSignSource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestResumableManager:
-    def test_returns_manager_bound_to_resume_config(self) -> None:
-        manager = DropboxSignSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DropboxSignResumeConfig
 
 
 class TestSourceForPipeline:

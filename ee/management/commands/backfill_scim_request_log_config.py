@@ -26,7 +26,7 @@ from django.db.models import OuterRef, Subquery
 
 import structlog
 
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 
 from ee.models.scim_request_log import SCIMRequestLog
 
@@ -77,7 +77,7 @@ class Command(BaseCommand):
 
         pending = SCIMRequestLog.objects.filter(
             identity_provider_config__isnull=True,
-            organization_domain__identity_provider_config__isnull=False,
+            organization_domain__linked_identity_provider_configs__isnull=False,
         )
         if organization_id:
             pending = pending.filter(organization_domain__organization_id=organization_id)
@@ -88,9 +88,9 @@ class Command(BaseCommand):
             return
 
         config_of_domain = Subquery(
-            OrganizationDomain.objects.filter(pk=OuterRef("organization_domain_id")).values(
-                "identity_provider_config_id"
-            )[:1]
+            LinkedIdentityProviderConfig.objects.filter(
+                organization_domain_id=OuterRef("organization_domain_id")
+            ).values("identity_provider_config_id")[:1]
         )
 
         started_at = time.monotonic()
@@ -129,7 +129,7 @@ class Command(BaseCommand):
         # reachable through the domain, which is why the SCIM log endpoint still matches both keys.
         orphaned = SCIMRequestLog.objects.filter(
             identity_provider_config__isnull=True,
-            organization_domain__identity_provider_config__isnull=True,
+            organization_domain__linked_identity_provider_configs__isnull=True,
         )
         if organization_id:
             orphaned = orphaned.filter(organization_domain__organization_id=organization_id)

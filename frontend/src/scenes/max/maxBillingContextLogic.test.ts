@@ -233,9 +233,9 @@ const mockBillingUsageResponse: BillingUsageResponse = {
             breakdown_value: 'events',
         },
     ],
-    status: 'ok',
-    type: 'timeseries',
-    customer_id: '123',
+    count: 1,
+    next: null,
+    previous: null,
 }
 
 const mockBillingSpendResponse: BillingSpendResponse = {
@@ -249,9 +249,9 @@ const mockBillingSpendResponse: BillingSpendResponse = {
             breakdown_value: 'events',
         },
     ],
-    status: 'ok',
-    type: 'timeseries',
-    customer_id: '123',
+    count: 1,
+    next: null,
+    previous: null,
 }
 
 const mockDestinations: HogFunctionType[] = [
@@ -266,8 +266,9 @@ describe('maxBillingContextLogic', () => {
         useMocks({
             get: {
                 '/api/billing/': mockBilling,
-                '/api/billing/usage/': mockBillingUsageResponse,
-                '/api/billing/spend/': mockBillingSpendResponse,
+                '/api/organizations/@current/billing/usage/timeseries/': mockBillingUsageResponse,
+                '/api/organizations/@current/billing/spend/timeseries/': mockBillingSpendResponse,
+                '/api/organizations/@current/billing/projects/': { count: 0, next: null, previous: null, results: [] },
                 '/api/billing/usage_limit_alerts/': [],
                 '/api/billing/compute_spend': {},
                 '/api/organizations/@current/': {
@@ -281,7 +282,6 @@ describe('maxBillingContextLogic', () => {
                 '/api/environments/:team_id/pipeline-destinations': { results: mockDestinations },
                 '/api/environments/:team_id/plugin_configs': { results: [] },
                 '/api/organizations/:organization_id/plugins': { results: [] },
-                '/api/organizations/:organization_id/batch_exports': { results: [] },
                 '/api/projects/:project_id/pipeline_destination_configs/': { results: [] },
                 '/api/environments/:team_id/batch_exports/': { results: [] },
             },
@@ -353,7 +353,7 @@ describe('maxBillingContextLogic', () => {
                 name: 'Product Analytics',
                 description: 'Analyze user behavior',
                 is_used: true,
-                has_exceeded_limit: false, // percentage_usage = 1.0 means at limit, not exceeded
+                has_exceeded_limit: true, // billing treats percentage_usage = 1.0 as at the limit
                 current_usage: 1000000,
                 usage_limit: 1000000,
                 percentage_usage: 1.0,
@@ -383,7 +383,7 @@ describe('maxBillingContextLogic', () => {
                 name: 'Session Replay',
                 description: 'Record user sessions',
                 is_used: true,
-                has_exceeded_limit: false, // percentage_usage = 1.0 means at limit, not exceeded
+                has_exceeded_limit: true, // billing treats percentage_usage = 1.0 as at the limit
                 current_usage: 5000,
                 usage_limit: 15000, // From first tier
                 percentage_usage: 1.0,

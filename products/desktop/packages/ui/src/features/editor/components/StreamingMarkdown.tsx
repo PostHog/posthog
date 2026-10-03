@@ -10,6 +10,9 @@ import {
 
 interface StreamingMarkdownProps {
   content: string;
+  /** See {@link MarkdownRenderer}: only trusted agent-authored surfaces may
+   *  enable object tags, because they execute authenticated queries. */
+  renderObjectTags?: boolean;
   componentsOverride?: Partial<Components>;
 }
 
@@ -28,6 +31,7 @@ interface StreamingMarkdownProps {
  */
 export const StreamingMarkdown = memo(function StreamingMarkdown({
   content,
+  renderObjectTags,
   componentsOverride,
 }: StreamingMarkdownProps) {
   const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
@@ -44,6 +48,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
               {openFence.before.trim() ? (
                 <MarkdownRenderer
                   content={openFence.before}
+                  renderObjectTags={renderObjectTags}
                   componentsOverride={componentsOverride}
                 />
               ) : null}
@@ -59,6 +64,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
             content={
               index === lastIndex ? maskOpenLinkDestination(block) : block
             }
+            renderObjectTags={renderObjectTags}
             componentsOverride={componentsOverride}
           />
         );

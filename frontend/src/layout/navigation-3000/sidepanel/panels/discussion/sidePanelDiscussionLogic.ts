@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { CommentsLogicProps } from 'lib/components/Comments/commentsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
 
 import type { FeatureFlagsSet } from '../../../../../lib/logic/featureFlagLogic'
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'

@@ -1,6 +1,8 @@
 import re
+import json
 import datetime as dt
 from itertools import zip_longest
+from urllib.parse import quote
 
 from unittest import TestCase
 
@@ -18,9 +20,12 @@ from products.logs.backend.log_patterns import (
     _PLACEHOLDER_PATTERNS,
     _WHITESPACE_RE,
     LogSample,
+    MinedPattern,
     _prepare_body,
+    _prepare_json_body,
     compile_match_regex,
     extract_match_literal,
+    group_stored_patterns,
     mine_patterns,
     pattern_fingerprint,
 )
@@ -99,6 +104,48 @@ def _sample(
         timestamp=ts or dt.datetime(2026, 6, 23, 12, 0, 0, tzinfo=dt.UTC),
         truncated=truncated,
     )
+
+
+class TestStoredPatternGroups(TestCase):
+    @parameterized.expand([(51, "job"), (8, "🦔" * 100), (1, "🦔" * 1024)])
+    def test_bounded_members_preserve_exact_aggregates(self, count: int, identifier: str) -> None:
+        timestamp = dt.datetime(2026, 6, 23, 12, tzinfo=dt.UTC)
+        canonical = [
+            MinedPattern(
+                pattern=f"Archive {identifier}{index} batch completed",
+                count=index + 1,
+                volume_share_pct=0,
+                error_count=index + 1,
+                first_seen=timestamp,
+                last_seen=timestamp,
+                examples=[],
+                services=["api"],
+                bucket_counts=[index + 1],
+                severity_counts={"error": index + 1},
+                match_regex=None,
+                match_literal=None,
+                match_patterns=[f"Archive {identifier}{index} batch completed"],
+                pattern_version=5,
+            )
+            for index in range(count)
+        ]
+        total = sum(pattern.count for pattern in canonical)
+
+        groups = group_stored_patterns(canonical, total_count=total)
+
+        assert sum(group.count for group in groups) < total
+        assert bool(groups) == (count > 1)
+        counts = {pattern.pattern: pattern.count for pattern in canonical}
+        for group in groups:
+            assert len(group.match_patterns) <= 50
+            assert (
+                len(quote(json.dumps(group.match_patterns, ensure_ascii=False, separators=(",", ":")), safe="")) <= 3072
+            )
+            expected = sum(counts[member] for member in group.match_patterns)
+            assert group.count == group.error_count == expected
+            assert group.bucket_counts == [expected]
+            assert group.severity_counts == {"error": expected}
+            assert group.volume_share_pct == round(expected / total * 100, 2)
 
 
 class TestMinePatterns(TestCase):
@@ -398,16 +445,17 @@ class TestMinePatterns(TestCase):
 
     def test_mined_patterns_carry_a_regex_that_matches_their_own_examples(self) -> None:
         # End-to-end self-consistency: whatever mining produced, the compiled predicate must
-        # match the rows it came from — the invariant the whole "view matching logs" flow
-        # rests on.
-        samples = [_sample(f"User {name} not found in {i} ms") for i, name in enumerate(("alice", "bob", "carol"))]
+        # match the RAW rows it came from — raw lines are what the predicate executes against
+        # in ClickHouse, and a regex that only matches prepared bodies is exactly the broken
+        # predicate this invariant exists to prevent.
+        bodies = [f"User {name} not found in {i} ms" for i, name in enumerate(("alice", "bob", "carol"))]
 
-        patterns = mine_patterns(samples)
+        patterns = mine_patterns([_sample(body) for body in bodies])
 
         assert patterns[0].match_regex is not None
         compiled = re.compile(patterns[0].match_regex)
-        for example in patterns[0].examples:
-            assert compiled.search(example.body)
+        for body in bodies:
+            assert compiled.search(body)
 
     @parameterized.expand(
         [
@@ -444,6 +492,12 @@ class TestMinePatterns(TestCase):
         assert re.search(patterns[0].match_regex, "task_retrying at 2026-08-19T14:02:11.000001Z scheduled")
 
 
+def _compile_prose(template: str, bodies: list[str], truncated: bool = False) -> str | None:
+    # Prose logs: the prepared example and the raw line are the same text.
+    samples = [_sample(b, truncated=truncated) for b in bodies]
+    return compile_match_regex(template, samples, bodies, truncated=truncated)
+
+
 class TestCompileMatchRegex(TestCase):
     @parameterized.expand(
         [
@@ -462,7 +516,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
-        regex = compile_match_regex(template, [_sample(raw_body.strip())])
+        regex = _compile_prose(template, [raw_body.strip()])
 
         assert regex is not None
         assert re.search(regex, raw_body)
@@ -475,7 +529,7 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_compiled_regex_is_anchored(self, template: str, non_matching_body: str) -> None:
-        regex = compile_match_regex(template, [_sample("User dave not found")])
+        regex = _compile_prose(template, ["User dave not found"])
 
         assert regex is not None
         assert not re.search(regex, non_matching_body)
@@ -484,7 +538,7 @@ class TestCompileMatchRegex(TestCase):
         # A body that hit the mining truncation cap means the template only covers a prefix
         # of the raw line — the predicate must still match the full-length original.
         truncated_body = "prefix " + "x" * 505
-        regex = compile_match_regex("prefix <*>", [_sample(truncated_body, truncated=True)])
+        regex = _compile_prose("prefix <*>", [truncated_body], truncated=True)
 
         assert regex is not None
         assert re.search(regex, truncated_body + " continues beyond the cap")
@@ -496,27 +550,148 @@ class TestCompileMatchRegex(TestCase):
         ]
     )
     def test_templates_without_literal_content_get_no_regex(self, _name: str, template: str) -> None:
-        assert compile_match_regex(template, [_sample("anything at all")]) is None
+        assert _compile_prose(template, ["anything at all"]) is None
 
     def test_diverged_example_fails_validation(self) -> None:
         # Drain refines templates as rows merge, so a stored example can stop matching the
         # final template. Shipping that regex would filter to the wrong logs — it must be
         # withheld instead.
-        examples = [_sample("User dave not found"), _sample("something entirely different")]
+        assert _compile_prose("User <*> not found", ["User dave not found", "something entirely different"]) is None
 
-        assert compile_match_regex("User <*> not found", examples) is None
+    def test_prose_pattern_never_falls_back_to_an_unanchored_regex(self) -> None:
+        # The unanchored fallback exists solely for JSON-extracted messages (substrings of
+        # their raw rows). A prose raw line with surrounding context (e.g. a shipper-prepended
+        # syslog prefix) fails the anchored form and must be withheld — falling back would ship
+        # a predicate matching mid-line occurrences the anchoring guarantee exists to exclude.
+        raws = ["User dave not found", "<13>Jan 1 host app: User bob not found"]
+        assert _compile_prose("User <*> not found", raws) is None
 
     def test_no_examples_means_no_regex(self) -> None:
-        assert compile_match_regex("User <*> not found", []) is None
+        assert compile_match_regex("User <*> not found", [], []) is None
 
     @parameterized.expand(
         [
             ("longest_run_wins", "at <uuid> failed to charge card for team <num>", "failed to charge card for team"),
             ("too_thin", "<*> ab <num>", None),
+            ("ingestion_placeholders_are_literal", "At <ID> sent to <EMAIL>", "At <ID> sent to <EMAIL>"),
+            ("ingestion_array_is_literal", "<JSON_ARRAY>", "<JSON_ARRAY>"),
         ]
     )
     def test_extract_match_literal(self, _name: str, template: str, expected: str | None) -> None:
-        assert extract_match_literal(template) == expected
+        assert (
+            extract_match_literal(template, [template.replace("<uuid>", "x").replace("<num>", "1").replace("<*>", "y")])
+            == expected
+        )
+
+    def test_extract_match_literal_withheld_when_absent_from_raw_lines(self) -> None:
+        # The icontains filter runs against raw bodies; a literal that only exists in the
+        # prepared form (here: whitespace-collapsed) would silently match nothing.
+        assert extract_match_literal("job done ok", ["job   done\n\nok"]) is None
+        assert extract_match_literal("Job Done OK", ["prefix job done ok suffix"]) == "Job Done OK"
+
+    @parameterized.expand(
+        [
+            ("<ID>", "abc_123"),
+            ("<TIMESTAMP>", "2026-09-01T12:00:00Z"),
+            ("<HOST>", "worker.example.com"),
+            ("<JSON_ARRAY>", "[1,2,3]"),
+            ("<JSON:key>", '{"key":1}'),
+        ]
+    )
+    def test_ingestion_tokens_are_literal_in_body_predicates(self, token: str, value: str) -> None:
+        template = f"payload {token}"
+        predicate = _compile_prose(template, [template])
+        assert predicate is not None
+        assert re.search(predicate, template)
+        assert re.search(predicate, f"payload {value}") is None
+        assert _compile_prose(template, [f"payload {value}"]) is None
+
+
+class TestPrepareJsonBody(TestCase):
+    @parameterized.expand(
+        [
+            ("message_key", '{"message": "User alice not found", "level": "error"}', "User alice not found"),
+            ("leading_whitespace_and_bom", ' ﻿ {"message": "still json"}', "still json"),
+            ("msg_key", '{"msg": "connection reset", "attempt": 3}', "connection reset"),
+            ("log_key", '{"log": "line from docker", "stream": "stdout"}', "line from docker"),
+            ("event_key", '{"event": "payment failed", "order_id": 12}', "payment failed"),
+            ("priority_order", '{"event": "second choice", "message": "first choice"}', "first choice"),
+            ("not_json", "User alice not found", None),
+            ("json_array", '[{"message": "in a list"}]', None),
+            ("json_scalar_in_braces_invalid", "{not valid json}", None),
+            ("empty_message_is_not_a_message", '{"message": "", "a": 1}', None),
+            ("non_string_message_is_not_a_message", '{"message": 42}', None),
+            ("no_message_key", '{"user_id": 1, "ok": true}', None),
+            # A producer controls the body, and an integer past sys.get_int_max_str_digits()
+            # raises a bare ValueError from the number parser rather than a JSONDecodeError.
+            ("integer_past_the_digit_limit", '{"message": "hi", "n": ' + "9" * 5000 + "}", None),
+        ]
+    )
+    def test_json_body_reduction(self, _name: str, body: str, expected: str | None) -> None:
+        assert _prepare_json_body(body) == expected
+
+
+class TestJsonBodyMining(TestCase):
+    def test_json_bodies_cluster_by_message_and_regex_matches_the_raw_line(self) -> None:
+        # The end-to-end contract for structured logs: mining sees the extracted message (one
+        # template instead of punctuation fragments), while the shipped predicate still matches
+        # the raw JSON rows in ClickHouse — which requires the unanchored compile variant, since
+        # the message is a substring of the raw line.
+        raws = [
+            f'{{"level": "error", "message": "User {name} not found", "request_id": {i}}}'
+            for i, name in enumerate(("alice", "bob", "carol"))
+        ]
+        patterns = mine_patterns([_sample(raw) for raw in raws])
+
+        assert len(patterns) == 1
+        assert patterns[0].pattern == "User <*> not found"
+        assert patterns[0].match_regex is not None
+        compiled = re.compile(patterns[0].match_regex)
+        for raw in raws:
+            assert compiled.search(raw)
+        assert patterns[0].match_literal == "not found"
+
+    def test_a_cluster_mixing_json_and_prose_rows_withholds_the_unanchored_regex(self) -> None:
+        # The unanchored form is only honest when every raw row is JSON, where the template is a
+        # substring by construction. One JSON row among prose rows would otherwise buy the whole
+        # cluster a regex matching a prose line wherever the text appears, not where it starts.
+        rows = [_sample(f'{{"message": "cache miss for key {i}"}}') for i in range(5)]
+        rows += [_sample(f"cache miss for key {i}") for i in range(5, 10)]
+
+        patterns = mine_patterns(rows)
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is None
+
+    def test_message_less_json_keeps_a_predicate_that_matches_the_raw_row(self) -> None:
+        # Rewriting these bodies into a canonical shape collapses them into one template, but
+        # that template then describes text absent from the raw row, so every predicate has to
+        # be withheld and the pattern loses the drill-down to its logs. Mining the body
+        # unchanged is what keeps the pivot working.
+        raws = ['{"user_id": 1, "ok": true}', '{"user_id": 22, "ok": true}', '{"user_id": 333, "ok": true}']
+        patterns = mine_patterns([_sample(raw) for raw in raws])
+
+        assert len(patterns) == 1
+        assert patterns[0].match_regex is not None
+        compiled = re.compile(patterns[0].match_regex)
+        for raw in raws:
+            assert compiled.search(raw)
+
+    def test_message_with_json_escaped_content_withholds_the_regex(self) -> None:
+        # The raw row stores the newline as a two-character escape (\n); the extracted message
+        # has a real newline. A predicate validated only against the prepared form would ship
+        # and silently match nothing — raw validation must withhold it.
+        raw = '{"message": "first line\\nsecond line of failure"}'
+        patterns = mine_patterns([_sample(raw)])
+
+        assert patterns[0].match_regex is None
+
+    def test_prose_bodies_are_untouched_by_json_handling(self) -> None:
+        patterns = mine_patterns([_sample("User alice not found"), _sample("User bob not found")])
+
+        assert patterns[0].pattern == "User <*> not found"
+        assert patterns[0].match_regex is not None
+        assert re.match(patterns[0].match_regex, "User carol not found")
 
 
 _uuid_st = st.tuples(st.uuids(), st.booleans()).map(lambda t: str(t[0]).upper() if t[1] else str(t[0]))
@@ -838,7 +1013,10 @@ class TestHostMaskProperties(TestCase):
     def test_lines_differing_only_by_hostname_share_a_fingerprint(self, host_a: str, host_b: str) -> None:
         # This is what the mask is for. The patterns diff and the pattern list both key on
         # the fingerprint, so two hostnames that fingerprint apart show up as two templates.
-        line = '{{"authority":"{}","upstream_cluster":"capture"}}'
+        # The host sits in the message field: a JSON body with no message-like field is
+        # canonicalized to its shape, which fingerprints identically whatever the host is and
+        # would let an over-narrow host mask through.
+        line = '{{"message":"upstream {} refused","upstream_cluster":"capture"}}'
         a = mine_patterns([_sample(line.format(host_a))])
         b = mine_patterns([_sample(line.format(host_b))])
 
@@ -914,7 +1092,9 @@ class TestTruncationProperties(TestCase):
     @given(body=st.one_of(_log_body_st(), _long_log_body_st()), cap=st.integers(min_value=8, max_value=600))
     @settings(max_examples=400, deadline=None)
     def test_prepared_body_holds_only_whole_tokens(self, body: str, cap: int) -> None:
-        collapsed = _WHITESPACE_RE.sub(" ", body).strip()
+        # A JSON body is reduced to its message-like field before collapsing, so the baseline
+        # the prefix is measured against is the reduced body, not the raw line.
+        collapsed = _WHITESPACE_RE.sub(" ", _prepare_json_body(body) or body).strip()
 
         prepared = _prepare_body(body, cap)
 

@@ -32,7 +32,7 @@ Slack  ──HTTPS──▶  ngrok edge  ──▶  ngrok agent (laptop)  ──
   through to nothing and you get `200 OK` with an **empty body**. That's why the tunnel
   must rewrite the Host header to `localhost` (Step 1).
 - The OAuth `redirect_uri` is built **server-side** from `SITE_URL`, not from the browser
-  address bar (`OauthIntegration.redirect_uri()` in `posthog/models/integration.py`), and it
+  address bar (`OauthIntegration.redirect_uri()` in `posthog/models/integration/oauth.py`), and it
   force-upgrades the scheme to https — `SITE_URL.replace('http://', 'https://')`. `SITE_URL`
   defaults to `http://localhost:8010` (`posthog/settings/__init__.py:69`), so at that default
   Slack is handed `https://localhost:8010/...` — which has no TLS, hence the browser SSL error.
@@ -46,25 +46,19 @@ Cloudflare Tunnel (`cloudflared`) is a fine free alternative; whatever you pick,
 **8010** (Caddy) and make it rewrite the upstream `Host` header to `localhost` (see "How requests
 flow" for why).
 
-ngrok config — point the tunnel at **8010** and set `host_header: localhost`:
-
-```yaml
-# ~/Library/Application Support/ngrok/ngrok.yml   (macOS)
-# ~/.config/ngrok/ngrok.yml                        (Linux)
-version: '3'
-tunnels:
-  app:
-    proto: http
-    addr: 8010
-    domain: <you>-posthog.ngrok.dev # a domain you've reserved in the ngrok dashboard
-    host_header: localhost # REQUIRED — see "How requests flow" above
-agent:
-  authtoken: <your-ngrok-authtoken>
-```
+Reserve an ngrok domain, then authenticate once:
 
 ```bash
-ngrok start --all
+ngrok config add-authtoken <your-ngrok-authtoken>
 ```
+
+Set the reserved URL in `.env.local`:
+
+```bash
+SITE_URL=https://<you>-posthog.ngrok.dev
+```
+
+`hogli start` detects an ngrok `SITE_URL` and starts the tunnel for you. It creates a temporary ngrok configuration that forwards to **8010** and rewrites the upstream Host header to `localhost`.
 
 Verify the tunnel reaches Django through Caddy:
 
@@ -114,6 +108,7 @@ oauth_config:
       - chat:write
       - canvases:write
       - files:write
+      - reactions:read
       - reactions:write
       - users:read
       - users:read.email
@@ -127,6 +122,8 @@ settings:
     bot_events:
       - app_mention
       - app_home_opened
+      - message.channels
+      - reaction_added
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -145,7 +142,16 @@ Django must be up at that moment.
 > The `app_home` block + `app_home_opened` bot event power the App Home tab; the
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
-> locally — they're behind the `slack-app-home` and `slack-app-oauth` flags.
+> locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
+> identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
+
+> `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
+> them a 👍/👎 reaction on a reply records nothing, again with no error.
+
+> `message.channels` is what makes Slack deliver plain channel messages. Without it you get
+> `app_mention` only, so `@PostHog` works and everything driven by an untagged message —
+> workflow Slack triggers, untagged thread follow-ups — receives nothing. There is no error:
+> Slack simply never sends the event, so the ngrok inspector stays empty too.
 
 ## Step 3 — backend credentials and `SITE_URL`
 
@@ -168,16 +174,16 @@ curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 ```
 
 `SITE_URL` must point at your tunnel for the OAuth step (Step 5), or the redirect goes to
-`https://localhost:8010/...` and the browser fails with an SSL error. It only matters during
-OAuth, so you don't have to commit it to `.env` — a plain `export` in the shell that runs the
-stack is enough, and the connected integration keeps working afterwards (until you re-auth) even
-if you drop it:
+`https://localhost:8010/...` and the browser fails with an SSL error. Put it in `.env.local` so
+it is available every time you run `hogli start`.
 
-```bash
-export SITE_URL=https://<you>-posthog.ngrok.dev   # then (re)start the stack from this shell
-```
-
-Put it in `.env` instead if you want it to survive restarts from a fresh shell.
+> **A tunnel `SITE_URL` breaks local sandbox agents.** It reaches the sandbox as
+> `POSTHOG_API_URL`, and `getCloudTaskGatewayUrl` maps only `localhost` and
+> `host.docker.internal` to the local LLM gateway on 3308. Every other host falls through to
+> the production gateway, where a local run token does not authenticate. The agent starts, sends
+> its first prompt, and hangs until its inactivity window ends, with nothing in any log. Set
+> `SANDBOX_LLM_GATEWAY_URL=http://host.docker.internal:3308` alongside the tunnel `SITE_URL`, or
+> keep `SITE_URL` on localhost and hand-write the integration row (Step 5).
 
 > There's also an `NGROK_URL` env var that `redirect_uri()` checks before `SITE_URL` in DEBUG —
 > it would override just the OAuth redirect and leave `SITE_URL` alone. We used `SITE_URL` and
@@ -213,6 +219,15 @@ print(list(Integration.objects.filter(kind='slack').values('id','team_id','integ
 
 The `tasks` flag from Step 4 still gates the Tasks UI on top of the connected integration.
 
+> **The connect cannot complete against the Vite dev server.** `redirect_uri` is built from
+> `SITE_URL` (`OauthIntegration.redirect_uri()`), so Slack returns you to the tunnel origin, and
+> `/integrations/:kind/callback` is a frontend route rather than a Django view. The dev SPA loads
+> its modules from `http://localhost:8234`, which an https page may not fetch, so the callback
+> page never renders and the flow stops there. Serve a built frontend if you need the real OAuth
+> round-trip. To skip it, install the app to your workspace in the Slack console and write the row
+> from the bot token instead — but note that a hand-written row has no `config["authed_user"]`, and
+> the channel picker reads that field, so channel lists fail until you add it.
+
 **GitHub** (Settings → Integrations): connect a _team_ GitHub with at least one repo (otherwise
 the repo cascade has nothing to pick and creates a no-repo task), and connect your _personal_
 GitHub under User → Personal integrations (otherwise the task parks behind a "Connect GitHub"
@@ -243,6 +258,43 @@ when the repo-discovery agent has to choose among repos (a no-repo prompt skips 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
 should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the code; not verified in our run.
 
+## Use a development Slack app from production Desktop
+
+This setup lets selected projects connect to Slack through the MCP store with a development Slack app.
+It does not move bot events to production or change the production Slack app's credentials.
+
+1. Add `https://us.posthog.com/api/mcp_store/oauth_redirect/` to the development app's OAuth redirect URLs for US production.
+   Keep its existing dev redirect URLs and event callbacks.
+   For another region, use that region's PostHog origin instead.
+2. Provision the existing development app's client ID and client secret as the `SLACK_DEV_APP_CLIENT_ID` and `SLACK_DEV_APP_CLIENT_SECRET` instance settings in the target region.
+   Do not replace `SLACK_APP_CLIENT_ID`, `SLACK_APP_CLIENT_SECRET`, or `SLACK_APP_SIGNING_SECRET`.
+3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
+   The default is empty, which blocks access.
+   Apply the same configuration to the web processes and workers.
+   Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
+   Adding the settings in this repository does not configure production.
+4. Enable the `mcp-slack-dev` feature flag for PostHog users.
+   Target users whose email ends with `@posthog.com`.
+   Use that email condition, not a cohort or an early access list.
+   The check evaluates the flag locally and treats targeting it cannot resolve as off.
+   For local testing, add `mcp-slack-dev` to `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` and restart Django.
+5. Run `python manage.py sync_mcp_server_templates` in that environment.
+   The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
+   It activates only after the shared-client probe passes.
+   Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
+6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results.
+   Confirm that another project cannot list or authorize this entry.
+
+The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.
+The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
+Removing a project from the allowlist blocks its existing connection, even before catalog sync runs.
+
+To retire this setup, empty the allowlist and run catalog sync to deactivate the entry.
+Disconnect the development-app MCP installations, then run catalog sync again to restore the `slack_app` credential source.
+Remove the separate development credentials and the added production redirect URL if nothing else uses them.
+After the production catalog suspension is removed, run catalog sync and reconnect through the production app.
+Tokens from the development app cannot be transferred to the production app.
+
 ## Debugging
 
 - **ngrok request inspector** (`http://127.0.0.1:4040`) — confirms Slack's webhook actually reached
@@ -255,7 +307,22 @@ should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the co
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in
   our run, but they're there if you get stuck.
 
+### Channel search cache
+
+Channel name search uses the cached channel list.
+If name search does not find a channel, paste its ID to look it up directly in Slack.
+A successful ID lookup also adds the channel to an existing search cache with the same access scope.
+Concurrent ID lookups keep both channels in the cache.
+The update keeps the cache refresh time and expiry.
+It does not load other missing channels or create a channel list from a single lookup.
+
 ## Troubleshooting
+
+### Channel selection
+
+Paste a Slack channel ID into the channel picker to select that channel.
+The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
+Click the selected channel in the list to clear the search text.
 
 The walls we actually hit and fixed:
 

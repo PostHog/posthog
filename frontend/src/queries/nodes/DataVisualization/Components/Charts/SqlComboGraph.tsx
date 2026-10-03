@@ -2,6 +2,8 @@ import clsx from 'clsx'
 
 import { TimeSeriesComboChart } from '@posthog/quill-charts'
 
+import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
@@ -34,7 +36,11 @@ export const SqlComboGraph = (props: SqlChartProps): JSX.Element => {
                     theme={model.theme}
                     config={model.config}
                     onError={handleChartError}
-                />
+                >
+                    {props.showAnnotations && props.insightNumericId && (
+                        <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                    )}
+                </TimeSeriesComboChart>
             )}
         </div>
     )

@@ -2,7 +2,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getReactNativeSteps = (
+export const getReactNativeInstallSteps = (
     ctx: OnboardingComponentsContext,
     options?: {
         minVersion?: string
@@ -89,21 +89,27 @@ export const getReactNativeSteps = (
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events using the `usePostHog` hook:
-                    </Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'tsx',
-                                file: 'Component.tsx',
-                                code: dedent`
+    ]
+}
+
+export const getReactNativeEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { CodeBlock, Markdown, dedent } = ctx
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog will automatically start capturing events. You can also manually send events
+                    using the `usePostHog` hook:
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'tsx',
+                            file: 'Component.tsx',
+                            code: dedent`
                                     import { usePostHog } from 'posthog-react-native'
 
                                     function MyComponent() {
@@ -118,13 +124,19 @@ export const getReactNativeSteps = (
                                         return <Button onPress={handlePress} title="Sign Up" />
                                     }
                                 `,
-                            },
-                        ]}
-                    />
-                </>
-            ),
-        },
-    ]
+                        },
+                    ]}
+                />
+            </>
+        ),
+    }
 }
+
+export const getReactNativeSteps = (
+    ctx: OnboardingComponentsContext,
+    options?: {
+        minVersion?: string
+    }
+): StepDefinition[] => [...getReactNativeInstallSteps(ctx, options), getReactNativeEventStep(ctx)]
 
 export const ReactNativeInstallation = createInstallation(getReactNativeSteps)

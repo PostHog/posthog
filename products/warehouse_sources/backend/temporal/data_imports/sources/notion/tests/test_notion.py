@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
     _comments_stream,
     _get_headers,
     _iter_block_children,
+    _iter_page_ids,
     _parse_retry_after,
     _request,
     _search_body,
@@ -33,6 +34,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.notion.not
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import NOTION_ENDPOINTS
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.notion.notion"
+
+
+def _fresh_manager() -> mock.MagicMock:
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+    return manager
 
 
 class FakeResponse:
@@ -67,9 +74,9 @@ class FakeSession:
 
     def _next(self) -> FakeResponse:
         index = len(self.calls) - 1
-        if callable(self._responses):
-            return self._responses(index)
-        return self._responses.pop(0)
+        if isinstance(self._responses, list):
+            return self._responses.pop(0)
+        return self._responses(index)
 
     def request(
         self,
@@ -213,6 +220,37 @@ class TestNotion:
         assert session.calls[0]["params"]["start_cursor"] == "stale-cursor"
         assert "start_cursor" not in session.calls[1]["params"]
 
+    def test_iter_page_ids_restarts_when_cursor_invalid(self) -> None:
+        # A page-id search cursor can expire mid-enumeration on a large workspace, which Notion
+        # rejects with the same 400 validation_error as the search/users streams. The blocks/comments
+        # fan-out must restart enumeration rather than crashing the whole sync.
+        session = FakeSession(
+            [
+                _list_response([{"id": "p1"}], has_more=True, next_cursor="c1"),
+                self._invalid_cursor_response(),
+                _list_response([{"id": "p1"}], has_more=False, next_cursor=None),
+            ]
+        )
+        logger = mock.MagicMock()
+
+        page_ids = list(_iter_page_ids(cast(requests.Session, session), logger))
+
+        assert page_ids == ["p1", "p1"]
+        assert logger.warning.called
+        # Second request replays the now-stale cursor (rejected); the restart carries no cursor.
+        assert session.calls[1]["json"]["start_cursor"] == "c1"
+        assert "start_cursor" not in session.calls[2]["json"]
+
+    def test_iter_page_ids_propagates_non_cursor_bad_request(self) -> None:
+        # A 400 that is not the invalid-cursor case is a genuine bad request and must still fail the
+        # sync rather than being silently restarted.
+        other_400 = FakeResponse({}, status_code=400)
+        other_400.text = '{"code":"validation_error","message":"something else"}'
+        session = FakeSession([other_400])
+
+        with pytest.raises(NotionBadRequestError):
+            list(_iter_page_ids(cast(requests.Session, session), mock.MagicMock()))
+
     def test_block_children_inject_page_id(self) -> None:
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
         blocks = list(
@@ -237,20 +275,62 @@ class TestNotion:
         assert len(blocks) == MAX_BLOCK_DEPTH + 1
         assert any("exceeds max depth" in str(call.args[0]) for call in logger.warning.call_args_list)
 
-    def test_blocks_stream_resumes_from_saved_queue(self) -> None:
-        # On retry the blocks stream must consume the persisted page queue instead of re-running the
+    @parameterized.expand(
+        [
+            ("blocks", _blocks_stream, "/v1/blocks/p2/children"),
+            ("comments", _comments_stream, "/v1/comments"),
+        ]
+    )
+    def test_page_fan_out_resumes_from_saved_queue(self, _name, stream, expected_path) -> None:
+        # On retry the fan-out must consume the persisted page queue instead of re-running the
         # full page search from scratch — restarting from zero was what burned API quota on retries.
         session = FakeSession([_list_response([{"id": "b1", "has_children": False}], has_more=False, next_cursor=None)])
         manager = mock.MagicMock()
         manager.can_resume.return_value = True
         manager.load_state.return_value = NotionResumeConfig(remaining_page_ids=["p2"])
 
-        tables = list(_blocks_stream(cast(requests.Session, session), mock.MagicMock(), manager))
+        tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
 
         assert sum(t.num_rows for t in tables) == 1
-        # Only the resumed page's block-children fetch runs; no /v1/search re-enumeration.
+        # Only the resumed page's fetch runs; no /v1/search re-enumeration.
         assert len(session.calls) == 1
-        assert session.calls[0]["url"].endswith("/v1/blocks/p2/children")
+        assert session.calls[0]["url"].endswith(expected_path)
+
+    @parameterized.expand([("blocks", _blocks_stream), ("comments", _comments_stream)])
+    def test_pages_without_rows_move_the_queue_and_reach_safe_points(self, _name, stream) -> None:
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}, {"id": "p3"}], has_more=False, next_cursor=None)
+            return _list_response([], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = _fresh_manager()
+
+        with mock.patch(f"{MODULE}.EMPTY_PAGE_STAGE_INTERVAL_SECONDS", 0):
+            tables = list(stream(cast(requests.Session, session), mock.MagicMock(), manager))
+
+        assert tables == []
+        saved = [call.args[0].remaining_page_ids for call in manager.save_state.call_args_list]
+        assert saved == [["p2", "p3"], ["p3"], []]
+        assert manager.safe_point.call_count == 3
+
+    def test_a_sparse_page_run_yields_a_partial_chunk_with_its_queue_staged_first(self) -> None:
+        def responses(index: int) -> FakeResponse:
+            if index == 0:
+                return _list_response([{"id": "p1"}, {"id": "p2"}], has_more=False, next_cursor=None)
+            return _list_response([{"id": f"cm{index}"}], has_more=False, next_cursor=None)
+
+        session = FakeSession(responses)
+        manager = _fresh_manager()
+        events: list[Any] = []
+        manager.save_state.side_effect = lambda state: events.append(state.remaining_page_ids)
+
+        with mock.patch(f"{MODULE}.PARTIAL_FLUSH_INTERVAL_SECONDS", 0):
+            for table in _comments_stream(cast(requests.Session, session), mock.MagicMock(), manager):
+                events.append(table.num_rows)
+
+        assert events == [["p2"], 1, [], 1]
+        manager.safe_point.assert_not_called()
 
     def test_blocks_stream_saves_progress_after_each_yield(self) -> None:
         # After a batch is flushed the in-progress page must be persisted at the head of the queue, so a
@@ -442,7 +522,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger))
+        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 1
@@ -461,7 +541,7 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        tables = list(_comments_stream(cast(requests.Session, session), logger))
+        tables = list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         total_rows = sum(t.num_rows for t in tables)
         assert total_rows == 1
@@ -507,14 +587,24 @@ class TestNotion:
 
         session = FakeSession(responses)
         logger = mock.MagicMock()
-        list(_comments_stream(cast(requests.Session, session), logger))
+        list(_comments_stream(cast(requests.Session, session), logger, _fresh_manager()))
 
         # One search call plus the capped number of comment-page fetches.
         assert len(session.calls) == 1 + MAX_CHILD_PAGES_PER_PARENT
         assert logger.warning.called
 
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_validate_credentials_status_mapping(self, status_code: int, expected_valid: bool) -> None:
+    @parameterized.expand(
+        [
+            (200, True, None),
+            (401, False, "Create a new internal integration token"),
+            (403, False, "Give it read capabilities"),
+            (500, False, "Wait a few minutes"),
+        ]
+    )
+    def test_validate_credentials_status_mapping(
+        self, status_code: int, expected_valid: bool, expected_next_step: str | None
+    ) -> None:
+        # Every refusal has to name a next step: the wizard shows this string and nothing else.
         session = FakeSession([FakeResponse({}, status_code=status_code)])
         with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
             valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
@@ -523,14 +613,22 @@ class TestNotion:
         if expected_valid:
             assert message is None
         else:
-            assert message is not None
+            assert expected_next_step is not None
+            assert expected_next_step in (message or "")
+            assert str(status_code) not in (message or "")
 
     def test_validate_credentials_handles_exception(self) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session", side_effect=requests.ConnectionError("boom")):
+        # A connection error repr names the host and the urllib3 internals, none of which the
+        # person filling in the token field can act on.
+        with mock.patch(
+            f"{MODULE}.make_tracked_session",
+            side_effect=requests.ConnectionError("HTTPSConnectionPool(host='api.notion.com', port=443)"),
+        ):
             valid, message = validate_credentials("tok", NOTION_VERSION_2026_03_11)
 
         assert valid is False
-        assert message == "boom"
+        assert "Wait a few minutes" in (message or "")
+        assert "HTTPSConnectionPool" not in (message or "")
 
 
 @pytest.mark.parametrize("endpoint", list(NOTION_ENDPOINTS.keys()))

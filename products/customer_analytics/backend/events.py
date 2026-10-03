@@ -14,7 +14,7 @@ from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.tag import Tag
 from posthog.models.user import User
 
-from products.customer_analytics.backend.models import Account, CustomPropertyDefinition
+from products.customer_analytics.backend.models import Account, AccountRelationshipDefinition, CustomPropertyDefinition
 
 EVENT_SOURCE = "customer_analytics_events"
 
@@ -82,6 +82,27 @@ def emit_account_tags_added(
     ).raise_for_status()
 
 
+def emit_account_tags_removed(
+    account: Account, tags: list[Tag], actor: User | None, workflow_id: str | None = None
+) -> None:
+    if not tags:
+        return
+
+    properties = _base_event_properties(account, actor, workflow_id)
+    capture_batch_internal(
+        events=[
+            {
+                "event": "$account_tag_removed",
+                "distinct_id": _event_distinct_id(account, actor),
+                "properties": {**properties, "tag": tag.name, "tag_id": str(tag.id)},
+            }
+            for tag in tags
+        ],
+        token=account.team.api_token,
+        event_source=EVENT_SOURCE,
+    ).raise_for_status()
+
+
 def emit_account_custom_property_changed(
     account: Account,
     definition: CustomPropertyDefinition,
@@ -102,6 +123,36 @@ def emit_account_custom_property_changed(
                     "data_type": definition.data_type.value,
                     "previous_value": _json_value(previous_value),
                     "current_value": _json_value(current_value),
+                },
+            }
+        ],
+        token=account.team.api_token,
+        event_source=EVENT_SOURCE,
+    ).raise_for_status()
+
+
+def emit_account_relationship_changed(
+    account: Account,
+    definition: AccountRelationshipDefinition,
+    previous_user: User | None,
+    current_user: User | None,
+    actor: User | None,
+    workflow_id: str | None = None,
+) -> None:
+    capture_batch_internal(
+        events=[
+            {
+                "event": "$account_relationship_changed",
+                "distinct_id": _event_distinct_id(account, actor),
+                "properties": {
+                    **_base_event_properties(account, actor, workflow_id),
+                    "relationship_id": str(definition.id),
+                    "relationship_name": definition.name,
+                    "change_type": "assigned" if current_user else "unassigned",
+                    "previous_user_id": previous_user.id if previous_user else None,
+                    "previous_user_email": previous_user.email if previous_user else None,
+                    "current_user_id": current_user.id if current_user else None,
+                    "current_user_email": current_user.email if current_user else None,
                 },
             }
         ],

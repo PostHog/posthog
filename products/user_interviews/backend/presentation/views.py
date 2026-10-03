@@ -47,7 +47,7 @@ from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
 from ..facade.api import SHARED_INTERVIEWEE_IDENTIFIER, derive_auto_classifications, parse_interviewee_identifier
-from ..facade.enums import SEARCH_DOCUMENT_TYPES
+from ..facade.enums import UserInterviewSearchDocumentType
 from ..invite_email import (
     build_invite_email_context,
     resolve_invite_preview,
@@ -157,10 +157,16 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         participant_emails_joined = "\n".join(f"- {email}" for email in interviewee_emails)
         assignment_response = OpenAI(
             posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL
-        ).responses.create(  # type: ignore
+        ).responses.create(
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
+            posthog_privacy_mode=True,
             posthog_distinct_id=self.context["request"].user.distinct_id,
+            posthog_properties={
+                "ai_product": "user_interviews",
+                "ai_feature": "map-speakers",
+                "team_id": self.context["request"].user.current_team_id,
+            },
             input=[
                 {
                     "role": "system",
@@ -234,10 +240,16 @@ Map the speakers in the following transcript:
             return None
 
     def _summarize_transcript(self, transcript: str) -> str:
-        summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(  # type: ignore
+        summary_response = OpenAI(posthog_client=posthoganalytics.default_client).responses.create(
             model="gpt-4.1-mini",
             posthog_trace_id=self._ai_trace_id,
+            posthog_privacy_mode=True,
             posthog_distinct_id=self.context["request"].user.distinct_id,
+            posthog_properties={
+                "ai_product": "user_interviews",
+                "ai_feature": "summarize-transcript",
+                "team_id": self.context["request"].user.current_team_id,
+            },
             input=[
                 {
                     "role": "system",
@@ -307,7 +319,7 @@ class UserInterviewSearchRequestSerializer(serializers.Serializer):
         help_text="Natural-language query to match semantically against interview transcripts and summaries.",
     )
     document_types = serializers.ListField(
-        child=serializers.ChoiceField(choices=list(SEARCH_DOCUMENT_TYPES)),
+        child=serializers.ChoiceField(choices=UserInterviewSearchDocumentType.choices),
         required=False,
         allow_empty=False,
         min_length=1,
@@ -346,7 +358,7 @@ class UserInterviewSearchRequestSerializer(serializers.Serializer):
 class UserInterviewSearchResultSerializer(serializers.Serializer):
     interview_id = serializers.UUIDField(help_text="ID of the matched UserInterview.")
     document_type = serializers.ChoiceField(
-        choices=list(SEARCH_DOCUMENT_TYPES),
+        choices=UserInterviewSearchDocumentType.choices,
         help_text="Which document type matched — `transcript` is the raw conversation, `summary` is the AI-generated abstract.",
     )
     similarity = serializers.FloatField(
@@ -429,7 +441,7 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def search(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
         body = request.validated_data
         query_str: str = body["query"]
-        document_types: list[str] = body.get("document_types") or list(SEARCH_DOCUMENT_TYPES)
+        document_types: list[str] = body.get("document_types") or UserInterviewSearchDocumentType.values
         topic_id = body.get("topic_id")
         classifications: list[str] = body.get("classifications") or []
         limit: int = body.get("limit") or SEARCH_DEFAULT_LIMIT

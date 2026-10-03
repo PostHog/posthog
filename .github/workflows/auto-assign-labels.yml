@@ -1,7 +1,8 @@
 name: Auto Assign Labels
 
 # Adds team/feature labels to a PR based on its conventional-commit scope, e.g.
-# `feat(flags): …` -> `feature/feature-flags` + `team/feature-flags`. The
+# `feat(flags): …` -> `feature/feature-flags` + `team/feature-flags`. Small
+# feature flags PRs from the PostHog AI app also get `review/low-hanging-fruit`. The
 # scope -> label mappings live in .github/auto-assign-labels.json so the owning
 # team can change them without editing this workflow or the script.
 #
@@ -52,7 +53,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 

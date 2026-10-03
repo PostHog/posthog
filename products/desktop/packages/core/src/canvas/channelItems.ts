@@ -3,13 +3,16 @@ import {
   getLocalDayKey,
   type WorkspaceMode,
 } from "@posthog/shared";
+import type { TaskListGroupingChangedProperties } from "@posthog/shared/analytics-events";
 import type {
   Task,
   TaskRunStatus,
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { isTaskUnread, type TaskTimestamp } from "../sidebar/buildSidebarData";
-import type { DashboardRecord } from "./dashboardSchemas";
+import { getRepositoryInfo, repositoryLabel } from "../sidebar/groupTasks";
+import { taskActivityAt, taskActivityTimestamp } from "../tasks/taskActivity";
+import type { CanvasCreator, DashboardRecord } from "./dashboardSchemas";
 
 /** Where a session runs. `worktree` is a local checkout, so it reads as local. */
 export type ChannelItemEnvironment = "local" | "cloud";
@@ -19,6 +22,7 @@ export interface ChannelItemModel {
   kind: "task" | "canvas";
   id: string;
   title: string;
+  /** Activity time for the activity-first sort: a session's `last_activity_at`, or a canvas's `updatedAt`. */
   ts: number;
   /** When it was first made, for the created-first sort. */
   createdAt: number;
@@ -30,13 +34,22 @@ export interface ChannelItemModel {
    * names one.
    */
   environment: ChannelItemEnvironment | null;
-  /** The product that filed it (`origin_product`), or null if it started here. */
+  /** The product that filed it (`origin_product`), or Desktop for a canvas. */
   source: string | null;
   /** The agent is blocked on an answer from you. */
   needsInput: boolean;
   /** There is activity here you haven't seen. */
   unread: boolean;
-  authorUser: UserBasic | null;
+  /**
+   * Where the session's work sits, resolved once here: the row, its card and
+   * the repository grouping all read this, so they cannot answer the question
+   * three ways. Null for a canvas, and for a session with no repository and no
+   * checkout on this client.
+   */
+  repository: ChannelItemRepository | null;
+  /** The branch its work is on, from the local checkout or the run. */
+  branch: string | null;
+  authorUser: UserBasic | CanvasCreator | null;
   authorName: string | null;
   authorUuid: string | null;
   templateId: string | null;
@@ -49,6 +62,13 @@ export interface ChannelItemModel {
    * than a second pass over every row.
    */
   task: Task | null;
+}
+
+/** A repository, as a grouping key and as a reader names it. */
+export interface ChannelItemRepository {
+  /** Case-folded full path, so two spellings of one repository group together. */
+  key: string;
+  label: string;
 }
 
 export interface ChannelItemOwner {
@@ -77,13 +97,27 @@ function isOwnedBy(
 export interface ChannelSessionFacts {
   needsInputTaskIds: ReadonlySet<string>;
   viewedTimestamps: Readonly<Record<string, TaskTimestamp>>;
-  workspaceModeByTaskId: ReadonlyMap<string, WorkspaceMode>;
+  /** The local checkout, where this client has one: where it is, and on what. */
+  workspaceByTaskId: ReadonlyMap<string, ChannelWorkspaceFacts>;
+}
+
+/** What a session's local checkout says about it. */
+export interface ChannelWorkspaceFacts {
+  mode?: WorkspaceMode;
+  folderPath?: string;
+  branch?: string;
+  /**
+   * A synthetic scratch dir for a repo-less session, not a checkout. Its
+   * folderPath is `<scratchBase>/<taskId>`, so resolving a repository from it
+   * would label the session by its own id — skip it.
+   */
+  isScratch?: boolean;
 }
 
 const NO_SESSION_FACTS: ChannelSessionFacts = {
   needsInputTaskIds: new Set(),
   viewedTimestamps: {},
-  workspaceModeByTaskId: new Map(),
+  workspaceByTaskId: new Map(),
 };
 
 /**
@@ -100,16 +134,8 @@ function environmentOf(
   return mode === "cloud" ? "cloud" : "local";
 }
 
-/**
- * `origin_product` for a session someone started here rather than one filed by
- * another product. It is the default the backend stamps on, so it is an absence
- * of a source, not one of the sources to choose between.
- */
-const SELF_ORIGIN = "user_created";
-
 function sourceOf(task: Task): string | null {
-  const origin = task.origin_product;
-  return origin && origin !== SELF_ORIGIN ? origin : null;
+  return task.origin_product || null;
 }
 
 export function buildChannelItems({
@@ -137,47 +163,57 @@ export function buildChannelItems({
     pinned: d.pinnedAt != null,
     rawStatus: null,
     environment: null,
-    source: null,
+    source: DESKTOP_SOURCE,
     needsInput: false,
     unread: false,
-    authorUser: null,
+    authorUser: d.createdByUser ?? null,
     authorName: d.createdBy ?? null,
     authorUuid: d.createdByUuid ?? null,
     templateId: d.templateId,
+    repository: null,
+    branch: null,
     task: null,
   }));
 
-  const taskItems: ChannelItemModel[] = feedTasks.flatMap((task) =>
-    archivedTaskIds.has(task.id)
-      ? []
-      : [
-          {
-            key: `task:${task.id}`,
-            kind: "task" as const,
-            id: task.id,
-            title: task.title || "Untitled task",
-            ts: Date.parse(task.updated_at) || 0,
-            createdAt: Date.parse(task.created_at) || 0,
-            pinned: pinnedTaskIds.has(task.id),
-            rawStatus: task.latest_run?.status ?? null,
-            environment: environmentOf(
-              task,
-              sessionFacts.workspaceModeByTaskId.get(task.id),
-            ),
-            source: sourceOf(task),
-            needsInput: sessionFacts.needsInputTaskIds.has(task.id),
-            unread: isTaskUnread(
-              task.updated_at,
-              sessionFacts.viewedTimestamps[task.id],
-            ),
-            authorUser: task.created_by ?? null,
-            authorName: null,
-            authorUuid: task.created_by?.uuid ?? null,
-            templateId: null,
-            task,
-          },
-        ],
-  );
+  const taskItems: ChannelItemModel[] = feedTasks.flatMap((task) => {
+    if (archivedTaskIds.has(task.id)) return [];
+    const workspace = sessionFacts.workspaceByTaskId.get(task.id);
+    const repository = getRepositoryInfo(
+      task,
+      workspace?.isScratch ? undefined : workspace?.folderPath,
+    );
+    return [
+      {
+        key: `task:${task.id}`,
+        kind: "task" as const,
+        id: task.id,
+        title: task.title || "Untitled task",
+        ts: taskActivityTimestamp(task, "updated") || 0,
+        createdAt: Date.parse(task.created_at) || 0,
+        pinned: pinnedTaskIds.has(task.id),
+        rawStatus: task.latest_run?.status ?? null,
+        environment: environmentOf(task, workspace?.mode),
+        source: sourceOf(task),
+        needsInput: sessionFacts.needsInputTaskIds.has(task.id),
+        unread: isTaskUnread(
+          taskActivityAt(task),
+          sessionFacts.viewedTimestamps[task.id],
+        ),
+        authorUser: task.created_by ?? null,
+        authorName: null,
+        authorUuid: task.created_by?.uuid ?? null,
+        templateId: null,
+        repository: repository
+          ? {
+              key: repository.fullPath,
+              label: repositoryLabel(repository) ?? repository.name,
+            }
+          : null,
+        branch: workspace?.branch ?? task.latest_run?.branch ?? null,
+        task,
+      },
+    ];
+  });
 
   const all = [...canvasItems, ...taskItems].sort((a, b) => b.ts - a.ts);
   return ownedBy ? all.filter((item) => isOwnedBy(item, ownedBy)) : all;
@@ -188,30 +224,51 @@ export type CreatedByFilter = "anyone" | "me" | "others";
 export type AttentionFilter = "any" | "needs_input" | "unread";
 export type PinnedFilter = "any" | "pinned";
 export type EnvironmentFilter = "any" | ChannelItemEnvironment;
-/** `ANY_SOURCE`, or an `origin_product` key like `slack`. */
-export type SourceFilter = string;
+export type SourceFilter = readonly string[];
 export type ChannelItemSort = "recent" | "created" | "alpha";
 
-export const ANY_SOURCE = "any";
+export type KindFilter = "any" | "task" | "canvas";
+
+export const ANY_SOURCE: SourceFilter = [];
+export const DESKTOP_SOURCE = "user_created";
 
 export interface ChannelItemFilters {
+  kind: KindFilter;
   createdBy: CreatedByFilter;
   attention: AttentionFilter;
   pinned: PinnedFilter;
   environment: EnvironmentFilter;
-  source: SourceFilter;
+  sources: SourceFilter;
 }
 
 export const DEFAULT_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
+  kind: "any",
   createdBy: "anyone",
   attention: "any",
   pinned: "any",
   environment: "any",
-  source: ANY_SOURCE,
+  sources: ANY_SOURCE,
 };
 
 /** Newest activity first, which is what a session list is for. */
 export const DEFAULT_CHANNEL_ITEM_SORT: ChannelItemSort = "recent";
+
+/**
+ * The space list's sort, in the vocabulary the shared task-list events use:
+ * "recent" and the sidebar's "updated" are the same scale under two names, and
+ * binding them here is what keeps one property from meaning two things.
+ */
+export function channelItemSortEvent(
+  sort: ChannelItemSort,
+): TaskListGroupingChangedProperties["sort_by"] {
+  return sort === "recent" ? "updated" : sort;
+}
+
+/** What the list's section headers stand for. */
+export type ChannelItemGrouping = "date" | "repository" | "space";
+
+/** Days, because when something happened is what a session list is scanned by. */
+export const DEFAULT_CHANNEL_ITEM_GROUPING: ChannelItemGrouping = "date";
 
 /**
  * Whether the list is narrowed — what lights the filter button up. The search
@@ -220,14 +277,32 @@ export const DEFAULT_CHANNEL_ITEM_SORT: ChannelItemSort = "recent";
  */
 export function hasActiveChannelItemFilters(
   filters: ChannelItemFilters,
+  defaults: ChannelItemFilters = DEFAULT_CHANNEL_ITEM_FILTERS,
 ): boolean {
   return (
-    filters.createdBy !== "anyone" ||
-    filters.attention !== "any" ||
-    filters.pinned !== "any" ||
-    filters.environment !== "any" ||
-    filters.source !== ANY_SOURCE
+    filters.kind !== defaults.kind ||
+    filters.createdBy !== defaults.createdBy ||
+    filters.attention !== defaults.attention ||
+    filters.pinned !== defaults.pinned ||
+    filters.environment !== defaults.environment ||
+    !sameSources(filters.sources, defaults.sources)
   );
+}
+
+export function sameSources(a: SourceFilter, b: SourceFilter): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((source) => set.has(source));
+}
+
+export function migrateSourceFilter({
+  source,
+  ...rest
+}: Partial<ChannelItemFilters> & {
+  source?: unknown;
+}): Partial<ChannelItemFilters> {
+  if (typeof source !== "string" || rest.sources) return rest;
+  return { ...rest, sources: source === "any" ? ANY_SOURCE : [source] };
 }
 
 /**
@@ -265,6 +340,7 @@ export function filterChannelItems(
     ) {
       return false;
     }
+    if (filters.kind !== "any" && item.kind !== filters.kind) return false;
     if (filters.createdBy !== "anyone") {
       // An item with no creator uuid (e.g. the backend returns `created_by:
       // null` once a creator is deleted) belongs to neither bucket: it isn't
@@ -285,7 +361,10 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
+    if (
+      filters.sources.length > 0 &&
+      (item.source === null || !filters.sources.includes(item.source))
+    ) {
       return false;
     }
     return true;
@@ -309,10 +388,24 @@ function compareChannelItems(
  * below the sort it would fall off the end of the list's cap. The order inside
  * each half is the one that was chosen.
  */
+/**
+ * A list without a pinned run. A pin then orders and groups with everything
+ * else, and only the row's own badge says it is pinned. For a list that is not
+ * capped, or that a reader scrolls rather than scans, holding pins at the top
+ * moves a row the reader did not ask to move.
+ */
+export interface ChannelItemPinOptions {
+  pinnedRun?: boolean;
+}
+
 export function sortChannelItems(
   items: readonly ChannelItemModel[],
   sort: ChannelItemSort,
+  { pinnedRun = true }: ChannelItemPinOptions = {},
 ): ChannelItemModel[] {
+  if (!pinnedRun) {
+    return [...items].sort((a, b) => compareChannelItems(a, b, sort));
+  }
   const pinned = items.filter((item) => item.pinned);
   const rest = items.filter((item) => !item.pinned);
   return [
@@ -348,16 +441,27 @@ export function groupChannelItems(
   items: readonly ChannelItemModel[],
   sort: ChannelItemSort,
   now: Date = new Date(),
+  grouping: ChannelItemGrouping = DEFAULT_CHANNEL_ITEM_GROUPING,
+  spaceOf?: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+  { pinnedRun = true }: ChannelItemPinOptions = {},
 ): ChannelItemSection[] {
   const sections: ChannelItemSection[] = [];
 
-  const pinned = items.filter((item) => item.pinned);
+  const pinned = pinnedRun ? items.filter((item) => item.pinned) : [];
   if (pinned.length > 0) {
     sections.push({ key: PINNED_SECTION_KEY, label: "Pinned", items: pinned });
   }
 
-  const rest = items.filter((item) => !item.pinned);
+  const rest = pinnedRun ? items.filter((item) => !item.pinned) : [...items];
   if (rest.length === 0) return sections;
+  if (grouping === "repository") {
+    sections.push(...repositorySections(rest));
+    return sections;
+  }
+  if (grouping === "space" && spaceOf) {
+    sections.push(...spaceSections(rest, spaceOf));
+    return sections;
+  }
   if (sort === "alpha") {
     sections.push({ key: "all", label: null, items: rest });
     return sections;
@@ -377,4 +481,65 @@ export function groupChannelItems(
     sections.push({ key, label: formatShortDayLabel(ts, now), items: [item] });
   }
   return sections;
+}
+
+export interface ChannelItemGroupKey {
+  key: string;
+  label: string;
+}
+
+function keyedSections(
+  items: readonly ChannelItemModel[],
+  resolve: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+  fallback: ChannelItemGroupKey,
+): ChannelItemSection[] {
+  const byKey = new Map<string, ChannelItemSection>();
+  for (const item of items) {
+    const group = resolve(item) ?? fallback;
+    const open = byKey.get(group.key);
+    if (open) {
+      open.items.push(item);
+      continue;
+    }
+    byKey.set(group.key, { key: group.key, label: group.label, items: [item] });
+  }
+  const sections = [...byKey.values()];
+  return [
+    ...sections.filter((s) => s.key !== fallback.key),
+    ...sections.filter((s) => s.key === fallback.key),
+  ];
+}
+
+const NO_REPOSITORY: ChannelItemGroupKey = {
+  key: "repo:none",
+  label: "No repository",
+};
+
+const NO_SPACE: ChannelItemGroupKey = { key: "space:none", label: "No space" };
+
+function repositorySections(
+  items: readonly ChannelItemModel[],
+): ChannelItemSection[] {
+  return keyedSections(
+    items,
+    (item) =>
+      item.repository
+        ? { key: `repo:${item.repository.key}`, label: item.repository.label }
+        : null,
+    NO_REPOSITORY,
+  );
+}
+
+function spaceSections(
+  items: readonly ChannelItemModel[],
+  spaceOf: (item: ChannelItemModel) => ChannelItemGroupKey | null,
+): ChannelItemSection[] {
+  return keyedSections(
+    items,
+    (item) => {
+      const space = spaceOf(item);
+      return space ? { key: `space:${space.key}`, label: space.label } : null;
+    },
+    NO_SPACE,
+  );
 }

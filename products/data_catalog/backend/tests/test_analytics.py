@@ -12,7 +12,7 @@ from products.data_catalog.backend.logic.exceptions import MetricDrifted
 from products.data_catalog.backend.logic.execution import run_metric
 from products.data_catalog.backend.logic.metrics import approve_metric, upsert_metric
 from products.data_catalog.backend.logic.relationships import propose_relationship
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
@@ -105,3 +105,32 @@ class TestDataCatalogAnalyticsAttribution(APIBaseTest):
         properties = created.kwargs["properties"]
         assert properties["source"] == "web"
         assert properties["is_system"] is False
+
+    @parameterized.expand(
+        [
+            ("bulk_approve", "data catalog metric approved"),
+            ("bulk_delete", "data catalog metric deleted"),
+        ]
+    )
+    @patch(_CAPTURE)
+    def test_bulk_action_emits_one_event_per_acted_metric_after_commit(
+        self, url_path: str, expected_event: str, capture: MagicMock
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/data_catalog/metrics/"
+        upsert_metric(team=self.team, user=self.user, name="first", description="d", definition=_HOGQL)
+        upsert_metric(team=self.team, user=self.user, name="second", description="d", definition=_HOGQL)
+        capture.reset_mock()
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            response = self.client.post(
+                f"{url}{url_path}/", {"names": ["first", "second", "unheard_of"]}, format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert _catalog_calls(capture) == []
+
+        for callback in callbacks:
+            callback()
+        assert [(c.kwargs["event"], c.kwargs["properties"]["metric_name"]) for c in _catalog_calls(capture)] == [
+            (expected_event, "first"),
+            (expected_event, "second"),
+        ]

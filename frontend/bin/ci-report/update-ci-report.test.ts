@@ -150,6 +150,7 @@ describe('ci-report section helper', () => {
     it.each([
         ['ok', STATUS_EMOJI.ok],
         ['warn', STATUS_EMOJI.warn],
+        ['alert', STATUS_EMOJI.alert],
         ['fail', STATUS_EMOJI.fail],
         ['info', STATUS_EMOJI.info],
         ['unknown-status', STATUS_EMOJI.info],
@@ -354,13 +355,20 @@ describe('ci-report section helper', () => {
             expect(get(sections, 'eager-graph').inner).toBe('EAGER')
         })
 
-        it('merges duplicate report comments into the oldest and deletes the rest', async () => {
+        it('merges report comments from either CI identity into the oldest and deletes the rest', async () => {
             const github = fakeGitHub([
-                { body: renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])) },
-                { body: renderComment(build([{ id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' }])) },
+                {
+                    body: renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])),
+                    author: 'tests-posthog[bot]',
+                },
+                {
+                    body: renderComment(build([{ id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' }])),
+                    author: 'github-actions[bot]',
+                },
             ])
             await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
             expect(github.comments).toHaveLength(1)
+            expect(github.comments[0].author).toBe('tests-posthog[bot]')
             const sections = parseSections(github.comments[0].body)
             expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph', 'dist-size'])
         })

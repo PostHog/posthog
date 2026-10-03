@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, ValidationError
 from temporalio.exceptions import ApplicationError
 
-from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType, config_experiment_scope
 
 if TYPE_CHECKING:
     from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -32,8 +32,20 @@ class ScannerSnapshot(BaseModel, frozen=True):
     # rebuilt from these snapshots, so without them a version bumped by a sampling or filter change reads
     # as "nothing changed". Optional so older rows decode as not recorded rather than as unchanged.
     query: dict[str, Any] | None = None
+    experiment_targeting: dict[str, Any] | None = None
     sampling_rate: float | None = None
     sampling_mode: str | None = None
+    # How a monitor `yes` verdict is re-checked: `off` (one pass), `shadow` (draw again, record the result, serve the
+    # first pass), or `enforce` (serve the `yes` only when the second draw agrees, else the dissent). A plain string
+    # so a retired mode never breaks old-row loads.
+    verify_positives: str = "off"
+
+    def experiment_scope(self) -> dict[str, Any] | None:
+        """The experiment this scan watched, wherever the snapshot stores it; mirrors
+        `ReplayScanner.experiment_scope`."""
+        if self.scanner_type == ScannerType.EXPERIMENT:
+            return config_experiment_scope(self.scanner_config)
+        return self.experiment_targeting
 
     @classmethod
     def from_scanner(cls, scanner: "ReplayScanner") -> "ScannerSnapshot":
@@ -47,6 +59,7 @@ class ScannerSnapshot(BaseModel, frozen=True):
             emits_signals=scanner.emits_signals,
             scanner_config=scanner.scanner_config,
             query=scanner.query,
+            experiment_targeting=scanner.experiment_targeting,
             sampling_rate=scanner.sampling_rate,
             sampling_mode=scanner.sampling_mode,
         )

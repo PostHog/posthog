@@ -11,14 +11,16 @@ function FakeAppBehind() {
   return (
     <div className="fixed inset-0 flex bg-(--gray-2)">
       <div className="w-64 shrink-0 border-(--gray-6) border-r bg-(--gray-1) p-3">
-        {["Inbox", "Tasks", "Channels", "Loops", "Settings"].map((item) => (
-          <div
-            key={item}
-            className="mb-1 rounded-(--radius-2) px-2 py-1.5 text-(--gray-11) text-sm"
-          >
-            {item}
-          </div>
-        ))}
+        {["Self-driving", "Tasks", "Channels", "Loops", "Settings"].map(
+          (item) => (
+            <div
+              key={item}
+              className="mb-1 rounded-(--radius-2) px-2 py-1.5 text-(--gray-11) text-sm"
+            >
+              {item}
+            </div>
+          ),
+        )}
       </div>
       <div className="flex-1 space-y-3 p-6">
         {RAGGED_LINE_WIDTHS.map((width) => (

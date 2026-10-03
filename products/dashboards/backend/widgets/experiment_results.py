@@ -17,8 +17,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.widget_specs.configs import EXPERIMENT_RESULTS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -62,6 +62,10 @@ def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]],
 
     The saved-metric link set is read once and split here so a widget render issues a single query for it.
     """
+    from products.experiments.backend.facade.timeseries import (  # noqa: PLC0415 — circular import
+        resolve_saved_metric_definition,
+    )
+
     primary: list[dict[str, Any]] = [dict(metric) for metric in (experiment.metrics or [])]
     secondary: list[dict[str, Any]] = [dict(metric) for metric in (experiment.metrics_secondary or [])]
 
@@ -69,7 +73,10 @@ def _collect_metric_dicts(experiment: Experiment) -> tuple[list[dict[str, Any]],
         saved_query = link.saved_metric.query
         if not saved_query:
             continue
-        metric_dict = {**saved_query, "name": saved_query.get("name") or link.saved_metric.name}
+        metric_dict = {
+            **resolve_saved_metric_definition(saved_query, link.metadata),
+            "name": saved_query.get("name") or link.saved_metric.name,
+        }
         # Links default to primary when untyped; an unrecognized type belongs to neither section.
         metric_type = (link.metadata or {}).get("type", "primary")
         if metric_type == "secondary":

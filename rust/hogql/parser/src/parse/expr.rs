@@ -1040,7 +1040,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     // ====================================================================
 
     /// `CASE [scrutinee] WHEN c1 THEN r1 [WHEN c2 THEN r2 ...] [ELSE r] END`
-    /// rewrites to `Call("if"|"multiIf"|"transform", ...)` per the C++
+    /// rewrites to `Call("if"|"multiIf"|"_caseWithExpression", ...)` per the C++
     /// visitor's [`VISIT(ColumnExprCase)`] logic.
     fn parse_case_expr(&mut self) -> Result<E::Value, ParseError> {
         self.expect_kw(Kw::Case, "CASE")?;
@@ -1089,72 +1089,29 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             return Err(self.err("CASE expression requires at least one WHEN"));
         }
         let else_branch = if self.eat_kw(Kw::Else)? {
-            Some(self.parse_expr_bp(0)?)
+            self.parse_expr_bp(0)?
         } else {
-            None
+            self.emit.constant(self.emit.null())
         };
         self.expect_kw(Kw::End, "END")?;
 
         if let Some(scrut) = scrutinee {
-            // `case S when v then r [else d] end` → `transform(S,
-            // [whens], [thens], else)`. The cpp visitor builds a flat
-            // column list and unconditionally treats the LAST item as
-            // the else-position default — so when ELSE is omitted, the
-            // final THEN value migrates into the else slot and the
-            // `thens` array loses its last element. Mirror that quirk
-            // exactly:
-            //
-            //   case S when v then r end         → transform(S, [v], [], r)
-            //   case S when v then r else d end  → transform(S, [v], [r], d)
-            //   case S when v1 then r1 when v2 then r2 end
-            //                                    → transform(S, [v1, v2], [r1], r2)
-            let mut flat: Vec<E::Value> = Vec::with_capacity(whens.len() * 2 + 2);
+            let mut args: Vec<E::Value> = Vec::with_capacity(whens.len() * 2 + 2);
+            args.push(scrut);
             for (w, t) in whens.into_iter().zip(thens) {
-                flat.push(w);
-                flat.push(t);
+                args.push(w);
+                args.push(t);
             }
-            if let Some(d) = else_branch {
-                flat.push(d);
-            }
-            let else_arg = flat
-                .pop()
-                .unwrap_or_else(|| self.emit.constant(self.emit.null()));
-            let mut whens_arr: Vec<E::Value> = Vec::new();
-            let mut thens_arr: Vec<E::Value> = Vec::new();
-            for (i, col) in flat.into_iter().enumerate() {
-                if i % 2 == 0 {
-                    whens_arr.push(col);
-                } else {
-                    thens_arr.push(col);
-                }
-            }
-            return Ok(self.emit.call(
-                "transform",
-                vec![
-                    scrut,
-                    self.emit.array_(whens_arr),
-                    self.emit.array_(thens_arr),
-                    else_arg,
-                ],
-            ));
+            args.push(else_branch);
+            return Ok(self.emit.call("_caseWithExpression", args));
         }
 
-        // No scrutinee. Build the flat column list the C++ visitor
-        // sees: when/then pairs interleaved, optionally followed by
-        // the ELSE value. The visitor dispatches purely on length:
-        //   3 items → `if(c, r, d)`
-        //   anything else → `multiIf(...)`
-        // Notably an implicit-NULL else is NOT synthesised here, so
-        // `case when c then r end` produces `multiIf(c, r)`, not
-        // `if(c, r, null)`.
         let mut columns: Vec<E::Value> = Vec::with_capacity(whens.len() * 2 + 1);
         for (w, t) in whens.into_iter().zip(thens) {
             columns.push(w);
             columns.push(t);
         }
-        if let Some(d) = else_branch {
-            columns.push(d);
-        }
+        columns.push(else_branch);
         if columns.len() == 3 {
             Ok(self.emit.call("if", columns))
         } else {

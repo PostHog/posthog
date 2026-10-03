@@ -13,13 +13,17 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
-from products.review_hog.backend.temporal.client import start_resolution_workflow, start_review_pr_workflow
-from products.review_hog.backend.temporal.types import TRIGGER_LABEL
+from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
+from products.review_hog.backend.temporal.client import (
+    start_resolution_workflow,
+    start_review_pr_workflow,
+    workflow_running,
+)
+from products.review_hog.backend.temporal.types import TRIGGER_LABEL, resolve_pr_workflow_id, review_pr_workflow_id
 
 logger = logging.getLogger(__name__)
 
-# v1 scope: ReviewHog only runs against the main PostHog monorepo. Matched case-insensitively.
-ALLOWED_REPOS = {"posthog/posthog"}
+ALLOWED_REPOS = {"posthog/posthog", "posthog/ai-gateway"}
 
 
 class ReviewHogTriggerRequestSerializer(serializers.Serializer):
@@ -49,7 +53,10 @@ class ReviewHogResolveRequestSerializer(serializers.Serializer):
 
 class ReviewHogTriggerResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(help_text="Temporal workflow id for the started review run.")
-    status = serializers.CharField(help_text="Run lifecycle marker; 'started' when the review was queued.")
+    status = serializers.CharField(
+        help_text="Run lifecycle marker: 'started' when the review was queued, 'joined_running_review' when a "
+        "review of this pull request was already in flight. A requested Full review waits for an active Flash review."
+    )
 
 
 class ReviewHogTriggerErrorSerializer(serializers.Serializer):
@@ -167,6 +174,10 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             403: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
             ),
+            409: OpenApiResponse(
+                response=ReviewHogTriggerErrorSerializer,
+                description="The PR's resolution run is still going (busy-guard); retry once it finishes",
+            ),
             503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
         },
         summary="Trigger a ReviewHog PR review",
@@ -195,11 +206,25 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             return gates
         team_id, user_id = gates
 
+        # The busy-guard (CONTEXT.md): a review is refused while this PR's resolution run is still
+        # going — Temporal joins same-id review starts on its own, but resolve-pr is a different id.
+        owner, _, repo_name = repo.partition("/")
+        if workflow_running(resolve_pr_workflow_id(team_id=team_id, owner=owner, repo=repo_name, pr_number=pr_number)):
+            return Response(
+                {"error": "Still resolving comments from the last review. Try again when it finishes."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         # Forks are rejected server-side in the workflow's fetch activity (and by the Action gate); the
         # endpoint stays free of GitHub I/O and returns immediately. Reviewing includes resolving:
         # whether the run chains the resolution stage is the PR author's `resolve_comments` setting
         # (default on), not a caller flag.
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"
+        # Probed before the start: a same-id start joins the running turn, whose inputs keep the
+        # original trigger, so the label's tier lift has to be written here (see the helper).
+        joins_running_review = workflow_running(
+            review_pr_workflow_id(team_id=team_id, owner=owner, repo=repo_name, pr_number=pr_number)
+        )
         workflow_id = start_review_pr_workflow(
             pr_url=pr_url,
             team_id=team_id,
@@ -207,6 +232,17 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             publish=publish,
             trigger_source=TRIGGER_LABEL,
         )
+        if joins_running_review:
+            lifted = lift_review_tier_for_joined_trigger(team_id=team_id, repository=repo, pr_number=pr_number)
+            logger.info(
+                f"ReviewHog trigger joined running workflow {workflow_id} for {repo}#{pr_number} (tier lifted={lifted})"
+            )
+            return Response(
+                ReviewHogTriggerResponseSerializer(
+                    {"workflow_id": workflow_id, "status": "joined_running_review"}
+                ).data,
+                status=status.HTTP_202_ACCEPTED,
+            )
         logger.info(f"ReviewHog trigger started workflow {workflow_id} for {repo}#{pr_number} (publish={publish})")
         return Response(
             ReviewHogTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
@@ -222,6 +258,10 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
             ),
             403: OpenApiResponse(
                 response=ReviewHogTriggerErrorSerializer, description="Missing/invalid token or disallowed repo"
+            ),
+            409: OpenApiResponse(
+                response=ReviewHogTriggerErrorSerializer,
+                description="The PR's review workflow is still going (busy-guard); it chains resolution itself",
             ),
             503: OpenApiResponse(response=ReviewHogTriggerErrorSerializer, description="Trigger team not configured"),
         },
@@ -248,6 +288,15 @@ class ReviewHogTriggerViewSet(viewsets.ViewSet):
         if isinstance(gates, Response):
             return gates
         team_id, user_id = gates
+
+        # The busy-guard's other direction: a standalone resolution is refused while the PR's
+        # review workflow is still going (a finishing review chains its own resolution anyway).
+        owner, _, repo_name = repo.partition("/")
+        if workflow_running(review_pr_workflow_id(team_id=team_id, owner=owner, repo=repo_name, pr_number=pr_number)):
+            return Response(
+                {"error": "A review is already running on this pull request. It resolves comments when it finishes."},
+                status=status.HTTP_409_CONFLICT,
+            )
 
         # Fork/closed gates run server-side in the workflow's prepare step (they need GitHub I/O).
         pr_url = f"https://github.com/{repo}/pull/{pr_number}"

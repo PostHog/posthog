@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -9,7 +9,7 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.tasks.slack import handle_slack_event
 
@@ -39,7 +39,7 @@ def create_mock_unfurl_event(team_id: str, links: list[str]):
 
 @patch("ee.tasks.slack.generate_assets")
 @patch("ee.tasks.slack.SlackIntegration")
-@freeze_time("2022-01-01T12:00:00.000Z")
+@time_machine.travel("2022-01-01T12:00:00.000Z", tick=False)
 class TestSlackSubscriptionsTasks(APIBaseTest):
     subscription: Subscription
     dashboard: Dashboard

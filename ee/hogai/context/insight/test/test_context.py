@@ -141,7 +141,9 @@ class TestInsightContext(BaseTest):
         with self.assertRaises(MaxToolRetryableError) as exc:
             await context.execute_and_format()
 
-        self.assertIn("Error executing query: Query failed", str(exc.exception))
+        self.assertEqual(str(exc.exception), "Error executing query: Query failed")
+        self.assertEqual(exc.exception.error_type, "internal")
+        self.assertEqual(exc.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_returns_exception_when_flag_set(self, mock_execute):
@@ -267,7 +269,7 @@ class TestInsightContext(BaseTest):
         query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(name="$pageview")])
         context = InsightContext(team=self.team, query=query, user=self.user, insight_short_id="abc123")
 
-        self.assertEqual(context.insight_url, f"/project/{self.team.id}/insights/abc123")
+        self.assertEqual(context.insight_url, "/insights/abc123")
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_includes_insight_url(self, mock_execute):
@@ -285,7 +287,8 @@ class TestInsightContext(BaseTest):
 
         result = await context.execute_and_format()
 
-        self.assertIn(f"/project/{self.team.id}/insights/xyz789", result)
+        self.assertIn("/insights/xyz789", result)
+        self.assertIn("Insight ID: display-id", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_shows_fallback_when_no_url(self, mock_execute):
@@ -297,8 +300,14 @@ class TestInsightContext(BaseTest):
             query=query,
             user=self.user,
             name="Test Insight",
+            insight_id="cJcS",
         )
 
         result = await context.execute_and_format()
 
-        self.assertIn("This insight cannot be accessed via a URL.", result)
+        self.assertIn("cannot be accessed via a URL", result)
+        # An artifact ID under an `Insight ID:` label is what led the model to compose `/insights/cJcS`, which 404s
+        self.assertIn("Artifact ID: cJcS", result)
+        self.assertNotIn("Insight ID:", result)
+        self.assertIn("/insights/", result)
+        self.assertIn("404", result)

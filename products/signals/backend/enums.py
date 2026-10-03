@@ -1,5 +1,9 @@
 from enum import StrEnum
 
+from django.utils.functional import Promise
+
+from posthog.enums import LabeledStrEnum
+
 # Source-of-truth taxonomy for signals. Django-free (plain StrEnum) so it stays cheap to import
 # from contracts.py, the model layer, and the frontend-types codegen alike. StrEnum members compare
 # equal to their string value, so they drop into `==` checks and ORM filters unchanged.
@@ -16,6 +20,26 @@ class ReportPriority(StrEnum):
     P4 = "P4"
 
 
+class ReportLinkKind(LabeledStrEnum):
+    # How one report relates to another, written as a directed `report_link` artefact on the
+    # report the sentence starts from: "this report DEPENDS_ON that one". A GitHub issue that
+    # specs a stack of dependent pull requests needs the direction recorded, which the older
+    # symmetric `related_to` artefact cannot express.
+    DEPENDS_ON = "depends_on", "Depends on"
+    PART_OF = "part_of", "Part of"
+    FOLLOW_UP_OF = "follow_up_of", "Follow-up of"
+    DUPLICATE_OF = "duplicate_of", "Duplicate of"
+    RECURRENCE_OF = "recurrence_of", "Recurrence of"
+
+
+class ReportLinkWritePath(StrEnum):
+    # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
+    # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
+    EMIT = "emit"
+    EDIT = "edit"
+    PIPELINE = "pipeline"
+
+
 class SignalSourceProduct(StrEnum):
     SESSION_REPLAY = "session_replay"
     LLM_ANALYTICS = "llm_analytics"
@@ -28,6 +52,9 @@ class SignalSourceProduct(StrEnum):
     ENDPOINTS = "endpoints"
     PGANALYZE = "pganalyze"
     SIGNALS_SCOUT = "signals_scout"
+    # A report check that failed after its report was resolved. Not a source a team connects:
+    # the inbox emits it to itself so a fix that stopped holding starts a fresh report.
+    SIGNALS_CHECK = "signals_check"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
@@ -98,6 +125,7 @@ class SignalSourceType(StrEnum):
     CI_BROKEN_DEFAULT_BRANCH = "ci_broken_default_branch"
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
+    CHECK_FAILED = "check_failed"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -118,6 +146,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ERROR_TRACKING: "Error tracking",
     SignalSourceProduct.PGANALYZE: "pganalyze",
     SignalSourceProduct.SIGNALS_SCOUT: "Signals scout",
+    SignalSourceProduct.SIGNALS_CHECK: "Report check",
     SignalSourceProduct.LOGS: "Logs",
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",
@@ -159,9 +188,9 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
 }
 
-# The Django model's `source_product` choices, frozen-equivalent to the prior nested TextChoices so
-# no migration is generated. Plain `str` values (not enum members) keep migration state stable; order
+
+# The Django model's `source_product` choices. Callable so adding a product never lands in migration
+# state as a no-op AlterField. Plain `str` values (not enum members) keep the state stable; order
 # follows SIGNAL_SOURCE_PRODUCT_LABELS, which matches the original declaration order.
-SIGNAL_SOURCE_PRODUCT_CHOICES: list[tuple[str, str]] = [
-    (product.value, label) for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()
-]
+def signal_source_product_choices() -> list[tuple[str, str | Promise]]:
+    return [(product.value, label) for product, label in SIGNAL_SOURCE_PRODUCT_LABELS.items()]

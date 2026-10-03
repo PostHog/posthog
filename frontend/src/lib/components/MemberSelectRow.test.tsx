@@ -53,11 +53,13 @@ describe('MemberSelectRow', () => {
         const checkbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null
         expect(checkbox).not.toBeNull()
         expect(checkbox!.checked).toBe(checked)
+        expect(checkbox).toHaveAttribute('tabindex', '-1')
+        expect(checkbox).toHaveAttribute('aria-hidden', 'true')
     })
 
-    it('fires onClick when the row is clicked', () => {
+    it('fires onClick when the name in a multi-select row is clicked', () => {
         const onClick = jest.fn()
-        renderRow({ onClick })
+        renderRow({ checked: false, onClick })
         fireEvent.click(screen.getByText(fullName(member.user)))
         expect(onClick).toHaveBeenCalledTimes(1)
     })

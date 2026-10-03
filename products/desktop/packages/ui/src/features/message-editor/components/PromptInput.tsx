@@ -12,6 +12,7 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { cycleModeOption } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { shouldFocusOnBackgroundClick } from "@posthog/ui/utils/backgroundClick";
 import { hasOpenOverlay } from "@posthog/ui/utils/overlay";
 import { Flex, Text, Tooltip } from "@radix-ui/themes";
 import { EditorContent } from "@tiptap/react";
@@ -36,7 +37,14 @@ import { SlotMachineSubmit } from "./SlotMachineSubmit";
 
 export type { EditorHandle };
 
-export interface PromptInputProps {
+const COMPOSER_SELF_HANDLED_SELECTOR = 'button, [role="menu"], .ProseMirror';
+
+// How long the send button holds its own busy state when the surface never
+// reports one — long enough to register as a press, short enough that a send
+// the surface silently refuses doesn't strand the spinner.
+const SUBMIT_PRESS_FEEDBACK_MS = 800;
+
+interface PromptInputProps {
   sessionId: string;
   placeholder?: string;
   // editor state
@@ -46,6 +54,8 @@ export interface PromptInputProps {
   isActiveSession?: boolean;
   submitDisabledExternal?: boolean;
   clearOnSubmit?: boolean;
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string;
   // session context
   taskId?: string;
   repoPath?: string | null;
@@ -137,6 +147,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       isActiveSession = true,
       submitDisabledExternal = false,
       clearOnSubmit,
+      initialContent,
       taskId,
       repoPath,
       modeOption,
@@ -228,6 +239,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       isLoading,
       autoFocus,
       clearOnSubmit,
+      initialContent,
       context: { taskId, repoPath: repoPath ?? undefined },
       capabilities: {
         bashMode: enableBashMode,
@@ -365,11 +377,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
 
     const handleContainerClick = useCallback(
       (e: React.MouseEvent) => {
-        const target = e.target as HTMLElement;
         if (
-          !target.closest("button") &&
-          !target.closest('[role="menu"]') &&
-          !target.closest(".ProseMirror")
+          shouldFocusOnBackgroundClick(
+            e.target as HTMLElement,
+            COMPOSER_SELF_HANDLED_SELECTOR,
+          )
         ) {
           focus();
         }
@@ -381,13 +393,35 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       e.stopPropagation();
     }, []);
 
+    // Instant press feedback. Every surface that owns this composer flips its
+    // own busy flags only after a round trip (a usage pre-flight, a worktree
+    // probe, the send itself), so without this the button sits inert on click.
+    const [pressedSubmit, setPressedSubmit] = useState(false);
+    const surfaceBusy = disabled || isLoading || submitDisabledExternal;
+
     const doSubmit = useCallback(() => {
+      setPressedSubmit(true);
       if (onSubmitClick) {
         onSubmitClick();
       } else {
         submit();
       }
     }, [onSubmitClick, submit]);
+
+    // Hand over as soon as the surface reports busy itself, so the two states
+    // never fight over the button.
+    useEffect(() => {
+      if (!pressedSubmit) return;
+      if (surfaceBusy) {
+        setPressedSubmit(false);
+        return;
+      }
+      const timer = setTimeout(
+        () => setPressedSubmit(false),
+        SUBMIT_PRESS_FEEDBACK_MS,
+      );
+      return () => clearTimeout(timer);
+    }, [pressedSubmit, surfaceBusy]);
 
     const handleSubmitClick = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -399,9 +433,15 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // that is not running, a compacting Pi session), and the editor cannot be
     // typed into, so a live send button only invites a click that misfires.
     const submitBlocked = disabled || submitDisabledExternal || isEmpty;
-    const submitTooltip =
-      submitTooltipOverride ??
-      (submitBlocked ? "Enter a message" : "Send message");
+    // A surface that is loading *and* locked out of typing is working on the
+    // send itself, so the button keeps spinning until it lands. A surface that
+    // is loading but still typeable is mid-turn and accepting queued messages,
+    // where send has to stay live.
+    const submitBusy = pressedSubmit || (disabled && isLoading);
+    const submitTooltip = submitBusy
+      ? "Sending"
+      : (submitTooltipOverride ??
+        (submitBlocked ? "Enter a message" : "Send message"));
 
     // Stop takes priority over everything: you cancel a run, you don't gamble
     // on it. With slot machine mode on, the send affordance moves out to the
@@ -428,7 +468,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           variant="primary"
           size="icon"
           onClick={handleSubmitClick}
-          disabled={submitBlocked}
+          disabled={submitBlocked || submitBusy}
+          loading={submitBusy}
           aria-label="Send message"
           className="rounded-xs"
           {...(tourTarget && { "data-tour": `${tourTarget}-submit` })}
@@ -442,10 +483,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // only what you are writing plus the send button. Mirrors the addons' own
     // flex/gap/padding so the row keeps their spacing and left inset, and
     // carries the muted colour the addons would have supplied.
+    // `@container/composer` lets the controls shorten their own labels when a
+    // narrow host such as the canvas side panel cannot fit them whole. Wrapping
+    // is what happens after that, because the host clips the overflow instead
+    // of scrolling it, so a clipped control would be unreachable.
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
       messagingModeToggle) && (
-      <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+      <div className="@container/composer flex select-none flex-wrap items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
         {!hideDefaultToolbar && (
           <>
             <AttachmentMenu
@@ -486,7 +531,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             )}
           </>
         )}
-        <span className="ml-auto flex items-center gap-1">
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
           {toolbarEndSlot}
           {!hideDefaultToolbar && historyButton}
           {messagingModeToggle}
@@ -564,7 +609,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
         </InputGroup>
         {slotMachineMode && !inStopMode && (
           <SlotMachineSubmit
-            disabled={submitBlocked}
+            disabled={submitBlocked || submitBusy}
             onSubmit={doSubmit}
             tourTarget={tourTarget}
           />

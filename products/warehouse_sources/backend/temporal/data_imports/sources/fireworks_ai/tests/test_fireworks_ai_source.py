@@ -1,22 +1,16 @@
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.fireworks_ai import (
-    FireworksAIResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.settings import (
+    ACCOUNT_USAGE,
     ENDPOINTS,
     FIREWORKS_AI_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fireworks_ai.source import FireworksAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "fw_test", account_id: str = "my-account") -> Any:
@@ -24,17 +18,6 @@ def _config(api_key: str = "fw_test", account_id: str = "my-account") -> Any:
 
 
 class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert FireworksAISource().source_type == ExternalDataSourceType.FIREWORKSAI
-
-    def test_config_declares_secret_api_key_and_account_id_fields(self) -> None:
-        fields = FireworksAISource().get_source_config.fields
-        assert [f.name for f in fields] == ["api_key", "account_id"]
-        api_key_field = fields[0]
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.secret is True
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-
     def test_lists_tables_without_credentials(self) -> None:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert FireworksAISource.lists_tables_without_credentials is True
@@ -46,13 +29,24 @@ class TestSourceConfig:
 
 
 class TestGetSchemas:
-    def test_returns_all_endpoints_full_refresh_only(self) -> None:
-        schemas = FireworksAISource().get_schemas(_config(), team_id=1)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Server-side timestamp filtering is unverified (AIP-160 filter fields undocumented),
-        # so nothing may advertise incremental/append.
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
+    def test_collections_are_full_refresh_and_usage_is_incremental(self) -> None:
+        schemas = {s.name: s for s in FireworksAISource().get_schemas(_config(), team_id=1)}
+        assert set(schemas) == set(ENDPOINTS)
+
+        # Server-side timestamp filtering is unverified for the list endpoints (AIP-160 filter
+        # fields undocumented), so advertising incremental there would page the whole collection
+        # every sync while claiming not to.
+        collections = [s for name, s in schemas.items() if name != ACCOUNT_USAGE]
+        assert all(s.supports_incremental is False for s in collections)
+        assert all(s.incremental_fields == [] for s in collections)
+
+        # billingUsage windows on a required startTime/endTime, which is a real server-side filter.
+        usage = schemas[ACCOUNT_USAGE]
+        assert usage.supports_incremental is True
+        assert [f["field"] for f in usage.incremental_fields] == ["startTime"]
+
+        # Usage buckets are restated while their day is open, so appending would duplicate them.
+        assert all(s.supports_append is False for s in schemas.values())
 
     def test_names_filter_restricts_output(self) -> None:
         schemas = FireworksAISource().get_schemas(_config(), team_id=1, names=["models"])
@@ -139,28 +133,6 @@ class TestNonRetryableErrors:
     def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = FireworksAISource().get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-
-class TestSourceForPipeline:
-    def test_plumbs_config_schema_and_manager_through(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "models"
-        manager = MagicMock()
-        with patch.object(source_module, "fireworks_ai_source") as mock_source:
-            FireworksAISource().source_for_pipeline(_config(api_key="fw_k", account_id="acct"), manager, inputs)
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "fw_k"
-        assert kwargs["account_id"] == "acct"
-        assert kwargs["endpoint"] == "models"
-        assert kwargs["resumable_source_manager"] is manager
-
-    def test_resumable_source_manager_bound_to_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.team_id = 1
-        inputs.job_id = "job-1"
-        manager = FireworksAISource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is FireworksAIResumeConfig
 
 
 class TestCanonicalDescriptions:

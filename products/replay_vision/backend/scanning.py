@@ -38,6 +38,34 @@ from products.replay_vision.backend.temporal.constants import (
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
 MAX_SESSIONS_PER_SCAN = 200
 
+# Every outcome `start_observations` can report, mirroring the API's `scan_outcome` choices. Listed so a
+# batch reports all of them and a zero is a measured zero rather than a key nobody wrote.
+SCAN_OUTCOMES: tuple[str, ...] = (
+    "started",
+    "already_running",
+    "already_scanned",
+    "skipped_limit",
+    "skipped_quota",
+    "skipped_scanner_limit",
+    "failed",
+)
+
+
+def scan_outcome_counts(results: list[dict[str, str]]) -> dict[str, int]:
+    """Per-outcome counts for one batch, shaped as analytics properties.
+
+    A batch reports how many sessions it asked for and how many started, which says how many produced
+    nothing but never why. A reused answer costs nothing and is a cache hit; a quota skip is a customer
+    hitting a wall. Those need opposite responses and are indistinguishable today. The counts sum to the
+    number of sessions requested.
+    """
+    counts: dict[str, int] = dict.fromkeys(SCAN_OUTCOMES, 0)
+    for result in results:
+        outcome = str(result["scan_outcome"])
+        # An outcome outside the known set still counts, so the sum keeps holding if one is added.
+        counts[outcome] = counts.get(outcome, 0) + 1
+    return {f"outcome_{outcome}": count for outcome, count in counts.items()}
+
 
 @dataclass(frozen=True, kw_only=True)
 class ScanHeadroom:

@@ -18,7 +18,7 @@ const createGroup = (
     eventCount: number = 1,
     firstTimestamp: number = Date.now()
 ): OverflowEventGroup => ({
-    key: { token, distinctId },
+    key: `${token}:${distinctId}`,
     headersPerEvent: Array.from({ length: eventCount }, () =>
         createTestEventHeaders({ token, distinct_id: distinctId })
     ),
@@ -51,10 +51,7 @@ describe('OverflowLaneOverflowRedirect', () => {
 
             await service.handleEventBatch(batch)
 
-            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', [
-                { token: 'token1', distinctId: 'user1' },
-                { token: 'token1', distinctId: 'user2' },
-            ])
+            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', ['token1:user1', 'token1:user2'])
         })
 
         it('uses correct overflow type', async () => {
@@ -65,9 +62,7 @@ describe('OverflowLaneOverflowRedirect', () => {
 
             await recordingsService.handleEventBatch([createGroup('token1', 'session1')])
 
-            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('recordings', [
-                { token: 'token1', distinctId: 'session1' },
-            ])
+            expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('recordings', ['token1:session1'])
         })
 
         it('handles empty batch gracefully', async () => {
@@ -88,9 +83,9 @@ describe('OverflowLaneOverflowRedirect', () => {
 
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledTimes(1)
             expect(mockRepository.batchRefreshTTL).toHaveBeenCalledWith('events', [
-                { token: 'token1', distinctId: 'user1' },
-                { token: 'token1', distinctId: 'user2' },
-                { token: 'token2', distinctId: 'user1' },
+                'token1:user1',
+                'token1:user2',
+                'token2:user1',
             ])
         })
     })

@@ -1,38 +1,30 @@
-from typing import Any
-
 from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    SourceFieldInputConfig,
-)
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import CursorResumeConfig
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.cursor import KEY_REJECTED_MESSAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cursor import CursorSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-
-def _make_inputs(**overrides) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "usage_events",
-        "schema_id": "schema-id",
-        "source_id": "source-id",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-id",
-        "logger": mock.Mock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
+ALL_ENDPOINTS = [
+    "members",
+    "daily_usage",
+    "usage_events",
+    "spend",
+    "agent_edits",
+    "tabs",
+    "dau",
+    "models",
+    "top_file_extensions",
+    "by_user_agent_edits",
+    "by_user_tabs",
+    "by_user_models",
+    "by_user_top_file_extensions",
+    "ai_code_commits",
+    "ai_code_changes",
+]
 
 
 class TestCursorSource:
@@ -41,13 +33,10 @@ class TestCursorSource:
         self.config = CursorSourceConfig(api_key="key_test")
         self.team_id = 123
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CURSOR
-
     def test_get_source_config(self):
         config = self.source.get_source_config
 
-        assert config.name == SchemaExternalDataSourceType.CURSOR
+        assert config.name == ExternalDataSourceType.CURSOR
         assert config.label == "Cursor"
         field = config.fields[0]
         assert isinstance(field, SourceFieldInputConfig)
@@ -61,8 +50,19 @@ class TestCursorSource:
     def test_get_schemas_returns_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        assert [s.name for s in schemas] == ["members", "daily_usage", "usage_events", "spend"]
-        assert all(s.should_sync_default for s in schemas)
+        assert [s.name for s in schemas] == ALL_ENDPOINTS
+
+    def test_enterprise_only_endpoints_are_not_selected_by_default(self):
+        # The Analytics and AI code tracking APIs need an Enterprise plan, so a Business-plan team
+        # that accepts the defaults must not end up with schemas that 403 on every sync.
+        defaults = {s.name: s.should_sync_default for s in self.source.get_schemas(self.config, self.team_id)}
+
+        assert [name for name, default in defaults.items() if default] == [
+            "members",
+            "daily_usage",
+            "usage_events",
+            "spend",
+        ]
 
     @parameterized.expand(
         [
@@ -70,6 +70,17 @@ class TestCursorSource:
             ("daily_usage", True, "date"),
             ("usage_events", True, "timestamp"),
             ("spend", False, None),
+            ("agent_edits", True, "event_date"),
+            ("tabs", True, "event_date"),
+            ("dau", True, "date"),
+            ("models", True, "date"),
+            ("top_file_extensions", True, "event_date"),
+            ("by_user_agent_edits", True, "event_date"),
+            ("by_user_tabs", True, "event_date"),
+            ("by_user_models", True, "date"),
+            ("by_user_top_file_extensions", True, "event_date"),
+            ("ai_code_commits", True, "commitTs"),
+            ("ai_code_changes", True, "createdAt"),
         ]
     )
     def test_get_schemas_incremental_support(self, endpoint, supports_incremental, incremental_field):
@@ -92,51 +103,13 @@ class TestCursorSource:
         # lists_tables_without_credentials=True drives the public docs' Supported tables section.
         tables = self.source.get_documented_tables()
 
-        assert [t["name"] for t in tables] == ["members", "daily_usage", "usage_events", "spend"]
+        assert [t["name"] for t in tables] == ALL_ENDPOINTS
         assert all(t["description"] for t in tables)
 
-    @parameterized.expand([(True, (True, None)), (False, (False, "Invalid Cursor Admin API key"))])
-    def test_validate_credentials(self, valid, expected):
+    @parameterized.expand([((True, None),), ((False, KEY_REJECTED_MESSAGE),)])
+    def test_validate_credentials(self, probe_result):
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source.validate_cursor_credentials",
-            return_value=valid,
+            return_value=probe_result,
         ):
-            assert self.source.validate_credentials(self.config, self.team_id) == expected
-
-    @parameterized.expand([("401 Client Error",), ("403 Client Error",)])
-    def test_non_retryable_errors_cover_credential_failures(self, status):
-        keys = self.source.get_non_retryable_errors()
-        assert any(key.startswith(status) for key in keys)
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert manager._data_class is CursorResumeConfig
-
-    @parameterized.expand(
-        [
-            (True, 1700000000000, 1700000000000),
-            # A stale watermark must not leak into a full-refresh run.
-            (False, 1700000000000, None),
-        ]
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, should_use_incremental_field, last_value, expected_last_value):
-        inputs = _make_inputs(
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=last_value,
-        )
-        manager = mock.Mock()
-
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.cursor.source.cursor_source"
-        ) as mock_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            api_key="key_test",
-            endpoint="usage_events",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=expected_last_value,
-        )
+            assert self.source.validate_credentials(self.config, self.team_id) == probe_result

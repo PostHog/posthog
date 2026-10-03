@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 import numpy as np
 from parameterized import parameterized
 
@@ -176,3 +178,14 @@ class TestCandidateSlicePadding:
         step_offset = (index - positions) % step_buckets
         distance = np.minimum(step_offset, step_buckets - step_offset)
         assert float(distance.max()) <= candidate_slice_pad_buckets(config)
+
+
+class TestDetectionConfigValidation:
+    @parameterized.expand([("zero", 0.0), ("default", 0.5), ("one", 1.0)])
+    def test_accepts_fractional_exclusion_cap(self, _name: str, fraction: float) -> None:
+        assert DetectionConfig(exclusion_cap_fraction=fraction).exclusion_cap_fraction == fraction
+
+    @parameterized.expand([("negative", -0.1), ("above_one", 1.1), ("percent_style", 50.0)])
+    def test_rejects_out_of_range_exclusion_cap(self, _name: str, fraction: float) -> None:
+        with pytest.raises(ValueError, match="exclusion_cap_fraction"):
+            DetectionConfig(exclusion_cap_fraction=fraction)

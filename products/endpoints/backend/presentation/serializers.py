@@ -93,6 +93,12 @@ class EndpointMaterializationSerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="URL-safe endpoint name.",
     )
+    enabled = serializers.BooleanField(
+        help_text="Whether materialization is enabled for this endpoint version.",
+    )
+    ready = serializers.BooleanField(
+        help_text="Whether a successful materialization is available to serve.",
+    )
     status = serializers.CharField(
         required=False,
         help_text="Current materialization status (e.g. 'Completed', 'Running').",

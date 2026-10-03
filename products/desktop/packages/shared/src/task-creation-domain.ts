@@ -1,12 +1,12 @@
-import type { Adapter } from "./adapter";
-import type { AgentRuntime } from "./agent-runtime";
-import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
-import type { Task } from "./domain-types";
-import type { ExecutionMode } from "./exec-types";
+import type { Adapter, ModelAccess } from "@posthog/agent-contracts/adapter";
+import type { AgentRuntime } from "@posthog/agent-contracts/agent-runtime";
+import type { Task } from "@posthog/agent-contracts/domain-types";
+import type { ExecutionMode } from "@posthog/agent-contracts/exec-types";
 import type {
   CloudMcpServerRelayDesignation,
   McpServerConnection,
-} from "./local-mcp-domain";
+} from "@posthog/agent-contracts/local-mcp-domain";
+import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { WorkspaceMode } from "./workspace";
 import type { Workspace } from "./workspace-domain";
 
@@ -37,6 +37,10 @@ export interface TaskCreationInput {
   githubUserIntegrationId?: string;
   executionMode?: ExecutionMode;
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
+  claudeCloudModelAccess?: ModelAccess;
+  codexCloudModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -58,6 +62,15 @@ export interface TaskCreationInput {
    */
   cloudRtkEnabled?: boolean;
   signalReportId?: string;
+  /**
+   * How the task relates to its signal report ("discussion", "canvas", …).
+   * Routes the server's per-report cap: unlabelled defaults to implementation,
+   * which burns the report's one-live-PR gate — so every non-PR flow must
+   * label itself. Only sent when signalReportId is set.
+   */
+  signalReportTaskRelationship?: string;
+  /** Empty suppresses the scout note; omitted falls back to parsing taskDescription for older clients. */
+  signalReportDiscussionQuestion?: string;
   additionalDirectories?: string[];
   /**
    * CONTEXT.md of the channel a task was created in, if any. Appended to the
@@ -65,13 +78,15 @@ export interface TaskCreationInput {
    * agent may draw on, not instructions it must follow.
    */
   channelContext?: string;
+  /** Repo-relative context wiki page for this channel. Takes precedence over the legacy body. */
+  channelContextPath?: string;
   /** Display name of that channel, embedded in the context block for the UI. */
   channelName?: string;
   /** Backend channel UUID the created task is owned by (its feed home). */
   channelId?: string;
   /**
    * Desktop file-system folder id that owns this channel's CONTEXT.md (the
-   * `/website/$channelId` id — distinct from the backend feed `channelId`
+   * `/spaces/$channelId` id — distinct from the backend feed `channelId`
    * above). When set, the injected context tells the agent to publish upkeep
    * corrections to this exact id via the PostHog MCP, rather than resolving the
    * channel by display name.
@@ -79,9 +94,8 @@ export interface TaskCreationInput {
   channelContextId?: string;
   /**
    * The user's saved personalization (Settings → Personalization custom
-   * instructions). Cloud-only: local tasks already receive these through the
-   * workspace-server system prompt, so the saga folds this into the cloud run's
-   * first message instead, to avoid double-injecting.
+   * instructions). Cloud tasks include these in their first message. Local Pi
+   * tasks need them here because they bypass the workspace-server prompt.
    */
   customInstructions?: string;
   /**

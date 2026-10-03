@@ -68,12 +68,26 @@ export interface UserBasicApi {
  * * `collection` - Collection
  * * `filters` - Filters
  */
-export type SessionRecordingPlaylistTypeEnumApi =
-    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
+export type SessionRecordingPlaylistPlaylistTypeEnumApi =
+    (typeof SessionRecordingPlaylistPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistPlaylistTypeEnumApi]
 
-export const SessionRecordingPlaylistTypeEnumApi = {
+export const SessionRecordingPlaylistPlaylistTypeEnumApi = {
     Collection: 'collection',
     Filters: 'filters',
+} as const
+
+/**
+ * * `new` - new
+ * * `pin` - pin
+ * * `duplicate` - duplicate
+ */
+export type SessionRecordingPlaylistCreationMethodEnumApi =
+    (typeof SessionRecordingPlaylistCreationMethodEnumApi)[keyof typeof SessionRecordingPlaylistCreationMethodEnumApi]
+
+export const SessionRecordingPlaylistCreationMethodEnumApi = {
+    New: 'new',
+    Pin: 'pin',
+    Duplicate: 'duplicate',
 } as const
 
 export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
@@ -109,10 +123,16 @@ export interface SessionRecordingPlaylistApi {
      *
      * * `collection` - Collection
      * * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | null
+    type?: SessionRecordingPlaylistPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
+    /** How the PostHog app created the playlist, for product analytics. Not stored.
+     *
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate */
+    creation_method?: SessionRecordingPlaylistCreationMethodEnumApi
 }
 
 export interface PaginatedSessionRecordingPlaylistListApi {
@@ -159,10 +179,16 @@ export interface PatchedSessionRecordingPlaylistApi {
      *
      * * `collection` - Collection
      * * `filters` - Filters */
-    type?: SessionRecordingPlaylistTypeEnumApi | null
+    type?: SessionRecordingPlaylistPlaylistTypeEnumApi | null
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
+    /** How the PostHog app created the playlist, for product analytics. Not stored.
+     *
+     * * `new` - new
+     * * `pin` - pin
+     * * `duplicate` - duplicate */
+    creation_method?: SessionRecordingPlaylistCreationMethodEnumApi
 }
 
 export interface MinimalPersonApi {
@@ -233,6 +259,16 @@ export interface SessionRecordingApi {
     readonly external_references: readonly SessionRecordingApiExternalReferencesItem[]
     /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
     readonly matches_filters: boolean
+    /**
+     * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly total_size: number | null
+    /**
+     * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly event_count: number | null
 }
 
 export interface PaginatedSessionRecordingListApi {
@@ -293,6 +329,16 @@ export interface PatchedSessionRecordingApi {
     readonly external_references?: readonly PatchedSessionRecordingApiExternalReferencesItem[]
     /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
     readonly matches_filters?: boolean
+    /**
+     * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly total_size?: number | null
+    /**
+     * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+     * @nullable
+     */
+    readonly event_count?: number | null
 }
 
 export interface SessionRecordingBulkDeleteRequestApi {

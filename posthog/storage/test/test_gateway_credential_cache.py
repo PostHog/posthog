@@ -1,4 +1,6 @@
 import json
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
 
@@ -22,11 +24,14 @@ from posthog.models.user import User
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, generate_random_token_secret, hash_key_value
 from posthog.redis import get_client
 from posthog.settings.utils import generate_rsa_private_key_pem
+from posthog.storage import gateway_credential_cache
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_FIELDS,
     GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
+    GATEWAY_KNOWN_TIERS,
     OVERSPEND_ALLOWANCE_KEY,
+    TIER_KEY,
     clear_gateway_credential,
     credential_hash,
     drain_gateway_credential_last_used,
@@ -36,6 +41,7 @@ from posthog.storage.gateway_credential_cache import (
     refresh_all_gateway_credentials,
     validate_overspend_allowance_usd,
 )
+from posthog.storage.test.cluster_cache import reject_multi_key_commands
 from posthog.tasks.gateway_credential import (
     drain_gateway_credential_last_used_task,
     refresh_gateway_credentials,
@@ -196,6 +202,48 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         self.assertEqual(blob[OVERSPEND_ALLOWANCE_KEY], expected)
         self.assertIsInstance(blob[OVERSPEND_ALLOWANCE_KEY], str)
 
+    def test_tier_omitted_by_default(self):
+        # Absent means tier-unknown on the gateway; ordinary teams' blobs must
+        # stay byte-identical to the pre-tier shape.
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(TIER_KEY, blob)
+
+    def test_tier_projected_for_configured_team(self):
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        with override_settings(
+            AI_GATEWAY_TEAM_TIER_OVERRIDES={str(self.team.id): "enterprise"},
+        ):
+            project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertEqual(blob[TIER_KEY], "enterprise")
+
+    def test_unknown_tier_override_not_projected(self):
+        # A typo'd tier must not reach the wire; the gateway would degrade it to
+        # unknown anyway, but the blob should stay clean.
+        credential, _ = self._make_secret_key([GATEWAY_SCOPE])
+        with override_settings(AI_GATEWAY_TEAM_TIER_OVERRIDES={str(self.team.id): "platinum"}):
+            project_gateway_credential(credential)
+        blob = self._read_blob(credential_hash(credential))
+        assert blob is not None
+        self.assertNotIn(TIER_KEY, blob)
+
+    def test_the_writable_tiers_are_the_gateway_vocabulary_minus_the_sentinel(self):
+        # The gateway owns this vocabulary in internal/principal/tiers.go and
+        # holds free/pro/enterprise/unknown. "unknown" is its sentinel for a tier
+        # it could not resolve, so projecting it would assert a value rather than
+        # leave the field absent; the writable set is the rest.
+        #
+        # Nothing can import across the repositories, so this pins the literal and
+        # catches this set drifting on its own. A gateway-side change shows up as
+        # gateway.auth.tier_unrecognized.total going nonzero for credential blobs,
+        # but not for a tier already stamped into a live scoped-token structure,
+        # which degrades to unknown with no signal.
+        self.assertEqual(GATEWAY_KNOWN_TIERS, {"free", "pro", "enterprise"})
+
 
 class TestOverspendAllowanceFormatting(BaseTest):
     @parameterized.expand(
@@ -319,6 +367,33 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         project_gateway_credential(credential)
         self.assertIsNone(self._read_blob(cache_hash))
 
+    @parameterized.expand(
+        [
+            ("verified", True, True, False, True),
+            ("legacy_null", None, True, False, True),
+            ("unverified", False, True, False, False),
+            ("unverified_instance_without_email", False, False, False, True),
+            ("unverified_org_verification_disabled", False, True, True, True),
+        ]
+    )
+    def test_email_verification_gating(
+        self,
+        _name: str,
+        is_email_verified: bool | None,
+        email_available: bool,
+        verification_disabled: bool,
+        should_write: bool,
+    ):
+        credential = self._make_oauth(GATEWAY_SCOPE)
+        self.user.is_email_verified = is_email_verified
+        self.user.save()
+        with (
+            patch("posthog.api.email_verification.is_email_available", return_value=email_available),
+            patch("posthog.api.email_verification.is_email_verification_disabled", return_value=verification_disabled),
+        ):
+            project_gateway_credential(credential)
+        self.assertEqual(self._read_blob(credential_hash(credential)) is not None, should_write)
+
     def test_oauth_scoped_team_outside_fails_closed(self):
         other = Team.objects.create(organization=self.organization, name="other")
         credential = self._make_oauth(GATEWAY_SCOPE)
@@ -375,7 +450,7 @@ class TestGatewayCredentialFailClosed(GatewayCredentialTestMixin):
         # fails closed, even though org membership is intact. Uses a real
         # AccessControl (not a mock) so it also covers that a Team resolves to the
         # "project" resource and the access-control keying matches.
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -429,6 +504,88 @@ class TestGatewayCredentialRefresh(GatewayCredentialTestMixin):
         self.assertIsNotNone(self._read_blob(credential_hash(secret_key)))
         self.assertIsNotNone(self._read_blob(credential_hash(oauth)))
         self.assertIsNone(self._read_blob(credential_hash(ignored)))
+
+    @contextmanager
+    def _failing_blob_writes(
+        self, fails: Callable[[int], bool], error: Callable[[], Exception] = lambda: ConnectionError("redis down")
+    ) -> Iterator[list[str]]:
+        client = hypercache.cache_client
+        real_set = client.set
+        writes: list[str] = []
+
+        def flaky_set(key: str, value: object, timeout: float | None = None) -> None:
+            writes.append(key)
+            if fails(len(writes)):
+                raise error()
+            real_set(key, value, timeout=timeout)
+
+        with patch.object(client, "set", side_effect=flaky_set):
+            yield writes
+
+    def test_refresh_continues_past_a_failing_credential(self):
+        first, _ = self._make_secret_key([GATEWAY_SCOPE])
+        second, _ = self._make_secret_key([GATEWAY_SCOPE])
+
+        with (
+            self._failing_blob_writes(lambda n: n == 1) as writes,
+            patch.object(gateway_credential_cache, "capture_exception") as capture,
+        ):
+            projected = refresh_all_gateway_credentials()
+
+        self.assertEqual(projected, len(writes) - 1)
+        capture.assert_called_once()
+        blobs = [self._read_blob(credential_hash(key)) for key in (first, second)]
+        self.assertEqual(sum(blob is not None for blob in blobs), 1)
+
+    def test_refresh_raises_when_every_credential_fails(self):
+        self._make_secret_key([GATEWAY_SCOPE])
+        self._make_secret_key([GATEWAY_SCOPE])
+        with self._failing_blob_writes(lambda n: True) as writes, self.assertRaises(ConnectionError):
+            refresh_all_gateway_credentials()
+        self.assertEqual(len(writes), 2)
+
+    def test_refresh_resets_the_failure_run_after_a_success(self):
+        for _ in range(3):
+            self._make_secret_key([GATEWAY_SCOPE])
+        with (
+            patch.object(gateway_credential_cache, "REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES", 2),
+            self._failing_blob_writes(lambda n: n % 2 == 1) as writes,
+            patch.object(gateway_credential_cache, "capture_exception") as capture,
+            patch.object(gateway_credential_cache.logger, "warning") as warning,
+        ):
+            projected = refresh_all_gateway_credentials()
+
+        self.assertEqual(projected, 1)
+        self.assertEqual(len(writes), 3)
+        capture.assert_called_once()
+        warning.assert_called_once()
+        self.assertEqual(warning.call_args.kwargs, {"failed": 2, "projected": 1})
+
+    def test_refresh_stops_after_consecutive_infra_failures(self):
+        for _ in range(3):
+            self._make_secret_key([GATEWAY_SCOPE])
+        with (
+            patch.object(gateway_credential_cache, "REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES", 2),
+            self._failing_blob_writes(lambda n: True) as writes,
+            patch.object(gateway_credential_cache.logger, "warning") as warning,
+            self.assertRaises(ConnectionError),
+        ):
+            refresh_all_gateway_credentials()
+        self.assertEqual(len(writes), 2)
+        self.assertEqual(warning.call_args.kwargs, {"failed": 2, "projected": 0})
+
+    def test_refresh_does_not_abort_on_credential_errors(self):
+        for _ in range(4):
+            self._make_secret_key([GATEWAY_SCOPE])
+        with (
+            patch.object(gateway_credential_cache, "REFRESH_MAX_CONSECUTIVE_INFRA_FAILURES", 2),
+            self._failing_blob_writes(lambda n: n <= 3, error=lambda: ValueError("bad policy")) as writes,
+            patch.object(gateway_credential_cache, "capture_exception"),
+        ):
+            projected = refresh_all_gateway_credentials()
+
+        self.assertEqual(projected, 1)
+        self.assertEqual(len(writes), 4)
 
 
 class TestGatewayCredentialTasks(GatewayCredentialTestMixin):
@@ -576,6 +733,50 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
         secret_key.delete()
         self.assertIsNone(self._read_blob(cache_hash))
 
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    def test_secret_key_delete_clears_cache_on_a_cluster(self, mock_settings):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(secret_key)
+        cache_hash = credential_hash(secret_key)
+
+        with reject_multi_key_commands(hypercache.cache_client):
+            secret_key.delete()
+        self.assertIsNone(self._read_blob(cache_hash))
+
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    def test_secret_key_delete_clears_cache_when_the_etag_delete_fails(self, mock_settings):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE])
+        project_gateway_credential(secret_key)
+        cache_hash = credential_hash(secret_key)
+        client = hypercache.cache_client
+        real_delete = client.delete
+
+        def etag_shard_down(key: str) -> bool:
+            if key.endswith(":etag"):
+                raise ConnectionError("etag shard down")
+            return real_delete(key)
+
+        with patch.object(client, "delete", side_effect=etag_shard_down):
+            secret_key.delete()
+        self.assertIsNone(self._read_blob(cache_hash))
+
+    @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
+    @patch("posthog.storage.gateway_credential_signal_handlers.settings")
+    @patch("posthog.tasks.gateway_credential.update_gateway_credential_cache_task.delay")
+    def test_secret_key_rotation_clears_old_hash_on_a_cluster(self, mock_delay, mock_settings, mock_transaction):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+        old_token = generate_random_token_secret()
+        secret_key, _ = self._make_secret_key([GATEWAY_SCOPE], token=old_token)
+        project_gateway_credential(secret_key)
+
+        with reject_multi_key_commands(hypercache.cache_client):
+            secret_key.secure_value = hash_key_value(generate_random_token_secret())
+            secret_key.save()
+        self.assertIsNone(self._read_blob(hash_key_value(old_token)))
+
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task")
@@ -620,6 +821,37 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
 
         self.assertIsNone(self._read_blob(cache_hash))
         mock_delay.assert_not_called()  # sync clear succeeded, no async retry needed
+
+    @parameterized.expand(
+        [
+            ("becomes_verified", False, True),
+            ("becomes_unverified", True, False),
+        ]
+    )
+    @patch("posthog.api.email_verification.is_email_available", return_value=True)
+    def test_user_email_verification_change_reprojects_synchronously(
+        self, _name: str, initial: bool, new: bool, _mock_email_available
+    ):
+        self.user.is_email_verified = initial
+        self.user.save()
+        oauth = self._make_oauth(GATEWAY_SCOPE)
+        project_gateway_credential(oauth)
+        cache_hash = credential_hash(oauth)
+        self.assertEqual(self._read_blob(cache_hash) is not None, initial)
+
+        with (
+            patch("posthog.storage.gateway_credential_signal_handlers.settings") as mock_settings,
+            patch("posthog.storage.gateway_credential_signal_handlers.transaction") as mock_transaction,
+            patch("posthog.tasks.gateway_credential.reproject_user_gateway_credentials_task.delay") as mock_delay,
+        ):
+            mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+            mock_transaction.on_commit.side_effect = lambda fn: fn()
+            user = User.objects.get(pk=self.user.pk)
+            user.is_email_verified = new
+            user.save()
+
+        self.assertEqual(self._read_blob(cache_hash) is not None, new)
+        mock_delay.assert_not_called()  # sync reprojection succeeded, no async retry needed
 
     @patch("posthog.storage.gateway_credential_signal_handlers.transaction")
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
@@ -695,7 +927,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     @patch("posthog.storage.gateway_credential_signal_handlers.settings")
     @patch("posthog.tasks.gateway_credential.reproject_team_gateway_credentials_task.delay")
     def test_project_access_control_change_reprojects_team(self, mock_delay, mock_settings, mock_transaction):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
@@ -713,7 +945,7 @@ class TestGatewayCredentialSignals(GatewayCredentialTestMixin):
     def test_role_membership_change_reprojects_synchronously(self, mock_task, mock_settings, mock_transaction):
         # Role membership is per-user, so it reprojects synchronously, unlike the
         # team-wide access-control handler. The async retry fires only on sync failure.
-        from ee.models.rbac.role import Role, RoleMembership
+        from products.access_control.backend.models.role import Role, RoleMembership
 
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()

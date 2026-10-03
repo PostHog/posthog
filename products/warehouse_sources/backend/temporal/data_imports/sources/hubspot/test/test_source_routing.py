@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -123,12 +124,9 @@ class TestShouldUseSearchPath:
     def test_false_when_endpoint_has_no_cursor(self) -> None:
         src = HubspotSource()
         inputs = _make_inputs(schema_name="deals")
-        original = HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field
-        HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = None
-        try:
+        no_cursor = replace(HUBSPOT_ENDPOINTS["deals"], cursor_filter_property_field=None)
+        with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}):
             assert src._should_use_search_path(inputs) is False
-        finally:
-            HUBSPOT_ENDPOINTS["deals"].cursor_filter_property_field = original
 
     def test_false_when_initial_sync_not_complete(self) -> None:
         src = HubspotSource()
@@ -398,9 +396,15 @@ class TestApiVersion:
 @pytest.mark.parametrize(
     "error_msg",
     [
-        # Raised by fetch_data when a token refresh succeeds but the retried request is still rejected
+        # Each fetch loop refreshes the token on a 401 and re-raises this after tenacity's 5 attempts
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/companies",
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/deals",
+        "Hubspot v4 associations 401 - refreshed token, retrying: "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        "Hubspot search 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/contacts/search",
+        # raise_for_status() 401 from other fetch paths
         "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
+        # raise_for_hubspot_status maps a 403 to this verbatim
         "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
     ],
 )

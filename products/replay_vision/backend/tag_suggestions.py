@@ -20,12 +20,12 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from posthog.hogql_queries.utils.aggregated_property_values import get_event_property_values_from_aggregated_table
 from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.queries.property_values import get_event_property_values_from_aggregated_table
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.tags import slugify_tag
@@ -311,6 +311,8 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSugge
     try:
         client = genai.Client(
             api_key=api_key,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
             posthog_client=posthoganalytics.default_client,
             http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
         )
@@ -331,7 +333,11 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmSugge
             config=config,
             posthog_distinct_id=distinct_id,
             posthog_trace_id=str(uuid.uuid4()),
-            posthog_properties={"ai_product": "replay_vision", "feature": "suggest_classifier_tags"},
+            posthog_properties={
+                "ai_product": "replay_vision",
+                "feature": "suggest_classifier_tags",
+                "team_id": team_id,
+            },
             posthog_groups={"project": str(team_id)},
         )
     except Exception as e:

@@ -65,6 +65,11 @@ pub struct FlagRequest {
     pub distinct_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<DateTime<Utc>>,
+    /// Skips the MaxMind lookup that adds `$geoip_*` properties to `person_properties`.
+    /// Only affects keys the request didn't send, since request-supplied `$geoip_*` values take
+    /// precedence over the lookup either way. With the lookup skipped, a flag targeting
+    /// `$geoip_*` falls back to the person's stored properties rather than matching on nothing.
+    /// See `docs/internal/feature-flags/rust-service-overview.md`.
     pub geoip_disable: Option<bool>,
     // Web and mobile clients can configure this parameter to disable flags for a request.
     // It's mostly used for folks who want to save money on flag evaluations while still using

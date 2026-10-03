@@ -18,6 +18,9 @@ interface BaseTemplate {
     name: string
     description: string
     icon: ScannerTemplateIcon
+    // What the goal-based flow drafts from when someone clicks this template's starter, in place of a typed goal.
+    goal: string
+    goal_question: string
     scanner_name: string
     scanner_description: string
 }
@@ -44,9 +47,12 @@ interface ScorerTemplate extends BaseTemplate {
 
 export type ScannerTemplate = MonitorTemplate | SummarizerTemplate | ClassifierTemplate | ScorerTemplate
 
+// Each prompt is also a key in the backend's `prompt_questions.TEMPLATE_QUESTIONS`, so change both together.
 export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     {
         key: 'dead_end',
+        goal: 'Find sessions where people get stuck on a page with no clear next step',
+        goal_question: 'Where do people get stuck?',
         name: 'Dead ends',
         description: 'Detect sessions where the user gets stuck on a page with no clear path forward.',
         icon: 'warning',
@@ -59,6 +65,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'session_summary',
+        goal: 'Summarize what people do in each session and where they run into trouble',
+        goal_question: 'What happens in each session?',
         name: 'Session summary',
         description: 'Generate a short narrative of what the user actually did in the session.',
         icon: 'notebook',
@@ -72,6 +80,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'user_intent',
+        goal: 'Find out what people are trying to do when they visit',
+        goal_question: 'What are people trying to do?',
         name: 'User intent',
         description: 'Classify the session by what the user appeared to be trying to do.',
         icon: 'target',
@@ -86,6 +96,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'frustration_score',
+        goal: 'Find out where people get frustrated and how badly',
+        goal_question: 'Where do people get frustrated?',
         name: 'Frustration score',
         description: 'Score how much friction or frustration the user appeared to experience.',
         icon: 'thumbs-down',
@@ -99,6 +111,8 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
     },
     {
         key: 'session_outcome',
+        goal: 'Find out whether people finish what they came to do, give up, or hit an error',
+        goal_question: 'Do people finish what they came to do?',
         name: 'Session outcome',
         description: 'Categorize each session by what actually happened: task completed, abandoned, errored, etc.',
         icon: 'check',
@@ -125,8 +139,9 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         id: 'new',
         enabled: true,
         tags: [] as string[],
-        sampling_rate: 1,
-        sampling_mode: 'comprehensive' as const,
+        // Starts narrow: a wizard that opens on every recording at full rate quotes a scary first number.
+        sampling_rate: 0.2,
+        sampling_mode: 'balanced' as const,
         query: { kind: NodeKind.RecordingsQuery },
         provider: DEFAULT_PROVIDER,
         model: DEFAULT_MODEL,
@@ -138,7 +153,10 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         created_by: null,
         estimated_monthly_observations: null,
         feedback_themes: null,
+        // The server writes this on the first save.
+        prompt_question: '',
         estimated_monthly_credits: null,
+        estimated_at: null,
         // Seed price for the unsaved scanner; the server-computed value takes over after the first save.
         credits_per_observation: OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL],
         // An unsaved scanner has no object yet, so there's no effective access level for it —
@@ -152,6 +170,7 @@ export function newScanner(templateKey?: string | null, teamName?: string | null
         // An unsaved scanner has no spend yet, so it can't have hit a limit it doesn't have.
         credits_used_against_limit: 0,
         limit_reached: false,
+        sweep_throttle_factor: 1,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

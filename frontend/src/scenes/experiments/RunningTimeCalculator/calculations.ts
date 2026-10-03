@@ -62,6 +62,22 @@ export function baselineStatsFromResults(
     }
 }
 
+/**
+ * Whether the baseline stats are sufficient to size this metric type. Ratio and retention
+ * sizing needs the baseline's denominator stats; low-data experiments return
+ * denominator_sum as null or 0, which the backend rejects — callers should skip the
+ * request rather than fire a doomed one.
+ */
+export function hasRequiredBaselineStats(
+    metricType: CalculatorMetricType,
+    baseline: CachedNewExperimentQueryResponse['baseline']
+): boolean {
+    if (metricType === 'ratio' || metricType === 'retention') {
+        return (baseline.denominator_sum ?? 0) > 0
+    }
+    return true
+}
+
 export function calculateCurrentExposures(results: CachedNewExperimentQueryResponse | null): number | null {
     if (!results) {
         return null

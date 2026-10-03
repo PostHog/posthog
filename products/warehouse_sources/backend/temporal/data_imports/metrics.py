@@ -2,12 +2,14 @@ import logging
 import datetime as dt
 from typing import TYPE_CHECKING
 
-from temporalio import workflow
+from temporalio import activity, workflow
 from temporalio.common import MetricCounter
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
+
+from products.warehouse_sources.backend.models.external_data_destination import get_or_create_warehouse_destination
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -48,11 +50,42 @@ def get_data_import_finished_metric(source_type: str | None, status: str) -> Met
     )
 
 
+def get_fast_returned_run_metric(source_type: str | None) -> MetricCounter:
+    # Separate from `data_import_finished` (which still counts these as completed) so the
+    # rollout can be read as a share of runs without double-counting them there.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter("data_import_fast_returned", "Runs completed on a negative source probe, without extracting.")
+    )
+
+
 def get_v3_lock_skipped_metric() -> MetricCounter:
     # A skipped run leaves no job row and no schema-status change; without this
     # counter a schema can silently miss every scheduled slot for days.
     return workflow.metric_meter().create_counter(
         "data_import_v3_lock_skipped", "Scheduled v3 runs skipped because the pipeline lock was not acquired."
+    )
+
+
+def get_version_check_skipped_metric() -> MetricCounter:
+    # Same visibility gap as the lock metric: the skip leaves no job row, so a persistently
+    # failing version check silently costs a schema every scheduled slot.
+    return workflow.metric_meter().create_counter(
+        "data_import_version_check_skipped", "Scheduled runs skipped because the pipeline version check failed."
+    )
+
+
+def get_worker_shutdown_handoff_metric(source_type: str | None) -> MetricCounter:
+    # Counts imports that gave up a shutting-down worker so another pod can continue them. An
+    # import that never hands off keeps its pod alive for the whole graceful shutdown timeout.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter(
+            "warehouse_worker_shutdown_handoff_total",
+            "Imports that raised WorkerShuttingDownError so another worker could continue them.",
+        )
     )
 
 
@@ -70,33 +103,48 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     metric_kind, metric_name = kind_name
     finished_at = job.finished_at or dt.datetime.now(dt.UTC)
     timestamp = format_clickhouse_timestamp(finished_at)
+    schema_instance_id = str(job.schema_id) if job.schema_id else ""
 
-    common_fields = {
-        "team_id": job.team_id,
-        "app_source": DATA_IMPORT_APP_SOURCE,
-        "app_source_id": str(job.pipeline_id),
-        "instance_id": str(job.schema_id) if job.schema_id else "",
-        "timestamp": timestamp,
-    }
-
-    payloads: list[dict] = [
-        {
-            **common_fields,
-            "metric_kind": metric_kind,
-            "metric_name": metric_name,
-            "count": 1,
+    def rows_for(instance_id: str) -> list[dict]:
+        common = {
+            "team_id": job.team_id,
+            "app_source": DATA_IMPORT_APP_SOURCE,
+            "app_source_id": str(job.pipeline_id),
+            "instance_id": instance_id,
+            "timestamp": timestamp,
         }
-    ]
+        emitted = [{**common, "metric_kind": metric_kind, "metric_name": metric_name, "count": 1}]
+        if job.rows_synced and job.rows_synced > 0:
+            emitted.append({**common, "metric_kind": "rows", "metric_name": "rows_synced", "count": job.rows_synced})
+        return emitted
 
-    if job.rows_synced and job.rows_synced > 0:
-        payloads.append(
-            {
-                **common_fields,
-                "metric_kind": "rows",
-                "metric_name": "rows_synced",
-                "count": job.rows_synced,
-            }
-        )
+    payloads: list[dict] = rows_for(schema_instance_id)
+
+    # The same metrics again per destination, keyed by "<schema>/<destination>". The metric names
+    # stay as they are: they are LowCardinality on a table several products share, so a destination
+    # id cannot go in them. `instance_id` is a plain String and already means "which instance of
+    # this app source", which is what a destination is here.
+    #
+    # These are extra rows, not replacements. Everything that filters `instance_id` by a bare
+    # schema id matches exactly what it did before and never sees them.
+    #
+    # Each destination is also keyed on its own, without a schema. A source-level surface wants one
+    # series per destination across every table, and the API filters `instance_id` by equality, so
+    # without this row it would have to ask once per schema per destination.
+    # `destination_ids_for_run` returns an empty list when a schema resolves to the PostHog
+    # warehouse alone, so the run stays byte-for-byte on the path it took before destinations
+    # existed. Without this fallback those runs report no destination at all, and a project
+    # that never configured one sees an empty rows-by-destination chart.
+    destination_ids = list(job.destination_ids or [])
+    if not destination_ids:
+        try:
+            destination_ids = [str(get_or_create_warehouse_destination(job.team_id).id)]
+        except Exception:
+            logger.exception("Failed to resolve the warehouse destination for data import metrics")
+
+    for destination_id in destination_ids:
+        payloads.extend(rows_for(f"{schema_instance_id}/{destination_id}"))
+        payloads.extend(rows_for(str(destination_id)))
 
     try:
         producer = get_producer(topic=KAFKA_APP_METRICS2)

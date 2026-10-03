@@ -7,6 +7,7 @@ from infi.clickhouse_orm import migrations
 from posthog import settings
 from posthog.clickhouse.client.connection import DATA_NODE_ROLES, SINGLE_SHARD_DATA_NODE_ROLES, NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster, Query, get_cluster
+from posthog.run_mode import run_mode
 from posthog.settings.data_stores import (
     CLICKHOUSE_CLUSTER,
     CLICKHOUSE_MIGRATIONS_CLUSTER,
@@ -27,11 +28,16 @@ def get_migrations_cluster() -> ClickhouseCluster:
     )
 
 
+def _collapses_to_all_nodes() -> bool:
+    return (settings.E2E_TESTING or not run_mode().is_deployed_cloud) and not settings.MULTINODE_CLICKHOUSE
+
+
 def run_sql_with_exceptions(
     sql: str,
     node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
+    require_hosts: bool = False,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -52,6 +58,8 @@ def run_sql_with_exceptions(
     is_alter_on_replicated_table: bool, optional (default is False)
         Specifies whether the query is an ALTER statement executed on replicated tables.
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
+    require_hosts: bool, optional (default is False)
+        Raises when none of the requested node roles exist in the migration topology.
 
     Returns:
     migrations.RunPython
@@ -72,7 +80,7 @@ def run_sql_with_exceptions(
     # Store original node_roles for validation purposes before debug override
     original_node_roles = node_roles_list
 
-    if (settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT) and not settings.MULTINODE_CLICKHOUSE:
+    if _collapses_to_all_nodes():
         # In E2E tests, debug mode and hobby deployments, we run migrations on ALL nodes
         # because we don't have different ClickHouse topologies yet in Docker.
         # MULTINODE_CLICKHOUSE opts back into role-based routing so the smoke-test
@@ -85,9 +93,7 @@ def run_sql_with_exceptions(
         query = Query(sql)
 
         if sharded and is_alter_on_replicated_table:
-            is_local_or_test = (
-                settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
-            ) and not settings.MULTINODE_CLICKHOUSE
+            is_local_or_test = _collapses_to_all_nodes()
             single_role = node_roles_list[0] if len(node_roles_list) == 1 else None
             assert is_local_or_test or (single_role is not None and single_role in DATA_NODE_ROLES), (
                 "When running migrations on sharded tables, node_roles must be exactly one of "
@@ -103,7 +109,7 @@ def run_sql_with_exceptions(
             logger.info("       Running ALTER on replicated table on just one host")
             return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
         else:
-            return cluster.map_hosts_by_roles(query, node_roles=node_roles_list).result()
+            return cluster.map_hosts_by_roles(query, node_roles=node_roles_list, require_hosts=require_hosts).result()
 
     operation = migrations.RunPython(lambda _: run_migration())
 
@@ -116,5 +122,6 @@ def run_sql_with_exceptions(
     operation._effective_node_roles = node_roles_list
     operation._sharded = sharded
     operation._is_alter_on_replicated_table = is_alter_on_replicated_table
+    operation._require_hosts = require_hosts
 
     return operation

@@ -1,6 +1,8 @@
 from typing import Any
 
-from asgiref.sync import sync_to_async
+from django.db import transaction
+
+from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
 from posthog.storage import object_storage
@@ -8,6 +10,8 @@ from posthog.storage import object_storage
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
+from .facade.access import analytics_context_reader
+from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
 from .temporal.client import execute_task_processing_workflow_async
 from .visibility import task_control_q, task_visibility_q
@@ -69,7 +73,10 @@ By default, the task will be created and immediately executed. Set run=false to 
     ) -> tuple[str, dict[str, Any]]:
         from posthog.models.integration import Integration
 
+        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
         @sync_to_async
+        @transaction.atomic
         def create_task_and_maybe_run():
             github_integration = Integration.objects.filter(team=self._team, kind="github").first()
 
@@ -87,6 +94,11 @@ By default, the task will be created and immediately executed. Set run=false to 
             task_run = None
             if run:
                 task_run = task.create_run()
+                enqueue_or_start_workflow(
+                    task_run,
+                    start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
+                    options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+                )
 
             task_url = f"/project/{self._team.project.id}/tasks/{task.id}"
             if task_run:
@@ -112,16 +124,6 @@ By default, the task will be created and immediately executed. Set run=false to 
         result = await create_task_and_maybe_run()
 
         if run and "latest_run" in result:
-            slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
-
-            await execute_task_processing_workflow_async(
-                task_id=result["task_id"],
-                run_id=result["latest_run"]["run_id"],
-                team_id=result["team_id"],
-                user_id=self._user.id,
-                slack_thread_context=slack_thread_context,
-            )
-
             return (
                 f"Created and started task '{result['title']}' (ID: {result['task_id']}).\n"
                 f"Run ID: {result['latest_run']['run_id']}\n"
@@ -149,10 +151,14 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = RunTaskArgs
 
     async def _arun_impl(self, task_id: str) -> tuple[str, dict[str, Any]]:
+        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+
         @sync_to_async
+        @transaction.atomic
         def get_task_and_create_run():
             task = (
-                Task.objects.filter(id=task_id, team=self._team, deleted=False)
+                Task.objects.select_for_update(of=("self",))
+                .filter(id=task_id, team=self._team, deleted=False)
                 .filter(task_control_q(self._user.id))
                 .first()
             )
@@ -163,6 +169,11 @@ Use this tool when the user wants to:
                 return {"error": "unsupported_runtime"}
 
             task_run = task.create_run()
+            enqueue_or_start_workflow(
+                task_run,
+                start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
+                options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+            )
             task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
             return {
                 "task_id": str(task.id),
@@ -179,17 +190,6 @@ Use this tool when the user wants to:
             return f"Task with ID {task_id} not found", {"error": "not_found"}
         if result.get("error") == "unsupported_runtime":
             return "Pi tasks cannot be run through the ACP task workflow.", result
-
-        # Extract slack thread context from config if available
-        slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
-
-        await execute_task_processing_workflow_async(
-            task_id=result["task_id"],
-            run_id=result["run_id"],
-            team_id=result["team_id"],
-            user_id=self._user.id,
-            slack_thread_context=slack_thread_context,
-        )
 
         return (
             f"Started execution of task '{result['title']}' ({result['slug']}).\n"
@@ -212,6 +212,8 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = GetTaskRunArgs
 
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
+
         @sync_to_async
         def get_task_and_run():
             task = (
@@ -238,6 +240,11 @@ Use this tool when the user wants to:
             if not task_run:
                 return {"error": "no_runs" if not run_id else "run_not_found", "task_info": task_info, "run_id": run_id}
 
+            if "analytics_query_context" in (task_run.state or {}) and not may_read(
+                task_run.state["analytics_query_context"]
+            ):
+                return {"error": "permission_denied"}
+
             return {
                 "task_info": task_info,
                 "run": {
@@ -254,6 +261,9 @@ Use this tool when the user wants to:
             }
 
         result = await get_task_and_run()
+
+        if result.get("error") == "permission_denied":
+            return "You do not have access to the analytics data in this run.", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}
@@ -299,6 +309,8 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = GetTaskRunLogsArgs
 
     async def _arun_impl(self, task_id: str, run_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
+
         @sync_to_async
         def get_task_and_run():
             task = (
@@ -322,6 +334,15 @@ Use this tool when the user wants to:
                     "run_id": run_id,
                 }
 
+            if "analytics_query_context" in (task_run.state or {}):
+                if not may_read(task_run.state["analytics_query_context"]):
+                    return {"error": "permission_denied"}
+                return {
+                    "task_id": str(task.id),
+                    "run_id": str(task_run.id),
+                    "logs_api_url": f"/api/projects/{self._team.id}/tasks/{task.id}/runs/{task_run.id}/logs/",
+                }
+
             return {
                 "task_id": str(task.id),
                 "task_title": task.title,
@@ -332,6 +353,11 @@ Use this tool when the user wants to:
             }
 
         result = await get_task_and_run()
+
+        if result.get("error") == "permission_denied":
+            return "You do not have access to the analytics data in this run.", result
+        if result.get("logs_api_url"):
+            return f"Read this run's logs through the authenticated endpoint: {result['logs_api_url']}", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}
@@ -439,6 +465,8 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = ListTaskRunsArgs
 
     async def _arun_impl(self, task_id: str, limit: int = 10) -> tuple[str, dict[str, Any]]:
+        may_read = analytics_context_reader(team_id=self._team.id, user_id=self._user.id)
+
         @sync_to_async
         def get_task_and_runs():
             task = (
@@ -462,6 +490,10 @@ Use this tool when the user wants to:
             lines = [f"Task '{task.title}' ({task.slug}) - {len(runs)} run(s):\n"] if runs else []
 
             for run in runs:
+                if "analytics_query_context" in (run.state or {}) and not may_read(
+                    run.state["analytics_query_context"]
+                ):
+                    return {"error": "permission_denied"}
                 lines.append(f"- Run ID: {run.id}")
                 lines.append(f"  Status: {run.get_status_display()} | Stage: {run.stage or 'N/A'}")
                 lines.append(f"  Created: {run.created_at.isoformat()}")
@@ -485,6 +517,9 @@ Use this tool when the user wants to:
             return {"task_info": task_info, "runs": run_list, "lines": lines}
 
         result = await get_task_and_runs()
+
+        if result.get("error") == "permission_denied":
+            return "You do not have access to the analytics data in these runs.", result
 
         if result.get("error") == "not_found":
             return f"Task with ID {task_id} not found", {"error": "not_found"}

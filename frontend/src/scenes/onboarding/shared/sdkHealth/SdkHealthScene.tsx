@@ -4,8 +4,10 @@ import posthog from 'posthog-js'
 import { IconBell, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,11 +30,12 @@ export function SdkHealthScene(): JSX.Element {
         reportLoading: loading,
         needsUpdatingCount,
         hasErrors,
+        isSnoozed,
         snoozedUntil,
     } = useValues(sdkHealthLogic)
     const { isDev } = useValues(preflightLogic)
 
-    const { loadReport, snoozeSdkHealth } = useActions(sdkHealthLogic)
+    const { loadReport, snoozeSdkHealth, unsnooze } = useActions(sdkHealthLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -47,6 +50,18 @@ export function SdkHealthScene(): JSX.Element {
         posthog.capture('sdk doctor snooze warning')
         snoozeSdkHealth()
     }
+
+    const showWarningAgain = (): void => {
+        posthog.capture('sdk doctor unsnooze warning')
+        unsnooze()
+    }
+
+    const snoozeNotice = `${pluralize(needsUpdatingCount, 'SDK')} still ${pluralize(
+        needsUpdatingCount,
+        'needs',
+        'need',
+        false
+    )} an update. Snoozed until ${dayjs(snoozedUntil).format('MMM D, YYYY')}.`
 
     return (
         <SceneContent>
@@ -94,12 +109,6 @@ export function SdkHealthScene(): JSX.Element {
                 </div>
             )}
 
-            {/* Beta feedback banner */}
-            <LemonBanner type="info">
-                <strong>SDK Health is in Beta!</strong> Help us improve by sharing your feedback?{' '}
-                <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
-            </LemonBanner>
-
             <div className="p-3">
                 {loading ? null : hasErrors ? (
                     <div className="text-center text-muted p-4">
@@ -114,8 +123,23 @@ export function SdkHealthScene(): JSX.Element {
                     <section className="mb-2">
                         <h3>SDK health is good</h3>
                         <LemonBanner type="success" hideIcon={false}>
-                            <p className="font-semibold">All caught up! Your SDKs are up to date.</p>
-                            <p className="text-sm mt-1">You've got the latest. Nice work keeping everything current.</p>
+                            <p className="font-semibold">No SDK updates needed right now.</p>
+                            <p className="text-sm mt-1">Your SDKs are on the latest version or close behind it.</p>
+                        </LemonBanner>
+                    </section>
+                ) : isSnoozed ? (
+                    <section className="mb-2">
+                        <h3>Update warning snoozed</h3>
+                        <LemonBanner
+                            type="info"
+                            hideIcon={false}
+                            action={{
+                                children: 'Show warning',
+                                onClick: showWarningAgain,
+                                'data-attr': 'sdk-health-unsnooze-warning',
+                            }}
+                        >
+                            <p className="text-sm">{snoozeNotice}</p>
                         </LemonBanner>
                     </section>
                 ) : (
@@ -126,8 +150,8 @@ export function SdkHealthScene(): JSX.Element {
                             hideIcon={false}
                             action={{
                                 children: 'Snooze warning for 30 days',
-                                disabledReason: snoozedUntil ? 'Already snoozed' : undefined,
                                 onClick: snoozeWarning,
+                                'data-attr': 'sdk-health-snooze-warning',
                             }}
                         >
                             {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>

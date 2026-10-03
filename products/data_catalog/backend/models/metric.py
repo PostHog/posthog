@@ -11,6 +11,8 @@ from ..facade.enums import CreatedSource, MetricStatus
 # `POST data_catalog/metrics/{name}/run`), so it must be a bare identifier.
 METRIC_NAME_REGEX = r"^[A-Za-z][A-Za-z0-9_]*$"
 
+METRIC_NAME_MAX_LENGTH = 128
+
 validate_metric_name = RegexValidator(
     regex=METRIC_NAME_REGEX,
     message="Name must start with a letter and contain only letters, numbers, and underscores.",
@@ -33,13 +35,13 @@ class Metric(
     # db_constraint=False on FKs to hot tables (posthog_team, posthog_user): a real FK constraint
     # takes SHARE ROW EXCLUSIVE on the parent, stalling writes under traffic. Scoping/integrity is
     # enforced at the app layer.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
 
     name = models.CharField(
-        max_length=128,
+        max_length=METRIC_NAME_MAX_LENGTH,
         validators=[validate_metric_name],
         help_text="Identifier-safe run handle, unique among the team's live metrics. Renaming or "
         "deleting a metric frees its name for reuse; references to the old name stop resolving.",
@@ -74,7 +76,7 @@ class Metric(
     status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in MetricStatus],
-        default=MetricStatus.PROPOSED,
+        default=MetricStatus.PROPOSED.value,
         help_text="Persisted lifecycle state. drifted is computed at read time, not stored here.",
     )
     approved_by = models.ForeignKey(
@@ -106,7 +108,7 @@ class Metric(
     created_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in CreatedSource],
-        default=CreatedSource.USER,
+        default=CreatedSource.USER.value,
         help_text="Whether a human or an agent authored this metric.",
     )
     ai_model = models.CharField(

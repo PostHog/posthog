@@ -1,5 +1,3 @@
-from enum import StrEnum
-
 from django.utils.timezone import now
 
 from prometheus_client import Counter
@@ -8,17 +6,10 @@ from rest_framework.request import Request
 from posthog.event_usage import EventSource, get_event_source
 from posthog.otel_metrics import OtelInstrumentFactory
 
+from products.dashboards.backend.facade.enums import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 
 _otel = OtelInstrumentFactory("dashboards")
-
-
-class DashboardAccessMethod(StrEnum):
-    HUMAN = "human"
-    SHARED = "shared"
-    EMBEDDED = "embedded"
-    API = "api"
-
 
 DASHBOARD_ACCESS_COUNTER = Counter(
     "posthog_dashboard_access_total",

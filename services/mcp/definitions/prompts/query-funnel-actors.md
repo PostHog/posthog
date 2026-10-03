@@ -32,12 +32,20 @@ Use these two together. Do not mix them with `funnelStep`.
 
 > The funnel `time_to_convert` viz type has no persons drilldown — this tool does not support it.
 
+## Paging
+
+- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.
+- `offset`: how many persons to skip before the returned page. Defaults to 0.
+
 ## Response
 
-Each returned row contains `distinct_id`, `email`, and `name`, plus a `recordings` column when `includeRecordings` is set (default `true`). Results are limited to the top 100 actors.
+Each returned row contains `distinct_id`, `email`, and `name`, plus a `recordings` column when `includeRecordings` is set (default `true`).
+
+The response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people at the step — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.
 
 ## Guidance
 
 - Keep the `source` funnel query identical to the one whose step the user is asking about — the series order, date range, conversion window, and filters all determine who converts at each step.
 - Make sure the mode matches the source's `funnelVizType`: `funnelStep` needs `"steps"` (the default), `funnelTrendsDropOff` needs `"trends"`. Mixing them returns wrong or empty results.
-- For large cohorts, tighten the source (date range, filters) rather than expecting more than 100 rows.
+- To read every person at a step, page with `offset` rather than raising `limit` past 1000, and keep `source` and the step selectors identical across pages so rows don't repeat or go missing.
+- When you only need a sample, one page is enough — tighten the source (date range, filters) instead of paging through everyone.

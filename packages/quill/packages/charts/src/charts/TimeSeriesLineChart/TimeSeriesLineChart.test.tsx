@@ -2,7 +2,14 @@ import { cleanup, fireEvent } from '@testing-library/react'
 
 import { useChartLayout } from '../../core/chart-context'
 import type { ChartTheme, Series } from '../../core/types'
-import { getHogChart, renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import {
+    createDefaultTooltipAccessor,
+    getHogChart,
+    renderHogChart,
+    setupJsdom,
+    setupSyncRaf,
+    waitForHogChartTooltip,
+} from '../../testing'
 import { TimeSeriesLineChart } from './TimeSeriesLineChart'
 
 const THEME: ChartTheme = {
@@ -66,6 +73,23 @@ describe('TimeSeriesLineChart', () => {
             expect(ticks.length).toBeGreaterThan(0)
             // The auto formatter renders day-mode labels as "MMM D" (or month name on the 1st).
             expect(ticks.some((t) => /Jun \d+/.test(t))).toBe(true)
+        })
+
+        it('infers the date formatter and tooltip header from timezone and chart labels', async () => {
+            const labels = ['2024-06-10', '2024-06-11', '2024-06-12']
+            const { chart } = renderHogChart(
+                <TimeSeriesLineChart
+                    series={[{ key: 'a', label: 'A', data: [1, 2, 3] }]}
+                    labels={labels}
+                    theme={THEME}
+                    config={{ xAxis: { timezone: 'UTC' } }}
+                />,
+                { nativeTooltip: true }
+            )
+            expect(chart.xTicks().some((tick) => /Jun \d+/.test(tick))).toBe(true)
+
+            chart.hoverAtIndex(0)
+            expect(createDefaultTooltipAccessor(await waitForHogChartTooltip()).label()).toBe('Mon, Jun 10, 2024')
         })
 
         it('explicit xAxis.tickFormatter wins over the auto date formatter', () => {

@@ -169,6 +169,23 @@ export function useDeleteTask() {
   });
 }
 
+export function useHandoffTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ taskId, userId }: { taskId: string; userId: number }) =>
+      getPostHogApiClient().handoffTask(taskId, userId),
+    // The task may leave the requester's own list, so nothing is seeded.
+    onSuccess: (_, { taskId }) => {
+      queryClient.invalidateQueries({ queryKey: taskKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+    },
+    onError: (error) => {
+      log.error("Failed to hand off task", error.message);
+    },
+  });
+}
+
 export function useRunTask() {
   const queryClient = useQueryClient();
 

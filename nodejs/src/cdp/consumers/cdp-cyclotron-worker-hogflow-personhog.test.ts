@@ -7,7 +7,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -73,9 +73,8 @@ describe('CdpCyclotronWorkerHogFlow with PersonHog', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         hogFlow = await insertHogFlow(
             hub.postgres,

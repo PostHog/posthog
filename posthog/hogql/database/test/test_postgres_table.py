@@ -4,16 +4,18 @@ from typing import Literal
 from posthog.test.base import BaseTest
 
 from django.apps import apps
-from django.db.models import ForeignKey, Model
+from django.db.models import ForeignKey, Model, UUIDField
 from django.test import SimpleTestCase
 from django.urls import get_resolver
 
 from parameterized import parameterized
 
+from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
+    DatabaseField,
     DateTimeDatabaseField,
     IntegerDatabaseField,
     LazyJoin,
@@ -27,9 +29,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
-from posthog.rbac.user_access_control import RESOURCE_INHERITANCE_MAP
-
-from ee.api.rbac.access_control import AccessControlViewSetMixin
+from products.access_control.backend.facade.user_access_control import RESOURCE_INHERITANCE_MAP
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
     (name, node.table) for name, node in SystemTables().children.items() if isinstance(node.table, PostgresTable)
@@ -43,6 +44,7 @@ _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
 # from the viewset. Declared by db_table so product internals stay unimported here.
 _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
+    "customer_analytics_customertask": "customer_task",
 }
 
 # Team-level definition tables gated under an object-restrictable scope for resource-level access
@@ -121,7 +123,13 @@ def _object_grant_scopes() -> frozenset[str]:
 
 
 class TestPostgresTable(BaseTest):
-    def _init_database(self, *, predicates=None, extra_fields=None):
+    def _init_database(
+        self,
+        *,
+        predicates: list[Expr] | None = None,
+        extra_fields: dict[str, DatabaseField] | None = None,
+        postgres_pushdown_values: dict[str, str | int | bool] | None = None,
+    ) -> None:
         self.database = Database.create_for(team=self.team)
 
         fields = {
@@ -139,6 +147,11 @@ class TestPostgresTable(BaseTest):
                     name="postgres_table",
                     postgres_table_name="some_table_on_postgres",
                     **({} if predicates is None else {"predicates": predicates}),
+                    **(
+                        {}
+                        if postgres_pushdown_values is None
+                        else {"postgres_pushdown_values": postgres_pushdown_values}
+                    ),
                     fields=fields,
                 ),
             )
@@ -227,6 +240,20 @@ class TestPostgresTable(BaseTest):
         self.assertEqual(
             self._select("SELECT id FROM postgres_table LIMIT 10"),
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(and(equals(postgres_table.team_id, {self.team.pk}), greaterOrEquals(postgres_table.created_at, minus(today(), toIntervalDay(30)))), notEquals(postgres_table.status, %(hogql_val_5)s)) LIMIT 10",
+        )
+
+    def test_predicate_with_postgres_pushdown_value(self):
+        self._init_database(
+            predicates=[parse_expr("status != 'deleted'")],
+            extra_fields={"status": StringDatabaseField(name="status")},
+            postgres_pushdown_values={"status": "active"},
+        )
+
+        sql = self._select("SELECT id FROM postgres_table LIMIT 10")
+
+        self.assertIn(
+            f"WHERE team_id = {self.team.pk} AND status = %(hogql_val_5)s)",
+            sql,
         )
 
     def test_predicate_combined_with_user_where(self):
@@ -429,6 +456,32 @@ class TestPostgresTablePrimaryKey(BaseTest):
             f"system.{table_name} has access_scope='{table.access_scope}' "
             f"but no single-column primary key (composite PK). "
             f"Object-level access control requires a single-column PK."
+        )
+
+
+class TestPostgresTableIdFieldType(SimpleTestCase):
+    """A UUID primary key must never be declared as an integer.
+
+    The declared type is what `system.information_schema` and the SQL editor report, and what the
+    resolver keys its UUID-literal validation off — so an integer declaration on a UUID column
+    misdocuments joins between system tables and swallows the friendly HogQL error for
+    `WHERE id = 'not-a-uuid'`, leaving a raw ClickHouse CANNOT_PARSE_UUID instead."""
+
+    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    def test_uuid_pk_is_not_declared_as_an_integer(self, table_name: str, table: PostgresTable) -> None:
+        if not isinstance(table.fields.get("id"), IntegerDatabaseField):
+            return
+
+        model = _model_by_pg_table().get(table.postgres_table_name)
+        if model is None:
+            return
+
+        pk = model._meta.pk
+        self.assertNotIsInstance(
+            pk,
+            UUIDField,
+            f"system.{table_name}.id is declared as IntegerDatabaseField, but {model.__name__}'s "
+            f"primary key is a UUID column. Use UUIDDatabaseField.",
         )
 
 

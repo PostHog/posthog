@@ -16,6 +16,11 @@ type TabContent = {
     shouldShow: (displayType: ChartDisplayType) => boolean
 }
 
+export const isDisplayTabSupported = (displayType: ChartDisplayType): boolean =>
+    displayType !== ChartDisplayType.ActionsTable &&
+    displayType !== ChartDisplayType.BoldNumber &&
+    displayType !== ChartDisplayType.TwoDimensionalHeatmap
+
 const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     [SideBarTab.Series]: {
         label: 'Series',
@@ -30,10 +35,7 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     [SideBarTab.Display]: {
         label: 'Display',
         content: <DisplayTab />,
-        shouldShow: (displayType: ChartDisplayType): boolean =>
-            displayType !== ChartDisplayType.ActionsTable &&
-            displayType !== ChartDisplayType.BoldNumber &&
-            displayType !== ChartDisplayType.TwoDimensionalHeatmap,
+        shouldShow: isDisplayTabSupported,
     },
 }
 
@@ -52,17 +54,19 @@ export const SideBar = (): JSX.Element => {
         [effectiveVisualizationType]
     )
 
+    const activeTab = tabs.some((tab) => tab.key === activeSideBarTab) ? activeSideBarTab : SideBarTab.Series
+
     return (
         <div className="bg-surface-primary w-[18rem] flex flex-col">
             <LemonTabs
                 size="small"
-                activeKey={activeSideBarTab}
+                activeKey={activeTab}
                 onChange={(tab) => setSideBarTab(tab as SideBarTab)}
                 tabs={tabs}
                 className="pt-1"
                 barClassName="px-3"
             />
-            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
+            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeTab].content}</div>
         </div>
     )
 }

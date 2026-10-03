@@ -1,20 +1,30 @@
 import json
 import uuid
-from datetime import datetime
-from typing import Any
+import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypedDict
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from temporalio.exceptions import ApplicationError
+import httpx
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
+from posthog.sync import database_sync_to_async
+from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
 
+from products.ai_observability.backend.llm.errors import (
+    OutputTokenLimitError,
+    ProviderRequestRejectedError,
+    StructuredOutputParseError,
+)
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
+    SKIPPED_RESULT_ERROR_TYPES,
     EmitTaggerEventInputs,
     ExecuteTaggerInputs,
     RunTaggerInputs,
@@ -62,8 +72,14 @@ def make_tagger_config():
     }
 
 
+class SetupData(TypedDict):
+    organization: Organization
+    team: Team
+    tagger: Tagger
+
+
 @pytest.fixture
-def setup_data():
+def setup_data() -> SetupData:
     organization = Organization.objects.create(name="Test Org")
     team = Team.objects.create(organization=organization, name="Test Team")
     tagger = Tagger.objects.create(
@@ -103,6 +119,15 @@ class TestBuildTaggerSystemPrompt:
             ("Test", [{"name": "a"}], 0, None, ["Select as many tags as apply"], []),
             # User prompt passthrough
             ("Which features are used?", [{"name": "a"}], 0, None, ["Which features are used?"], []),
+            # JSON contract for providers that do not enforce the response schema
+            (
+                "Test",
+                [{"name": "a"}],
+                0,
+                None,
+                ['"tags"', '"reasoning"', "Always include both keys"],
+                [],
+            ),
         ],
     )
     def test_build_tagger_system_prompt(
@@ -154,9 +179,8 @@ class TestRunTaggerWorkflow:
         with pytest.raises(ValueError, match="not found"):
             await fetch_tagger_activity(inputs)
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_activity(self, setup_data):
+    def test_execute_tagger_activity(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -184,23 +208,32 @@ class TestRunTaggerWorkflow:
             mock_response = MagicMock()
             mock_response.parsed = mock_parsed
             mock_response.usage = MagicMock(input_tokens=100, output_tokens=20, total_tokens=120)
-            mock_client.complete.return_value = mock_response
+            called_on_event_loop: list[bool] = []
+
+            def complete(request: Any) -> Any:
+                try:
+                    asyncio.get_running_loop()
+                    called_on_event_loop.append(True)
+                except RuntimeError:
+                    called_on_event_loop.append(False)
+                return mock_response
+
+            mock_client.complete.side_effect = complete
 
             with patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config:
                 mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-                result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+                result = execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
                 assert result["tags"] == ["billing"]
                 assert result["reasoning"] == "The conversation is about billing setup"
                 assert result["input_tokens"] == 100
                 assert result["output_tokens"] == 20
-                mock_client.complete.assert_called_once()
+                assert called_on_event_loop == [False]
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_strips_unknown_tags(self, setup_data):
+    def test_execute_tagger_strips_unknown_tags(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -229,15 +262,14 @@ class TestRunTaggerWorkflow:
                 mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-                result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+                result = execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
                 # "unknown_tag" should be stripped
                 assert "unknown_tag" not in result["tags"]
                 assert result["tags"] == ["billing", "analytics"]
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_enforces_max_tags(self, setup_data):
+    def test_execute_tagger_enforces_max_tags(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -269,14 +301,13 @@ class TestRunTaggerWorkflow:
                 mock_config = _mock_config_with_active_key()
                 mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
-                result = await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+                result = execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
                 assert len(result["tags"]) == 2
                 assert result["tags"] == ["billing", "analytics"]
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_terminal_team_requires_provider_key(self, setup_data):
+    def test_execute_tagger_terminal_team_requires_provider_key(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -295,13 +326,14 @@ class TestRunTaggerWorkflow:
             mock_eval_config.objects.get_or_create.return_value = (mock_config, False)
 
             with pytest.raises(ApplicationError) as exc_info:
-                await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+                execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
         assert exc_info.value.details[0]["error_type"] == "provider_key_required"
+        assert exc_info.value.type == "tagger_provider_key_required"
+        assert is_expected_activity_failure(exc_info.value)
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_missing_prompt(self, setup_data):
+    def test_execute_tagger_missing_prompt(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -315,11 +347,10 @@ class TestRunTaggerWorkflow:
         event_data = create_mock_event_data(team.id)
 
         with pytest.raises(ApplicationError, match="Missing prompt"):
-            await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+            execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
-    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_execute_tagger_no_tags_defined(self, setup_data):
+    def test_execute_tagger_no_tags_defined(self, setup_data):
         tagger_obj = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -333,7 +364,7 @@ class TestRunTaggerWorkflow:
         event_data = create_mock_event_data(team.id)
 
         with pytest.raises(ApplicationError, match="No tags defined"):
-            await execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
+            execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=event_data))
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -383,7 +414,7 @@ class TestRunTaggerWorkflow:
         event_data = create_mock_event_data(team.id, properties={})
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
+            with patch("posthog.temporal.ai_observability.team_capture.capture_ai_internal") as mock_capture:
                 mock_team_get.return_value = team.api_token
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
@@ -450,7 +481,9 @@ class TestRunTaggerWorkflow:
         )
 
         with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
-            with patch("posthog.temporal.ai_observability.team_capture.capture_internal", return_value=capture_result):
+            with patch(
+                "posthog.temporal.ai_observability.team_capture.capture_ai_internal", return_value=capture_result
+            ):
                 if should_raise:
                     with pytest.raises(CaptureInternalError):
                         await emit_tagger_event_activity(inputs)
@@ -763,8 +796,6 @@ class TestFetchTaggerActivityDisabled:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_short_circuits_when_tagger_disabled(self, setup_data):
-        from posthog.sync import database_sync_to_async
-
         tagger = setup_data["tagger"]
         team = setup_data["team"]
 
@@ -773,5 +804,139 @@ class TestFetchTaggerActivityDisabled:
 
         inputs = RunTaggerInputs(tagger_id=str(tagger.id), event_data=create_mock_event_data(team.id))
 
-        with pytest.raises(ApplicationError, match="disabled"):
+        with pytest.raises(ApplicationError, match="disabled") as exc_info:
             await fetch_tagger_activity(inputs)
+
+        assert exc_info.value.type == "tagger_disabled"
+        assert is_expected_activity_failure(exc_info.value)
+
+
+class TestSkippedResultsStayOutOfErrorTracking:
+    def test_skipped_result_types_are_expected_control_flow(self) -> None:
+        assert SKIPPED_RESULT_ERROR_TYPES <= EXPECTED_CONTROL_FLOW_ERROR_TYPES
+
+    @pytest.mark.parametrize(
+        "llm_error,error_type",
+        [
+            (OutputTokenLimitError("The model reached its output token limit."), "parse_error"),
+            (StructuredOutputParseError("The reply did not match the schema."), "parse_error"),
+            (ProviderRequestRejectedError("The response exceeds the limit."), "request_rejected"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_unusable_reply_is_skipped_not_captured(
+        self, setup_data: SetupData, llm_error: Exception, error_type: str
+    ) -> None:
+        team = setup_data["team"]
+        tagger = {
+            "id": str(setup_data["tagger"].id),
+            "name": "Feature Tagger",
+            "tagger_config": make_tagger_config(),
+            "team_id": team.id,
+        }
+
+        with (
+            patch("posthog.temporal.ai_observability.run_tagger.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as mock_eval_config,
+            patch("posthoganalytics.capture_exception") as mock_capture_exception,
+        ):
+            mock_client_class.return_value.complete.side_effect = llm_error
+            mock_eval_config.objects.get_or_create.return_value = (_mock_config_with_active_key(), False)
+
+            with pytest.raises(ApplicationError) as exc_info:
+                execute_tagger_activity(ExecuteTaggerInputs(tagger=tagger, event_data=create_mock_event_data(team.id)))
+
+        assert exc_info.value.details[0]["error_type"] == error_type
+        assert exc_info.value.type == f"tagger_{error_type}"
+        assert is_expected_activity_failure(exc_info.value)
+        mock_capture_exception.assert_not_called()
+
+        activity_error = ActivityError(
+            "Tagger activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-worker",
+            activity_type="execute_tagger_activity",
+            activity_id="test-activity",
+            retry_state=None,
+        )
+        activity_error.__cause__ = exc_info.value
+        with (
+            patch("temporalio.workflow.deprecate_patch"),
+            patch("temporalio.workflow.now", return_value=datetime(2026, 1, 1, tzinfo=UTC)),
+            patch("temporalio.workflow.execute_activity", side_effect=[tagger, activity_error]),
+        ):
+            result = asyncio.run(
+                RunTaggerWorkflow().run(
+                    RunTaggerInputs(tagger_id=tagger["id"], event_data=create_mock_event_data(team.id))
+                )
+            )
+
+        assert result == {
+            "tags": [],
+            "skipped": True,
+            "skip_reason": error_type,
+            "message": str(llm_error),
+            "tagger_id": tagger["id"],
+        }
+
+
+@pytest.mark.parametrize("rate_limited", [False, True])
+def test_custom_provider_tagger_uses_bounded_completion(rate_limited: bool) -> None:
+    key = LLMProviderKey(
+        id=uuid.uuid4(),
+        provider="openai_compatible",
+        state=LLMProviderKey.State.OK,
+        encrypted_config={"api_key": "test-key", "base_url": "https://8.8.8.8/v1"},
+    )
+    payload = json.dumps(
+        {
+            "id": "fixture",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "some-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": json.dumps({"tags": ["billing"], "reasoning": "Billing question"}),
+                    },
+                }
+            ],
+        }
+    ).encode()
+    responses = [httpx.Response(200, stream=httpx.ByteStream(payload))]
+    if rate_limited:
+        responses.insert(0, httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")))
+    inputs = ExecuteTaggerInputs(
+        tagger={
+            "id": "test-tagger",
+            "team_id": 1,
+            "tagger_config": make_tagger_config(),
+            "model_configuration": {"provider": "openai_compatible", "model": "some-model"},
+        },
+        event_data=create_mock_event_data(1),
+    )
+    with (
+        patch.object(key, "save"),
+        patch("posthog.temporal.ai_observability.model_resolution.EvaluationConfig") as configs,
+        patch(
+            "httpx.AsyncHTTPTransport.handle_async_request",
+            side_effect=responses,
+        ) as transport,
+    ):
+        configs.objects.get_or_create.return_value = (MagicMock(active_provider_key=key), False)
+        if rate_limited:
+            with pytest.raises(ApplicationError) as error:
+                execute_tagger_activity(inputs)
+            assert not error.value.non_retryable
+            assert error.value.next_retry_delay == timedelta(seconds=15)
+            assert error.value.details == ({"error_type": "provider_unavailable", "provider": "openai_compatible"},)
+            assert transport.call_count == 1
+        result = execute_tagger_activity(inputs)
+    assert result["tags"] == ["billing"]
+    assert result["reasoning"] == "Billing question"
+    assert key.state == LLMProviderKey.State.OK
+    assert transport.call_count == (2 if rate_limited else 1)

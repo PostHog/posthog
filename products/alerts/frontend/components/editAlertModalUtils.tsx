@@ -75,18 +75,23 @@ export const ALERT_INTERVAL_OPTIONS: AlertCalculationInterval[] = [
 export function getAlertIntervalOptions(
     hasHighFrequencyAlertsEntitlement: boolean,
     hasRealTimeAlertsEntitlement: boolean,
-    showRealTimeOption: boolean
-): Array<{ label: string | JSX.Element; value: AlertCalculationInterval }> {
+    aiDetectorSelected = false
+): Array<{ label: string | JSX.Element; value: AlertCalculationInterval; disabledReason?: string }> {
     const intervals = [
-        ...(showRealTimeOption ? [AlertCalculationInterval.REAL_TIME] : []),
+        AlertCalculationInterval.REAL_TIME,
         AlertCalculationInterval.EVERY_15_MINUTES,
         ...ALERT_INTERVAL_OPTIONS,
     ]
     return intervals.map((interval) => {
         const labelText = intervalDropdownPhrase(interval)
+        const aiDisabledReason =
+            interval === AlertCalculationInterval.REAL_TIME && aiDetectorSelected
+                ? 'The AI detector cannot run in real time.'
+                : undefined
         const showLock =
             (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) ||
-            (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement)
+            (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement) ||
+            Boolean(aiDisabledReason)
         return {
             label: showLock ? (
                 <span className="flex items-center gap-1.5">
@@ -97,6 +102,7 @@ export function getAlertIntervalOptions(
                 labelText
             ),
             value: interval,
+            disabledReason: aiDisabledReason,
         }
     })
 }

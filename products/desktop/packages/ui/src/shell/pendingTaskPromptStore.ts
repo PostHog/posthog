@@ -6,10 +6,25 @@ import { persist } from "zustand/middleware";
 export interface PendingTaskPrompt {
   promptText: string;
   attachments: UserMessageAttachment[];
+  /**
+   * Serialized editor content (chips + attachments) so recovery restores the
+   * full prompt, not just its plain text. Absent on records written before this
+   * field existed; recovery falls back to promptText for those.
+   */
+  contentXml?: string;
+  /**
+   * Space the prompt was submitted in, so recovery reopens it there instead of
+   * whatever space is current. Absent means it was submitted unscoped.
+   */
+  channelId?: string;
+  submitted?: boolean;
   createdAt: number;
 }
 
-export type PendingTaskPromptInput = Omit<PendingTaskPrompt, "createdAt">;
+type PendingTaskPromptInput = Omit<
+  PendingTaskPrompt,
+  "createdAt" | "submitted"
+>;
 
 interface PendingTaskPromptStore {
   byKey: Record<string, PendingTaskPrompt>;
@@ -18,6 +33,7 @@ interface PendingTaskPromptStore {
   set: (key: string, prompt: PendingTaskPromptInput) => void;
   get: (key: string) => PendingTaskPrompt | undefined;
   move: (fromKey: string, toKey: string) => void;
+  markSubmitted: (key: string) => void;
   clear: (key: string) => void;
 }
 
@@ -48,6 +64,14 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
           return { byKey: { ...rest, [toKey]: entry } };
         });
       },
+      markSubmitted: (key) =>
+        set((state) => {
+          const entry = state.byKey[key];
+          if (!entry || entry.submitted) return state;
+          return {
+            byKey: { ...state.byKey, [key]: { ...entry, submitted: true } },
+          };
+        }),
       clear: (key) =>
         set((state) => {
           if (!(key in state.byKey)) {
@@ -72,7 +96,7 @@ export const usePendingTaskPromptStore = create<PendingTaskPromptStore>()(
   ),
 );
 
-export interface RecoverablePendingPrompt {
+interface RecoverablePendingPrompt {
   key: string;
   prompt: PendingTaskPrompt;
 }
@@ -83,9 +107,13 @@ export const pendingTaskPromptStoreApi = {
   get: (key: string) => usePendingTaskPromptStore.getState().get(key),
   move: (fromKey: string, toKey: string) =>
     usePendingTaskPromptStore.getState().move(fromKey, toKey),
+  markSubmitted: (key: string) =>
+    usePendingTaskPromptStore.getState().markSubmitted(key),
   clear: (key: string) => usePendingTaskPromptStore.getState().clear(key),
-  getAllNewestFirst: (): RecoverablePendingPrompt[] =>
-    listPendingPromptsNewestFirst(usePendingTaskPromptStore.getState().byKey),
+  getRecoverableNewestFirst: (): RecoverablePendingPrompt[] =>
+    listPendingPromptsNewestFirst(
+      usePendingTaskPromptStore.getState().byKey,
+    ).filter(({ prompt }) => !prompt.submitted),
   whenHydrated: (): Promise<void> => {
     if (usePendingTaskPromptStore.getState()._hasHydrated) {
       return Promise.resolve();

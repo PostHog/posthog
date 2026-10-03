@@ -1,4 +1,4 @@
-"""Scanner-level RBAC helper shared by the vision-action engine (run-time creator gate) and the
+"""Scanner-level RBAC helper shared by the alert engine (run-time creator gate) and the
 API serializer (write-time editor gate). Lives outside `temporal/` so the API can import it without
 pulling the temporal package onto its import path.
 
@@ -6,17 +6,24 @@ Also home to the two queries that read observations back across scanner origins,
 appears once instead of at every reading call site."""
 
 import uuid
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
-from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
+from django.db.models import Q
 
+from rest_framework.exceptions import NotFound, PermissionDenied
+
+from posthog.models.team import Team
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from posthog.models.user import User
+
+    from products.replay_vision.backend.models.replay_observation import ReplayObservation
 
 
 def is_uuid(value: str) -> bool:
@@ -37,6 +44,122 @@ def scanners_for_reading_observations(team_id: int) -> "QuerySet[ReplayScanner]"
     access-level filter on top — this widens origin, not RBAC.
     """
     return ReplayScanner.all_origins.filter(team_id=team_id)
+
+
+def _accessible_experiment_ids(
+    access: UserAccessControl | None, team_id: int, experiment_ids: set[int] | None
+) -> set[int]:
+    """The experiments the caller may view, through the experiments facade. Empty input, empty result."""
+    # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
+    # back into this package's importers.
+    from products.experiments.backend.facade.replay import accessible_experiment_ids  # noqa: PLC0415
+
+    return accessible_experiment_ids(access, team_id, experiment_ids=experiment_ids)
+
+
+def is_experiment_accessible(access: UserAccessControl | None, team_id: int, experiment_id: int) -> bool:
+    """Whether the caller may view this experiment, filtered by object-level access (not just team).
+
+    The single source of truth for "is a scanner-viewer allowed to know this experiment exists".
+    A denied or cross-team id reads as inaccessible, so callers can treat it as not-found rather
+    than disclosing the experiment through a scanner surface. `access` is None only outside request
+    context (internal serialization), where there is no viewer to gate on, so it passes.
+    """
+    return experiment_id in _accessible_experiment_ids(access, team_id, {experiment_id})
+
+
+def scanner_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: Iterable[int] = ()) -> Q:
+    """Scanner rows whose experiment scope matches: watching no experiment (`unrestricted`) and/or
+    watching one of `experiment_ids`, OR-combined.
+
+    Reads both scope stores: the experiment scanner type's `scanner_config` and the legacy
+    `experiment_targeting` column the other types use (see `ReplayScanner.experiment_scope`).
+    Phrased positively with `isnull` because on a nullable JSON path `.exclude` negates to NULL and
+    wrongly drops unscoped rows. The lookup keys are written as literals (not composed from a
+    variable) so the ORM-field-injection lint sees they're not caller input.
+    """
+    q = Q()
+    if unrestricted:
+        q |= Q(
+            experiment_targeting__experiment_id__isnull=True,
+            scanner_config__experiment_id__isnull=True,
+        )
+    ids = list(experiment_ids)
+    if ids:
+        q |= Q(experiment_targeting__experiment_id__in=ids) | Q(scanner_config__experiment_id__in=ids)
+    return q
+
+
+def snapshot_experiment_scope_q(*, unrestricted: bool = False, experiment_ids: Iterable[int] = ()) -> Q:
+    """`scanner_experiment_scope_q` for observation rows, over the frozen `scanner_snapshot`."""
+    q = Q()
+    if unrestricted:
+        q |= Q(
+            scanner_snapshot__experiment_targeting__experiment_id__isnull=True,
+            scanner_snapshot__scanner_config__experiment_id__isnull=True,
+        )
+    ids = list(experiment_ids)
+    if ids:
+        q |= Q(scanner_snapshot__experiment_targeting__experiment_id__in=ids) | Q(
+            scanner_snapshot__scanner_config__experiment_id__in=ids
+        )
+    return q
+
+
+def accessible_observations(
+    access: UserAccessControl, team_id: int, observations: "QuerySet[ReplayObservation]"
+) -> "QuerySet[ReplayObservation]":
+    """Drop observations whose recorded experiment the caller can't view.
+
+    An observation's population is fixed at creation, so it authorizes against the experiment in its
+    own `scanner_snapshot`, not the scanner's *current* targeting — retargeting or clearing a scanner
+    must not expose the historical rows it produced under a restricted experiment. A snapshot with no
+    experiment targeting (every observation predating this feature) is unrestricted here and stays
+    subject to the scanner and session-recording gates the caller already passed.
+
+    The accessible set comes from the team's experiments, which are few and indexed. The snapshot
+    path has no index, so reading the ids off the observations instead scans the whole scanner or team.
+    """
+    accessible = _accessible_experiment_ids(access, team_id, None)
+    # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one,
+    # whichever snapshot store names it.
+    return observations.filter(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=accessible))
+
+
+def readable_observation_scanner_ids(access: UserAccessControl, team_id: int) -> list[uuid.UUID]:
+    """Scanner ids whose observations the caller may read across scanners, experiment access included.
+
+    For the surfaces that scope by scanner (the session dock, Max search) rather than filter rows. A
+    scanner is included when the caller can read the scanner (recording RBAC) and can view its current
+    targeted experiment, if any. Batches the experiment lookup into one query instead of one per
+    scanner. Row-level history is still gated by `accessible_observations` on the rows themselves; this
+    only narrows which scanners are in scope.
+    """
+    scanners = list(
+        access.filter_queryset_by_access_level(scanners_for_reading_observations(team_id)).only(
+            "id", "scanner_type", "scanner_config", "experiment_targeting"
+        )
+    )
+    targeted = {eid for s in scanners if (eid := (s.experiment_scope() or {}).get("experiment_id")) is not None}
+    accessible = _accessible_experiment_ids(access, team_id, targeted)
+    return [
+        s.id
+        for s in scanners
+        if (eid := (s.experiment_scope() or {}).get("experiment_id")) is None or eid in accessible
+    ]
+
+
+def can_read_targeted_experiment(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
+    """Whether the caller may read a scanner given its *current* targeted experiment.
+
+    Gates the per-scanner observation endpoint at the scanner level, so a denied experiment scanner
+    reads as not-found. Row-level history within an accessible scanner is gated separately by
+    `accessible_observations`, which follows each row's snapshot. A scanner with no targeting passes.
+    """
+    scope = scanner.experiment_scope()
+    if not scope or scope.get("experiment_id") is None:
+        return True
+    return is_experiment_accessible(access, team_id, scope["experiment_id"])
 
 
 def scanner_for_reading_observations(team_id: int, scanner_id: "str | uuid.UUID") -> ReplayScanner | None:
@@ -69,11 +192,28 @@ def readable_scanner_ids(user: "User", team: Team, scanner_ids: list[str]) -> li
     return [str(scanner_id) for scanner_id in readable.values_list("id", flat=True)]
 
 
-def selection_target_ids(scanner_id: uuid.UUID, selection: dict[str, Any] | None) -> set[str]:
-    """Scanner ids an action's selection pulls observations from, beyond its bound `scanner`.
+def scanner_for_recording_derived_read(
+    viewset: Any, scanner_id_kwarg: str = "parent_lookup_scanner_id"
+) -> ReplayScanner:
+    """The scanner named in a nested route's URL, once the caller may read what it produced.
 
-    Shared so the API and the Max tools authorize an action against the same set. A summary fans in
-    observations from every scanner named here, so access to the bound one is not access to the report.
+    Observations and the scout reports written from them are both recording-derived, so both inherit
+    the scanner's own RBAC *and* require session_recording read. Shared so that bar has one
+    definition: a viewset that gates on only half of it leaks recording content.
     """
-    configured = (selection or {}).get("scanner_ids") or []
-    return {str(s) for s in configured if is_uuid(s)} - {str(scanner_id)}
+    try:
+        scanner_id = uuid.UUID(viewset.kwargs[scanner_id_kwarg])
+    except (KeyError, ValueError):
+        raise NotFound()
+    scanner = scanner_for_reading_observations(viewset.team_id, scanner_id)
+    if scanner is None:
+        raise NotFound()
+    viewset.check_object_permissions(viewset.request, scanner)
+    if not viewset.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+        raise PermissionDenied("Reading replay observations requires session_recording read access.")
+    # An experiment scanner's output is that experiment's exposed sessions, so reading it needs
+    # experiment access too. Not-found, not 403: a denied experiment scanner reads as if it doesn't
+    # exist, matching the serializer's targeting redaction.
+    if not can_read_targeted_experiment(viewset.user_access_control, viewset.team_id, scanner):
+        raise NotFound()
+    return scanner

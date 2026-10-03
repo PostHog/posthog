@@ -1,0 +1,12 @@
+name: index_stats
+description: Per-index usage counters; drives unused-index detection.
+interval: 10m
+scope: database
+kind: cumulative
+key: [schemaname, relname, indexrelname]
+query: |
+  SELECT s.schemaname, s.relname, s.indexrelname, s.indexrelid::bigint AS indexrelid,
+         s.idx_scan, s.idx_tup_read, s.idx_tup_fetch,
+         io.idx_blks_read, io.idx_blks_hit
+  FROM pg_stat_user_indexes s
+  JOIN pg_statio_user_indexes io ON io.indexrelid = s.indexrelid

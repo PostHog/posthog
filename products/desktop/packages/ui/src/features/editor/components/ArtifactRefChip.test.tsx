@@ -110,9 +110,11 @@ describe.each(SURFACES)("artifact links in messages (%s)", (_name, Surface) => {
     renderMessage(`Here it is: [report.md](${LEGACY_LINK})`);
 
     expect(screen.queryByRole("link")).toBeNull();
+    // quill keeps a disabled button focusable, so `aria-disabled` is where it
+    // says so rather than the native attribute.
     expect(
       await screen.findByRole("button", { name: "Open report.md" }),
-    ).toBeDisabled();
+    ).toHaveAttribute("aria-disabled", "true");
   });
 
   it.each([

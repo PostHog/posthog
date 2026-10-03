@@ -1,6 +1,7 @@
 import os
 
 import django
+from django.apps import apps
 
 # setup PostHog Django Project
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -9,4 +10,5 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 # This prevents hanging during database connection in app.ready()
 os.environ["SERVER_GATEWAY_INTERFACE"] = "ASGI"
 
-django.setup()
+if not apps.ready:
+    django.setup()

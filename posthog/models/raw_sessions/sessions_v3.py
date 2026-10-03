@@ -2,7 +2,15 @@ from typing import Optional
 
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS,
+    kafka_engine,
+    kafka_num_consumers,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
+from posthog.models.event.sql import EVENTS_TABLE_BASE_SQL, EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS
 
 """Raw sessions table v3
 
@@ -161,8 +169,9 @@ CREATE TABLE IF NOT EXISTS {table_name}
     page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
     has_autocapture SimpleAggregateFunction(max, Boolean),
 
-    -- Flags - store every seen value for each flag
-    flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+    -- Flags - store every seen 'key=value' pair per flag. A flat array instead of a
+    -- groupUniqArrayMap state because per-key sub-aggregators made merges ~8-37x more expensive.
+    flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
     flag_keys SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
 
     -- Event names - store unique event names seen in this session
@@ -198,6 +207,7 @@ def SHARDED_RAW_SESSIONS_TABLE_SQL_V3():
 
     -- Indexes
     INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
+    INDEX flag_key_values_bloom_filter flag_key_values TYPE bloom_filter() GRANULARITY 1,
     INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
     INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
     INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
@@ -305,10 +315,10 @@ PROPERTIES = f"""
         tupleElement(p, '$host') as _host"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False, extra_ctes=""):
     return """
 WITH
-    {PROPERTIES},
+    {extra_ctes}{PROPERTIES},
     -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
     if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
@@ -379,7 +389,7 @@ SELECT
     event = '$autocapture' as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+    arrayMap((k, v) -> concat(k, '=', v), mapKeys(properties_group_feature_flags), mapValues(properties_group_feature_flags)) as flag_key_values,
     mapKeys(properties_group_feature_flags) as flag_keys,
 
     -- event names
@@ -399,6 +409,7 @@ AND {where}
         source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
+        extra_ctes=extra_ctes,
         session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
         if include_session_timestamp
         else "",
@@ -434,6 +445,90 @@ MODIFY QUERY
             where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
         ),
     )
+
+
+# WarpStream ingestion pipeline on the ingestion-events cluster: Kafka table -> MV -> writable.
+# The ws2 names stay clear of the earlier hand-managed pipeline's objects, which hold the
+# unsuffixed names outside repo control.
+
+KAFKA_RAW_SESSIONS_V3_TABLE = "kafka_raw_sessions_v3_events_json_ws2"
+RAW_SESSIONS_V3_EVENTS_WS_MV = "raw_sessions_v3_events_json_ws2_mv"
+
+# The Kafka stream carries raw event JSON, so the columns the select reads from sharded_events
+# as materialized columns are derived here instead. The flags map expression matches the
+# properties_group_feature_flags materializer in posthog/clickhouse/property_groups.py.
+KAFKA_SOURCE_COLUMN_CTES = """JSONExtractString(properties, '$session_id') AS `$session_id`,
+    toUInt128(JSONExtract(properties, '$session_id', 'Nullable(UUID)')) AS `$session_id_uuid`,
+    mapSort(mapFilter((key, _) -> key LIKE '$feature/%', CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)'))) AS properties_group_feature_flags,
+    _timestamp AS inserted_at,
+    """
+
+
+def KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
+    return (
+        EVENTS_TABLE_BASE_SQL
+        + """
+    SETTINGS kafka_skip_broken_messages = 100,
+             kafka_num_consumers = {num_consumers},
+             kafka_thread_per_consumer = 1,
+             kafka_poll_timeout_ms = 10000,
+             kafka_max_block_size = 100000
+"""
+    ).format(
+        num_consumers=kafka_num_consumers(1),
+        table_name=KAFKA_RAW_SESSIONS_V3_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(False),
+        engine=kafka_engine(
+            topic=KAFKA_EVENTS_JSON,
+            group=CONSUMER_GROUP_RAW_SESSIONS_V3_EVENTS_JSON_WS,
+            named_collection=settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
+        ),
+        extra_fields="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
+        materialized_columns="",
+        indexes="",
+    )
+
+
+def WRITABLE_RAW_SESSIONS_INGESTION_TABLE_SQL_V3():
+    # On the ingestion layer the writable points at the sessions satellite cluster, where the
+    # live raw_sessions_v3 MergeTree lives. Cloud-only, so the cluster name has no settings entry.
+    return RAW_SESSIONS_TABLE_BASE_SQL_V3.format(
+        table_name=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        engine=Distributed(
+            data_table=TABLE_BASE_NAME_V3,
+            sharding_key="cityHash64(session_id_v7)",
+            cluster="sessions",
+        ),
+        session_timestamp_modifier="DEFAULT",
+        max_hosts=SESSION_V3_MAX_HOSTS_PER_SESSION,
+        max_emails=SESSION_V3_MAX_EMAILS_PER_SESSION,
+    )
+
+
+def RAW_SESSIONS_V3_EVENTS_WS_MV_SQL():
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
+TO {database}.{target_table}
+AS
+{select_sql}
+""".format(
+        mv_name=RAW_SESSIONS_V3_EVENTS_WS_MV,
+        database=settings.CLICKHOUSE_DATABASE,
+        target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.{KAFKA_RAW_SESSIONS_V3_TABLE}",
+            extra_ctes=KAFKA_SOURCE_COLUMN_CTES,
+        ),
+    )
+
+
+def DROP_RAW_SESSIONS_V3_EVENTS_WS_MV_SQL():
+    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_V3_EVENTS_WS_MV}"
+
+
+def DROP_KAFKA_RAW_SESSIONS_V3_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {KAFKA_RAW_SESSIONS_V3_TABLE}"
 
 
 def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
@@ -510,7 +605,7 @@ SELECT
     false as has_autocapture,
 
     -- flags
-    initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+    CAST([], 'Array(String)') as flag_key_values,
     CAST([], 'Array(String)') as flag_keys,
 
     -- event names
@@ -735,7 +830,7 @@ SELECT
     max(has_autocapture) as has_autocapture,
 
     -- flags
-    groupUniqArrayMapMerge(flag_values) as flag_values,
+    groupUniqArrayArray(10000)(flag_key_values) as flag_key_values,
     groupUniqArrayArray(flag_keys) as flag_keys,
 
     -- event names
@@ -753,49 +848,6 @@ FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, session_timestamp, team_id
 """
 )
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} IS NOT NULL AND
-        {property_expr} != ''
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
-
-RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3 = """
-SELECT
-    value,
-    count(value)
-FROM (
-    SELECT
-        {property_expr} as value
-    FROM
-        raw_sessions_v3
-    WHERE
-        team_id = %(team_id)s AND
-        session_timestamp >= now() - INTERVAL 30 DAY AND
-        {property_expr} ILIKE %(value)s
-    ORDER BY session_id_v7 DESC
-    LIMIT 100000
-)
-GROUP BY value
-ORDER BY count(value) DESC
-LIMIT 20
-"""
 
 
 def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(

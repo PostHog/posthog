@@ -237,7 +237,9 @@ test.describe('Trends insights', () => {
             await expect(firefoxRow).toContainText(customEventsWithBreakdown.expected.firefoxAmountSum)
         })
 
-        await test.step('switch to Number chart and verify bold number shows net sum of 35', async () => {
+        await test.step('remove the breakdown, switch to Number chart and verify bold number shows net sum of 35', async () => {
+            await insight.trends.removeBreakdown()
+            await insight.trends.waitForChart()
             await insight.trends.selectChartType(/^Number/)
             await expect(insight.trends.boldNumber).toContainText(customEventsWithBreakdown.expected.amountSum)
         })
@@ -297,9 +299,8 @@ test.describe('Trends insights', () => {
 
         await test.step('add breakdown and verify tooltip shows Chrome and Firefox', async () => {
             await insight.trends.addBreakdown('Browser')
-            await insight.trends.waitForChart()
-            await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
-            await insight.trends.waitForChart()
+            await insight.trends.expectRowTotal('Chrome', pageviews.expected.chromeTotal)
+            await insight.trends.expectRowTotal('Firefox', pageviews.expected.firefoxTotal)
             await insight.trends.hoverChartAt(0.5, 0.5)
             const multiText = await insight.trends.tooltip.textContent()
             expect(multiText).toContain('Chrome')
@@ -308,7 +309,7 @@ test.describe('Trends insights', () => {
 
         await test.step('navigate away and verify no orphaned tooltip', async () => {
             await insight.goToList()
-            await expect(page.locator('table')).toBeVisible()
+            await expect(page.getByRole('heading', { name: 'Product analytics', level: 1 })).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
     })

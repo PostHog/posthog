@@ -9,8 +9,15 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
-import { appendToolCallChunk, describeError, llmPlaygroundRunLogic, mergeUsage } from './llmPlaygroundRunLogic'
+import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
+import {
+    appendToolCallChunk,
+    describeError,
+    escapeMarkdownInline,
+    llmPlaygroundRunLogic,
+    mergeUsage,
+} from './llmPlaygroundRunLogic'
+import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 
 function setPlaygroundAccessLevel(level: AccessControlLevel): void {
     window.POSTHOG_APP_CONTEXT = {
@@ -100,6 +107,86 @@ describe('llmPlaygroundRunLogic', () => {
 
         logic.unmount()
         streamSpy.mockRestore()
+    })
+
+    it('sends variable-substituted content while the editor keeps the raw template', async () => {
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('gpt-5-mini')
+        llmPlaygroundPromptsLogic.actions.setSystemPrompt('You answer questions about {{topic}}.')
+        llmPlaygroundPromptsLogic.actions.setMessages([
+            { role: 'user', content: 'Tell me about {{topic}} and {{missing}}' },
+        ])
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(streamSpy).toHaveBeenCalledTimes(1)
+        // Filled variables resolve, unfilled ones stay in place (same as SDK compile)
+        expect(streamSpy.mock.calls[0][1]?.data).toMatchObject({
+            system: 'You answer questions about penguins.',
+            messages: [{ role: 'user', content: 'Tell me about penguins and {{missing}}' }],
+        })
+        // Substitution must not write back into the editor state
+        expect(llmPlaygroundPromptsLogic.values.systemPrompt).toBe('You answer questions about {{topic}}.')
+        expect(llmPlaygroundPromptsLogic.values.messages[0].content).toBe('Tell me about {{topic}} and {{missing}}')
+
+        logic.unmount()
+        streamSpy.mockRestore()
+    })
+
+    it('warns about unfilled variables on run and stays quiet once they are filled', async () => {
+        // Without the warning, a run with a literal {{placeholder}} in it gives no signal;
+        // a warning that names a skipped panel's variable, or keeps firing after the
+        // values are filled, misreports what was sent.
+        const streamSpy = jest.spyOn(api, 'stream').mockImplementation(async () => {})
+        const toastSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast-id')
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The second panel has no messages, so it is skipped: {{ghost}} is never sent
+        llmPlaygroundPromptsLogic.actions.setPromptConfigs([
+            createPromptConfig({
+                model: 'gpt-5-mini',
+                messages: [{ role: 'user', content: '{{topic}} in a {{tone}} tone' }],
+            }),
+            createPromptConfig({ model: 'gpt-5-mini', systemPrompt: 'About {{ghost}}', messages: [] }),
+        ])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{topic}}, {{tone}}. The placeholders are sent as written.')
+        expect(captureSpy).toHaveBeenCalledWith(
+            'llma playground prompt submitted',
+            expect.objectContaining({ variable_count: 2, unfilled_variable_count: 2 })
+        )
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('topic', 'penguins')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).toHaveBeenCalledWith('No value for {{tone}}. The placeholder is sent as written.')
+
+        toastSpy.mockClear()
+        llmPlaygroundVariablesLogic.actions.setVariableValue('tone', 'formal')
+        llmPlaygroundRunLogic.actions.submitPrompt()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+        captureSpy.mockRestore()
     })
 
     it('does not run a completion without editor access to the playground and explains why', async () => {
@@ -228,6 +315,39 @@ describe('llmPlaygroundRunLogic', () => {
         captureExceptionSpy.mockRestore()
     })
 
+    it('names the model when it is not one of the available models', async () => {
+        // The model can arrive without passing through the picker — from a trace, or a saved
+        // prompt written when the key set still offered it.
+        const streamSpy = jest.spyOn(api, 'stream')
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+
+        const logic = llmPlaygroundRunLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setModel('claude-3-sonnet-20240229')
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'hello' }])
+        llmPlaygroundRunLogic.actions.submitPrompt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        const items = llmPlaygroundRunLogic.values.comparisonItems
+        expect(items).toHaveLength(1)
+        expect(items[0].error).toBe(true)
+        // The toast is plain text; the card is markdown, so the model id reaches it escaped.
+        expect(toastSpy).toHaveBeenCalledWith(
+            "Model 'claude-3-sonnet-20240229' is not one of your available models. Pick a different model and try again."
+        )
+        expect(items[0].response).toContain(
+            "**Error:** Model 'claude\\-3\\-sonnet\\-20240229' is not one of your available models."
+        )
+        expect(streamSpy).not.toHaveBeenCalled()
+
+        logic.unmount()
+        streamSpy.mockRestore()
+        toastSpy.mockRestore()
+    })
+
     describe('describeError', () => {
         it('prefers structured backend error string over detail and message', () => {
             const err = new ApiError('fallback', 400, undefined, { error: 'backend says no' })
@@ -248,6 +368,20 @@ describe('llmPlaygroundRunLogic', () => {
 
         it('returns the fallback for non-Error values', () => {
             expect(describeError('nope', 'fallback')).toEqual({ message: 'fallback' })
+        })
+    })
+
+    describe('escapeMarkdownInline', () => {
+        // A model id can reach the result card straight from an ingested `$ai_model` property,
+        // and that card renders markdown with images enabled.
+        it('defuses image syntax so an ingested model id cannot issue a request', () => {
+            expect(escapeMarkdownInline('![x](https://example.com/pixel)')).toBe(
+                '\\!\\[x\\]\\(https\\:\\/\\/example\\.com\\/pixel\\)'
+            )
+        })
+
+        it('leaves an ordinary model id alone apart from its punctuation', () => {
+            expect(escapeMarkdownInline('gpt-4-turbo')).toBe('gpt\\-4\\-turbo')
         })
     })
 })

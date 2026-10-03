@@ -22,6 +22,7 @@ describe('inboxOnboardingLogic', () => {
             isWizardRunning: false,
             isWizardStateResolved: true,
             isRefetching: false,
+            manualSetupRequested: false,
         }
 
         it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingDecision]>([
@@ -123,6 +124,26 @@ describe('inboxOnboardingLogic', () => {
                 'refetch in flight, with work',
                 { isRefetching: true, hasExistingWork: true },
                 { mode: 'banner', reason: null },
+            ],
+            // "Set up manually" opens the Configuration and Scouts tabs the takeover was covering,
+            // so the whole prompt stands down for the session.
+            [
+                'manual setup requested, would otherwise take over',
+                { manualSetupRequested: true },
+                { mode: 'none', reason: 'manual_setup' },
+            ],
+            // Enabling a source or scout from there is the real end state, so `already_set_up` wins
+            // and the takeover can never come back, session flag or not.
+            [
+                'manual setup requested, now set up',
+                { manualSetupRequested: true, isSelfDrivingSetUp: true },
+                { mode: 'none', reason: 'already_set_up' },
+            ],
+            // A run in flight still outranks it: the progress widget is the more accurate story.
+            [
+                'manual setup requested, wizard running',
+                { manualSetupRequested: true, isWizardRunning: true },
+                { mode: 'none', reason: 'wizard_running' },
             ],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingDecision({ ...base, ...overrides })).toEqual(expected)

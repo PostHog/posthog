@@ -1,4 +1,5 @@
 pub mod connection;
+pub mod pool_names;
 pub mod postgres_router;
 
 pub use connection::{

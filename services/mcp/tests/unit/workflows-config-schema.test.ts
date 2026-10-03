@@ -34,7 +34,7 @@ describe('workflows create schema — action config', () => {
             // the typed branch never strips.
             some_future_key: 'must survive',
         }
-        const result = HogFlowsCreateBody.safeParse({
+        const result = HogFlowsCreateBody().safeParse({
             name: 'Wait until workflow',
             actions: [
                 triggerAction,
@@ -60,7 +60,7 @@ describe('workflows create schema — action config', () => {
             ],
             max_wait_duration: '1h',
         }
-        const result = HogFlowsCreateBody.safeParse({
+        const result = HogFlowsCreateBody().safeParse({
             name: 'Events-only wait workflow',
             actions: [
                 triggerAction,
@@ -85,7 +85,7 @@ describe('workflows create schema — action config', () => {
             ],
             max_wait_duration: '30m',
         }
-        const result = HogFlowsCreateBody.safeParse({
+        const result = HogFlowsCreateBody().safeParse({
             name: 'Empty condition wait workflow',
             actions: [
                 triggerAction,
@@ -105,7 +105,7 @@ describe('workflows create schema — action config', () => {
             template_id: 'template-webhook',
             inputs: { url: { value: 'https://example.com' } },
         }
-        const result = HogFlowsCreateBody.safeParse({
+        const result = HogFlowsCreateBody().safeParse({
             name: 'Function workflow',
             actions: [triggerAction, { id: 'fn_1', name: 'Webhook', type: 'function', config: functionConfig }],
         })

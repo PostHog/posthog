@@ -5,12 +5,39 @@ use std::sync::Arc;
 use crate::{
     api::errors::{simplify_serde_error, FlagError},
     flags::{
+        config_format::decode_filters,
+        config_v2::{Predicate, Subject},
         feature_flag_list::PreparedFlags,
-        flag_models::{FeatureFlagList, HypercacheFlagsWrapper},
+        flag_group_type_mapping::GroupTypeIndex,
+        flag_models::{FeatureFlagList, FlagFilters, HypercacheFlagsWrapper},
     },
 };
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
+
+pub fn v2_filters_referencing(
+    subjects: &[Subject],
+    aggregation: Option<GroupTypeIndex>,
+) -> FlagFilters {
+    let mut filters = decode_filters(serde_json::json!({
+        "version": 2, "return_type": "boolean", "default_value": false,
+        "rules": [{"id": "00000000-0000-4000-8000-000000000001", "rule_type": "targeted_release",
+            "targeting": {"properties": [{"key": "email", "type": "person", "value": "person@example.com"}]},
+            "value": true}]
+    }))
+    .unwrap();
+    let non_v1 = Arc::make_mut(filters.non_v1.as_mut().unwrap());
+    let config = non_v1.parsed_v2.as_mut().unwrap().as_mut().unwrap();
+    config.aggregation_group_type_index = aggregation;
+    let person = config.rules[0].targeting[0].clone();
+    config.rules[0]
+        .targeting
+        .extend(subjects.iter().map(|&subject| Predicate {
+            subject,
+            ..person.clone()
+        }));
+    filters
+}
 
 /// Generate the Django-compatible hypercache key for tests
 /// Format: posthog:1:cache/teams/{team_id}/feature_flags/flags.json
@@ -46,7 +73,7 @@ pub async fn get_flags_from_redis(
                 team_id,
                 e
             );
-            FlagError::DataParsingErrorWithContext(format!(
+            FlagError::flag_data_parsing(format!(
                 "Failed to deserialize pickle data for team {team_id}: {}",
                 simplify_serde_error(&e.to_string())
             ))
@@ -59,7 +86,7 @@ pub async fn get_flags_from_redis(
             team_id,
             e
         );
-        FlagError::DataParsingErrorWithContext(format!(
+        FlagError::flag_data_parsing(format!(
             "Failed to parse hypercache JSON for team {team_id}: {}",
             simplify_serde_error(&e.to_string())
         ))
@@ -108,7 +135,7 @@ pub async fn update_flags_in_hypercache(
             team_id,
             e
         );
-        FlagError::DataParsingErrorWithContext(format!(
+        FlagError::flag_data_parsing(format!(
             "Failed to serialize flags for team {team_id}: {}",
             simplify_serde_error(&e.to_string())
         ))
@@ -121,7 +148,7 @@ pub async fn update_flags_in_hypercache(
             team_id,
             e
         );
-        FlagError::DataParsingErrorWithContext(format!(
+        FlagError::flag_data_parsing(format!(
             "Failed to pickle flags for team {team_id}: {}",
             simplify_serde_error(&e.to_string())
         ))
@@ -142,7 +169,7 @@ pub async fn update_flags_in_hypercache(
         .await
         .map_err(|e| {
             tracing::error!("Failed to update hypercache for project {}: {}", team_id, e);
-            FlagError::Internal(format!("Failed to update cache: {e}"))
+            FlagError::internal(anyhow::anyhow!("Failed to update cache: {e}"))
         })?;
 
     // Mirror Django's `HyperCache._set_cache_value_redis` (enable_etag=True),
@@ -160,7 +187,7 @@ pub async fn update_flags_in_hypercache(
             team_id,
             e
         );
-        FlagError::Internal(format!("Failed to write etag: {e}"))
+        FlagError::internal(anyhow::anyhow!("Failed to write etag: {e}"))
     })?;
 
     Ok(())

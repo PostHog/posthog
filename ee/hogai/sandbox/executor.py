@@ -23,8 +23,13 @@ from posthog.temporal.common.client import sync_connect
 
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.streams import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from products.tasks.backend.facade.temporal import ProcessTaskWorkflow, execute_task_processing_workflow
+from products.tasks.backend.facade.streams import (
+    TASK_RUN_STREAM_WATCHED_REFRESH_INTERVAL_SECONDS,
+    TaskRunRedisStream,
+    TaskRunStreamError,
+    get_task_run_stream_key,
+)
+from products.tasks.backend.facade.temporal import ProcessTaskWorkflow, dispatch_task_processing_workflow
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.sandbox.mapping import get_sandbox_mapping, set_sandbox_mapping
@@ -102,7 +107,7 @@ def handle_sandbox_message(
 
             set_sandbox_mapping(conversation_id, str(task_run.task_id), run_id)
 
-            execute_task_processing_workflow(
+            dispatch_task_processing_workflow(
                 task_id=str(task_run.task_id),
                 run_id=run_id,
                 team_id=task_run.team_id,
@@ -263,6 +268,7 @@ async def _sandbox_stream(
 
     stream_key = get_task_run_stream_key(run_id)
     redis_stream = TaskRunRedisStream(stream_key)
+    await redis_stream.refresh_watched()
 
     if not await redis_stream.wait_for_stream():
         logger.warning("sandbox_stream_wait_timeout", stream_key=stream_key, run_id=run_id)
@@ -282,7 +288,14 @@ async def _sandbox_stream(
 
     async def _reader() -> None:
         try:
-            async for ev in redis_stream.read_stream(start_id=start_id):
+            async for item in redis_stream.read_stream_entries(
+                start_id=start_id,
+                keepalive_interval_seconds=TASK_RUN_STREAM_WATCHED_REFRESH_INTERVAL_SECONDS,
+            ):
+                await redis_stream.refresh_watched()
+                if item is None:
+                    continue
+                _stream_id, ev = item
                 await event_queue.put(ev)
         except TaskRunStreamError as exc:
             await event_queue.put({"_error": str(exc)})

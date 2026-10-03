@@ -1,7 +1,9 @@
 from decimal import Decimal
+from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -17,17 +19,21 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema import persons_revenue_analytics
 from posthog.hogql.database.schema.test.base import RevenueAnalyticsManagedViewsetsTestMixin, RevenueAnalyticsTestBase
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
 
 class TestPersonsRevenueAnalyticsMixin(RevenueAnalyticsTestBase):
+    # The base default is the all-zeros UUID, which this table drops as the unattributable key a
+    # LEFT JOIN miss produces. Real person UUIDs are never all-zeros, so use one that isn't.
+    PERSON_ID = "0193a0b1-2c3d-4e5f-8899-aabbccddeeff"
+
     def setup_events(self):
         _create_person(
             uuid=self.PERSON_ID,
@@ -121,7 +127,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",
@@ -144,7 +150,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             queries = [
                 "SELECT id, revenue_analytics.revenue from persons order by id asc",
                 "SELECT id, $virt_revenue from persons order by id asc",
@@ -185,7 +191,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue FROM persons ORDER BY id ASC"),
                 self.team,
@@ -237,7 +243,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT id, revenue_analytics.revenue, $virt_revenue from persons order by id asc"),
                 self.team,
@@ -271,7 +277,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         # Dummy person without revenue
         dummy_person = _create_person(team_id=self.team.pk, distinct_ids=["dummy"])
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             response = execute_hogql_query(
                 parse_select("SELECT id, $virt_revenue FROM persons ORDER BY $virt_revenue ASC"),
                 self.team,
@@ -308,7 +314,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         expected_revenue = Decimal("766.0654934005")  # cus_1 283.8496260553 + cus_2 482.2158673452
         expected_mrr = Decimal("63.7684363904")  # cus_1 22.9631447238 + cus_2 40.8052916666
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             table_results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
@@ -331,6 +337,125 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             )
             self.assertEqual(persons_results.results, [(person.uuid, expected_revenue, expected_mrr)])
 
+    def test_revenue_aggregated_per_person_across_event_and_warehouse_sources(self):
+        self.setup_schema_sources()
+
+        self.setup_events()
+
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        # Both source kinds are configured, so the two legs of the UNION ALL must agree on `person_id`
+        warehouse_person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
+
+        # `cus_2` through `cus_6` match no person, so they carry the all-zeros UUID and are dropped.
+        # Only the two attributable rows remain, one from each leg.
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            results = execute_hogql_query(
+                parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics"),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(
+                sorted(results.results),
+                sorted(
+                    [
+                        (warehouse_person.uuid, Decimal("283.8496260553"), Decimal("22.9631447238")),
+                        (UUID(self.PERSON_ID), Decimal("279.28474"), Decimal("0")),
+                    ]
+                ),
+            )
+
+    def test_warehouse_join_named_persons_pointing_elsewhere_is_ignored(self):
+        self.create_sources()
+        self.team.base_currency = CurrencyCode.GBP.value
+        self.team.save()
+
+        # `field_name` is user-controlled, so a join can be called `persons` while pointing anywhere.
+        # Reading `id` off that table casts to NULL, which would pool every customer's revenue into
+        # one row keyed on nothing. The source is skipped instead.
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
+            source_table_key="id",
+            joining_table_name="posthog_test_stripe_customer",
+            joining_table_key="id",
+            field_name="persons",
+        )
+
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            patch.object(persons_revenue_analytics, "logger") as mock_logger,
+        ):
+            results = execute_hogql_query(
+                parse_select("SELECT person_id, revenue FROM persons_revenue_analytics"),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(results.results, [])
+
+            # Dropping the source is silent in the results, so the warning is the only way to tell
+            # this apart from the source genuinely earning nothing.
+            mock_logger.warning.assert_called_once()
+            event, kwargs = mock_logger.warning.call_args[0][0], mock_logger.warning.call_args[1]
+            self.assertEqual(event, "persons_revenue_analytics_skipped_source")
+            self.assertEqual(kwargs["team_id"], self.team.pk)
+
+    @parameterized.expand(["events", "warehouse", "none"])
+    def test_person_id_joins_directly_against_persons_id(self, source_kind: str):
+        # `person_id` is the documented join target for `persons.id`. The event leg reaches it through
+        # `toString(persons.id)`, so it is the leg that fails with `NO_COMMON_TYPE` when the column is
+        # not cast back to UUID. The warehouse leg already holds a UUID and passes either way, so both
+        # kinds are covered to stop one of them regressing alone. `none` covers the empty-table branch,
+        # which is most projects: the join has to return no rows there rather than fail on the types.
+        # `none` configures no source at all, so the table falls to its empty branch
+        expected_rows: list[tuple] = []
+        if source_kind == "events":
+            self.setup_events()
+            self.team.revenue_analytics_config.events = [
+                RevenueAnalyticsEventItem(
+                    eventName=self.PURCHASE_EVENT_NAME,
+                    revenueProperty=self.REVENUE_PROPERTY,
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                    currencyAwareDecimal=True,
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self.team.save()
+            expected_rows = [(UUID(self.PERSON_ID), Decimal("350.42"))]
+        elif source_kind == "warehouse":
+            self.setup_schema_sources()
+            person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
+            expected_rows = [(person.uuid, Decimal("283.8496260553"))]
+
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            results = execute_hogql_query(
+                parse_select(
+                    """
+                    SELECT persons.id, revenue.revenue
+                    FROM persons
+                    JOIN persons_revenue_analytics AS revenue ON persons.id = revenue.person_id
+                    """
+                ),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(results.results, expected_rows)
+
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
         self.join.source_table_key = "id"
@@ -342,7 +467,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -380,7 +505,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         self.team.revenue_analytics_config.save()
         self.team.save()
 
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
@@ -392,7 +517,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             # Total revenue = 100.42 + 250.42 = 350.84, MRR = 250.42 (only the recurring event)
             self.assertEqual(
                 results.results,
-                [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))],
+                [(UUID(self.PERSON_ID), Decimal("350.84"), Decimal("250.42"))],
             )
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
@@ -411,7 +536,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         self.team.save()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with freeze_time(self.QUERY_TIMESTAMP):
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
@@ -448,7 +573,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.create_and_materialize_viewsets()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
@@ -480,7 +605,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.team.save()
         self.create_and_materialize_viewsets()
 
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select("SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY person_id ASC"),
                 self.team,
@@ -491,7 +616,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             # MRR is calculated from recurring events (those with subscription_id)
             self.assertEqual(
                 results.results,
-                [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))],
+                [(UUID(self.PERSON_ID), Decimal("350.84"), Decimal("250.42"))],
             )
 
     def test_query_revenue_analytics_table_sources(self):
@@ -504,7 +629,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
             distinct_id_to_person_id[distinct_id] = person.uuid
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics ORDER BY mrr DESC, revenue DESC"
@@ -538,7 +663,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             distinct_id_to_person_id[distinct_id] = person.uuid
 
         self.create_and_materialize_viewsets()
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             queries = [
                 "SELECT id, revenue_analytics.revenue from persons order by id asc",
                 "SELECT id, $virt_revenue from persons order by id asc",
@@ -574,7 +699,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.team.save()
         self.create_and_materialize_viewsets()
 
-        with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
             response = execute_hogql_query(
                 parse_select(
                     "select revenue_analytics.revenue, $virt_revenue from persons where id = {id}",

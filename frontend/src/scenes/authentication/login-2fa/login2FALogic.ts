@@ -1,14 +1,16 @@
 import { type PublicKeyCredentialRequestOptionsJSON, startAuthentication } from '@simplewebauthn/browser'
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api, { ApiError } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { handleLoginRedirect } from 'scenes/authentication/login/loginLogic'
+import { redirectAfterLogin } from 'scenes/authentication/login/loginLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
+import { urls } from 'scenes/urls'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus } from '../../../types'
@@ -212,6 +214,7 @@ export const login2FALogic = kea<login2FALogicType>([
                     try {
                         // Step 1: Get authentication options from server
                         const beginResponse =
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                             await api.create<PublicKeyCredentialRequestOptionsJSON>('api/login/2fa/passkey/begin/')
 
                         // Step 2: Use SimpleWebAuthn to get assertion from authenticator
@@ -226,6 +229,7 @@ export const login2FALogic = kea<login2FALogicType>([
                         })
 
                         // Step 3: Send assertion to server to complete 2FA
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         await api.create<LoginTokenResponse>('api/login/token', {
                             credential_id: assertion.id,
                             response: assertion.response,
@@ -251,6 +255,7 @@ export const login2FALogic = kea<login2FALogicType>([
                 checkPasskeysAvailable: async () => {
                     try {
                         // Get available 2FA methods
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const methods = await api.get<TwoFAMethodsResponse>('api/login/2fa/passkey/methods/')
                         // Store TOTP availability for UI
                         actions.setTotpAvailable(methods.has_totp)
@@ -273,6 +278,7 @@ export const login2FALogic = kea<login2FALogicType>([
             submit: async ({ token }, breakpoint) => {
                 breakpoint()
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create<LoginTokenResponse>('api/login/token', { token })
                 } catch (e: unknown) {
                     if (e instanceof ApiError) {
@@ -287,9 +293,7 @@ export const login2FALogic = kea<login2FALogicType>([
     })),
     listeners(({ values }) => ({
         submitTwofactortokenSuccess: () => {
-            handleLoginRedirect()
-            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-            window.location.reload()
+            redirectAfterLogin()
         },
         beginPasskey2FASuccess: () => {
             // The loader returns null on user cancellation to avoid surfacing
@@ -299,13 +303,14 @@ export const login2FALogic = kea<login2FALogicType>([
             if (values.passkey2FAWasCancelled) {
                 return
             }
-            handleLoginRedirect()
-            // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-            window.location.reload()
+            redirectAfterLogin()
         },
     })),
-    afterMount(({ actions }) => {
-        // Check if user has passkeys when component mounts
-        actions.checkPasskeysAvailable()
-    }),
+    // The server answers this only for a pending 2FA session. Kea mounts this logic alongside
+    // anything that references its actions, so the route, not the mount, decides when to ask.
+    urlToAction(({ actions }) => ({
+        [urls.login2FA()]: () => {
+            actions.checkPasskeysAvailable()
+        },
+    })),
 ])

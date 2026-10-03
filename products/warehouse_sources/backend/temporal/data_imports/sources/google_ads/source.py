@@ -7,9 +7,16 @@ from django.core.cache import cache
 import requests
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import (
+from posthog.models.integration import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    GoogleAdsIntegration,
+    Integration,
+    OauthIntegration,
+    google_ads_hierarchy_level,
+)
+
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
@@ -19,15 +26,6 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
-
-from posthog.models.integration import (
-    ERROR_TOKEN_REFRESH_FAILED,
-    GoogleAdsIntegration,
-    Integration,
-    OauthIntegration,
-    google_ads_hierarchy_level,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -51,24 +49,30 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     GoogleAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.configs import (
+    GOOGLE_ADS_INITIAL_BACKFILL_DAYS,
     GoogleAdsResumeConfig,
     GoogleAdsServiceAccountSourceConfig,
     clean_customer_id,
     format_customer_id,
+    parse_start_date,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# Default incremental overlap re-read window for Google Ads stats tables (the 12 schemas
-# carrying a `segments.date` filter). Google reports recent-day cost/conversion data as
-# provisional and keeps revising it for days after the fact (see "About data freshness":
-# https://support.google.com/google-ads/answer/2544985), so an incremental sync that only
-# re-fetches the newest day freezes each day at its first-imported, not-yet-final value.
-# Re-reading a 30-day trailing window each run lets those days catch up as Google finalizes
-# them; merge-by-primary-key makes the overlap idempotent. 30 days also covers the App-
-# campaign conversion attribution window for the conversion metrics in these tables. These
-# tables are small, so the extra re-read is negligible. Tunable; stays under the 60-day cap
-# enforced at the creation/update endpoints.
-GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 30 * 24 * 60 * 60
+# Default incremental overlap re-read window for Google Ads stats tables (those carrying a
+# `segments.date` filter). Google reports recent-day cost/conversion data as provisional and keeps
+# revising it for days after the fact (see "About data freshness":
+# https://support.google.com/google-ads/answer/2544985), so an incremental sync that only re-fetches
+# the newest day freezes each day at its first-imported, not-yet-final value. Re-reading a trailing
+# window each run lets those days catch up; merge-by-primary-key makes the overlap idempotent.
+#
+# The window is a direct multiplier on the rows an incremental run reports: on the largest stats
+# tables (`search_term_stats`, `keyword_stats`, which grow with query volume rather than account
+# size) an N-day window costs roughly N times the rows of a newest-day-only sync. Two weeks buys
+# most of Google's restatement window at half that cost. Only schemas created from here on pick this
+# up — existing schemas keep whatever lookback they already carry. It sits above the length at which
+# SyncMethodForm warns a window is expensive, so accounts that would rather sync less lower it per
+# schema, up to the 60-day cap the creation/update endpoints enforce.
+GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS = 15 * 24 * 60 * 60
 
 _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
 
@@ -76,6 +80,15 @@ _OAUTH_ACCOUNTS_CACHE_TTL_SECONDS = 60
 def _oauth_accounts_cache_key(team_id: int, integration_id: int) -> str:
     # Keyed on (team, integration) only — never the search term — so distinct searches share one walk.
     return f"@dwh/google_ads/{team_id}/{integration_id}/oauth_accounts"
+
+
+# The connected Google login granted PostHog an OAuth token without the adwords scope, so
+# nothing it asks for will be authorized. The wizard and the sync both surface this, and
+# reconnecting is the only fix, so both paths read from one string.
+_SCOPE_INSUFFICIENT_ERROR = (
+    "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads "
+    "account and allow access to your Google Ads data."
+)
 
 
 @SourceRegistry.register
@@ -95,6 +108,8 @@ class GoogleAdsSource(
         VersionDeprecation(version="v24", sunset_at=None),
     )
 
+    history_lookback = datetime.timedelta(days=GOOGLE_ADS_INITIAL_BACKFILL_DAYS)
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GOOGLEADS
@@ -112,7 +127,7 @@ class GoogleAdsSource(
         # `PERMISSION_DENIED` / `UNAUTHENTICATED` gRPC statuses. Specific codes therefore come first,
         # so a scope or deleted-account failure doesn't get the generic access message.
         return {
-            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads account and allow access to your Google Ads data.",
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": _SCOPE_INSUFFICIENT_ERROR,
             "Account has been deleted": "The Google Ads account this source syncs from has been deleted, so there's nothing left to import. Point the source at an active customer ID, or delete the source.",
             "INVALID_CUSTOMER_ID": "The customer ID on this source isn't a valid Google Ads account. Update it to the 10-digit customer ID shown in your Google Ads account, then re-enable the sync.",
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
@@ -153,6 +168,15 @@ class GoogleAdsSource(
             # "UNAUTHENTICATED" token, retrying cannot recover, the user must reconnect their Google Ads account.
             "Request had invalid authentication credentials": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A quota/rate-limit RESOURCE_EXHAUSTED ("Resource has been exhausted (e.g. check
+        # quota).") is already ridden out in-process by `_call_with_transient_retry` (see
+        # `_is_transient_grpc_error` in google_ads.py). A search that still fails after that
+        # budget has hit a longer-lived quota window than a few seconds of backoff can clear,
+        # but Temporal's activity retry recovers once it does — self-recovering, not a bug, so
+        # keep it out of error tracking as noise.
+        return {"Resource has been exhausted (e.g. check quota)"}
 
     # TODO: clean up google ads source to not have two auth config options
     def parse_config(self, job_inputs: dict) -> GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig:
@@ -239,12 +263,15 @@ class GoogleAdsSource(
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
+            history_start=inputs.history_start,
+            requested_start=config.start_date if isinstance(config, GoogleAdsSourceConfig) else None,
         )
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.GOOGLE_ADS,
+            name=ExternalDataSourceType.GOOGLEADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
             featured=True,
             keywords=["adwords"],
@@ -270,6 +297,20 @@ class GoogleAdsSource(
                         integrationKind="google-ads",
                         required=True,
                         placeholder="123-456-7890",
+                    ),
+                    SourceFieldInputConfig(
+                        name="start_date",
+                        label="Start date",
+                        caption=(
+                            "Earliest date to import, as YYYY-MM-DD. On a source that has already "
+                            "synced, changing this takes effect on the next full re-import — Sync "
+                            "keeps going from where it left off. Leave empty for the last two years; "
+                            "an earlier date imports more rows, which count towards your billed row usage."
+                        ),
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2020-01-01",
+                        secret=False,
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
@@ -440,6 +481,14 @@ class GoogleAdsSource(
             google_ads_client,
         )
 
+        # Caught here rather than at sync time: an unreadable value is treated as unset there, so
+        # the source would import a range nobody asked for with nothing to say why.
+        if isinstance(config, GoogleAdsSourceConfig) and config.start_date:
+            try:
+                parse_start_date(config.start_date)
+            except ValueError:
+                return False, "Start date must be a date in YYYY-MM-DD format, for example 2020-01-01."
+
         # The SDK's client default is the newest bundled version, so leaving these probes unpinned
         # would validate against a version the source may not sync with.
         resolved_version = self.resolve_api_version(api_version)
@@ -475,10 +524,7 @@ class GoogleAdsSource(
         except Exception as e:
             error_message = str(e)
             if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
-                return (
-                    False,
-                    "Insufficient permissions. Please reconnect your Google Ads account with the required scopes.",
-                )
+                return False, _SCOPE_INSUFFICIENT_ERROR
             if "NOT_ADS_USER" in error_message:
                 return (
                     False,

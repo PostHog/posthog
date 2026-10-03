@@ -1,14 +1,12 @@
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -45,7 +43,7 @@ class DeepgramSource(ResumableSource[DeepgramSourceConfig, DeepgramResumeConfig]
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.DEEPGRAM,
+            name=ExternalDataSourceType.DEEPGRAM,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Deepgram",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -81,6 +79,9 @@ You can create an API key in your [Deepgram Console](https://console.deepgram.co
         return {
             "401 Client Error: Unauthorized for url: https://api.deepgram.com": "Your Deepgram API key is invalid or has been revoked. Create a new key in your Deepgram Console, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.deepgram.com": "Your Deepgram API key is missing the scope needed to sync this data. Grant a read-capable scope in your Deepgram Console, then reconnect.",
+            # Deepgram returns 400 for a request it cannot accept. The same request always fails the
+            # same way, so retrying cannot fix it. Fail the sync and point the user to support.
+            "400 Client Error: Bad Request for url: https://api.deepgram.com": "Deepgram rejected this sync request with a 400 Bad Request, so the sync cannot continue. Contact PostHog support with your Deepgram source details so we can investigate.",
         }
 
     def get_schemas(

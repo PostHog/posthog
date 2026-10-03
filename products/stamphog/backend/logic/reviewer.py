@@ -1,16 +1,17 @@
 """Sandbox reviewer invocation + output parsing.
 
-The whole review engine — hard gates, tier classification, git-blame
-familiarity, and the LLM reviewer — now runs inside the sandbox via the Action's
-own modules (``tools/pr-approval-agent/review_local.py``). This module no longer
-embeds a reviewer script; it only:
+The whole review engine (hard gates, tier classification, author
+familiarity, and the LLM reviewer) runs inside the sandbox via the engine's own
+modules (``products/stamphog/packages/pr-approval-agent/review_local.py``). This
+module no longer embeds a reviewer script. It only does two things:
 
 - ``build_reviewer_invocation``: assembles the ``--context`` JSON payload the
   sandbox entrypoint consumes (PR metadata, changed files, the author's merged-PR
   numbers, base/head shas) and the ``uv run`` command to execute it.
-- ``parse_reviewer_output``: turns the entrypoint's last stdout JSON line — the
-  Action's full ``to_dict()`` contract — into a verdict, defensively. A run we
-  can't read is never an approval: malformed output escalates.
+- ``parse_reviewer_output``: turns the entrypoint's last stdout JSON line, which
+  is the engine's full ``to_dict()`` contract, into a verdict. It parses
+  defensively, because a run that the server cannot read is never an approval.
+  Malformed output escalates.
 
 The trusted review-norms prose and gate policy are NOT passed here — the server
 overwrites ``.stamphog/policy.yml`` and ``.stamphog/review-guidance.md`` in the
@@ -20,7 +21,13 @@ checkout with the default-branch versions, and the engine reads them from there.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import field
+
+import structlog
+
+from posthog.dataclasses import frozen
+
+logger = structlog.get_logger(__name__)
 
 # Final-verdict strings the engine emits (review_pr.Pipeline.final_verdict) mapped
 # onto the contract's ReviewVerdict values. Anything unrecognized escalates —
@@ -48,7 +55,12 @@ _LEGACY_VERDICT_MAP = {
 }
 
 
-@dataclass
+# Mirrors the engine's VERDICT_SCHEMA cap (products/stamphog/packages/pr-approval-agent/reviewer.py).
+# The columns that hold this text are TextField, so the schema is the only width it must respect.
+CHANGE_SUMMARY_MAX_CHARS = 600
+
+
+@frozen
 class ReviewerInvocation:
     """Everything needed to run the reviewer inside the sandbox.
 
@@ -64,7 +76,7 @@ class ReviewerInvocation:
     context_json: str
 
 
-@dataclass
+@frozen
 class ReviewerVerdict:
     """Parsed result of one reviewer run."""
 
@@ -79,6 +91,11 @@ class ReviewerVerdict:
     # The engine-rendered comment body (reasoning + judgment bullets + gate
     # mechanics), posted verbatim when present.
     review_body: str = ""
+    # Plain-language description of what the change does, written in the sandbox where the diff is
+    # available: one sentence about the whole change, plus one clause per owning team when more
+    # than one team owns files in it. Feeds the daily digest, which reads the clause addressed to
+    # its own audience. Blank when the engine predates the field, which the digest tolerates.
+    change_summary: str = ""
     # The engine version the output reports, for analytics segmentation.
     stamphog_version: str = ""
 
@@ -93,12 +110,17 @@ def build_reviewer_invocation(
     check_runs: list[dict],
     pr_reactions: list[dict],
     author_pr_numbers: list[int],
+    author_team_slugs: list[str],
+    familiarity_facts: dict | None,
+    commit_messages: list[str] | None,
     base_sha: str,
+    merge_base_sha: str | None,
     head_sha: str,
     repo: str,
     engine_dir: str,
     context_path: str,
     self_driving_review: bool = False,
+    review_trigger: str = "",
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
@@ -108,15 +130,33 @@ def build_reviewer_invocation(
     GraphQL-only surface the tokenless sandbox can't fetch itself), so an
     unresolved inline "do not merge" reaches the reviewer prompt.
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
-    (the engine needs them for the git-blame familiarity signal, which it
-    otherwise gets from a `gh` call it can't make in the sandbox).
+    (the familiarity signal matches a blamed commit to the author by its squash-merge
+    PR number when the commit has no GitHub login).
+    ``author_team_slugs`` are every GitHub team the author belongs to, which the
+    engine intersects with the teams owning the changed paths to tell the reviewer
+    whether the author owns the code (another `gh` call the sandbox can't make).
+    ``familiarity_facts`` are the blame and author-history facts the server read from GitHub
+    (``logic/familiarity_facts.py``), or None when that failed. The key is always set, because
+    its presence tells the engine to take familiarity from the facts and never from git history.
+    ``commit_messages`` are the PR's commit messages from GitHub, or None when they could not be read
+    at the reviewed head. The key is always set for the same reason: the engine reads provenance
+    trailers from them rather than from `git log`.
+    ``merge_base_sha`` lets the engine diff ``merge_base..head``. The sandbox checkout is shallow, so
+    git cannot compute the merge base there. It is None only for the gate-only pre-check, which reads
+    no checkout.
     ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
     to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
     never sets it, and only a run stamped with inbox provenance turns it on.
+    ``review_trigger`` is a ReviewTrigger value naming why stamphog is looking at this PR, which
+    the reviewer otherwise cannot tell: a requested review and an automatic one reach it identically.
+    It stays separate from ``self_driving_review`` on purpose. That flag relaxes two security gates,
+    this string only describes, and folding them together would put the carve-out back in play for
+    a change to descriptive text. Empty for a local run, where there is no trigger to report.
     """
     context = {
         "repo": repo,
         "base_sha": base_sha,
+        "merge_base_sha": merge_base_sha,
         "head_sha": head_sha,
         "pr": pr,
         "files": files,
@@ -126,7 +166,11 @@ def build_reviewer_invocation(
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
+        "author_team_slugs": list(author_team_slugs),
+        "familiarity_facts": familiarity_facts,
+        "commit_messages": commit_messages,
         "self_driving_review": self_driving_review,
+        "review_trigger": review_trigger,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(
@@ -164,6 +208,14 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
 
     reviewer = obj.get("reviewer") or {}
     reasoning = str(reviewer.get("reasoning", "")).strip()
+    # Clipped rather than rejected: the engine caps this at CHANGE_SUMMARY_MAX_CHARS, but the
+    # value crosses a trust boundary, so the server does not rely on the sandbox honoring it.
+    # Warned about because a clip inside the last per-team clause drops that team's merge from the
+    # digest with nothing else to see it.
+    change_summary = str(reviewer.get("change_summary", "")).strip()
+    if len(change_summary) > CHANGE_SUMMARY_MAX_CHARS:
+        logger.warning("stamphog_change_summary_clipped", length=len(change_summary), limit=CHANGE_SUMMARY_MAX_CHARS)
+    change_summary = change_summary[:CHANGE_SUMMARY_MAX_CHARS]
     issues = reviewer.get("issues") or []
     showstoppers = [str(i) for i in issues] if isinstance(issues, list) else [str(issues)]
 
@@ -186,6 +238,7 @@ def _parse_rich(obj: dict) -> ReviewerVerdict:
         gate_blocked=gate_blocked,
         gate_result=gate_result,
         review_body=str(obj.get("review_body") or ""),
+        change_summary=change_summary,
         stamphog_version=str(obj.get("stamphog_version") or ""),
     )
 
@@ -199,6 +252,14 @@ def _parse_legacy(obj: dict) -> ReviewerVerdict:
     if verdict == "escalate" and raw_verdict not in _LEGACY_VERDICT_MAP:
         showstoppers.append(f"Unrecognized verdict value: {raw_verdict!r}")
     return ReviewerVerdict(verdict=verdict, reasoning=reasoning, showstoppers=showstoppers)
+
+
+def parse_engine_timings(raw: str) -> dict[str, int]:
+    """The engine's own phase timings from its result line, or {} when it printed none."""
+    timings = (_find_result_object(raw) or {}).get("timings_ms")
+    if not isinstance(timings, dict):
+        return {}
+    return {str(name): value for name, value in timings.items() if isinstance(value, int)}
 
 
 def _find_result_object(raw: str) -> dict | None:

@@ -15,8 +15,7 @@ import {
   TableIcon,
   VideoIcon,
 } from "@phosphor-icons/react";
-import type { PostHogProductId } from "@posthog/agent/posthog-products";
-import type { AcpMessage } from "@posthog/shared";
+import type { AcpMessage, PostHogProductId } from "@posthog/shared";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";

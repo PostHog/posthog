@@ -6,6 +6,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
+    _create_flag_evaluations,
     flush_persons_and_events,
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
@@ -23,6 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.approvals.backend.models import ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -34,8 +36,14 @@ from products.feature_flags.backend.api.organization_feature_flag import (
     TARGET_COPY_PERMISSION_ERROR,
     OrganizationFeatureFlagView,
 )
-from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    encrypt_flag_payloads,
+    get_decrypted_flag_payload,
+)
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
 
@@ -153,7 +161,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.organization.save()
 
         # Import AccessControl for setting up private team
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Make team_2 private by setting default access to "none"
         AccessControl.objects.create(
@@ -183,7 +191,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Create a second user and log in as them (not the flag creator) so that
         # the "creator is always visible" exception does not apply.
@@ -382,7 +390,7 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
         ]
         self.organization.save()
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Use a second user (not the flag creator) so the creator-always-visible
         # exception in filter_queryset_by_access_level does not apply.
@@ -444,6 +452,72 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             }
         ]
         self.organization.save()
+
+    def test_copy_rejects_a_source_in_another_config_format(self):
+        self.feature_flag_to_copy.filters = {
+            "version": 2,
+            "return_type": "boolean",
+            "default_value": False,
+            "rules": [],
+        }
+        self.feature_flag_to_copy.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": self.feature_flag_to_copy.key,
+                "from_project": self.feature_flag_to_copy.team_id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "configuration format" in response.json()["error"]
+        assert not FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_to_copy.key).exists()
+
+    def test_copy_names_a_dependency_in_another_config_format(self):
+        dependency = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="other-format-dependency",
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+        )
+        self.feature_flag_to_copy.filters = {
+            "groups": [{"rollout_percentage": 100, "properties": [self._flag_dependency_property(dependency)]}]
+        }
+        self.feature_flag_to_copy.save()
+
+        response = self._post_copy_flag(self.feature_flag_to_copy, copy_dependencies=True)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["error"].startswith("Dependency flag 'other-format-dependency' uses")
+        assert not FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_to_copy.key).exists()
+
+    @parameterized.expand(["evaluation_contexts", "tags"])
+    def test_copy_succeeds_when_target_requires_flag_metadata(self, requirement):
+        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
+        if requirement == "evaluation_contexts":
+            self.team_2.require_evaluation_contexts = True
+            self.team_2.save()
+        else:
+            TeamFeatureFlagPolicyConfig.objects.update_or_create(team=self.team_2, defaults={"require_tags": True})
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+        }
+
+        # The evaluation contexts requirement sits behind FLAG_EVALUATION_TAGS, so without this
+        # the contexts case would pass whether or not the copy is exempt.
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(url, data)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["failed"] == []
+        assert FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists()
 
     @snapshot_postgres_queries
     def test_copy_feature_flag_create_new(self):
@@ -983,7 +1057,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
     def test_copy_feature_flag_to_inaccessible_team_fails(self):
         """Test that copying a flag to a team the user cannot access fails."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
 
@@ -1012,7 +1086,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["failed"][0]["error_message"], "Project not found.")
 
     def test_copy_feature_flag_to_target_without_feature_flag_create_access_fails(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-target-create-denied@posthog.com")
@@ -1060,7 +1134,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
     def test_copy_feature_flag_with_dependencies_succeeds_for_allowed_target_when_another_target_is_denied(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-mixed-target-create-access@posthog.com")
@@ -1113,7 +1187,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=self.team_2, key=flag_to_copy.key).exists())
 
     def test_copy_feature_flag_does_not_update_object_denied_target_flag(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-target-object-denied@posthog.com")
@@ -1169,7 +1243,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertFalse(FeatureFlag.objects.filter(team=other_team, key=self.feature_flag_key).exists())
 
     def test_copy_feature_flag_to_team_without_flag_editor_access_fails(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
 
@@ -1219,7 +1293,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         real_save = FeatureFlagSerializer.save
 
         def gated_save(serializer_self, **kwargs):
-            if kwargs.get("team_id") == self.team_2.id:
+            if serializer_self.context.get("team_id") == self.team_2.id:
                 raise ApprovalRequired(
                     change_request=change_request,
                     message="Approval required",
@@ -1546,7 +1620,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_copy_feature_flag_source_project_denied_returns_not_found(self, _name, endpoint):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-source-project-denied@posthog.com")
@@ -1577,7 +1651,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
     )
     def test_copy_feature_flag_source_object_denied_returns_forbidden(self, _name, endpoint):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-source-object-denied@posthog.com")
@@ -1925,16 +1999,58 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(flag_response["has_encrypted_payloads"], True)
         self.assertEqual(flag_response["key"], encrypted_flag.key)
 
+        self.assertEqual(flag_response["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+
         # Verify the flag in the database has encrypted payloads
         copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
         self.assertTrue(copied_flag.is_remote_configuration)
         self.assertTrue(copied_flag.has_encrypted_payloads)
 
         # Verify the encrypted payload can be decrypted back to the original value
-        from products.feature_flags.backend.encrypted_flag_payloads import get_decrypted_flag_payload
-
         decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
         self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
+
+    def test_copy_encrypted_payloads_flag_over_existing_flag_redacts_the_response(self):
+        target_project = self.team_2
+
+        source_filters = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "secret_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": source_filters})
+        encrypted_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-flag",
+            filters=source_filters,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        target_filters = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "target_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": target_filters})
+        FeatureFlag.objects.create(
+            team=target_project,
+            created_by=self.user,
+            key=encrypted_flag.key,
+            filters=target_filters,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        response = self._post_copy_flag(encrypted_flag, [target_project.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        flag_response = response.json()["success"][0]
+        self.assertEqual(flag_response["updated_existing"], True)
+        self.assertEqual(flag_response["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+
+        copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
+        stored_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
+        self.assertEqual(stored_payload, '{"key": "secret_value"}')
 
     def test_copy_encrypted_payloads_flag_to_multiple_projects(self):
         """Test that copying a flag with encrypted payloads to multiple projects works correctly."""
@@ -2019,6 +2135,21 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(body["reused_dependency_keys"], [])
         self.assertEqual(body["warnings"], ["Project not found."])
         self.assertEqual(body["reason"], "Project not found.")
+
+    def test_copy_feature_flag_dependency_requirements_aggregates_mixed_targets(self):
+        target_team_3 = Team.objects.create(organization=self.organization)
+        flag_a, _ = self._create_dependency_chain("flag-a", "flag-b")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="flag-b", active=True)
+
+        response = self._post_dependency_requirements(flag_a, [self.team_2.id, target_team_3.id])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertTrue(body["can_copy_dependencies"])
+        self.assertEqual(body["dependency_count"], 1)
+        self.assertEqual(body["copied_dependency_keys"], ["flag-b"])
+        self.assertEqual(body["reused_dependency_keys"], [])
+        self.assertEqual(body["warnings"], [])
 
     def test_copy_feature_flag_rejects_more_than_50_target_projects(self):
         flag_to_copy = FeatureFlag.objects.create(
@@ -2116,7 +2247,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         self.assertEqual(copied_dependency_keys, [str(target_b.id), str(copied_c.id)])
 
     def test_copy_feature_flag_with_dependencies_ignores_restricted_transitive_dependency_under_reused_target(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._enable_access_control()
         copying_user = self._create_user("copy-reused-branch-restricted-child@posthog.com")
@@ -2390,7 +2521,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_dependencies_does_not_reuse_restricted_target_dependency(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
@@ -2797,7 +2928,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_with_dependency_denied_returns_forbidden(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
@@ -2902,7 +3033,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
     def test_copy_feature_flag_overwrite_denied_by_object_level_access_control_fails(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {
@@ -3045,6 +3176,25 @@ class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
         response = self._post_with_key(value)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_personal_api_key_receives_the_decrypted_payloads(self):
+        filters = {"groups": [{"rollout_percentage": 100}], "payloads": {"true": '{"key": "secret_value"}'}}
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": filters})
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-key-to-copy",
+            filters=filters,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+        self.body["feature_flag_key"] = "encrypted-key-to-copy"
+        value = self._create_key(scopes=["feature_flag:write"])
+
+        response = self._post_with_key(value)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["success"][0]["filters"]["payloads"]["true"] == '{"key": "secret_value"}'
 
 
 class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
@@ -3637,7 +3787,7 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
     def test_copy_flag_schedule_dependency_denied_does_not_disclose_key(self):
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
@@ -3803,7 +3953,15 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
         for entry in body:
             assert "evaluations_7d" in entry
 
-    def test_evaluation_counts_match_events(self):
+    @parameterized.expand(
+        [
+            ("events", FlagEvaluationsMode.EVENTS, 2, 1),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, 2, 1),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, 1, 3),
+        ]
+    )
+    def test_evaluation_counts_come_from_the_table_the_mode_selects(self, _name, mode, team_count, other_team_count):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
         _create_event(
             team=self.team,
             distinct_id="u1",
@@ -3823,12 +3981,13 @@ class TestOrganizationFeatureFlagEvaluations(ClickhouseTestMixin, APIBaseTest):
             properties={"$feature_flag": "shared_flag", "$feature_flag_response": False},
         )
         flush_persons_and_events()
+        _create_flag_evaluations(self.team.id, "shared_flag")
+        _create_flag_evaluations(self.other_team.id, "shared_flag", count=3)
 
         body = self.client.get(self._url("shared_flag")).json()
         by_team = {entry["team_id"]: entry["evaluations_7d"] for entry in body}
 
-        assert by_team[self.team.id] == 2
-        assert by_team[self.other_team.id] == 1
+        assert by_team == {self.team.id: team_count, self.other_team.id: other_team_count}
 
     def test_clickhouse_failure_returns_null_evaluations(self):
         with patch(
@@ -3893,6 +4052,10 @@ class TestOrganizationFeatureFlagCopyApprovalGate(APIBaseTest):
         assert len(body["failed"]) == 1
         assert body["failed"][0]["project_id"] == self.team_2.id
         assert not FeatureFlag.objects.filter(team=self.team_2, key=self.source_flag.key).exists()
+
+        # The reported change request has to be one an approver can still act on.
+        assert body["failed"][0]["approval_pending"] is True
+        assert ChangeRequest.objects.filter(pk=body["failed"][0]["change_request_id"]).exists()
 
     def test_copy_active_flag_onto_existing_active_target_is_gated(self, _mock_enabled):
         # Existing destination flag is enabled via update() — covered by Task 2; assert it here too.

@@ -1,25 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
-import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { IconMinus } from '@posthog/icons'
+import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { TZLabel } from 'lib/components/TZLabel'
+import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { bulkSelectLogic } from '../logics/bulkSelectLogic'
-import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { sourceDisplay } from '../utils'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from './Assignee/AssigneeDisplay'
-import { AssigneeSelect } from './Assignee/AssigneeSelect'
+import { QuillAssigneeSelect } from './Assignee/QuillAssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
-import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
+import { IssueSeveritySelect } from './IssueSeveritySelect'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { RuntimeIcon } from './RuntimeIcon'
 
@@ -68,10 +67,9 @@ export const IssueListTitleColumn = (props: {
     const { recordIndex, results } = props
     const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(bulkSelectLogic)
     const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(bulkSelectLogic)
-    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
+    const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
-    const { orderBy } = useValues(issueQueryOptionsLogic)
-
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
 
@@ -125,8 +123,9 @@ export const IssueListTitleColumn = (props: {
                 )}
                 <IssueMetadata
                     record={record}
-                    orderBy={orderBy}
+                    severityLoading={severityUpdateInFlightIds.includes(record.id)}
                     onStatusChange={(status) => updateIssueStatus(record.id, status)}
+                    onSeverityChange={(severity) => updateIssueSeverity(record.id, severity)}
                     onAssigneeChange={(assignee) => updateIssueAssignee(record.id, assignee)}
                 />
             </div>
@@ -143,18 +142,7 @@ const IssueTitle = ({
     issueUrl: string
     runtime: ErrorTrackingRuntime
 }): JSX.Element => (
-    <Link
-        className="flex-1 pr-12 text-[0.9rem]"
-        to={issueUrl}
-        onClick={() => {
-            const issueLogic = errorTrackingIssueSceneLogic({
-                id: record.id,
-                timestamp: record.last_seen,
-            })
-            issueLogic.mount()
-            issueLogic.actions.setIssue(record)
-        }}
-    >
+    <Link className="flex-1 pr-12 text-[0.9rem]" to={issueUrl}>
         <div className="flex items-center gap-2 h-(--line-height)">
             <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
             <span className="font-semibold line-clamp-1">{record.name || 'Unknown Type'}</span>
@@ -164,51 +152,31 @@ const IssueTitle = ({
 
 const IssueMetadata = ({
     record,
-    orderBy,
+    severityLoading,
     onStatusChange,
+    onSeverityChange,
     onAssigneeChange,
 }: {
     record: ErrorTrackingIssue
-    orderBy: string
+    severityLoading: boolean
     onStatusChange: (status: ErrorTrackingIssue['status']) => void
+    onSeverityChange: (severity: NonNullable<ErrorTrackingIssue['severity']> | null) => void
     onAssigneeChange: (assignee: ErrorTrackingIssue['assignee']) => void
 }): JSX.Element => (
-    <div className="flex items-center text-secondary h-[calc(var(--line-height)*1.3)]">
-        <IssueStatusSelect status={record.status} onChange={onStatusChange} />
-        <CustomSeparator />
-        <AssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
-            {(anyAssignee) => (
-                <div
-                    className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
-                    role="button"
-                >
-                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
-                    <AssigneeLabelDisplay
-                        assignee={anyAssignee}
-                        className="ml-1 text-xs text-secondary"
-                        size="xsmall"
-                    />
-                    <IconChevronDown />
-                </div>
-            )}
-        </AssigneeSelect>
-        <CustomSeparator />
-        {orderBy === 'first_seen' && (
-            <>
-                <TZLabel
-                    time={record.first_seen}
-                    className="border-dotted border-b text-xs ml-1"
-                    suffix="old"
-                    delayMs={750}
-                />
-                <IconChevronRight className="text-quaternary mx-0.5" fontSize="0.75rem" />
-            </>
-        )}
-        {record.last_seen ? (
-            <TZLabel time={record.last_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
-        ) : (
-            <LemonSkeleton className="ml-1" />
-        )}
+    <div className="my-1 flex h-6 items-center text-secondary">
+        <ButtonGroup>
+            <IssueStatusSelect status={record.status} onChange={onStatusChange} />
+            <IssueSeveritySelect severity={record.severity} onChange={onSeverityChange} loading={severityLoading} />
+            <QuillAssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
+                {(anyAssignee) => (
+                    <Button variant="outline" size="sm">
+                        <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                        <AssigneeLabelDisplay assignee={anyAssignee} className="text-xs text-secondary" size="xsmall" />
+                        <SelectTriggerIcon />
+                    </Button>
+                )}
+            </QuillAssigneeSelect>
+        </ButtonGroup>
     </div>
 )
 

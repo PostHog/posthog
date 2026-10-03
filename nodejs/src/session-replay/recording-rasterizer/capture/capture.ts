@@ -21,7 +21,16 @@ export async function capturePlayback(
     progress: RasterizationProgress | null = null,
     log: Logger = createLogger()
 ): Promise<
-    Pick<RecordingResult, 'capture_duration_s' | 'frame_count' | 'truncated' | 'inactivity_periods' | 'timings'>
+    Pick<
+        RecordingResult,
+        | 'capture_duration_s'
+        | 'frame_count'
+        | 'truncated'
+        | 'inactivity_periods'
+        | 'frame_session_ms'
+        | 'pre_roll_frames'
+        | 'timings'
+    >
 > {
     const captureStart = process.hrtime()
     const ffmpegStderr: string[] = []
@@ -79,8 +88,8 @@ export async function capturePlayback(
     })
 
     // Monitor page lifecycle events that can terminate capture.
-    // Named functions so we can remove them in the finally block — the page
-    // is pooled and reused, so anonymous listeners would accumulate.
+    // Named functions so we can remove them in the finally block; leaving them attached would
+    // fire stale error logs when the page is closed on release.
     let captureDone = false
     const onPageClose = (): void => {
         if (!captureDone) {
@@ -96,24 +105,30 @@ export async function capturePlayback(
     page.on('error', onPageError)
 
     // When ffmpeg dies, puppeteer-capture stops capturing but waitForTimeout()
-    // hangs forever. Listen for captureStopped to break out of the loop.
-    let captureAborted: Error | null = null
-    let captureAbortReject: ((err: Error) => void) | null = null
+    // hangs forever. Listen for captureStopped to break out of the loop: settled with an error
+    // on an unexpected stop, settled cleanly when ffmpeg exiting is the end of the render.
+    // undefined = still capturing, null = stopped cleanly, Error = stopped with a failure.
+    let stopResult: Error | null | undefined = undefined
+    let captureStopSettle: ((err: Error | null) => void) | null = null
     const onCaptureStopped = (): void => {
-        if (captureDone || player.isEnded()) {
+        // ffmpeg exits on its own once -t reaches the trim duration, and can do so before the
+        // 250ms loop observes trimFrameLimit; that is a completed render, not an abort.
+        if (captureDone || player.isEnded() || frameCount >= captureConfig.trimFrameLimit) {
             // Playback finished naturally — ffmpeg exiting is expected.
             log.info({ frames: frameCount }, 'capture stopped after playback ended')
-            return
+            stopResult = null
+        } else {
+            log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
+            stopResult =
+                player.fatalError ?? new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
         }
-        log.error({ stderr: ffmpegStderr.slice(-20), frames: frameCount }, 'capture stopped unexpectedly')
-        const err = player.fatalError ?? new RasterizationError('capture stopped unexpectedly', true, 'CAPTURE_ABORTED')
-        captureAborted = err
-        captureAbortReject?.(err)
+        captureStopSettle?.(stopResult)
     }
     recorder.on('captureStopped', onCaptureStopped)
 
     let virtualElapsed = 0
     let truncated = false
+    let preRollFrames = 0
     try {
         await recorder.start(outputPath)
         const vp = page.viewport()
@@ -125,21 +140,28 @@ export async function capturePlayback(
         await player.installCallbackErrorGuards()
 
         await player.startPlayback()
-        log.info('playback started')
+        // Frames captured before the player's loop exists have no sample, so the timeline starts here
+        // rather than at video second zero.
+        preRollFrames = frameCount
+        log.info({ pre_roll_frames: preRollFrames }, 'playback started')
 
         const checkIntervalMs = 250
 
         while (virtualElapsed < captureConfig.maxVirtualTimeMs) {
-            if (captureAborted) {
-                throw captureAborted
+            if (stopResult !== undefined) {
+                if (stopResult) {
+                    throw stopResult
+                }
+                log.info({ frames: frameCount }, 'capture already stopped, ending loop')
+                break
             }
-            await Promise.race([
-                recorder.waitForTimeout(checkIntervalMs),
-                new Promise<never>((_, reject) => {
-                    captureAbortReject = reject
-                }),
-            ])
-            captureAbortReject = null
+            await new Promise<void>((resolve, reject) => {
+                captureStopSettle = (err) => (err ? reject(err) : resolve())
+                // A rejection landing after captureStopSettle already settled the promise is
+                // swallowed here instead of surfacing as an unhandled rejection.
+                Promise.resolve(recorder.waitForTimeout(checkIntervalMs)).then(resolve, reject)
+            })
+            captureStopSettle = null
             virtualElapsed += checkIntervalMs
 
             if (frameCount >= captureConfig.trimFrameLimit) {
@@ -167,7 +189,7 @@ export async function capturePlayback(
         }
     } finally {
         captureDone = true
-        captureAbortReject = null
+        captureStopSettle = null
         page.off('close', onPageClose)
         page.off('error', onPageError)
         // puppeteer-capture's PuppeteerCapture extends EventEmitter but only
@@ -207,6 +229,8 @@ export async function capturePlayback(
         frame_count: frameCount,
         truncated,
         inactivity_periods: inactivityPeriods,
+        frame_session_ms: await player.readFrameTimeline(),
+        pre_roll_frames: preRollFrames,
         timings: { setup_s: 0, capture_s: elapsed(captureStart) },
     }
 }

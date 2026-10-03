@@ -6,7 +6,7 @@ import { logger } from '~/common/utils/logger'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
     labelNames: ['result'],
 })
 
@@ -41,7 +41,9 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
  * Write path (SES webhook): `recordTransientBounces` counts consecutive soft bounces per address
  * and flips it to suppressed once the count crosses the threshold; `recordDeliveries` resets the
  * count on any successful delivery so a one-off outage never accumulates into a suppression.
- * Manual entries (added via the API/UI) are never touched by the bounce/delivery bookkeeping.
+ * `recordHardBounces` and `recordComplaints` suppress an address immediately — a permanent bounce
+ * or a spam complaint is definitive. Manual entries (added via the API/UI) are never touched by
+ * any of this bookkeeping.
  *
  * Cache invalidation window (v1):
  *   The LazyLoader cache is per-process. `clear()` only fires on the Node process that performed
@@ -94,7 +96,7 @@ export class EmailSuppressionService {
     /**
      * Record one or more soft (Transient) bounces. Increments each address's consecutive-bounce
      * counter and auto-suppresses it in the same statement once it reaches the threshold. Manual
-     * entries keep their suppressed state untouched.
+     * entries keep their suppressed state untouched, and complaint entries keep their reason.
      */
     public async recordTransientBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
@@ -138,8 +140,10 @@ export class EmailSuppressionService {
                         AND posthog_messagesuppression.suppressed = false
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN NOW()
                     ELSE posthog_messagesuppression.suppressed_at END,
+                -- Same precedence as the hard-bounce path: a COMPLAINT row keeps its reason so it
+                -- can't end up labelled COMPLAINT while reading as a soft-bounce suppression.
                 reason = CASE
-                    WHEN posthog_messagesuppression.source <> 'MANUAL'
+                    WHEN posthog_messagesuppression.source NOT IN ('MANUAL', 'COMPLAINT')
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN $2
                     ELSE posthog_messagesuppression.reason END,
                 -- A provably-undeliverable address coming back over threshold un-deletes itself.
@@ -163,7 +167,9 @@ export class EmailSuppressionService {
     /**
      * Record one or more hard (Permanent) bounces. Suppresses each address immediately — no
      * threshold, no counter — because a permanent bounce is definitive. Manual entries are never
-     * touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it.
+     * touched. If a row already exists as an unsuppressed BOUNCE counter, this escalates it. A row
+     * that a complaint already claimed keeps its source and reason, so the bounce refreshes the
+     * diagnostic without relabelling why the address is suppressed.
      */
     public async recordHardBounces(teamId: number, emails: string[], diagnostic?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
@@ -201,8 +207,12 @@ export class EmailSuppressionService {
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed_at
                     WHEN posthog_messagesuppression.suppressed = false THEN NOW()
                     ELSE posthog_messagesuppression.suppressed_at END,
+                -- A complaint outranks a bounce as the reason a row exists, so it keeps its reason
+                -- here the way a manual entry does. This upsert never reassigns the source, so
+                -- overwriting the reason on a COMPLAINT row would leave the two contradicting each
+                -- other. The bounce still refreshes the diagnostic and the suppression state above.
                 reason = CASE
-                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.reason
+                    WHEN posthog_messagesuppression.source IN ('MANUAL', 'COMPLAINT') THEN posthog_messagesuppression.reason
                     ELSE EXCLUDED.reason END,
                 -- A provably-undeliverable address coming back un-deletes itself.
                 deleted = CASE
@@ -218,6 +228,75 @@ export class EmailSuppressionService {
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
             logger.error('[EmailSuppression] Failed to record hard bounces', { teamId, error })
+        }
+    }
+
+    /**
+     * Record one or more spam complaints. Suppresses each address immediately — no threshold —
+     * because a complaint is the recipient asking us to stop, and provider complaint-rate
+     * thresholds are far tighter than bounce thresholds. Manual entries are never touched; any
+     * other existing row is re-keyed to COMPLAINT so the list shows the operative reason. The
+     * bounce paths then treat COMPLAINT as authoritative, so a later bounce can't relabel the row.
+     */
+    public async recordComplaints(teamId: number, emails: string[], feedbackType?: string): Promise<void> {
+        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        if (identifiers.length === 0) {
+            return
+        }
+
+        // The feedback type is the provider's classification of the report (e.g. "abuse",
+        // "fraud"); surface it in the reason for operator visibility.
+        const reason = feedbackType
+            ? `Auto-suppressed after a spam complaint (feedback type: ${feedbackType.slice(0, 100)})`
+            : 'Auto-suppressed after a spam complaint'
+
+        // Params: teamId, reason, then one identifier per row.
+        const valueClauses: string[] = []
+        const params: (number | string | null)[] = [teamId, reason]
+        identifiers.forEach((identifier, i) => {
+            const p = params.length + 1 + i
+            valueClauses.push(
+                `(gen_random_uuid(), $1, $${p}, 'COMPLAINT', $2, 0, NULL, NULL, true, NOW(), false, NOW(), NOW())`
+            )
+        })
+        params.push(...identifiers)
+
+        const query = `
+            INSERT INTO posthog_messagesuppression
+                (id, team_id, identifier, source, reason, transient_bounce_count, last_bounce_at,
+                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at)
+            VALUES ${valueClauses.join(', ')}
+            ON CONFLICT (team_id, identifier) DO UPDATE SET
+                -- Manual entries are authoritative; never override them. Any other row re-keys to
+                -- COMPLAINT: the complaint is the operative reason the address is suppressed now.
+                source = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.source
+                    ELSE 'COMPLAINT' END,
+                suppressed = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed
+                    ELSE true END,
+                suppressed_at = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed_at
+                    WHEN posthog_messagesuppression.suppressed = false THEN NOW()
+                    ELSE posthog_messagesuppression.suppressed_at END,
+                reason = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.reason
+                    ELSE EXCLUDED.reason END,
+                -- A soft-deleted row comes back: the complaint is fresh evidence the recipient
+                -- must not be mailed.
+                deleted = CASE
+                    WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.deleted
+                    ELSE false END,
+                updated_at = NOW()
+        `
+
+        try {
+            await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordComplaints')
+            cdpEmailSuppressionTotal.inc({ result: 'complaint' }, identifiers.length)
+            // Only invalidate the keys we touched — cross-team entries stay warm.
+            this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
+        } catch (error) {
+            logger.error('[EmailSuppression] Failed to record complaints', { teamId, error })
         }
     }
 

@@ -11,19 +11,23 @@ use std::num::NonZeroU16;
 use std::time::Duration;
 
 use anyhow::{bail, ensure, Context, Result};
+use chrono::{DateTime, Utc};
 use cohort_core::filters::{CohortId, TeamId};
 use cohort_seeder::app::reconcile_dispatch::{
     prepare_reconcile_dispatch, CompletionRequirement, PrepareReconcileDispatchError,
     RegisterBackfillConfirmation,
 };
+use cohort_seeder::app::{eligible_run_ids, fail_exhausted_runs_of_kind};
 use cohort_seeder::domain::{
-    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms, ScopeKind,
+    tile_ranges, AttemptCount, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
+    RetryBackoffPolicy, ScanVolume, ScopeKind,
 };
-use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
+use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome, NO_ERROR_RECORDED};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
-    discover_runs, establish_boundary, fail_run, load_reconcile_run, record_run_warning,
-    BoundaryOutcome, ReconcileRunError, RunError, RunKind, RunStatus, RunWarningNote,
+    complete_trailing_runs, discover_runs, establish_boundary, fail_run, load_reconcile_run,
+    record_run_warning, BoundaryOutcome, ReconcileRunError, RunError, RunKind, RunStatus,
+    RunWarningNote, SeedPhase,
 };
 use cohort_seeder::store::{Claimant, LeaseDuration, MaxAttempts, RenderedError};
 use cohort_seeder::test_support;
@@ -33,12 +37,15 @@ use uuid::Uuid;
 
 mod support;
 use support::{
-    behavioral_filter, empty_pinned, ensure_lease_lost, insert_participation, insert_person_run,
-    insert_run, person_filter, person_pinned, pinned_condition, planned_count, with_db,
-    ACTIVE_HASH, SUPERSEDED_HASH,
+    behavioral_filter, empty_pinned, ensure_lease_lost, historical, insert_participation,
+    insert_person_run, insert_run, person_filter, person_pinned, pinned_condition, planned_count,
+    trailing, with_db, ACTIVE_HASH, SUPERSEDED_HASH,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
+/// Fail a chunk without holding it out of the claim gate, for the scenarios that assert on
+/// something other than the backoff and want the chunk claimable on the next call.
+const NO_BACKOFF: Duration = Duration::ZERO;
 
 /// Discovery honors an `Only` allowlist (self team only) and `All` admits every eligible run
 /// regardless of team, trigger, or already-seeding status.
@@ -487,8 +494,20 @@ async fn planning_is_idempotent_scopes_team_and_gates_on_seeding() -> Result<()>
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
 
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 0);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100, 101]), ONE_BAND)
+                    .await?
+            )? == 2
+        );
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100, 101]), ONE_BAND)
+                    .await?
+            )? == 0
+        );
         let progress = store.chunk_progress(seeding_run).await?;
         ensure!(progress.total() == 2);
         ensure!(progress.remaining() == 2);
@@ -510,7 +529,9 @@ async fn planning_is_idempotent_scopes_team_and_gates_on_seeding() -> Result<()>
         )
         .await?;
         ensure!(matches!(
-            store.plan_chunks(idle_run, [200], ONE_BAND).await?,
+            store
+                .plan_chunks(idle_run, historical([200]), ONE_BAND)
+                .await?,
             PlanOutcome::RunNotSeeding
         ));
         Ok(())
@@ -527,8 +548,20 @@ async fn planning_fans_out_bands_and_claims_carry_the_band_count() -> Result<()>
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
         let four_bands = NonZeroU16::new(4).context("four is non-zero")?;
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], four_bands).await?)? == 4);
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], four_bands).await?)? == 0);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100]), four_bands)
+                    .await?
+            )? == 4
+        );
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100]), four_bands)
+                    .await?
+            )? == 0
+        );
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -557,7 +590,13 @@ async fn concurrent_claims_take_disjoint_chunks() -> Result<()> {
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100, 101], ONE_BAND).await?)? == 2);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100, 101]), ONE_BAND)
+                    .await?
+            )? == 2
+        );
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -586,7 +625,7 @@ async fn expired_lease_reclaim_bumps_epoch_and_fences_the_stale_lease() -> Resul
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -616,15 +655,15 @@ async fn expired_lease_reclaim_bumps_epoch_and_fences_the_stale_lease() -> Resul
         ensure_lease_lost(
             test_support::heartbeat(&store, stale, &Claimant::new("worker-a")?, lease60).await,
         )?;
-        ensure_lease_lost(test_support::mark_produced_raw(&store, stale, 1).await)?;
+        ensure_lease_lost(test_support::mark_produced_raw(&store, stale, 1, ScanVolume::default()).await)?;
         ensure_lease_lost(test_support::confirm_raw(&store, stale, &ProduceHwms::default()).await)?;
-        ensure_lease_lost(test_support::fail(&store, stale, "stale failure").await)?;
+        ensure_lease_lost(test_support::fail(&store, stale, "stale failure", NO_BACKOFF).await)?;
         ensure_lease_lost(test_support::unclaim(&store, stale).await)?;
 
         // The fresh lease, in contrast, drives the chunk through mark-produced and confirm.
         let mut hwms = ProduceHwms::default();
         hwms.observe(3, 41);
-        test_support::mark_produced_raw(&store, reclaimed_lease, 0).await?;
+        test_support::mark_produced_raw(&store, reclaimed_lease, 0, ScanVolume::default()).await?;
         test_support::confirm_raw(&store, reclaimed_lease, &hwms).await?;
         drop(reclaimed);
         Ok(())
@@ -639,7 +678,13 @@ async fn unclaim_returns_chunk_to_pending_and_refunds_one_attempt() -> Result<()
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100]), ONE_BAND)
+                    .await?
+            )? == 1
+        );
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -670,6 +715,469 @@ async fn unclaim_returns_chunk_to_pending_and_refunds_one_attempt() -> Result<()
     .await
 }
 
+/// A failed chunk is held out of the claim gate until the wait `fail` stamped has elapsed, then
+/// becomes claimable again with the stamp cleared. Without the hold, the poll loop re-claims a
+/// chunk failing for a durable reason within seconds and burns its whole attempt budget on the same
+/// failure, which is the reclaim storm this gate exists to break.
+#[tokio::test]
+async fn a_failed_chunk_waits_out_its_backoff_before_it_is_claimable_again() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+
+        let claimed = store
+            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .await?
+            .context("claimant found no chunk")?;
+        let lease = claimed.chunk.spec().lease;
+        let chunk_id = lease.chunk_id();
+        // The claim reports the attempt the backoff is sized from.
+        ensure!(claimed.chunk.spec().attempt.get() == 1);
+        store
+            .fail(
+                lease,
+                &RenderedError::from_message("transient"),
+                Duration::from_secs(600),
+            )
+            .await?;
+        drop(claimed);
+
+        // The stamp is `now() + delay`, so the remaining wait is the delay minus test runtime.
+        let remaining_secs: f64 = sqlx::query_scalar(
+            "SELECT extract(epoch FROM next_attempt_at - now())::float8
+             FROM cohort_backfill_chunks WHERE id = $1",
+        )
+        .bind(chunk_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(
+            (540.0..=600.0).contains(&remaining_secs),
+            "expected a ~600s hold, got {remaining_secs}s"
+        );
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .await?
+            .is_none());
+
+        // Once the wait has passed the chunk is claimable, and the claim clears the stamp so a
+        // later failure is not gated by a stale one.
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET next_attempt_at = now() - interval '1 second' WHERE id = $1",
+        )
+        .bind(chunk_id)
+        .execute(&pool)
+        .await?;
+        let retried = store
+            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .await?
+            .context("chunk past its backoff was not claimable")?;
+        ensure!(retried.chunk.spec().attempt.get() == 2);
+        let stamp: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("SELECT next_attempt_at FROM cohort_backfill_chunks WHERE id = $1")
+                .bind(chunk_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(stamp.is_none(), "the claim left a stale backoff stamp");
+        Ok(())
+    })
+    .await
+}
+
+/// The recovery path sizes the wait from the chunk's own attempt count, and that wait is what
+/// reaches `next_attempt_at`.
+///
+/// The store's `fail` takes the delay as an argument, so every other test here supplies its own and
+/// proves nothing about where a real one comes from. A recovery path that always asked for the
+/// first attempt's wait would hold every chunk a flat `base` forever — defeating the whole feature
+/// — while the policy's own unit tests and the gate test above all stayed green.
+///
+/// The chunks start one attempt below the cap, so the claim reports an attempt whose ceiling has
+/// saturated at 1800s while a first attempt's is 1s. Full jitter draws from `[0, ceiling]`, so one
+/// sample could still land low; over four chunks the chance that all four fall inside the first
+/// attempt's 1s bound is about (1/1800)^4, which does not flake.
+#[tokio::test]
+async fn the_recovery_path_draws_its_wait_from_the_chunks_attempt_count() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts50 = MaxAttempts::new(50)?;
+        let run_ids = [seeding_run];
+        let policy =
+            RetryBackoffPolicy::new(Duration::from_secs(1), Duration::from_secs(1800)).unwrap();
+
+        let days = [100, 101, 102, 103];
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical(days), ONE_BAND)
+                    .await?
+            )? == 4
+        );
+        sqlx::query("UPDATE cohort_backfill_chunks SET attempts = 48 WHERE run_id = $1")
+            .bind(seeding_run)
+            .execute(&pool)
+            .await?;
+
+        let mut longest_wait = Duration::ZERO;
+        for day in days {
+            let claimed = store
+                .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts50)
+                .await?
+                .context("a chunk under the cap was not claimable")?;
+            let chunk = claimed.chunk;
+            let lease = claimed.lease;
+            let chunk_id = chunk.spec().lease.chunk_id();
+            ensure!(chunk.spec().attempt.get() == 49, "day {day}");
+            let drawn =
+                test_support::fail_via_recovery(&store, chunk, "clickhouse memory limit", policy)
+                    .await
+                    .context("the recovery path did not fail the chunk")?;
+            drop(lease);
+
+            // The stamp is `now() + delay`, so the remaining wait is the delay minus test runtime.
+            let remaining_secs: f64 = sqlx::query_scalar(
+                "SELECT extract(epoch FROM next_attempt_at - now())::float8
+                 FROM cohort_backfill_chunks WHERE id = $1",
+            )
+            .bind(chunk_id)
+            .fetch_one(&pool)
+            .await?;
+            ensure!(
+                remaining_secs <= drawn.as_secs_f64(),
+                "day {day} stamped {remaining_secs}s, more than the {drawn:?} the path drew"
+            );
+            longest_wait = longest_wait.max(drawn);
+        }
+
+        ensure!(
+            longest_wait > policy.ceiling(AttemptCount::from_row(1)),
+            "the longest of four near-cap waits was {longest_wait:?}, inside the first attempt's \
+             ceiling — the recovery path is not reading the attempt count"
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// Only the failed→claim transition reads the backoff stamp. A `pending` chunk has not failed, and
+/// an expired `produced` lease must reclaim immediately because its tiles are already in Kafka and
+/// the run cannot complete until it reaches `confirmed`. Gating either would stall a run on a
+/// column that describes neither.
+///
+/// The two lease legs are a guard rail, not a live bug. The claim `UPDATE` sets `next_attempt_at`
+/// to NULL in the same statement that writes `scanning`, so no reclaimable row carries a stale
+/// stamp today and the arms would pass with or without their gate. Each leg stamps one by hand, so
+/// a later edit that widens the gate onto a lease arm is caught here instead of stalling a run in
+/// production.
+#[tokio::test]
+async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+
+        // A pending chunk carrying a future stamp is still claimable.
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET next_attempt_at = now() + interval '1 hour' WHERE run_id = $1",
+        )
+        .bind(seeding_run)
+        .execute(&pool)
+        .await?;
+        let pending = store
+            .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+            .await?
+            .context("a pending chunk was gated by the backoff stamp")?;
+        let pending_lease = pending.chunk.spec().lease;
+
+        // An unclaim returns it to `pending`, and it stays claimable however the stamp reads.
+        store.unclaim(pending_lease).await?;
+        drop(pending);
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET next_attempt_at = now() + interval '1 hour' WHERE id = $1",
+        )
+        .bind(pending_lease.chunk_id())
+        .execute(&pool)
+        .await?;
+        let reclaimed = store
+            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .await?
+            .context("an unclaimed chunk was gated by the backoff stamp")?;
+
+        // A produced chunk whose lease expired reclaims regardless of the stamp.
+        let produced_lease = reclaimed.chunk.spec().lease;
+        test_support::mark_produced_raw(&store, produced_lease, 1, ScanVolume::default()).await?;
+        drop(reclaimed);
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks
+             SET lease_expires_at = now() - interval '1 second',
+                 next_attempt_at = now() + interval '1 hour'
+             WHERE id = $1",
+        )
+        .bind(produced_lease.chunk_id())
+        .execute(&pool)
+        .await?;
+        let produced_reclaim = store
+            .claim_next(&run_ids, &Claimant::new("worker-c")?, lease60, attempts5)
+            .await?
+            .context("an expired produced lease was gated by the backoff stamp")?;
+
+        // A scanning chunk whose lease expired reclaims too. It is left `scanning` rather than
+        // marked produced, which is the shape of a worker that died before it reached `fail`, so
+        // nothing sized a wait for it and nothing should hold it back.
+        let scanning_lease = produced_reclaim.chunk.spec().lease;
+        drop(produced_reclaim);
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks
+             SET lease_expires_at = now() - interval '1 second',
+                 next_attempt_at = now() + interval '1 hour'
+             WHERE id = $1",
+        )
+        .bind(scanning_lease.chunk_id())
+        .execute(&pool)
+        .await?;
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-d")?, lease60, attempts5)
+            .await?
+            .is_some());
+        Ok(())
+    })
+    .await
+}
+
+/// A trailing day is planned with its hold and claimed only once the hold lapses and its run is
+/// `trailing`. Discovery admits the trailing run once a hold lapses, prepare keeps it eligible, and
+/// the run completes once that day confirms.
+#[tokio::test]
+async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id =
+            insert_run(&pool, 2, "cohort_created", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let claimant = Claimant::new("worker-a")?;
+        let run_ids = [run_id];
+        let behavioral = [RunKind::Behavioral];
+        let hold = Utc::now() + chrono::Duration::hours(1);
+        let [historical_day] = historical([100]);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(run_id, [historical_day, trailing(101, hold)], ONE_BAND)
+                    .await?
+            )? == 2
+        );
+        let holds: Vec<Option<DateTime<Utc>>> = sqlx::query_scalar(
+            "SELECT claimable_after FROM cohort_backfill_chunks WHERE run_id = $1 ORDER BY day",
+        )
+        .bind(run_id)
+        .fetch_all(&pool)
+        .await?;
+        ensure!(
+            holds
+                == [
+                    None,
+                    DateTime::from_timestamp_millis(hold.timestamp_millis())
+                ],
+            "unexpected holds {holds:?}"
+        );
+
+        let historical_claim = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("the historical day was not claimable")?;
+        ensure!(historical_claim.chunk.spec().day == 100);
+        ensure!(
+            store
+                .claim_next(&run_ids, &claimant, lease60, attempts5)
+                .await?
+                .is_none(),
+            "the trailing day was claimed before its hold lapsed"
+        );
+        let historical_lease = historical_claim.chunk.spec().lease;
+        test_support::mark_produced_raw(&store, historical_lease, 0, ScanVolume::default()).await?;
+        test_support::confirm_raw(&store, historical_lease, &ProduceHwms::default()).await?;
+        drop(historical_claim);
+
+        // The finalizer's move once it has stamped readiness. Until a hold lapses nothing of the
+        // run can be claimed, so discovery leaves it alone.
+        sqlx::query("UPDATE cohort_backfill_runs SET status = 'trailing' WHERE id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await?;
+        ensure!(
+            discover_runs(&pool, &TeamAllowlist::All, &behavioral)
+                .await?
+                .iter()
+                .all(|run| run.run_id != run_id),
+            "the trailing run was discovered before any of its holds lapsed"
+        );
+
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET claimable_after = now() - interval '1 second'
+             WHERE run_id = $1 AND claimable_after IS NOT NULL",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        let resumed = discover_runs(&pool, &TeamAllowlist::All, &behavioral)
+            .await?
+            .into_iter()
+            .find(|run| run.run_id == run_id)
+            .context("discovery skipped the trailing run once its hold lapsed")?;
+        match establish_boundary(&pool, resumed).await? {
+            BoundaryOutcome::AlreadyEstablished(run) => ensure!(run.phase == SeedPhase::Trailing),
+            other => bail!("the trailing run resumed as {other:?}"),
+        }
+        ensure!(
+            eligible_run_ids(&pool, &store, &TeamAllowlist::All, &behavioral)
+                .await
+                .contains(&run_id),
+            "prepare did not keep the trailing run claim-eligible"
+        );
+        ensure!(complete_trailing_runs(&pool, &run_ids).await? == 0);
+
+        let trailing_claim = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("the trailing day was not claimable after its hold lapsed")?;
+        ensure!(trailing_claim.chunk.spec().day == 101);
+        let trailing_lease = trailing_claim.chunk.spec().lease;
+        test_support::heartbeat(&store, trailing_lease, &claimant, lease60).await?;
+        test_support::mark_produced_raw(&store, trailing_lease, 0, ScanVolume::default()).await?;
+        test_support::confirm_raw(&store, trailing_lease, &ProduceHwms::default()).await?;
+        drop(trailing_claim);
+
+        ensure!(complete_trailing_runs(&pool, &run_ids).await? == 1);
+        let (status, finished): (String, bool) = sqlx::query_as(
+            "SELECT status, finished_at IS NOT NULL FROM cohort_backfill_runs WHERE id = $1",
+        )
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(status == "completed" && finished);
+        Ok(())
+    })
+    .await
+}
+
+/// While a run still seeds, a held chunk stays unclaimable even after its hold lapses, so the
+/// reconciling CAS cannot cut its lease mid-scan; and once every chunk has confirmed, the trailing
+/// sweep leaves the run in `seeding`, since completing it there would skip `reconciling` and the
+/// readiness stamp.
+#[tokio::test]
+async fn a_seeding_run_neither_hands_out_a_lapsed_held_chunk_nor_completes_as_trailing(
+) -> Result<()> {
+    with_db(|pool| async move {
+        let run_id =
+            insert_run(&pool, 2, "cohort_created", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [run_id];
+        let [historical_day] = historical([100]);
+        let lapsed = Utc::now() - chrono::Duration::hours(1);
+        store
+            .plan_chunks(run_id, [historical_day, trailing(101, lapsed)], ONE_BAND)
+            .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'confirmed'
+             WHERE run_id = $1 AND claimable_after IS NULL",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        ensure!(
+            store
+                .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+                .await?
+                .is_none(),
+            "a held chunk was claimed while its run was still seeding"
+        );
+
+        sqlx::query("UPDATE cohort_backfill_chunks SET status = 'confirmed' WHERE run_id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await?;
+        ensure!(complete_trailing_runs(&pool, &run_ids).await? == 0);
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM cohort_backfill_runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(
+            status == "seeding",
+            "the seeding run was completed as if trailing"
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// The `scanning`→`produced` CAS records what the scan moved, and planning leaves the byte columns
+/// at the database-side default. The default is load-bearing: `plan_chunks` inserts an explicit
+/// column list that names neither column, so a Django-only default would make every planning insert
+/// violate NOT NULL during a rollout.
+#[tokio::test]
+async fn mark_produced_records_the_scan_byte_volume_that_planning_defaults_to_zero() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
+
+        let planned: (i64, i64) = sqlx::query_as(
+            "SELECT scan_received_bytes, scan_decoded_bytes FROM cohort_backfill_chunks WHERE run_id = $1",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(planned == (0, 0));
+
+        let claimed = store
+            .claim_next(
+                &[seeding_run],
+                &Claimant::new("worker-a")?,
+                LeaseDuration::new(Duration::from_secs(60))?,
+                MaxAttempts::new(5)?,
+            )
+            .await?
+            .context("claimant found no chunk")?;
+        let lease = claimed.chunk.spec().lease;
+        test_support::mark_produced_raw(
+            &store,
+            lease,
+            7,
+            ScanVolume::new(9_876_543_210, 41_234_567_890),
+        )
+        .await?;
+        drop(claimed);
+
+        let stored: (i64, i64, i64) = sqlx::query_as(
+            "SELECT tiles_produced, scan_received_bytes, scan_decoded_bytes
+             FROM cohort_backfill_chunks WHERE id = $1",
+        )
+        .bind(lease.chunk_id())
+        .fetch_one(&pool)
+        .await?;
+        ensure!(stored == (7, 9_876_543_210, 41_234_567_890));
+        Ok(())
+    })
+    .await
+}
+
 /// The attempt cap is terminal for a `failed` chunk (no further claim), but an expired `produced`
 /// chunk sitting AT the cap is still reclaimed with a bumped epoch — its tiles are already in
 /// Kafka, so it must keep retrying until it reaches `confirmed`. Only `scanning` reclaims are
@@ -685,7 +1193,7 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
         let run_ids = [seeding_run];
 
         // A chunk driven to the attempt cap by claiming, then failed, is not claimable again.
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
         sqlx::query("UPDATE cohort_backfill_chunks SET attempts = 4 WHERE run_id = $1")
             .bind(seeding_run)
             .execute(&pool)
@@ -702,7 +1210,7 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
                 .await?;
         ensure!(reclaimed_attempts == 5);
         store
-            .fail(retry_lease, &RenderedError::from_message("terminal"))
+            .fail(retry_lease, &RenderedError::from_message("terminal"), NO_BACKOFF)
             .await?;
         drop(retry);
         ensure!(store
@@ -711,13 +1219,13 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
             .is_none());
 
         // A second chunk, marked produced then expired at the cap, IS reclaimed.
-        ensure!(planned_count(store.plan_chunks(seeding_run, [101], ONE_BAND).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([101]), ONE_BAND).await?)? == 1);
         let final_attempt = store
             .claim_next(&run_ids, &Claimant::new("worker-e")?, lease60, attempts5)
             .await?
             .context("second chunk was not claimable")?;
         let final_attempt_lease = final_attempt.chunk.spec().lease;
-        test_support::mark_produced_raw(&store, final_attempt_lease, 1).await?;
+        test_support::mark_produced_raw(&store, final_attempt_lease, 1, ScanVolume::default()).await?;
         drop(final_attempt);
         sqlx::query(
             "UPDATE cohort_backfill_chunks SET attempts = 5, lease_expires_at = now() - interval '1 second' WHERE id = $1",
@@ -739,6 +1247,10 @@ async fn attempt_cap_is_terminal_for_failed_but_reclaims_expired_produced() -> R
                 .fetch_one(&pool)
                 .await?;
         ensure!(active_reclaim_attempts == 5);
+        // The claim `CASE` stops incrementing at the cap, so this is the arm where the count the
+        // spec reports and the number of claims diverge. The spec must still carry the column, not
+        // the claim tally: the retry backoff is sized from it.
+        ensure!(observed.chunk.spec().attempt.get() == 5);
         Ok(())
     })
     .await
@@ -753,7 +1265,7 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -803,6 +1315,253 @@ async fn expired_scanning_chunk_at_the_cap_is_reaped_not_reclaimed() -> Result<(
     .await
 }
 
+/// Only chunks that saturated the attempt cap count as exhausted. A `failed` chunk still under the
+/// cap is reclaimable and will retry, so reporting it would fail runs that were about to recover.
+#[tokio::test]
+async fn runs_with_exhausted_chunks_selects_only_capped_failures() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100, 101]), ONE_BAND).await?)? == 2);
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+
+        let chunk_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM cohort_backfill_chunks WHERE run_id = $1 ORDER BY day",
+        )
+        .bind(seeding_run)
+        .fetch_all(&pool)
+        .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 4, last_error = 'still retrying' WHERE id = $1",
+        )
+        .bind(chunk_ids[0])
+        .execute(&pool)
+        .await?;
+        ensure!(store
+            .runs_with_exhausted_chunks(&run_ids, attempts5)
+            .await?
+            .is_empty());
+
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5, last_error = 'scan blew up' WHERE id = $1",
+        )
+        .bind(chunk_ids[1])
+        .execute(&pool)
+        .await?;
+        let exhausted = store.runs_with_exhausted_chunks(&run_ids, attempts5).await?;
+        ensure!(exhausted.len() == 1);
+        ensure!(exhausted[0].run_id == seeding_run);
+        ensure!(exhausted[0].exhausted == 1, "only the capped chunk counts");
+        ensure!(exhausted[0].chunk_id == chunk_ids[1].to_string());
+        ensure!(exhausted[0].last_error == "scan blew up");
+
+        ensure!(store
+            .runs_with_exhausted_chunks(&[], attempts5)
+            .await?
+            .is_empty());
+        Ok(())
+    })
+    .await
+}
+
+/// The reported chunk and error come from one row. Aggregating them independently pairs the lowest
+/// chunk id with some other chunk's error, sending the operator to read a row that never failed
+/// that way.
+#[tokio::test]
+async fn exhausted_chunk_and_error_are_read_off_the_same_row() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100, 101]), ONE_BAND).await?)? == 2);
+        let attempts5 = MaxAttempts::new(5)?;
+
+        // Ordered so the lowest-id chunk carries the *higher* error text: an independent
+        // `min(last_error)` would then hand back the other chunk's error.
+        let mut chunk_ids: Vec<Uuid> =
+            sqlx::query_scalar("SELECT id FROM cohort_backfill_chunks WHERE run_id = $1")
+                .bind(seeding_run)
+                .fetch_all(&pool)
+                .await?;
+        chunk_ids.sort();
+        for (chunk_id, error) in chunk_ids.iter().zip(["zzz lowest id", "aaa highest id"]) {
+            sqlx::query(
+                "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5, last_error = $2 WHERE id = $1",
+            )
+            .bind(chunk_id)
+            .bind(error)
+            .execute(&pool)
+            .await?;
+        }
+
+        let exhausted = store
+            .runs_with_exhausted_chunks(&[seeding_run], attempts5)
+            .await?;
+        ensure!(exhausted.len() == 1);
+        ensure!(exhausted[0].exhausted == 2, "both capped chunks counted");
+        ensure!(exhausted[0].chunk_id == chunk_ids[0].to_string());
+        ensure!(exhausted[0].last_error == "zzz lowest id");
+
+        // A capped chunk with no persisted error still has to render as something: the run error
+        // interpolates this text, and an empty one leaves the operator a trailing colon.
+        sqlx::query("UPDATE cohort_backfill_chunks SET last_error = '' WHERE id = $1")
+            .bind(chunk_ids[0])
+            .execute(&pool)
+            .await?;
+        let exhausted = store
+            .runs_with_exhausted_chunks(&[seeding_run], attempts5)
+            .await?;
+        ensure!(exhausted[0].last_error == NO_ERROR_RECORDED);
+        Ok(())
+    })
+    .await
+}
+
+/// Readiness does not wait for a trailing day, so that day's exhausted chunk fails its run only once
+/// the run has stamped readiness and is `trailing`.
+#[tokio::test]
+async fn an_exhausted_trailing_chunk_fails_its_run_only_once_the_run_is_trailing() -> Result<()> {
+    with_db(|pool| async move {
+        let run_id =
+            insert_run(&pool, 2, "cohort_created", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [run_id];
+        store
+            .plan_chunks(run_id, [trailing(101, Utc::now())], ONE_BAND)
+            .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5 WHERE run_id = $1",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+
+        ensure!(
+            fail_exhausted_runs_of_kind(&pool, &store, &run_ids, RunKind::Behavioral, attempts5)
+                .await
+                == 0
+        );
+        sqlx::query("UPDATE cohort_backfill_runs SET status = 'trailing' WHERE id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await?;
+        ensure!(
+            fail_exhausted_runs_of_kind(&pool, &store, &run_ids, RunKind::Behavioral, attempts5)
+                .await
+                == 1
+        );
+        Ok(())
+    })
+    .await
+}
+
+/// Failing a run whose chunk exhausted its retries stops the run dead: a still-pending sibling is no
+/// longer claimable, a live sibling's heartbeat is refused, and a second failure is a no-op rather
+/// than a double-count. Without it the run sits in `seeding` forever holding its cohort's slot.
+#[tokio::test]
+async fn exhausted_chunk_fails_the_run_and_stops_further_claims() -> Result<()> {
+    with_db(|pool| async move {
+        let seeding_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(
+            planned_count(store.plan_chunks(seeding_run, historical([100, 101, 102]), ONE_BAND).await?)? == 3
+        );
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [seeding_run];
+        let claimant = Claimant::new("worker-a")?;
+
+        // One chunk mid-scan with a live lease, one capped out, one left pending.
+        let claimed = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("claimant found no chunk")?;
+        let live_lease = claimed.chunk.spec().lease;
+        let capped_id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM cohort_backfill_chunks WHERE run_id = $1 AND status = 'pending' ORDER BY day LIMIT 1",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'failed', attempts = 5, last_error = 'scan blew up' WHERE id = $1",
+        )
+        .bind(capped_id)
+        .execute(&pool)
+        .await?;
+
+        // Through the seeder's own pass, not a hand-rolled equivalent: the scan, the error text and
+        // the attempt-cap interpolation are what an operator ends up reading.
+        ensure!(
+            fail_exhausted_runs_of_kind(
+                &pool,
+                &store,
+                &run_ids,
+                RunKind::Behavioral,
+                attempts5
+            )
+            .await
+                == 1
+        );
+
+        let (status, error, finished): (String, String, bool) = sqlx::query_as(
+            "SELECT status, error, finished_at IS NOT NULL FROM cohort_backfill_runs WHERE id = $1",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(status == "failed");
+        ensure!(error.contains("1 chunk(s) exhausted the 5 attempt retry budget"));
+        ensure!(error.contains(&capped_id.to_string()));
+        ensure!(error.contains("scan blew up"));
+        ensure!(finished);
+
+        // The claim and heartbeat predicates both join `runs.status = 'seeding'`, so the pending
+        // sibling stops being claimable and the in-flight one halts on its next beat.
+        ensure!(store
+            .claim_next(&run_ids, &Claimant::new("worker-b")?, lease60, attempts5)
+            .await?
+            .is_none());
+        let still_pending: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM cohort_backfill_chunks WHERE run_id = $1 AND status = 'pending'",
+        )
+        .bind(seeding_run)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(
+            still_pending == 1,
+            "a claimable chunk remained, so the run status is what blocked the claim"
+        );
+        ensure_lease_lost(test_support::heartbeat(&store, live_lease, &claimant, lease60).await)?;
+        drop(claimed);
+
+        // Idempotent: a later pass re-reads the same exhausted chunks, and the already-terminal run
+        // must not be counted again.
+        ensure!(
+            fail_exhausted_runs_of_kind(
+                &pool,
+                &store,
+                &run_ids,
+                RunKind::Behavioral,
+                attempts5
+            )
+            .await
+                == 0
+        );
+        ensure!(matches!(
+            fail_run(&pool, seeding_run, &RenderedError::from_message("again")).await,
+            Err(RunError::NotActive(_))
+        ));
+        Ok(())
+    })
+    .await
+}
+
 /// Both persisted error columns are truncated to the limit: `chunk.fail` clamps `last_error` and
 /// `fail_run` clamps `run.error`, each flipping the row to `failed`.
 #[tokio::test]
@@ -811,7 +1570,13 @@ async fn fail_truncates_chunk_and_run_error_columns() -> Result<()> {
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(seeding_run, historical([100]), ONE_BAND)
+                    .await?
+            )? == 1
+        );
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
@@ -823,7 +1588,11 @@ async fn fail_truncates_chunk_and_run_error_columns() -> Result<()> {
         let lease = claimed.chunk.spec().lease;
         let chunk_id = lease.chunk_id();
         store
-            .fail(lease, &RenderedError::from_message("x".repeat(5_000)))
+            .fail(
+                lease,
+                &RenderedError::from_message("x".repeat(5_000)),
+                NO_BACKOFF,
+            )
             .await?;
         drop(claimed);
         let (failed_status, error_length): (String, i32) = sqlx::query_as(
@@ -934,7 +1703,6 @@ async fn discovery_is_kind_gated_and_person_pinned_load_validates() -> Result<()
         };
         ensure!(validated.run.conditions.len() == 1);
         ensure!(validated.run.horizon_days == 30);
-        ensure!(validated.uncovered_cohorts.is_empty());
         ensure!(validated.warnings.iter().any(|warning| matches!(
             warning,
             PinnedWarning::ConditionSuperseded { cohort_id, .. } if *cohort_id == CohortId(11)
@@ -1051,7 +1819,13 @@ async fn person_chunks_claim_after_behavioral_days_and_carry_ranges() -> Result<
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(behavioral_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(
+            planned_count(
+                store
+                    .plan_chunks(behavioral_run, historical([100]), ONE_BAND)
+                    .await?
+            )? == 1
+        );
         let boundary = Uuid::from_u128(0x42);
         let ranges = tile_ranges(&[boundary])?;
         ensure!(planned_count(store.plan_person_chunks(person_run, &ranges).await?)? == 2);
@@ -1107,7 +1881,7 @@ async fn cancelling_a_run_kills_its_live_lease_via_the_heartbeat() -> Result<()>
         let seeding_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         let store = PgChunkStore::new(pool.clone());
-        ensure!(planned_count(store.plan_chunks(seeding_run, [100], ONE_BAND).await?)? == 1);
+        ensure!(planned_count(store.plan_chunks(seeding_run, historical([100]), ONE_BAND).await?)? == 1);
 
         let lease3 = LeaseDuration::new(Duration::from_secs(3))?;
         let attempts5 = MaxAttempts::new(5)?;

@@ -6,6 +6,7 @@ Detects the test type from a file path and dispatches to the correct runner
 
 from __future__ import annotations
 
+import os
 import json
 import shlex
 import tomllib
@@ -23,6 +24,8 @@ from hogli_commands.change_detection import changed_files
 _PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
 
 _DESKTOP_ROOT = "products/desktop"
+_AGENT_WORKSPACE_ROOT = "packages/agent"
+_NESTED_VITEST_ROOTS = (_DESKTOP_ROOT, _AGENT_WORKSPACE_ROOT)
 
 
 def _is_test_file(path: str, rs_cfg_test: set[str] | None = None) -> bool:
@@ -133,6 +136,70 @@ class TestRunConfig:
     @property
     def env_or_none(self) -> dict[str, str] | None:
         return self.env or None
+
+
+_DIRECTORY_HINT_MIN_FILES = 10
+_PYTEST_VERBOSITY_ARGS = {"-q", "--quiet", "-v", "-vv", "-vvv", "--verbose", "-s", "--capture"}
+_DEV_STACK_BAKE_MANIFEST = Path("/opt/posthog/dev-stack-bake.json")
+
+
+def _in_cloud_task_sandbox() -> bool:
+    return bool(os.environ.get("POSTHOG_TASK_RUN_ID")) and not os.environ.get("HOGLI_TEST_VERBOSE")
+
+
+def _seeded_test_database_ready() -> bool:
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            host=os.environ.get("PGHOST", "localhost"),
+            port=os.environ.get("PGPORT", "5432"),
+            user=os.environ.get("PGUSER", "posthog"),
+            password=os.environ.get("PGPASSWORD", "posthog"),
+            dbname="test_posthog",
+            connect_timeout=2,
+        ) as connection:
+            row = connection.execute("SELECT to_regclass('posthog_team')").fetchone()
+            return bool(row and row[0] is not None)
+    except Exception:
+        return False
+
+
+def _warn_if_dev_stack_is_down(command: list[str]) -> None:
+    if command[:1] != ["pytest"] or not os.environ.get("POSTHOG_TASK_RUN_ID"):
+        return
+    if not _DEV_STACK_BAKE_MANIFEST.exists() or _seeded_test_database_ready():
+        return
+    click.secho(
+        "The migrated test_posthog database is not reachable, so a test that needs one will "
+        "fail or replay every migration. This image ships it: run `bootstrap-dev-stack`, then "
+        "`hogli start -y -d && hogli wait`. Do not start your own database container, because "
+        "it takes the port the baked stack needs. See docs/internal/cloud-task-sandbox.md.",
+        fg="yellow",
+    )
+
+
+def _quiet_pytest_in_cloud_sandbox(command: list[str], extra_args: list[str]) -> list[str]:
+    """A cloud task agent reads pytest output as tokens, so in a sandbox the default swaps
+    ``-s`` (stream every print) for ``-q`` unless the agent chose a verbosity."""
+    if command[:1] != ["pytest"] or not _in_cloud_task_sandbox():
+        return command
+    if any(arg.split("=", 1)[0] in _PYTEST_VERBOSITY_ARGS for arg in extra_args):
+        return command
+    return ["-q" if arg == "-s" else arg for arg in command]
+
+
+def _hint_scoped_run(dir_path: str) -> None:
+    if not _in_cloud_task_sandbox():
+        return
+    file_count = len(_find_test_files(dir_path))
+    if file_count < _DIRECTORY_HINT_MIN_FILES:
+        return
+    click.secho(
+        f"Running every test under {dir_path} ({file_count} files). For changes on this branch, "
+        "`hogli test --changed` or a single test file is faster and quieter.",
+        fg="yellow",
+    )
 
 
 def _python_env() -> dict[str, str]:
@@ -371,21 +438,29 @@ def _detect_go_test(file_only: str) -> TestRunConfig:
     )
 
 
-def _detect_desktop_vitest(path: str, node_id: str | None = None) -> TestRunConfig:
-    """Detect Vitest configuration for the desktop nested workspace.
+def _nested_vitest_root(path: str) -> str | None:
+    for workspace_root in _NESTED_VITEST_ROOTS:
+        if path == workspace_root or path.startswith(workspace_root + "/"):
+            return workspace_root
+    return None
 
-    products/desktop is a standalone pnpm workspace whose packages test with
-    Vitest; the root Jest config ignores the whole tree, so run vitest from the
-    nearest desktop package (its own config and deps). For the workspace root
-    itself, defer to desktop's `pnpm test` (turbo), which is what desktop CI runs.
+
+def _detect_desktop_vitest(path: str, node_id: str | None = None) -> TestRunConfig:
+    """Detect Vitest configuration for a nested standalone workspace.
+
+    products/desktop and packages/agent are standalone pnpm workspaces whose packages
+    test with Vitest; the root Jest config does not collect them, so run vitest from the
+    nearest package (its own config and deps). For a workspace root itself, defer to its
+    `pnpm test` (turbo), which is what desktop CI runs.
     """
+    workspace_root = _nested_vitest_root(path) or _DESKTOP_ROOT
     package_json = _find_nearest(path, "package.json")
     pkg_dir = str(package_json.parent.relative_to(REPO_ROOT)) if package_json else None
-    if pkg_dir is None or pkg_dir in (_DESKTOP_ROOT, "products", "."):
+    if pkg_dir is None or pkg_dir in (workspace_root, "products", "packages", "."):
         return TestRunConfig(
             test_type="vitest",
-            command=["pnpm", "--dir", _DESKTOP_ROOT, "test"],
-            description="Desktop tests via turbo (nested workspace)",
+            command=["pnpm", "--dir", workspace_root, "test"],
+            description=f"{workspace_root} tests via turbo (nested workspace)",
         )
 
     rel = str(PurePosixPath(path).relative_to(pkg_dir))
@@ -398,7 +473,7 @@ def _detect_desktop_vitest(path: str, node_id: str | None = None) -> TestRunConf
     return TestRunConfig(
         test_type="vitest",
         command=command,
-        description=f"Desktop Vitest (in {pkg_dir})",
+        description=f"Vitest (in {pkg_dir})",
     )
 
 
@@ -410,7 +485,7 @@ def _detect_jest_test(file_only: str, file_path: str, node_id: str | None = None
     rely on. The product's own package.json has no jest config, so route them to
     @posthog/frontend; jest treats the path as a testPathPattern and matches it there.
     """
-    if file_only.startswith(_DESKTOP_ROOT + "/"):
+    if _nested_vitest_root(file_only):
         return _detect_desktop_vitest(file_only, node_id)
     if file_only.startswith("products/"):
         pkg_name: str | None = "@posthog/frontend"
@@ -443,9 +518,9 @@ def _detect_directory(dir_path: str) -> TestRunConfig:
     if _find_nearest(dir_path, "Cargo.toml"):
         return _detect_rust_test(dir_path)
 
-    # Desktop nested workspace: Vitest, not the root turbo/pytest/Jest routing
+    # Nested standalone workspaces: Vitest, not the root turbo/pytest/Jest routing
     normalized = dir_path.rstrip("/")
-    if normalized == _DESKTOP_ROOT or normalized.startswith(_DESKTOP_ROOT + "/"):
+    if _nested_vitest_root(normalized):
         return _detect_desktop_vitest(normalized)
 
     # Product root: use Turbo pipeline (only for top-level product dirs)
@@ -640,7 +715,8 @@ def _run_grouped(detected: list[tuple[str, TestRunConfig]], extra_args: list[str
             cfg = entries[0][1]
             command = cfg.command[:-1] + [f for f, _ in entries]
             click.secho(f"Running {len(entries)} Python test file(s)...", fg="cyan")
-            _run(command + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
+            _warn_if_dev_stack_is_down(command)
+            _run(_quiet_pytest_in_cloud_sandbox(command, extra_args) + extra_args, env=cfg.env_or_none, cwd=cfg.cwd)
         elif test_type == "jest":
             # Sub-group by package so each pnpm --filter is correct
             by_package: dict[str, tuple[TestRunConfig, list[str]]] = {}
@@ -787,6 +863,7 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
 
     # For directories, check if multiple test types are present and run each group.
     if abs_path.is_dir():
+        _hint_scoped_run(resolved)
         multi_type = _check_multi_type(resolved)
         if multi_type is not None:
             detected, types = multi_type
@@ -799,4 +876,8 @@ def test_command(ctx: click.Context, file_path: str | None, changed: bool, watch
 
     config = detect_test_type(resolved)
     click.secho(f"Detected: {config.description}", fg="cyan")
-    _run(config.command + list(ctx.args), env=config.env_or_none, cwd=config.cwd)
+    extra_args = list(ctx.args)
+    _warn_if_dev_stack_is_down(config.command)
+    _run(
+        _quiet_pytest_in_cloud_sandbox(config.command, extra_args) + extra_args, env=config.env_or_none, cwd=config.cwd
+    )

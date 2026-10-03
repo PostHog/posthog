@@ -6,6 +6,7 @@
     },
     "ignorePatterns": [
         "products/desktop",
+        "packages/agent",
         "node_modules",
         "dist",
         "build",
@@ -14,6 +15,7 @@
         "nodejs",
         ".semgrep",
         ".github/actions/paths-filter",
+        ".depot/actions/paths-filter",
         ".github/scripts",
         "common/hogvm/typescript",
         "common/hogvm/typescript/dist",
@@ -94,14 +96,6 @@
                         "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
                     },
                     {
-                        "name": "chart.js",
-                        "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
-                    },
-                    {
-                        "name": "chart.js/auto",
-                        "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
-                    },
-                    {
                         "name": "~/queries/schema",
                         "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
                     },
@@ -130,6 +124,10 @@
                     {
                         "name": "@posthog/brand/hoggies/png",
                         "message": "Import the per-asset stub instead: import * as name from '@posthog/brand/hoggies/png/<name>'. The barrel pulls every hoggie's stub into the graph."
+                    },
+                    {
+                        "name": "storybook/preview-api",
+                        "message": "The withKea decorator renders a story after Storybook clears its hook context, so Storybook preview hooks such as useArgs throw or never fire, and the story renders blank in visual regression runs. Keep story state in React's useState."
                     }
                 ],
                 "patterns": [
@@ -209,6 +207,12 @@
             }
         },
         {
+            "files": ["services/mcp/src/generated/**/*.ts", "services/mcp/src/tools/generated/**/*.ts"],
+            "rules": {
+                "@typescript-eslint/explicit-function-return-type": "off"
+            }
+        },
+        {
             "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
             "rules": {
                 "no-console": [
@@ -234,7 +238,11 @@
             }
         },
         {
-            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}", "products/**/mcp/apps/**/*.{ts,tsx}"],
+            "files": [
+                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
+                "products/**/mcp/apps/**/*.{ts,tsx}",
+                "products/tasks/frontend/infrastructure/**/*.{ts,tsx}"
+            ],
             "rules": {
                 "react/forbid-elements": "off"
             }
@@ -254,14 +262,6 @@
                             {
                                 "name": "dayjs",
                                 "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
-                            },
-                            {
-                                "name": "chart.js",
-                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
-                            },
-                            {
-                                "name": "chart.js/auto",
-                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
                             },
                             {
                                 "name": "~/queries/schema",
@@ -314,14 +314,6 @@
                             {
                                 "name": "dayjs",
                                 "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
-                            },
-                            {
-                                "name": "chart.js",
-                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
-                            },
-                            {
-                                "name": "chart.js/auto",
-                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
                             },
                             {
                                 "name": "~/queries/schema",

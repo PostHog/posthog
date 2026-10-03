@@ -50,7 +50,7 @@ export type TaskCommentThread = {
   /** Groups threads for the source filter. */
   sourceKey: string;
   sourceLabel: string;
-  sourceKind: "file" | "canvas" | "task" | "pr";
+  sourceKind: "file" | "canvas" | "task" | "posthog_object" | "pr";
   entries: CommentEntry[];
   resolved: boolean;
   /** When the thread was opened, for ordering the list. Ordering on the newest

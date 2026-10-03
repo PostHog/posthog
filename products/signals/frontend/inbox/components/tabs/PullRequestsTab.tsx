@@ -5,7 +5,6 @@ import { IconPullRequest } from '@posthog/icons'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { INBOX_FLAT_TAB_LIST_PARAMS } from '../../logics/reportListLogic'
 import { ReportCard } from '../cards/ReportCard'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxReportList } from '../InboxReportList'
@@ -18,7 +17,6 @@ export function PullRequestsTab(): JSX.Element {
     return (
         <InboxReportList
             tabKey="pulls"
-            listParams={INBOX_FLAT_TAB_LIST_PARAMS.pulls}
             Card={ReportCard}
             emptyState={
                 showWaitingForWork

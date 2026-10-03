@@ -27,19 +27,19 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 
 ## `emit_report` — author a full report
 
-| Field                       | Type                    | Notes                                                                                                                                                           |
-| --------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line (see below).                                                                                                  |
-| `summary`                   | string                  | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                                     |
-| `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                                 |
-| `actionability_explanation` | string                  | One sentence justifying the actionability call.                                                                                                                 |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                        |
-| `already_addressed`         | bool, default `false`   | Set when the move is already handled and you're filing for the record.                                                                                          |
-| `suggested_reviewers`       | list of objects         | Who owns the metric/dashboard — routes the report. Each entry is `{github_login}` and/or `{user_uuid}` (not a bare string). High-leverage — set it (see below). |
-| `priority`                  | `P0`–`P4`               | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
-| `priority_explanation`      | string                  | Required when `priority` is set.                                                                                                                                |
-| `repository`                | string                  | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
-| `charts`                    | list, optional          | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
+| Field                       | Type                              | Notes                                                                                                                                                           |
+| --------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                     | string, required, ≤300, non-empty | The inbox headline. One specific, quantified line (see below).                                                                                                  |
+| `summary`                   | string, required                  | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                                     |
+| `evidence`                  | list, required, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                                 |
+| `actionability_explanation` | string, required                  | One sentence justifying the actionability call.                                                                                                                 |
+| `actionability`             | enum, required                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                        |
+| `already_addressed`         | bool, default `false`             | Set when the move is already handled and you're filing for the record.                                                                                          |
+| `suggested_reviewers`       | list of objects                   | Who owns the metric/dashboard — routes the report. Each entry is `{github_login}` and/or `{user_uuid}` (not a bare string). High-leverage — set it (see below). |
+| `priority`                  | `P0`–`P4`                         | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
+| `priority_explanation`      | string                            | Required when `priority` is set.                                                                                                                                |
+| `repository`                | string                            | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
+| `charts`                    | list, optional                    | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as
@@ -139,15 +139,19 @@ A recurrence or escalation of an insight's anomaly you already reported is an **
 report**. Find the live report (the `report:` pointer's `report_id` → `inbox-reports-retrieve`,
 or `inbox-reports-list` by the insight), then:
 
-- **`append_note`** with the new evidence — additive, audit-friendly, and the right move on any
-  report (even a pipeline-authored one). Build a **fresh notebook** for the new window and link
-  it in the note (one notebook per window — never append a new anomaly to a prior notebook).
+- **`append_evidence`** with the new window's numbers — additive, audit-friendly, and the right move on
+  any report (even a pipeline-authored one). Each item lands in the report's evidence rail as a bound
+  signal, so the report's signal count and weight grow with the recurrence. Build a **fresh notebook**
+  for the new window and link it in the description (one notebook per window — never append a new
+  anomaly to a prior notebook).
+- **`append_note`** for commentary the numbers don't carry — the owning team already knows, or a deploy
+  explains the move. Send it in the same call as the evidence when both apply.
 - **Rewrite `title`/`summary`** only on a report you authored, and only when the framing is
   genuinely stale.
 
 `edit_report` is preflight-gated like `emit_report`, but it **raises** when the scout is gated
 (dry-run `emit=false`, un-approved AI processing, or a disabled source) rather than returning a
-`skipped_reason` — the note is never appended. So if you built a fresh recurrence notebook and
+`skipped_reason` — nothing is appended. So if you built a fresh recurrence notebook and
 the `edit_report` call is blocked (or otherwise doesn't commit), **delete that notebook with
 `notebooks-destroy`** — same orphan-cleanup rule as a non-surfacing author. Equivalently, defer
 building the notebook until the edit is about to commit.
@@ -221,7 +225,7 @@ Charts are `{type: "ph-query", attrs: {nodeId: "<unique>", query: <query>}}` nod
 Prefer embedding the saved insight you scored — it stays in sync with the source and is the thing
 the human will open next. Give each `ph-query` node a distinct `nodeId`.
 
-`content` is a ProseMirror doc (the tool documents no node schema, so use this skeleton). Text is
+`content` is a ProseMirror doc (use this skeleton). Text is
 `paragraph` / `heading` (with `attrs.level`) / `bulletList` → `listItem` → `paragraph`; charts are
 `ph-query` nodes. A minimal working shape:
 

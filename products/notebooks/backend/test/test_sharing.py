@@ -16,7 +16,7 @@ from products.notebooks.backend.util import (
     filter_notebook_content_for_sharing,
     iter_prosemirror_nodes,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _saved_insight_query_node(short_id: str) -> dict[str, Any]:
@@ -377,6 +377,34 @@ class TestFilterNotebookContentForSharing(TestCase):
                     )
                 ),
             ),
+            *[
+                (
+                    f"markdown_embed_src_{index}",
+                    _markdown_doc(f'<Embed src={json.dumps(src)} title="Example" height={{240}} />'),
+                    _markdown_doc(
+                        "<Embed height={240}"
+                        + (f" src={json.dumps(expected_src)}" if expected_src is not None else "")
+                        + ' title="Example" />'
+                    ),
+                )
+                for index, (src, expected_src) in enumerate(
+                    [
+                        ("https://example.com/embed", "https://example.com/embed"),
+                        ("http://localhost:8000/embed", "http://localhost:8000/embed"),
+                        ("  HTTPS://example.com/embed  ", "HTTPS://example.com/embed"),
+                        ("javascript:void(0)", None),
+                        ("data:text/html,example", None),
+                        ("about:blank", None),
+                        ("//example.com/embed", None),
+                        ("/embed", None),
+                        ("https://", None),
+                        ("https://[invalid", None),
+                        ("https://example.com/a b", None),
+                        ("java\nscript:void(0)", None),
+                        ("", None),
+                    ]
+                )
+            ],
         ]
     )
     def test_filter(self, _name: str, content: Any, expected: Any) -> None:
@@ -486,6 +514,8 @@ class TestNotebookSharingConfiguration(APIBaseTest):
                 '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
                 '<Python code="SECRET = true" />',
                 '<Chat messages={{["SECRET_CHAT"]}} />',
+                '<Embed src="javascript:void(0)" title="Example" />',
+                '<Embed src={"data:text/html,example"} />',
             ]
         )
         self.notebook.content = _doc(
@@ -527,6 +557,8 @@ class TestNotebookSharingConfiguration(APIBaseTest):
                             '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
                             "<Python />",
                             "<Chat />",
+                            '<Embed title="Example" />',
+                            "<Embed />",
                         ]
                     ),
                 },

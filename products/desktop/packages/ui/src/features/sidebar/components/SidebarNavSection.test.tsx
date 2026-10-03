@@ -1,6 +1,6 @@
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,28 +16,40 @@ const {
   track,
   useAppView,
   navigateToInbox,
-  navigateToAgents,
   navigateToSkills,
   navigateToMcpServers,
   navigateToCommandCenter,
   navigateToActivity,
   openCommandMenu,
+  openSettings,
+  openBrowserTab,
 } = vi.hoisted(() => ({
   track: vi.fn(),
   useAppView: vi.fn(),
   navigateToInbox: vi.fn(),
-  navigateToAgents: vi.fn(),
   navigateToSkills: vi.fn(),
   navigateToMcpServers: vi.fn(),
   navigateToCommandCenter: vi.fn(),
   navigateToActivity: vi.fn(),
   openCommandMenu: vi.fn(),
+  openSettings: vi.fn(),
+  openBrowserTab: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
-vi.mock("@posthog/ui/router/useAppView", () => ({ useAppView }));
+vi.mock("@posthog/ui/router/useAppView", () => ({
+  useAppView,
+  useReportSourceNavType: () => null,
+}));
+// Channel reports defaults off here; the flag-on test flips it via
+// `channelReportsFlag`.
+let channelReportsFlag = false;
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => true,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports" ? channelReportsFlag : true,
+}));
+vi.mock("@posthog/ui/features/feature-flags/useChannelReportsEnabled", () => ({
+  useChannelReportsEnabled: () => channelReportsFlag,
 }));
 // These tests pin the legacy layout (flag off), where the "Enable channels"
 // toggle row is present.
@@ -46,17 +58,24 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity,
-  navigateToAgents,
   navigateToCommandCenter,
+  navigateToContext: vi.fn(),
   navigateToInbox,
   navigateToLoops: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
   navigateToWebsiteCommandCenter: vi.fn(),
+  navigateToWebsiteContext: vi.fn(),
   navigateToWebsiteMcpServers: vi.fn(),
   navigateToWebsiteSkills: vi.fn(),
 }));
 vi.mock("@posthog/ui/router/useOpenTask", () => ({ openTaskInput: vi.fn() }));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => openBrowserTab,
+}));
+vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
+  openSettings,
+}));
 vi.mock("@posthog/ui/shell/commandMenuStore", () => ({
   useCommandMenuStore: (selector: (s: { open: () => void }) => unknown) =>
     selector({ open: openCommandMenu }),
@@ -66,8 +85,11 @@ vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
     selector: (s: { cells: (string | null)[] }) => unknown,
   ) => selector({ cells: [] }),
 }));
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxDecisionCount", () => ({
+  useInboxDecisionCount: () => 0,
+}));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
-  useInboxAllReports: () => ({ counts: { pulls: 0 } }),
+  useInboxAllReports: () => ({ scopedReports: [], counts: { pulls: 0 } }),
 }));
 vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
   useTasks: () => ({ data: [] }),
@@ -76,7 +98,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
   useTaskActivity: () => ({ items: [], unreadCount: 0, isLoading: false }),
 }));
 vi.mock("@tanstack/react-router", () => ({
-  useRouterState: () => false,
+  useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
+    select({
+      matches: [],
+      location: {
+        pathname: "/",
+        href: "/",
+        search: {},
+        state: {},
+      },
+    }),
 }));
 
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -94,11 +125,7 @@ describe("SidebarNavSection", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useAppView.mockReturnValue({ type: "task-input" });
-    useSidebarStore.setState({
-      navItemOverrides: {},
-      navItemOrder: [],
-      channelsEnabled: true,
-    });
+    useSidebarStore.setState({ channelsEnabled: true });
   });
 
   it("renders Search directly and removes the More dropdown", () => {
@@ -110,19 +137,6 @@ describe("SidebarNavSection", () => {
     ).not.toBeInTheDocument();
   });
 
-  it.each([
-    ["inbox", "Inbox"],
-    ["command-center", "Command Center"],
-    ["activity", "Activity"],
-    ["configure", "Settings"],
-    ["loops", "Loops"],
-  ] as const)("removes %s from the sidebar when hidden", (id, label) => {
-    useSidebarStore.setState({ navItemOverrides: { [id]: false } });
-    renderNav();
-
-    expect(screen.queryByText(label)).not.toBeInTheDocument();
-  });
-
   it("renders Activity directly under Inbox by default", () => {
     renderNav();
 
@@ -132,23 +146,57 @@ describe("SidebarNavSection", () => {
     const position = (label: string) =>
       labels.findIndex((text) => text.includes(label));
 
-    expect(position("Inbox")).toBeLessThan(position("Activity"));
+    expect(position("Self-driving")).toBeLessThan(position("Activity"));
     expect(position("Activity")).toBeLessThan(position("Loops"));
-    expect(position("Inbox")).toBeLessThan(position("Loops"));
+    expect(position("Self-driving")).toBeLessThan(position("Loops"));
   });
 
   it("tracks top-level clicks with in_more false", async () => {
     const user = userEvent.setup();
     renderNav();
 
-    await user.click(screen.getByRole("button", { name: /Inbox/ }));
+    await user.click(screen.getByRole("button", { name: /Self-driving/ }));
 
     expect(navigateToInbox).toHaveBeenCalledTimes(1);
-    // `layout` separates these from ChannelNav's identically-named clicks.
+    // `layout` separates these from the nav rail's identically-named clicks.
     expect(track).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED,
       { item: "inbox", in_more: false, layout: "code" },
     );
+  });
+
+  it("opens a destination in a new tab on Cmd-click", () => {
+    renderNav();
+
+    fireEvent.click(screen.getByRole("button", { name: /Self-driving/ }), {
+      metaKey: true,
+    });
+
+    expect(openBrowserTab).toHaveBeenCalledWith("/inbox");
+    expect(navigateToInbox).not.toHaveBeenCalled();
+  });
+
+  it("keeps Settings in the current window on Cmd-click", () => {
+    renderNav();
+
+    fireEvent.click(screen.getByRole("button", { name: /Settings/ }), {
+      metaKey: true,
+    });
+
+    expect(openSettings).toHaveBeenCalledOnce();
+    expect(openBrowserTab).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Inbox item when channel reports are on", () => {
+    channelReportsFlag = true;
+    try {
+      renderNav();
+      expect(
+        screen.getByRole("button", { name: /Self-driving/ }),
+      ).toBeInTheDocument();
+    } finally {
+      channelReportsFlag = false;
+    }
   });
 
   it("does not render the Channels mode toggle in navigation", () => {

@@ -1,7 +1,9 @@
+import math
 from enum import Enum
 from typing import Any, Optional, TypeVar
 
 import structlog
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -23,11 +25,11 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
-from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import (
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
@@ -57,10 +59,10 @@ def get_experiment_query_debug(
     bypass_warehouse_access_control: bool = False,
 ) -> tuple[str, str]:
     """
-    Generate both HogQL and ClickHouse SQL for debugging from experiment query AST.
-    Returns (hogql, clickhouse_sql) tuple.
+    Return (hogql, clickhouse_sql) for debugging.
 
-    user/bypass must match the execution step, since resolving here also applies warehouse access control.
+    `user` and `bypass_warehouse_access_control` must match the execution step, because
+    resolving the query here also applies warehouse access control.
     """
     executor = HogQLQueryExecutor(
         query=experiment_query_ast,
@@ -76,13 +78,6 @@ def get_experiment_query_debug(
 
 
 def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
-    """
-    Parse config value into enum with fallback to default.
-
-    Handles string values (converts via enum_class[value]),
-    existing enum instances (passes through),
-    and invalid values (returns default).
-    """
     try:
         if isinstance(value, str):
             return enum_class[value]
@@ -94,9 +89,6 @@ def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
 
 
 def _validate_numeric_range(value: Any, min_val: float, max_val: float, default: float) -> float:
-    """
-    Validate numeric value is within range, return default if invalid.
-    """
     try:
         float_value = float(value)
         if min_val <= float_value <= max_val:
@@ -104,6 +96,24 @@ def _validate_numeric_range(value: Any, min_val: float, max_val: float, default:
         return default
     except (TypeError, ValueError):
         return default
+
+
+def sanitize_non_finite(value: Any) -> Any:
+    """Replace non-finite floats (inf/-inf/nan) with None, recursively.
+
+    Stats can overflow to infinity (e.g. delta-method variance with a near-zero
+    denominator). json.dumps emits those as the nonstandard `Infinity`/`NaN`
+    tokens, and Postgres rejects them in jsonb columns, so apply this to result
+    dicts at the storage boundary. None matches the schema because the affected
+    fields (confidence intervals etc.) are already nullable.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {k: sanitize_non_finite(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [sanitize_non_finite(v) for v in value]
+    return value
 
 
 def get_experiment_stats_method(experiment) -> str:
@@ -122,7 +132,12 @@ def split_baseline_and_test_variants(
 ) -> tuple[V, list[V]]:
     control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
-        raise ValueError("No control variant found")
+        # The baseline has no exposures early in an experiment. Raise a validation
+        # error so that the user sees a message instead of a server error.
+        raise ValidationError(
+            f"No exposures for the '{baseline_key}' variant yet. Results can be calculated once it has data.",
+            code="no_data",
+        )
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
@@ -131,9 +146,9 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-# Maps SQL aliases produced by experiment_query_builder.py SELECT clauses to
-# ExperimentStatsBase field names. Aliases not registered here are ignored —
-# adding a new SELECT column without updating this map is a silent no-op.
+# Maps the SELECT aliases of the experiment query builders to
+# ExperimentStatsBase field names. Aliases not registered here are ignored, so
+# a new SELECT column without an entry in this map is silently dropped.
 _ALIAS_TO_STATS_FIELD: dict[str, str] = {
     "variant": "key",
     "num_users": "number_of_samples",
@@ -154,17 +169,11 @@ def get_variant_result(
     columns: list[str],
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
-    Parse a single result row into (breakdown_tuple, ExperimentStatsBase).
+    Parse one result row into (breakdown_tuple, stats).
 
-    The contract between the SQL builder and this parser is the column aliases
-    declared in each SELECT (`count(...) AS num_users`, `sum(...) AS covariate_sum`,
-    `breakdown_value_1`, …). Field presence is driven by which aliases appear in
-    `columns`, so adding or reordering SELECT columns propagates here automatically
-    without any positional offsets to maintain.
-
-    Breakdown columns (`breakdown_value_1`, `breakdown_value_2`, …) are collected
-    in numeric order into the returned tuple. If none are present, the breakdown
-    tuple is None.
+    Fields are matched by the column aliases declared in each SELECT
+    (`count(...) AS num_users`, `breakdown_value_1`, ...), not by position.
+    The breakdown tuple is None when the row has no `breakdown_value_N` columns.
     """
     row_dict = dict(zip(columns, row))
 
@@ -192,20 +201,7 @@ def aggregate_variants_across_breakdowns(
     variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
 ) -> list[ExperimentStatsBase]:
     """
-    Aggregates variant results across all breakdown combinations to compute global metrics.
-
-    Takes list of (breakdown_tuple, ExperimentStatsBase) tuples and aggregates by variant key.
-    The breakdown_tuple contains all breakdown values (e.g., ("MacOS", "Chrome") for multiple
-    breakdowns, ("Chrome",) for single breakdown, or None for no breakdown).
-
-    For each variant key (control, test, etc.), sums up:
-    - number_of_samples
-    - sum
-    - sum_squares
-    - For funnel metrics: step_counts (element-wise)
-    - For ratio metrics: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-
-    Returns a list of aggregated variants (without breakdown values).
+    Sum each variant's stats over all breakdown combinations to get the overall stats per variant.
     """
     from collections import defaultdict
 
@@ -274,6 +270,10 @@ def validate_variant_result(
     if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
+    # A zero denominator makes the ratio undefined, so no statistical result can be computed
+    if isinstance(metric, ExperimentRatioMetric) and not variant_result.denominator_sum:
+        validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
+
     if is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
@@ -285,17 +285,14 @@ def validate_variant_result(
         validation_failures=validation_failures,
     )
 
-    # Include funnel-specific fields if present
     if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
         validated_result.step_counts = variant_result.step_counts
 
-    # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
         validated_result.denominator_sum = variant_result.denominator_sum
         validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
         validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
 
-    # Include CUPED-specific fields if present
     if hasattr(variant_result, "covariate_sum") and variant_result.covariate_sum is not None:
         validated_result.covariate_sum = variant_result.covariate_sum
         validated_result.covariate_sum_squares = variant_result.covariate_sum_squares
@@ -323,8 +320,6 @@ def metric_variant_to_statistic(
             sum_squares=variant.sum_squares,
         )
     elif isinstance(metric, ExperimentRatioMetric):
-        # For ratio metrics, create statistics for both numerator and denominator
-        # and combine them using RatioStatistic
         numerator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,
@@ -342,15 +337,15 @@ def metric_variant_to_statistic(
             m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
         )
     elif isinstance(metric, ExperimentRetentionMetric):
-        # Retention metrics use ratio statistic to properly account for
-        # uncertainty in both numerator and denominator
-        # Numerator: count of users who completed (binary: 0 or 1 per user)
+        # Model retention as a ratio so that the variance includes the uncertainty
+        # in both the numerator and the denominator.
+        # Numerator: users who completed (0 or 1 per user).
         numerator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
-        # Denominator: each user who started contributes 1
+        # Denominator: each user who started contributes 1.
         denominator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.denominator_sum or 0.0,
@@ -396,6 +391,13 @@ def _copy_cuped_fields(
 ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
 
 
+@frozen
+class CupedAdjustment:
+    test_stat: ExperimentStatistic
+    control_stat: ExperimentStatistic
+    control_unadjusted_mean: float | None
+
+
 def _apply_cuped_adjustment_if_enabled(
     metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     cuped_config: CupedQueryConfig,
@@ -403,18 +405,20 @@ def _apply_cuped_adjustment_if_enabled(
     control_stat: ExperimentStatistic,
     test_variant: ExperimentStatsBaseValidated,
     control_variant: ExperimentStatsBaseValidated,
-) -> tuple[ExperimentStatistic, ExperimentStatistic, float | None]:
+) -> CupedAdjustment:
+    unadjusted = CupedAdjustment(test_stat=test_stat, control_stat=control_stat, control_unadjusted_mean=None)
+
     if not cuped_config.enabled:
-        return test_stat, control_stat, None
+        return unadjusted
 
     if not isinstance(metric, (ExperimentMeanMetric, ExperimentFunnelMetric)):
-        return test_stat, control_stat, None
+        return unadjusted
 
     # cuped_adjust supports SampleMeanStatistic and ProportionStatistic, but not RatioStatistic.
     if not isinstance(test_stat, (SampleMeanStatistic, ProportionStatistic)) or not isinstance(
         control_stat, (SampleMeanStatistic, ProportionStatistic)
     ):
-        return test_stat, control_stat, None
+        return unadjusted
 
     cuped_result = cuped_adjust(
         test_stat,
@@ -423,10 +427,10 @@ def _apply_cuped_adjustment_if_enabled(
         metric_variant_to_cuped_data(control_variant),
     )
 
-    return (
-        cuped_result.treatment_adjusted,
-        cuped_result.control_adjusted,
-        cuped_result.control_unadjusted_mean,
+    return CupedAdjustment(
+        test_stat=cuped_result.treatment_adjusted,
+        control_stat=cuped_result.control_adjusted,
+        control_unadjusted_mean=cuped_result.control_unadjusted_mean,
     )
 
 
@@ -506,7 +510,6 @@ def get_frequentist_experiment_result(
     variants: list[ExperimentVariantResultFrequentist] = []
 
     for test_variant_validated in test_variants_validated:
-        # Add fields we should always return
         experiment_variant_result = ExperimentVariantResultFrequentist(
             key=test_variant_validated.key,
             number_of_samples=test_variant_validated.number_of_samples,
@@ -516,7 +519,6 @@ def get_frequentist_experiment_result(
             validation_failures=test_variant_validated.validation_failures,
         )
 
-        # Include ratio-specific fields if present
         if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
             experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
             experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
@@ -525,11 +527,10 @@ def get_frequentist_experiment_result(
             )
         _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
-        # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                cuped_adjustment = _apply_cuped_adjustment_if_enabled(
                     metric,
                     resolved_cuped_config,
                     test_stat,
@@ -538,18 +539,17 @@ def get_frequentist_experiment_result(
                     control_variant_validated,
                 )
 
-                if unadjusted_mean is None:
-                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                if cuped_adjustment.control_unadjusted_mean is None:
+                    result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
                 else:
                     result = method.run_test(
-                        test_stat_for_result,
-                        control_stat_for_result,
-                        unadjusted_mean=unadjusted_mean,
+                        cuped_adjustment.test_stat,
+                        cuped_adjustment.control_stat,
+                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
                     )
 
                 confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
-                # Set statistical analysis fields
                 experiment_variant_result.p_value = result.p_value
                 experiment_variant_result.confidence_interval = confidence_interval
                 experiment_variant_result.significant = result.is_significant
@@ -576,9 +576,6 @@ def get_bayesian_experiment_result(
     stats_config: dict | None = None,
     cuped_config: CupedQueryConfig | None = None,
 ) -> ExperimentQueryResponse:
-    """
-    Get experiment results using the new Bayesian method with the new format
-    """
     bayesian_config = stats_config.get("bayesian", {}) if stats_config else {}
     resolved_cuped_config = cuped_config or get_cuped_config(stats_config, metric)
 
@@ -587,7 +584,6 @@ def get_bayesian_experiment_result(
         difference_type=_parse_enum_config(
             bayesian_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
-        prior_type=_parse_enum_config(bayesian_config.get("prior_type", "RELATIVE"), PriorType, PriorType.RELATIVE),
     )
     method = BayesianMethod(config)
 
@@ -609,7 +605,6 @@ def get_bayesian_experiment_result(
     variants: list[ExperimentVariantResultBayesian] = []
 
     for test_variant_validated in test_variants_validated:
-        # Add fields we should always return
         experiment_variant_result = ExperimentVariantResultBayesian(
             key=test_variant_validated.key,
             number_of_samples=test_variant_validated.number_of_samples,
@@ -619,7 +614,6 @@ def get_bayesian_experiment_result(
             validation_failures=test_variant_validated.validation_failures,
         )
 
-        # Include ratio-specific fields if present
         if hasattr(test_variant_validated, "denominator_sum") and test_variant_validated.denominator_sum is not None:
             experiment_variant_result.denominator_sum = test_variant_validated.denominator_sum
             experiment_variant_result.denominator_sum_squares = test_variant_validated.denominator_sum_squares
@@ -628,11 +622,10 @@ def get_bayesian_experiment_result(
             )
         _copy_cuped_fields(experiment_variant_result, test_variant_validated)
 
-        # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
             try:
                 test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                test_stat_for_result, control_stat_for_result, unadjusted_mean = _apply_cuped_adjustment_if_enabled(
+                cuped_adjustment = _apply_cuped_adjustment_if_enabled(
                     metric,
                     resolved_cuped_config,
                     test_stat,
@@ -641,22 +634,20 @@ def get_bayesian_experiment_result(
                     control_variant_validated,
                 )
 
-                if unadjusted_mean is None:
-                    result = method.run_test(test_stat_for_result, control_stat_for_result)
+                if cuped_adjustment.control_unadjusted_mean is None:
+                    result = method.run_test(cuped_adjustment.test_stat, cuped_adjustment.control_stat)
                 else:
                     result = method.run_test(
-                        test_stat_for_result,
-                        control_stat_for_result,
-                        unadjusted_mean=unadjusted_mean,
+                        cuped_adjustment.test_stat,
+                        cuped_adjustment.control_stat,
+                        unadjusted_mean=cuped_adjustment.control_unadjusted_mean,
                     )
 
-                # Convert credible interval to percentage
                 credible_interval = [result.credible_interval[0], result.credible_interval[1]]
 
-                # Set statistical analysis fields
                 experiment_variant_result.chance_to_win = result.chance_to_win
                 experiment_variant_result.credible_interval = credible_interval
-                experiment_variant_result.significant = result.is_decisive  # Use is_decisive for significance
+                experiment_variant_result.significant = result.is_decisive
             except StatisticError as e:
                 logger.info(
                     "experiment_statistics_skipped",

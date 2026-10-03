@@ -2,9 +2,11 @@ import json
 import base64
 import hashlib
 import secrets
+import dataclasses
 from urllib.parse import quote_plus
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -15,8 +17,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
-from ee.models.rbac.access_control import AccessControl
 
 TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for
@@ -55,6 +58,21 @@ def provisioning_config(**overrides) -> dict:
     from posthog.models.oauth_provisioning import ProvisioningConfig
 
     return ProvisioningConfig(**{**TEST_PARTNER_PROVISIONING, **overrides}).model_dump(mode="json")
+
+
+def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=None):
+    """Shrink a handler's declared bucket budget for a test.
+
+    The declaration lives on the handler function, so tests patch it there
+    rather than replaying dozens of requests to exhaust a real budget. Pass
+    ``multipliers`` (e.g. FLAT_MULTIPLIERS) when the test partner's tier would
+    otherwise scale the patched budget back up.
+    """
+    budgets = getattr(view_cls, method)._provisioning_budgets
+    changes: dict = {"budget": budget}
+    if multipliers is not None:
+        changes["multipliers"] = multipliers
+    return patch.dict(budgets, {endpoint: dataclasses.replace(budgets[endpoint], **changes)})
 
 
 class ProvisioningTestBase(APIBaseTest):

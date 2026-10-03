@@ -2,14 +2,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.client import WorkflowExecutionStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    RunActivitySummary,
-)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -19,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     check_pipeline_version_activity,
     release_v3_pipeline_lock_activity,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import RunActivitySummary
 
 TEAM_ID = 1
 SCHEMA_ID = uuid.uuid4()
@@ -66,6 +64,65 @@ class TestCheckPipelineVersionActivity:
 
         assert result.is_v3 is expected_is_v3
         mock_v3_check.assert_called_once_with(TEAM_ID, "Stripe")
+
+    @pytest.mark.parametrize(
+        "cdc_mode, expected_is_v3",
+        [
+            ("streaming", True),
+            ("snapshot", False),
+        ],
+        ids=["consumer_forces_v3", "snapshot_follows_flag"],
+    )
+    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=False)
+    @patch(f"{MODULE}.ExternalDataSchema")
+    @patch(f"{MODULE}.ExternalDataSource")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_buffered_cdc_consumption_overrides_the_flag(
+        self,
+        _bind: MagicMock,
+        _close: MagicMock,
+        mock_source_model: MagicMock,
+        mock_schema_model: MagicMock,
+        _mock_v3_check: MagicMock,
+        cdc_mode: str,
+        expected_is_v3: bool,
+    ) -> None:
+        schema = MagicMock()
+        schema.is_cdc = True
+        schema.cdc_mode = cdc_mode
+        schema.cdc_table_mode = "consolidated"
+        schema.initial_sync_complete = True
+        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = schema
+        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
+
+        result = check_pipeline_version_activity(
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+        )
+
+        assert result.is_v3 is expected_is_v3
+
+    @patch(f"{MODULE}.is_pipeline_v3_enabled", return_value=True)
+    @patch(f"{MODULE}.ExternalDataSchema")
+    @patch(f"{MODULE}.ExternalDataSource")
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.bind_contextvars")
+    def test_a_missing_schema_row_falls_back_to_the_flag(
+        self,
+        _bind: MagicMock,
+        _close: MagicMock,
+        mock_source_model: MagicMock,
+        mock_schema_model: MagicMock,
+        _mock_v3_check: MagicMock,
+    ) -> None:
+        mock_schema_model.objects.filter.return_value.select_related.return_value.first.return_value = None
+        mock_source_model.objects.get.return_value = MagicMock(source_type="Postgres")
+
+        result = check_pipeline_version_activity(
+            CheckPipelineVersionActivityInputs(team_id=TEAM_ID, source_id=SOURCE_ID, schema_id=SCHEMA_ID)
+        )
+
+        assert result.is_v3 is True
 
     @patch(f"{MODULE}.ExternalDataSource")
     @patch(f"{MODULE}.close_old_connections")
@@ -421,7 +478,7 @@ class TestTakeOverStaleRunningJob:
         mock_conn_cls.connect.side_effect = RuntimeError("connection refused")
         assert self._run() is False
 
-    @freeze_time("2026-01-01T12:00:00Z")
+    @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
     @patch(f"{MODULE}._release_and_acquire", return_value=True)
     @patch(f"{MODULE}.update_external_job_status")
     @patch(f"{MODULE}.BatchQueue")

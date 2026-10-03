@@ -2,12 +2,14 @@ import re
 import json
 import base64
 from pathlib import Path
+from urllib.parse import unquote
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+import dns.resolver
 from cryptography.hazmat.primitives import hashes as crypto_hashes
 from cryptography.hazmat.primitives.asymmetric import (
     padding as asym_padding,
@@ -17,6 +19,7 @@ from parameterized import parameterized
 
 from posthog.domain_connect import (
     DOMAIN_CONNECT_PROVIDERS,
+    EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC,
     DomainConnectSigningKeyMissing,
     build_sync_apply_url,
     discover_domain_connect,
@@ -64,11 +67,9 @@ class TestExtractRootDomainAndHost(BaseTest):
         ]
     )
     def test_extraction(self, name: str, full_domain: str, expected: tuple[str, str]) -> None:
-        self.assertEqual(
-            extract_root_domain_and_host(full_domain),
-            expected,
-            f"Failed for case {name} for domain {full_domain}",
-        )
+        domain_parts = extract_root_domain_and_host(full_domain)
+        self.assertEqual(domain_parts.root_domain, expected[0], f"Failed root domain for {name}: {full_domain}")
+        self.assertEqual(domain_parts.host, expected[1], f"Failed host for {name}: {full_domain}")
 
 
 class TestGetServiceIdForRegion(BaseTest):
@@ -140,10 +141,19 @@ class TestBuildSyncApplyUrl(BaseTest):
             host="ph",
             private_key=private_key,
             key_id="_dcpubkeyv1",
+            group_ids=("dkim", "spf"),
         )
 
-        self.assertIn("sig=", url)
-        self.assertIn("key=_dcpubkeyv1", url)
+        signed_query, signature_params = url.split("?", 1)[1].split("&sig=", 1)
+        self.assertIn("groupId=dkim%2Cspf", signed_query)
+        self.assertIn("key=_dcpubkeyv1", signature_params)
+        signature = unquote(signature_params.split("&key=", 1)[0])
+        private_key.public_key().verify(
+            base64.b64decode(signature),
+            signed_query.encode("utf-8"),
+            asym_padding.PKCS1v15(),
+            crypto_hashes.SHA256(),
+        )
 
     def test_url_without_signing_key_has_no_sig(self) -> None:
         url = build_sync_apply_url(
@@ -326,30 +336,84 @@ class TestTemplateResolverAlignment(BaseTest):
         mock_proxy_cls.objects.get.return_value = mock_record
 
         with self.settings(CLOUD_DEPLOYMENT=region):
-            domain, service_id, host, variables = resolve_proxy_context("test-id", "test-org")
+            resolved = resolve_proxy_context("test-id", "test-org")
 
-        self.assertEqual(set(variables.keys()), expected_vars)
-        self.assertEqual(service_id, template["serviceId"])
+        self.assertEqual(set(resolved.variables.keys()), expected_vars)
+        self.assertEqual(resolved.service_id, template["serviceId"])
+        self.assertEqual(resolved.root_domain, "example.com")
+        self.assertEqual(resolved.host, "ph")
         if template.get("hostRequired"):
-            self.assertTrue(host, "hostRequired template but resolver returned empty host")
+            self.assertTrue(resolved.host, "hostRequired template but resolver returned empty host")
 
     @parameterized.expand(
         [
-            ("posthog.com.email-verification-us.json", "US"),
-            ("posthog.com.email-verification-eu.json", "EU"),
+            (
+                "subdomain sender without a dmarc record",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                dns.resolver.NXDOMAIN(),
+                True,
+            ),
+            (
+                "root sender without a dmarc record",
+                "posthog.com.email-verification-eu.json",
+                "EU",
+                "example.com",
+                "",
+                dns.resolver.NoAnswer(),
+                True,
+            ),
+            (
+                "sender with an existing dmarc record",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                [MagicMock(strings=[b"v=DMARC1; p=reject;"])],
+                False,
+            ),
+            (
+                "sender whose dmarc lookup times out",
+                "posthog.com.email-verification-eu.json",
+                "EU",
+                "example.com",
+                "",
+                dns.resolver.Timeout(),
+                False,
+            ),
+            (
+                "sender whose dmarc record is not utf-8",
+                "posthog.com.email-verification-us.json",
+                "US",
+                "news.example.com",
+                "news",
+                [MagicMock(strings=[b"\xff"])],
+                False,
+            ),
         ]
     )
     @patch("posthog.models.integration.EmailIntegration")
     @patch("posthog.models.integration.Integration")
     def test_email_resolver_variables_match_template(
-        self, template_file: str, region: str, mock_integration_cls: MagicMock, mock_email_cls: MagicMock
+        self,
+        _name: str,
+        template_file: str,
+        region: str,
+        sender_domain: str,
+        expected_host: str,
+        dmarc_lookup: Exception | list[MagicMock],
+        applies_dmarc: bool,
+        mock_integration_cls: MagicMock,
+        mock_email_cls: MagicMock,
     ) -> None:
         template = _load_template(template_file)
         expected_vars = _extract_template_variables(template)
 
         mock_instance = MagicMock()
         mock_instance.kind = "email"
-        mock_instance.config = {"domain": "example.com", "mail_from_subdomain": "feedback"}
+        mock_instance.config = {"domain": sender_domain, "mail_from_subdomain": "feedback"}
         mock_integration_cls.objects.get.return_value = mock_instance
 
         mock_email = MagicMock()
@@ -358,18 +422,39 @@ class TestTemplateResolverAlignment(BaseTest):
                 {
                     "type": "verification",
                     "recordType": "TXT",
-                    "recordHostname": "_amazonses.example.com",
+                    "recordHostname": f"_amazonses.{sender_domain}",
                     "recordValue": "verify-token-123",
                 },
-                {"type": "dkim", "recordHostname": "aaa._domainkey.example.com"},
-                {"type": "dkim", "recordHostname": "bbb._domainkey.example.com"},
-                {"type": "dkim", "recordHostname": "ccc._domainkey.example.com"},
+                {"type": "dkim", "recordHostname": f"aaa._domainkey.{sender_domain}"},
+                {"type": "dkim", "recordHostname": f"bbb._domainkey.{sender_domain}"},
+                {"type": "dkim", "recordHostname": f"ccc._domainkey.{sender_domain}"},
             ]
         }
         mock_email_cls.return_value = mock_email
 
-        with self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"):
-            domain, service_id, variables = resolve_email_context(1, 1)
+        with (
+            self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"),
+            patch("posthog.domain_connect.dns.resolver.resolve") as mock_resolve,
+        ):
+            if isinstance(dmarc_lookup, Exception):
+                mock_resolve.side_effect = dmarc_lookup
+            else:
+                mock_resolve.return_value = dmarc_lookup
+            resolved = resolve_email_context(1, 1)
 
-        self.assertEqual(set(variables.keys()), expected_vars)
-        self.assertEqual(service_id, template["serviceId"])
+        mock_resolve.assert_called_once_with(f"_dmarc.{sender_domain}", "TXT", lifetime=5)
+
+        self.assertEqual(set(resolved.variables.keys()), expected_vars)
+        self.assertEqual(resolved.service_id, template["serviceId"])
+        self.assertEqual(resolved.root_domain, "example.com")
+        self.assertEqual(resolved.host, expected_host)
+        self.assertEqual(resolved.variables["verifyToken"], "verify-token-123")
+        self.assertEqual(resolved.variables["dkim1"], "aaa")
+        self.assertEqual(resolved.variables["mailFromSub"], "feedback")
+
+        template_groups = {record["groupId"] for record in template["records"]}
+        if applies_dmarc:
+            self.assertEqual(resolved.group_ids, ())
+        else:
+            self.assertEqual(resolved.group_ids, EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC)
+            self.assertEqual(template_groups - set(resolved.group_ids), {"dmarc"})

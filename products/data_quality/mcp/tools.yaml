@@ -1,0 +1,203 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Data quality
+feature: data_quality
+url_prefix: /
+ui_apps: {}
+tools:
+    data-quality-check-create:
+        operation: data_quality_checks_create
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a data quality check
+        description: |
+            Add a dbt-test-style assertion to a warehouse table, a saved query (view or materialized view), a data
+            catalog metric, or a PostHog table (events, persons, groups). Name the subject with subject_type
+            ('table', 'view', 'metric' or 'posthog_table') and subject_uuid, both from data-quality-subjects. A check
+            passes when it finds zero failing rows.
+
+            Query `system.information_schema.data_quality_checks` first — re-creating an identical check is a no-op,
+            but a near-duplicate with different config is noise for whoever reviews the results.
+
+            On a table or a view, prefer a generic type over custom_sql. Config per type:
+              - not_null, unique: no config; set column_name.
+              - accepted_values: {"values": ["paid", "refunded"]}; set column_name.
+              - relationships: {"to_subject_type": "table", "to_subject_uuid": "<uuid>", "to_column": "id"}; set
+                column_name. to_subject_type takes 'table', 'view' or 'posthog_table'. Add "to_lookback_hours" to look
+                for a match only among the referenced subject's recent rows, which only a target with a time column
+                accepts.
+              - row_count: {"min": 1} and/or {"max": 1000000}; no column_name.
+              - freshness: {"max_age_minutes": 60}; set column_name to a timestamp column.
+              - custom_sql: {"query": "select 1 from orders where total < 0"}; every row it returns is a failure.
+
+            Add "lookback_hours" to any config to check only the rows from the last N hours, by the subject's own time
+            column: timestamp on events, created_at on persons and groups. Optional, and only for a subject that has
+            one -- a warehouse table, a view and a metric do not. Without it the check reads the whole table, which on
+            events is expensive. custom_sql takes no lookback_hours; put the time filter in the query. Changing the
+            window creates a new check, so update the existing one to keep its history.
+
+            A metric supports custom_sql only, and takes no column_name. Its query must read the {metric} relation
+            exactly once and cannot use CTEs: {"query": "select * from {metric} where orders < 100"}. Call
+            data-quality-check-types with the subject_type to see which types that kind of subject supports.
+
+            Use severity 'error' when bad data should block trusting the model, 'warn' when it is worth surfacing but
+            not acting on. A check on a warehouse table runs after each sync of it, a check on a view when the view
+            refreshes, and a check on a metric or a PostHog table on that subject's schedule.
+        inject_body:
+            created_source: ai_generated
+        feature_flag: data-quality-checks
+    data-quality-check-delete:
+        operation: data_quality_checks_destroy
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a data quality check
+        description: >
+            Delete a check. The API soft-deletes it, so its run history stays queryable in
+            system.information_schema.data_quality_check_runs and past failures can still be dated.
+        feature_flag: data-quality-checks
+    data-quality-check-results:
+        operation: data_quality_checks_runs_list
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Recent results of a data quality check
+        description: >
+            The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending
+            rows — re-run that query to investigate a failure.
+        feature_flag: data-quality-checks
+    data-quality-check-run:
+        operation: data_quality_checks_run_create
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a data quality check
+        description: >
+            Run one check now. Returns a suite run to poll; read the outcome from
+            system.information_schema.data_quality_check_runs once it finishes.
+        feature_flag: data-quality-checks
+    data-quality-check-schedule:
+        operation: data_quality_checks_schedule_partial_update
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Change when a metric's data quality checks run
+        description: >
+            Set how often every enabled check on a metric runs, or stop running them automatically. Name the subject
+            with subject_type 'metric' and subject_uuid. Only a metric runs its checks on a schedule: a table's checks
+            run after each sync of it, and a view's when the view refreshes, so naming either one is rejected. A metric
+            gets a schedule when it takes its first check, so this fails with a 404 until then.
+        param_overrides:
+            subject_type:
+                required: true
+            subject_uuid:
+                required: true
+        feature_flag: data-quality-checks
+    data-quality-check-types:
+        operation: data_quality_checks_check_types_list
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List data quality check types
+        description: >
+            The check types this project can author, each with the JSON schema its config is validated against. Pass
+            subject_type to see only the types that kind of subject supports.
+        feature_flag: data-quality-checks
+    data-quality-check-update:
+        operation: data_quality_checks_partial_update
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update a data quality check
+        description: >
+            Change any part of a check: its presentation (name, description, severity, enabled, tags) and what it
+            asserts (check_type, column_name, config). The subject it audits is fixed, so subject_type and subject_uuid
+            are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or
+            name another active check already holds comes back as a field error, with nothing written. Deleted checks
+            release their definition, so it can be authored again as a new check.
+        feature_flag: data-quality-checks
+    data-quality-checks-health-list:
+        operation: data_quality_checks_health_list
+        enabled: false
+    data-quality-checks-list:
+        operation: data_quality_checks_list
+        enabled: false
+    data-quality-checks-metric-subjects-list:
+        operation: data_quality_checks_metric_subjects_list
+        enabled: false
+    data-quality-checks-output-schema-retrieve:
+        operation: data_quality_checks_output_schema_retrieve
+        enabled: false
+    data-quality-checks-retrieve:
+        operation: data_quality_checks_retrieve
+        enabled: false
+    data-quality-checks-schedule-retrieve:
+        operation: data_quality_checks_schedule_retrieve
+        enabled: false
+    data-quality-checks-schedules-list:
+        operation: data_quality_checks_schedules_list
+        enabled: false
+    data-quality-checks-update:
+        operation: data_quality_checks_update
+        enabled: false
+    data-quality-runs-check-runs-list:
+        operation: data_quality_runs_check_runs_list
+        enabled: false
+    data-quality-runs-create:
+        operation: data_quality_runs_create
+        enabled: false
+    data-quality-runs-list:
+        operation: data_quality_runs_list
+        enabled: false
+    data-quality-runs-retrieve:
+        operation: data_quality_runs_retrieve
+        enabled: false
+    data-quality-subjects:
+        operation: data_quality_checks_subjects_list
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List what a data quality check can be authored on
+        description: >
+            Every table, view, metric and PostHog table in this project you can read, with each one's columns and
+            whether you can put a check on it. Start here: a check names its subject by the subject_type and id this
+            returns, and a relationships check can point at a subject you can only read. A subject whose time_column is
+            set can take a lookback_hours window.
+        feature_flag: data-quality-checks

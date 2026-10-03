@@ -9,6 +9,7 @@ from django.core.management.base import BaseCommand
 import psycopg
 from psycopg import sql
 
+from posthog.product_db_migrations import product_migration_alias
 from posthog.product_db_router import get_product_db_routes
 from posthog.settings.base_variables import DEBUG
 
@@ -60,10 +61,10 @@ class Command(BaseCommand):
             return
 
         for writer_alias, app_labels in sorted(db_to_apps.items()):
-            # Use direct connection (bypasses PgBouncer) for migrations
+            # Use direct connection (bypasses PgBouncer) for migrations; shared with
+            # check_product_migrations so check and apply cannot disagree on the alias.
             db_name = writer_alias.removesuffix("_db_writer")
-            direct_alias = f"{db_name}_db_direct"
-            migrate_alias = direct_alias if direct_alias in settings.DATABASES else writer_alias
+            migrate_alias = product_migration_alias(db_name)
 
             if DEBUG:
                 _ensure_database_exists(migrate_alias)

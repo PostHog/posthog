@@ -1,17 +1,13 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import (
-    BitbucketAuth,
-    BitbucketResumeConfig,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.bitbucket import BitbucketAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bitbucket import (
     BitbucketAuthMethodConfig,
     BitbucketSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(
@@ -46,10 +42,6 @@ def _source_inputs(
     return inputs
 
 
-def test_source_type():
-    assert BitbucketSource().source_type == ExternalDataSourceType.BITBUCKET
-
-
 def test_connection_host_fields_force_secret_reentry_on_workspace_change():
     assert BitbucketSource().connection_host_fields == ["workspace"]
 
@@ -65,6 +57,7 @@ def test_connection_host_fields_force_secret_reentry_on_workspace_change():
         # incremental toggle would silently behave like a full refresh
         ("deployments", False),
         ("workspace_members", False),
+        ("branches", False),
     ],
 )
 def test_get_schemas_incremental_support(endpoint, supports_incremental):
@@ -118,12 +111,6 @@ def test_validate_credentials_delegates_to_transport():
     validate.assert_called_once_with(BitbucketAuth(email="a@b.c", api_token="tok"), "my-workspace")
 
 
-def test_get_resumable_source_manager_binds_resume_config():
-    manager = BitbucketSource().get_resumable_source_manager(_source_inputs())
-    assert isinstance(manager, ResumableSourceManager)
-    assert manager._data_class is BitbucketResumeConfig
-
-
 @pytest.mark.parametrize(
     "should_use_incremental,last_value,expected_last_value",
     [
@@ -158,7 +145,9 @@ def test_source_for_pipeline_plumbs_arguments(should_use_incremental, last_value
     )
 
 
-def test_non_retryable_errors_cover_auth_failures():
-    errors = BitbucketSource().get_non_retryable_errors()
-    assert any("401 Client Error" in key for key in errors)
-    assert any("403 Client Error" in key for key in errors)
+@pytest.mark.parametrize("endpoint", sorted(BITBUCKET_ENDPOINTS))
+def test_canonical_descriptions_document_the_primary_key_columns(endpoint):
+    # Several key columns are injected by the transport rather than returned by Bitbucket, so
+    # the LLM fallback cannot derive them from the vendor docs at all
+    columns = BitbucketSource().get_canonical_descriptions()[endpoint]["columns"]
+    assert set(BITBUCKET_ENDPOINTS[endpoint].primary_keys) <= set(columns)

@@ -1,12 +1,37 @@
-from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
+
+from django.db import connection, transaction
+
+from posthog.dataclasses import frozen
+
+from products.access_control.backend.models.role import RoleMembership
 
 
-@dataclass
+def lock_approval_policies(organization_id: UUID, *, shared: bool = False) -> None:
+    """Prevent policy changes between a flag's final policy lookup and its commit.
+
+    FeatureFlagSerializer.update holds a shared lock through lookup and mutation.
+    ApprovalPolicySerializer.create/update hold the exclusive lock, so different flag
+    writes can proceed together while policy creation and enablement wait for them.
+    """
+    # Org scope covers both team policies and the org fallback, including policies not yet created.
+    if not connection.in_atomic_block:
+        raise transaction.TransactionManagementError("Approval policy locks require an atomic block")
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock_shared(hashtextextended(%s, 0))"
+            if shared
+            else "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"approval-policies:{organization_id}"],
+        )
+
+
+@frozen
 class PolicyDecision:
     """Result of policy evaluation"""
 
-    result: str
+    result: Literal["ALLOW", "DENY", "REQUIRE_APPROVAL"]
     reason: str
     message: str
     approvers: dict
@@ -61,6 +86,14 @@ class PolicyEngine:
 
         return policy
 
+    def get_policy_for_action(self, action_class, team, organization):
+        """Get the active policy for an action, falling back to its fallback action keys in order."""
+        for action_key in (action_class.key, *action_class.fallback_policy_action_keys):
+            policy = self.get_policy(action_key, team, organization)
+            if policy:
+                return policy
+        return None
+
     def get_all_matching_policies(self, action_key: str, team, organization, intent: dict):
         """
         Get all active policies for an action that match the given intent.
@@ -91,7 +124,7 @@ class PolicyEngine:
 
         return policies
 
-    def evaluate(self, policy, actor, intent: dict, context: dict) -> PolicyDecision:
+    def evaluate(self, policy, actor, intent: dict, context: dict, ignore_conditions: bool = False) -> PolicyDecision:
         """
         Evaluate if an action requires approval.
 
@@ -111,7 +144,7 @@ class PolicyEngine:
                 policy_snapshot={},
             )
 
-        if not self._evaluate_conditions(policy.conditions, intent):
+        if not ignore_conditions and not self._evaluate_conditions(policy.conditions, intent):
             return PolicyDecision(
                 result="ALLOW",
                 reason="Conditions not matched",
@@ -137,7 +170,7 @@ class PolicyEngine:
                 "users": approver_config.get("users", []),
                 "roles": approver_config.get("roles", []),
                 "allow_self_approve": policy.allow_self_approve,
-                "conditions": policy.conditions or {},
+                "conditions": {} if ignore_conditions else (policy.conditions or {}),
                 "bypass_org_membership_levels": policy.bypass_org_membership_levels,
                 "bypass_roles": bypass_role_ids,
             },
@@ -291,20 +324,17 @@ class PolicyEngine:
 
         # Check bypass_roles (RBAC roles)
         if bypass_role_ids:
-            try:
-                from ee.models.rbac.role import RoleMembership
-            except ImportError:
-                pass
-            else:
-                user_role_ids = {
-                    str(rid)
-                    for rid in RoleMembership.objects.filter(
-                        user=actor,
-                        role__organization=org,
-                    ).values_list("role_id", flat=True)
-                }
-                if user_role_ids & set(bypass_role_ids):
-                    return True
+            user_role_ids = {
+                str(rid)
+                for rid in RoleMembership.objects.filter(
+                    user=actor,
+                    role__organization=org,
+                )
+                .valid_for_authorization()
+                .values_list("role_id", flat=True)
+            }
+            if user_role_ids & set(bypass_role_ids):
+                return True
 
         return False
 
@@ -322,19 +352,16 @@ class PolicyEngine:
             return True
 
         if approver_config.get("roles"):
-            try:
-                from ee.models.rbac.role import RoleMembership
-            except ImportError:
-                return False
-
             org = context.get("organization")
             if not org:
                 return False
 
             actor_roles = {
                 str(rid)
-                for rid in RoleMembership.objects.filter(user=actor, role__organization=org).values_list(
-                    "role_id", flat=True
+                for rid in (
+                    RoleMembership.objects.filter(user=actor, role__organization=org)
+                    .valid_for_authorization()
+                    .values_list("role_id", flat=True)
                 )
             }
 

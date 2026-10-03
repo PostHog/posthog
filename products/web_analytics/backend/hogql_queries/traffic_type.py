@@ -10,8 +10,13 @@ Each helper takes the user agent expression and an optional client IP expression
 signal catches crawlers that send real browser user agents from operator-published IP
 ranges (e.g. Google's mobile rendering service).
 
+Pass the query modifiers so the project's own bot definitions are applied too. Callers that
+have no modifiers (tests, ad-hoc expression building) get the built-in definitions only.
+
 The legacy __preview_* names still resolve as deprecated aliases.
 """
+
+from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.functions.traffic_type import (
@@ -23,6 +28,9 @@ from posthog.hogql.functions.traffic_type import (
 )
 
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
 
 __all__ = [
     "BOT_DEFINITIONS",
@@ -38,7 +46,11 @@ def _args(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None) -> list[ast.Expr]
     return [user_agent_expr] if ip_expr is None else [user_agent_expr, ip_expr]
 
 
-def get_traffic_type_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None = None) -> ast.Expr:
+def get_traffic_type_expr(
+    user_agent_expr: ast.Expr,
+    ip_expr: ast.Expr | None = None,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+) -> ast.Expr:
     """
     Classifies user agent (and optionally client IP) into traffic type.
 
@@ -48,10 +60,18 @@ def get_traffic_type_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None = 
     - "Automation" - HTTP clients, headless browsers, empty UA
     - "Regular" - Default for unmatched user agents
     """
-    return _get_traffic_type(node=ast.Call(name="getTrafficType", args=[]), args=_args(user_agent_expr, ip_expr))
+    return _get_traffic_type(
+        node=ast.Call(name="getTrafficType", args=[]),
+        args=_args(user_agent_expr, ip_expr),
+        modifiers=modifiers,
+    )
 
 
-def get_traffic_category_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None = None) -> ast.Expr:
+def get_traffic_category_expr(
+    user_agent_expr: ast.Expr,
+    ip_expr: ast.Expr | None = None,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+) -> ast.Expr:
     """
     Returns subcategory expression for more granular classification.
 
@@ -59,31 +79,57 @@ def get_traffic_category_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | Non
     social_crawler, monitoring, http_client, headless_browser, no_user_agent, regular
     """
     return _get_traffic_category(
-        node=ast.Call(name="getTrafficCategory", args=[]), args=_args(user_agent_expr, ip_expr)
+        node=ast.Call(name="getTrafficCategory", args=[]),
+        args=_args(user_agent_expr, ip_expr),
+        modifiers=modifiers,
     )
 
 
-def is_bot_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None = None) -> ast.Expr:
+def is_bot_expr(
+    user_agent_expr: ast.Expr,
+    ip_expr: ast.Expr | None = None,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+) -> ast.Expr:
     """
     Returns a boolean expression: true if bot/automation, false for regular traffic.
     """
-    return _is_bot(node=ast.Call(name="isLikelyBot", args=[]), args=_args(user_agent_expr, ip_expr))
+    return _is_bot(
+        node=ast.Call(name="isLikelyBot", args=[]),
+        args=_args(user_agent_expr, ip_expr),
+        modifiers=modifiers,
+    )
 
 
-def get_bot_type_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None = None) -> ast.Expr:
+def get_bot_type_expr(
+    user_agent_expr: ast.Expr,
+    ip_expr: ast.Expr | None = None,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+) -> ast.Expr:
     """
     Returns the bot category or empty string for regular traffic.
 
     Categories: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler,
     social_crawler, monitoring, http_client, headless_browser, no_user_agent, "" (regular)
     """
-    return _get_bot_type(node=ast.Call(name="getBotType", args=[]), args=_args(user_agent_expr, ip_expr))
+    return _get_bot_type(
+        node=ast.Call(name="getBotType", args=[]),
+        args=_args(user_agent_expr, ip_expr),
+        modifiers=modifiers,
+    )
 
 
-def get_bot_name_expr(user_agent_expr: ast.Expr, ip_expr: ast.Expr | None = None) -> ast.Expr:
+def get_bot_name_expr(
+    user_agent_expr: ast.Expr,
+    ip_expr: ast.Expr | None = None,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+) -> ast.Expr:
     """
     Returns the bot name or empty string for regular traffic.
 
     Examples: "Googlebot", "ChatGPT", "Claude", "curl", ""
     """
-    return _get_bot_name(node=ast.Call(name="getBotName", args=[]), args=_args(user_agent_expr, ip_expr))
+    return _get_bot_name(
+        node=ast.Call(name="getBotName", args=[]),
+        args=_args(user_agent_expr, ip_expr),
+        modifiers=modifiers,
+    )

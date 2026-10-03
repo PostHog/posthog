@@ -74,6 +74,12 @@ vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => artifactMocks.openArtifactTab,
 }));
 
+vi.mock("@posthog/ui/features/posthog-objects/PostHogObjectPage", () => ({
+  PostHogObjectPage: ({ fallbackName }: { fallbackName: string }) => (
+    <div data-testid="posthog-object-page">{fallbackName}</div>
+  ),
+}));
+
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({
     runs: taskRuns.data,
@@ -205,6 +211,8 @@ function textComment(): ResourceComment {
     scope: "task_artifact",
     source_comment: null,
     completed_at: null,
+    completed_by: null,
+    slack_thread: null,
   };
 }
 
@@ -284,7 +292,7 @@ describe("ArtifactPreview", () => {
     ).toBeUndefined();
   });
 
-  it("starts the manifest and preview URL requests together", async () => {
+  it("requests the manifest and the preview URL in parallel", async () => {
     let resolveArtifacts: (artifacts: unknown[]) => void = () => undefined;
     artifactMocks.getCloudRunArtifacts.mockReturnValue(
       new Promise((resolve) => {
@@ -305,13 +313,77 @@ describe("ArtifactPreview", () => {
     const queryFn = useQuery.mock.calls[0]?.[0]
       .queryFn as () => Promise<unknown>;
     const result = queryFn();
+    // The URL request must not wait for the manifest to resolve.
     expect(artifactMocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
       "task-1",
       "run-1",
       "artifact-1",
     );
-    resolveArtifacts([]);
+    resolveArtifacts([
+      {
+        id: "artifact-1",
+        name: "report.html",
+        type: "output",
+        storage_path: "runs/1/report.html",
+      },
+    ]);
     await expect(result).rejects.toThrow("Artifact is unavailable");
+  });
+
+  it("renders PostHog references even when no preview URL exists", async () => {
+    const metadata = {
+      reference_type: "posthog_object",
+      object_kind: "insight",
+      object_id: "9pQx3",
+      source_message_ids: ["turn-1"],
+      occurrence_count: 1,
+    } as const;
+    const artifact = {
+      id: "phref-1",
+      name: "Checkout funnel",
+      type: "reference",
+      metadata,
+    };
+    artifactMocks.getCloudRunArtifacts.mockResolvedValue([artifact]);
+    // A reference has no storage path, so the parallel URL read is a no-op.
+    artifactMocks.getCloudAttachmentPreviewUrl.mockResolvedValue(null);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="phref-1"
+        name="Checkout funnel"
+      />,
+    );
+    const queryFn = useQuery.mock.calls[0]?.[0]
+      .queryFn as () => Promise<unknown>;
+    await expect(queryFn()).resolves.toEqual({
+      artifact,
+      artifacts: [artifact],
+      preview: { kind: "posthog-object", metadata },
+    });
+
+    useQuery.mockReturnValue({
+      data: {
+        artifact,
+        artifacts: [artifact],
+        preview: { kind: "posthog-object", metadata },
+      },
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="phref-1"
+        name="Checkout funnel"
+      />,
+    );
+    expect(screen.getByTestId("posthog-object-page")).toHaveTextContent(
+      "Checkout funnel",
+    );
   });
 
   it("keeps the artifact visible when comments fail to load", () => {
@@ -417,6 +489,34 @@ describe("ArtifactPreview", () => {
     expect(frame).toHaveAttribute("sandbox", "");
   });
 
+  it("plays video artifacts in a video player instead of an iframe", () => {
+    useQuery.mockReturnValue({
+      data: new Blob(["video"], { type: "video/mp4" }),
+      isLoading: false,
+      isError: false,
+    });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="demo.mp4"
+      />,
+    );
+
+    const video = screen.getByLabelText("demo.mp4");
+    expect(video.tagName).toBe("VIDEO");
+    expect(video).toHaveAttribute("src", "blob:preview");
+    expect(video).toHaveAttribute("controls");
+    expect(screen.queryByTitle("Preview of demo.mp4")).toBeNull();
+
+    fireEvent.error(video);
+    expect(
+      screen.getByText("This artifact can’t be previewed."),
+    ).toBeInTheDocument();
+  });
+
   it.each([
     ["image.png", "image/png"],
     ["image.jpg", "image/jpeg"],
@@ -426,9 +526,12 @@ describe("ArtifactPreview", () => {
     ["image.ico", "image/x-icon"],
     ["image.tiff", "image/tiff"],
     ["image.avif", "image/avif"],
+    ["demo.mp4", "video/mp4"],
+    ["demo.mov", "video/quicktime"],
+    ["demo.webm", "video/webm"],
   ])("normalizes %s served as octet-stream", async (name, mimeType) => {
     const blob = await artifactPreviewBlob(
-      new Blob(["image"], { type: "application/octet-stream" }),
+      new Blob(["media"], { type: "application/octet-stream" }),
       name,
     );
 
@@ -713,6 +816,8 @@ describe("ArtifactPreview", () => {
       scope: "task_artifact",
       source_comment: null,
       completed_at: null,
+      completed_by: null,
+      slack_thread: null,
     };
     artifactComments.data = [
       root,
@@ -1119,6 +1224,11 @@ describe("ArtifactPreview", () => {
     expect(screen.getByText("v2/2")).toBeInTheDocument();
     lastCall = useQuery.mock.calls.at(-1)?.[0] as { queryKey: unknown[] };
     expect(lastCall.queryKey).toContain("artifact-1");
+
+    // A focus request that already landed must not keep pulling the pager back.
+    fireEvent.click(screen.getByRole("button", { name: "Older version" }));
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
   });
 
   it("saves edited source as a new output version under the same name", async () => {

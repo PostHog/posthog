@@ -22,8 +22,10 @@ const hiddenTabStyle: React.CSSProperties = {
   top: 0,
   left: 0,
   visibility: "hidden",
+  contentVisibility: "hidden",
   pointerEvents: "none",
 };
+const MAX_MOUNTED_TABS = 5;
 
 interface TabBarButtonProps {
   ariaLabel: string;
@@ -95,8 +97,8 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   const hostClient = useHostTRPCClient();
   const [mountedTabs, setMountedTabs] = useState<{
     scopeKey: string;
-    tabIds: Set<string>;
-  }>(() => ({ scopeKey: mountScopeKey, tabIds: new Set() }));
+    tabIds: string[];
+  }>(() => ({ scopeKey: mountScopeKey, tabIds: [] }));
 
   useEffect(() => {
     if (!content.activeTabId) return;
@@ -104,16 +106,49 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       if (current.scopeKey !== mountScopeKey) {
         return {
           scopeKey: mountScopeKey,
-          tabIds: new Set([content.activeTabId]),
+          tabIds: [content.activeTabId],
         };
       }
-      if (current.tabIds.has(content.activeTabId)) return current;
+      const nextTabIds = current.tabIds.filter(
+        (tabId) => tabId !== content.activeTabId,
+      );
+      nextTabIds.push(content.activeTabId);
       return {
         scopeKey: mountScopeKey,
-        tabIds: new Set(current.tabIds).add(content.activeTabId),
+        tabIds: nextTabIds.slice(-MAX_MOUNTED_TABS),
       };
     });
   }, [content.activeTabId, mountScopeKey]);
+
+  const mountedTabIds =
+    mountedTabs.scopeKey === mountScopeKey
+      ? mountedTabs.tabIds
+          .filter((tabId) => tabId !== content.activeTabId)
+          .concat(content.activeTabId ?? [])
+          .slice(-MAX_MOUNTED_TABS)
+      : content.activeTabId
+        ? [content.activeTabId]
+        : [];
+  const mountedTabIdSet = new Set(mountedTabIds);
+  const mountedTabContent = content.tabs.reduce<React.ReactNode[]>(
+    (renderedTabs, tab) => {
+      if (tab.id !== content.activeTabId && !mountedTabIdSet.has(tab.id)) {
+        return renderedTabs;
+      }
+      renderedTabs.push(
+        <div
+          key={tab.id}
+          style={
+            tab.id === content.activeTabId ? activeTabStyle : hiddenTabStyle
+          }
+        >
+          {tab.component}
+        </div>,
+      );
+      return renderedTabs;
+    },
+    [],
+  );
 
   const handleSplitClick = async () => {
     const result = await hostClient.contextMenu.showSplitContextMenu.mutate();
@@ -145,33 +180,38 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   );
 
   useEffect(() => {
-    if (!scrollContainerRef.current || !content.activeTabId) return;
+    // Measured after paint: reading rects inside the commit forced a layout
+    // of the freshly mounted tab.
+    const frame = requestAnimationFrame(() => {
+      if (!scrollContainerRef.current || !content.activeTabId) return;
 
-    const activeTabIndex = content.tabs.findIndex(
-      (tab) => tab.id === content.activeTabId,
-    );
-    if (activeTabIndex === -1) return;
+      const activeTabIndex = content.tabs.findIndex(
+        (tab) => tab.id === content.activeTabId,
+      );
+      if (activeTabIndex === -1) return;
 
-    const container = scrollContainerRef.current;
-    const tabElement = container.children[activeTabIndex] as HTMLElement;
-    if (!tabElement) return;
+      const container = scrollContainerRef.current;
+      const tabElement = container.children[activeTabIndex] as HTMLElement;
+      if (!tabElement) return;
 
-    const containerRect = container.getBoundingClientRect();
-    const tabRect = tabElement.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const tabRect = tabElement.getBoundingClientRect();
 
-    if (tabRect.right > containerRect.right - 64) {
-      tabElement.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "end",
-      });
-    } else if (tabRect.left < containerRect.left) {
-      tabElement.scrollIntoView({
-        behavior: "smooth",
-        block: "nearest",
-        inline: "start",
-      });
-    }
+      if (tabRect.right > containerRect.right - 64) {
+        tabElement.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "end",
+        });
+      } else if (tabRect.left < containerRect.left) {
+        tabElement.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "start",
+        });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
   }, [content.activeTabId, content.tabs]);
 
   return (
@@ -275,25 +315,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
       >
         {content.tabs.length > 0 &&
         content.tabs.some((t) => t.id === content.activeTabId) ? (
-          content.tabs
-            .filter(
-              (tab) =>
-                tab.id === content.activeTabId ||
-                (mountedTabs.scopeKey === mountScopeKey &&
-                  mountedTabs.tabIds.has(tab.id)),
-            )
-            .map((tab) => (
-              <div
-                key={tab.id}
-                style={
-                  tab.id === content.activeTabId
-                    ? activeTabStyle
-                    : hiddenTabStyle
-                }
-              >
-                {tab.component}
-              </div>
-            ))
+          mountedTabContent
         ) : emptyState ? (
           emptyState
         ) : (

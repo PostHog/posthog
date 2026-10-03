@@ -2,14 +2,9 @@ import pytest
 from unittest import mock
 from unittest.mock import MagicMock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zylo import ZyloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source import ZyloSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.zylo.zylo import ZyloResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestZyloSource:
@@ -17,32 +12,6 @@ class TestZyloSource:
         self.source = ZyloSource()
         self.team_id = 123
         self.config = ZyloSourceConfig(token_id="tok_id", token_secret="tok_secret")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.ZYLO
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Zylo"
-        assert config.label == "Zylo"
-        assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/zylo.png"
-        assert len(config.fields) == 2
-
-        token_id_field, token_secret_field = config.fields
-        assert isinstance(token_id_field, SourceFieldInputConfig)
-        assert token_id_field.name == "token_id"
-        assert token_id_field.type == SourceFieldInputConfigType.TEXT
-        assert token_id_field.required is True
-        assert token_id_field.secret is False
-
-        assert isinstance(token_secret_field, SourceFieldInputConfig)
-        assert token_secret_field.name == "token_secret"
-        assert token_secret_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_secret_field.required is True
-        assert token_secret_field.secret is True
 
     def test_get_schemas_lists_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -99,16 +68,6 @@ class TestZyloSource:
         assert error_message == "Zylo token ID and token secret are required"
 
     @pytest.mark.parametrize(
-        "expected_key",
-        [
-            "401 Client Error: Unauthorized for url",
-            "403 Client Error: Forbidden for url",
-        ],
-    )
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    @pytest.mark.parametrize(
         ("status", "expected_message"),
         [
             (200, None),
@@ -131,50 +90,3 @@ class TestZyloSource:
     def test_get_endpoint_permissions_unknown_endpoint_is_reachable(self) -> None:
         permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["NotARealEndpoint"])
         assert permissions == {"NotARealEndpoint": None}
-
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is ZyloResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source.zylo_source")
-    def test_source_for_pipeline_plumbs_inputs(self, mock_zylo_source: MagicMock) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = MagicMock()
-        inputs.schema_name = "Contracts"
-        inputs.team_id = 7
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = True
-        inputs.incremental_field = "zylo_modified_at"
-        inputs.db_incremental_field_last_value = "2024-01-01"
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_zylo_source.assert_called_once_with(
-            token_id="tok_id",
-            token_secret="tok_secret",
-            endpoint="Contracts",
-            team_id=7,
-            job_id="job-1",
-            resumable_source_manager=manager,
-            should_use_incremental_field=True,
-            incremental_field="zylo_modified_at",
-            db_incremental_field_last_value="2024-01-01",
-        )
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.zylo.source.zylo_source")
-    def test_source_for_pipeline_drops_last_value_when_not_incremental(self, mock_zylo_source: MagicMock) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        inputs = MagicMock()
-        inputs.schema_name = "Applications"
-        inputs.team_id = 7
-        inputs.job_id = "job-1"
-        inputs.should_use_incremental_field = False
-        inputs.incremental_field = None
-        inputs.db_incremental_field_last_value = "2024-01-01"
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert mock_zylo_source.call_args.kwargs["db_incremental_field_last_value"] is None

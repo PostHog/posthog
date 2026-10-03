@@ -1,37 +1,91 @@
-import type { GroupType } from '@/api/client'
-import type { CachedOrg, CachedProject, CachedUser } from '@/tools/types'
+import type { CachedOrg, CachedProject } from '@/tools/types'
 
-export function buildDefinedGroupsBlock(groupTypes?: GroupType[]): string {
-    if (!groupTypes || groupTypes.length === 0) {
-        return ''
+/** Bounds the onboarded-products line for intent-heavy teams; the environment
+ *  prompt is repeated context, so the tail is summarized as a count instead. */
+const MAX_ONBOARDED_PRODUCTS = 12
+
+/**
+ * Per-product enablement facts for the active project, so an agent knows which
+ * PostHog products it can rely on (and which are off) without calling
+ * `project-get` and interpreting a raw settings payload. Facts only, stated
+ * neutrally: whether to recommend enabling something is the agent's call.
+ */
+function buildProductLines(project: CachedProject): string[] {
+    // Only flag-backed products get an enabled/not-enabled verdict, because their
+    // Team opt-in is an authoritative on/off switch. Products with no such switch
+    // (feature flags, experiments, ...) are reported via completed onboarding below.
+    const optIns = [
+        { label: 'session replay', enabled: project.session_recording_opt_in },
+        { label: 'exception autocapture (error tracking)', enabled: project.autocapture_exceptions_opt_in },
+        { label: 'surveys', enabled: project.surveys_opt_in },
+        { label: 'heatmaps', enabled: project.heatmaps_opt_in },
+    ]
+    const lines: string[] = []
+    const enabled = optIns.filter((p) => p.enabled === true).map((p) => p.label)
+    const notEnabled = optIns.filter((p) => p.enabled !== true).map((p) => p.label)
+    if (enabled.length > 0) {
+        lines.push(`Products enabled in this project: ${enabled.join(', ')}.`)
     }
-    return `Defined group types: ${groupTypes.map((gt) => gt.group_type).join(', ')}`
+    if (notEnabled.length > 0) {
+        lines.push(`Products not enabled: ${notEnabled.join(', ')}.`)
+    }
+    // Intent rows without `onboarding_completed_at` can be a single abandoned
+    // click, so only completed onboarding counts as "set up".
+    const onboarded = [
+        ...new Set(
+            (project.product_intents ?? [])
+                .filter((intent) => intent.onboarding_completed_at && intent.product_type)
+                .map((intent) => (intent.product_type as string).replace(/_/g, ' '))
+        ),
+    ].sort()
+    if (onboarded.length > 0) {
+        const shown = onboarded.slice(0, MAX_ONBOARDED_PRODUCTS)
+        const more = onboarded.length - shown.length
+        lines.push(`Products set up (onboarding completed): ${shown.join(', ')}${more > 0 ? ` (+${more} more)` : ''}.`)
+    }
+    return lines
+}
+
+/**
+ * `undefined` means unknown (key lacks `integration:read`, or the fetch failed):
+ * say nothing rather than a false "none". An empty list is a real answer and is
+ * rendered, since "no integrations connected" is itself useful to an agent.
+ */
+function buildIntegrationsLine(integrationKinds?: string[]): string | undefined {
+    if (!integrationKinds) {
+        return undefined
+    }
+    if (integrationKinds.length === 0) {
+        return 'Integrations connected: none.'
+    }
+    return `Integrations connected: ${[...new Set(integrationKinds)].sort().join(', ')}.`
+}
+
+export interface EnvironmentContextOptions {
+    /** Integration kinds connected in the active project; `undefined` means unknown. */
+    integrationKinds?: string[]
 }
 
 export function buildActiveEnvironmentContextPrompt(
-    user?: CachedUser,
     org?: CachedOrg,
     project?: CachedProject,
-    regionalBaseUrl?: string
+    regionalBaseUrl?: string,
+    opts?: EnvironmentContextOptions
 ): string | undefined {
-    if (!user && !org && !project) {
+    if (!org && !project) {
         return undefined
     }
     const lines: string[] = []
-    if (org || project) {
-        const projectName = project?.name ?? 'Unknown'
-        const projectId = project?.id ?? 'unknown'
-        const projectToken = project?.api_token ?? 'unknown'
-
-        if (org) {
-            const orgName = org.name ?? 'Unknown'
-            const orgId = org.id ?? 'unknown'
-            lines.push(
-                `You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}) within organization "${orgName}" (id: ${orgId}).`
-            )
-        } else {
-            lines.push(`You are currently in project "${projectName}" (id: ${projectId}, token: ${projectToken}).`)
-        }
+    const projectName = project?.name ?? 'Unknown'
+    const projectId = project?.id ?? 'unknown'
+    if (org) {
+        const orgName = org.name ?? 'Unknown'
+        const orgId = org.id ?? 'unknown'
+        lines.push(
+            `You are currently in project "${projectName}" (id: ${projectId}) within organization "${orgName}" (id: ${orgId}).`
+        )
+    } else {
+        lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
     }
     if (regionalBaseUrl) {
         const origin = regionalBaseUrl.replace(/^https?:\/\//, '')
@@ -42,7 +96,7 @@ export function buildActiveEnvironmentContextPrompt(
         )
     }
     if (project) {
-        lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)
+        lines.push('For project settings such as the timezone, call `project-get` without an ID.')
         if (project.test_account_filters_default_checked) {
             lines.push(
                 'This project filters out internal and test users by default. `query-*` tools apply this automatically when `filterTestAccounts` is omitted; when composing queries for other tools (e.g. insight-create), set `filterTestAccounts: true` unless the user asks to include internal/test data.'
@@ -58,10 +112,11 @@ export function buildActiveEnvironmentContextPrompt(
                 "Person properties are query-time in this project. `person.properties.*` on the events table always returns the person's current (latest) value, regardless of when the event occurred."
             )
         }
-    }
-    if (user) {
-        const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || 'Unknown'
-        lines.push(`The user's name is ${fullName} (${user.email}).`)
+        lines.push(...buildProductLines(project))
+        const integrationsLine = buildIntegrationsLine(opts?.integrationKinds)
+        if (integrationsLine) {
+            lines.push(integrationsLine)
+        }
     }
     // No prose preamble: the heading plus the lines themselves already say the agent
     // is in this project, and the sentence it replaced ("All tool calls and queries
@@ -150,6 +205,40 @@ export class ToolDomainExtractor {
         'retrieve',
         'destroy',
         'run',
+        'archive',
+        'calculate',
+        'cancel',
+        'claim',
+        'complete',
+        'copy',
+        'disable',
+        'discard',
+        'duplicate',
+        'edit',
+        'emit',
+        'enable',
+        'end',
+        'estimate',
+        'freeze',
+        'launch',
+        'migrate',
+        'move',
+        'patch',
+        'pause',
+        'publish',
+        'record',
+        'rename',
+        'reset',
+        'restore',
+        'resume',
+        'ship',
+        'show',
+        'start',
+        'suggest',
+        'test',
+        'transfer',
+        'unarchive',
+        'unfreeze',
     ])
 
     private readonly items: ToolItem[]

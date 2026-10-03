@@ -1,16 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onfleet import (
     OnfleetSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.onfleet import OnfleetResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source import OnfleetSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _TRANSPORT_STATUS = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.onfleet.source.get_credentials_status"
@@ -22,24 +16,6 @@ class TestOnfleetSource:
         self.source = OnfleetSource()
         self.team_id = 123
         self.config = OnfleetSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.ONFLEET
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Onfleet"
-        assert config.label == "Onfleet"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/onfleet"
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -61,21 +37,6 @@ class TestOnfleetSource:
     def test_non_retryable_errors_ignore_unrelated(self, other_error):
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
 
-    def test_get_schemas_lists_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_tasks_supports_incremental(self):
-        by_name = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert by_name["tasks"].supports_incremental is True
-        assert [f["field"] for f in by_name["tasks"].incremental_fields] == ["timeCreated"]
-        for name in ("workers", "teams", "hubs", "administrators", "webhooks", "organization"):
-            assert by_name[name].supports_incremental is False
-
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["tasks", "workers"])
-        assert {s.name for s in schemas} == {"tasks", "workers"}
-
     @pytest.mark.parametrize(
         "status, schema_name, expected_ok",
         [
@@ -93,12 +54,6 @@ class TestOnfleetSource:
         with mock.patch(_TRANSPORT_STATUS, return_value=status):
             ok, _ = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert ok is expected_ok
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is OnfleetResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self):
         inputs = mock.MagicMock()

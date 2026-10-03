@@ -1,11 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ConditionalFormattingRule, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import {
+    AxisSeriesSettings,
+    DataVisualizationLogicProps,
+    dataVisualizationLogic,
+    formatDataWithSettings,
+} from './dataVisualizationLogic'
 
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
@@ -17,6 +22,16 @@ const defaultQuery: DataVisualizationNode = {
         query: 'select 1',
     },
     display: ChartDisplayType.Auto,
+}
+
+const equalsRule: ConditionalFormattingRule = {
+    id: 'equals',
+    templateId: 'equals',
+    columnName: 'value',
+    input: '1',
+    color: '#FFADAD',
+    colorMode: 'light',
+    bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
 }
 
 describe('dataVisualizationLogic', () => {
@@ -133,6 +148,64 @@ describe('dataVisualizationLogic', () => {
                     },
                 },
             ],
+        })
+    })
+
+    it('initializes axes when columns load after selecting a visualization type', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: null,
+            selectedYAxis: null,
+        })
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            results: [['signed_up', 'Safari', 11]],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            selectedXAxis: 'event',
+            selectedYAxis: [expect.objectContaining({ name: 'total_count' })],
+        })
+    })
+
+    it('auto-maps box plot columns when the chart is selected', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['bucket', 'series', 'min', 'p25', 'median', 'mean', 'p75', 'max'],
+            types: [
+                ['bucket', 'Date'],
+                ['series', 'String'],
+                ['min', 'Float64'],
+                ['p25', 'Float64'],
+                ['median', 'Float64'],
+                ['mean', 'Float64'],
+                ['p75', 'Float64'],
+                ['max', 'Float64'],
+            ],
+            results: [['2026-01-01', 'Free', 1, 2, 3, 4, 5, 6]],
+        })
+
+        logic.actions.setVisualizationType(ChartDisplayType.BoxPlot)
+
+        await expectLogic(logic).toMatchValues({
+            chartSettings: expect.objectContaining({
+                boxPlot: {
+                    xAxisColumn: 'bucket',
+                    seriesColumn: 'series',
+                    minColumn: 'min',
+                    p25Column: 'p25',
+                    medianColumn: 'median',
+                    meanColumn: 'mean',
+                    p75Column: 'p75',
+                    maxColumn: 'max',
+                },
+            }),
         })
     })
 
@@ -298,6 +371,25 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it('shows taxonomy display names for x-axis values of a column named event', async () => {
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['event', 'count'],
+            types: [
+                ['event', 'String'],
+                ['count', 'Int64'],
+            ],
+            results: [
+                ['$pageview', 3],
+                ['signed_up', 1],
+            ],
+        })
+
+        logic.actions.clearAxis()
+        logic.actions.updateXSeries('event')
+
+        expect(logic.values.xData?.data).toEqual(['Pageview', 'signed_up'])
+    })
+
     it('does not resolve to a time-series chart when there is only one row', async () => {
         logic.actions.setVisualizationType(ChartDisplayType.ActionsLineGraph)
 
@@ -358,20 +450,45 @@ describe('dataVisualizationLogic', () => {
             },
         })
     })
-    it('stamps labels onto the slices when a pie chart is newly picked', async () => {
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'stamps labels onto the slices when a pie display is newly picked',
+        async (displayType) => {
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'labels' }) }),
+            })
+        }
+    )
+
+    test.each([ChartDisplayType.ActionsPie, ChartDisplayType.ActionsDonut])(
+        'does not override existing pie slice content when re-picking a pie display',
+        async (displayType) => {
+            logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
+            logic.actions.setVisualizationType(displayType)
+
+            await expectLogic(logic).toMatchValues({
+                chartSettings: expect.objectContaining({ pie: expect.objectContaining({ sliceContent: 'values' }) }),
+            })
+        }
+    )
+
+    it('defaults a newly selected donut total and preserves an explicit setting', async () => {
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'labels' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: true }),
+            }),
         })
-    })
 
-    it('does not override existing pie slice content when re-picking pie', async () => {
-        logic.actions.updateChartSettings({ pie: { sliceContent: 'values' } })
-        logic.actions.setVisualizationType(ChartDisplayType.ActionsPie)
+        logic.actions.updateChartSettings({ pie: { showTotal: false } })
+        logic.actions.setVisualizationType(ChartDisplayType.ActionsDonut)
 
         await expectLogic(logic).toMatchValues({
-            chartSettings: expect.objectContaining({ pie: { sliceContent: 'values' } }),
+            chartSettings: expect.objectContaining({
+                pie: expect.objectContaining({ sliceContent: 'labels', showTotal: false }),
+            }),
         })
     })
 
@@ -466,13 +583,13 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({
             visualizationType: ChartDisplayType.Auto,
             effectiveVisualizationType: ChartDisplayType.TwoDimensionalHeatmap,
-            chartSettings: {
+            chartSettings: expect.objectContaining({
                 heatmap: {
                     xAxisColumn: 'region',
                     yAxisColumn: 'segment',
                     valueColumn: 'count',
                 },
-            },
+            }),
         })
     })
 
@@ -552,6 +669,65 @@ describe('dataVisualizationLogic', () => {
         await expectLogic(logic).toMatchValues({ hasSortedTable: true })
     })
 
+    test.each([
+        {
+            name: 'loads the Hog VM for a table with formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [equalsRule],
+            hogVm: expect.anything(),
+        },
+        {
+            name: 'does not load the Hog VM for a table without formatting rules',
+            display: ChartDisplayType.ActionsTable,
+            rules: [],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for an auto visualization before its data arrives',
+            display: ChartDisplayType.Auto,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+        {
+            name: 'does not load the Hog VM for a chart that kept table formatting rules',
+            display: ChartDisplayType.ActionsLineGraph,
+            rules: [equalsRule],
+            hogVm: null,
+        },
+    ])('$name', async ({ display, rules, hogVm }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-loading',
+            query: { ...defaultQuery, display, tableSettings: { conditionalFormatting: rules } },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+
+        await expectLogic(tableLogic).toFinishAllListeners().toMatchValues({ hogVm })
+        tableLogic.unmount()
+    })
+
+    test.each([
+        { name: 'shows a Hog VM load failure while the table needs the VM', rules: [equalsRule], failed: true },
+        { name: 'hides a Hog VM load failure once the table has no rules', rules: [], failed: false },
+    ])('$name', async ({ rules, failed }) => {
+        const tableLogic = dataVisualizationLogic({
+            key: 'hog-vm-load-failure',
+            query: {
+                ...defaultQuery,
+                display: ChartDisplayType.ActionsTable,
+                tableSettings: { conditionalFormatting: rules },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        tableLogic.mount()
+        await expectLogic(tableLogic).toFinishAllListeners()
+
+        tableLogic.actions.setHogVmLoadError(new Error('chunk failed'))
+
+        await expectLogic(tableLogic).toMatchValues({ hogVmLoadFailed: failed })
+        tableLogic.unmount()
+    })
+
     it('does not mutate the original query when updating y-axis formatting', async () => {
         const queryWithAxisSettings: DataVisualizationNode = {
             ...defaultQuery,
@@ -611,5 +787,67 @@ describe('dataVisualizationLogic', () => {
         })
 
         expect(queryWithAxisSettings.chartSettings?.yAxis?.[0].settings?.formatting?.decimalPlaces).toBeUndefined()
+    })
+
+    it('keeps y-axis values unrounded at zero decimal places and plots missing values as zero', async () => {
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                chartSettings: {
+                    showNullsAsZero: true,
+                    yAxis: [{ column: 'value', settings: { formatting: { decimalPlaces: 0 } } }],
+                },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Nullable(Float64)']],
+            results: [[42.195], [null], ['NaN']],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            yData: [expect.objectContaining({ data: [42.195, 0, 0] })],
+        })
+    })
+
+    it('ignores retained decimal places under the short style for table values', async () => {
+        const settings: AxisSeriesSettings = { formatting: { style: 'short', decimalPlaces: 0 } }
+        logic.unmount()
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: {
+                ...defaultQuery,
+                tableSettings: { columns: [{ column: 'value', settings }] },
+            },
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+
+        dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+            columns: ['value'],
+            types: [['value', 'Float64']],
+            results: [[12.345]],
+        })
+
+        await expectLogic(logic).toMatchValues({
+            tabularData: [[expect.objectContaining({ value: 12.345, formattedValue: '12.3' })]],
+        })
+    })
+
+    it.each<[string, number, AxisSeriesSettings | undefined, string]>([
+        [
+            'formats zero decimal places under the none style',
+            42.195,
+            { formatting: { style: 'none', decimalPlaces: 0 } },
+            '42',
+        ],
+        ['keeps full precision when decimal places are unset', 42.5, undefined, '42.5'],
+    ])('%s', (_name, value, settings, expected) => {
+        expect(formatDataWithSettings(value, settings)).toBe(expected)
     })
 })

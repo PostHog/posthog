@@ -30,7 +30,7 @@ export interface SpaceTaskActions {
  */
 export function useSpaceTaskActions(): SpaceTaskActions {
   const { togglePin } = usePinnedTasks();
-  const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
+  const { archiveTask } = useArchiveTask();
   const cells = useCommandCenterStore((state) => state.cells);
   const assignTask = useCommandCenterStore((state) => state.assignTask);
 

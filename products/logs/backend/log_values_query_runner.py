@@ -90,6 +90,9 @@ class LogValuesQueryRunner(AnalyticsQueryRunner[LogValuesQueryResponse], LogsQue
                 )
             )
 
+        # Level and service also arrive as `log` filters in filterGroup, so a scoped viewer does not
+        # suggest values from services it has filtered out.
+        exprs.extend(self.column_filter_exprs())
         exprs.append(self.resource_filter(existing_filters=exprs))
 
         return ast.And(exprs=exprs)

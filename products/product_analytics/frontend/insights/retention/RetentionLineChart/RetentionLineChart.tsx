@@ -6,11 +6,10 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { getColorVar } from 'lib/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
-import { retentionModalLogic } from 'scenes/retention/retentionModalLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
@@ -19,10 +18,15 @@ import type { GroupTypeIndex, LabelGroupType } from '~/types'
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { dimHexColor } from '../../trends/shared/compareDimming'
+import { retentionGraphLogic } from '../retentionGraphLogic'
+import { retentionModalLogic } from '../retentionModalLogic'
 import {
     buildRetentionLineChartConfig,
+    buildRetentionMeanSeries,
     buildRetentionSeries,
     type RetentionSeriesMeta,
+    retentionSeriesOpacity,
     type RetentionTrendSeriesEntry,
 } from '../shared/retentionChartTransforms'
 
@@ -61,12 +65,15 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         filteredTrendSeries,
         incompletenessOffsetFromEnd,
         labelGroupType,
+        meanLineData,
         shouldShowMeanPerBreakdown,
         showTrendLines,
+        timezone,
         xAxisLabels,
         getRetentionColor,
     } = useValues(retentionGraphLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
+    const { canOpenPersonModal } = useValues(retentionModalLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
     const selectedInterval = retentionFilter?.selectedInterval ?? null
@@ -74,23 +81,43 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
     const isPercentage = !retentionFilter?.aggregationType || retentionFilter.aggregationType === 'count'
     const isIntervalView = selectedInterval !== null
     // Shared (public) views don't have the persons modal mounted — disable click-to-open there.
-    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode
+    const canClick = !shouldShowMeanPerBreakdown && !inSharedMode && canOpenPersonModal
 
-    const series = useMemo(
-        () =>
-            buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
-                incompletenessOffsetFromEnd,
-                isIntervalView,
-                getColor: (entry, index) => getRetentionColor(entry.rawBreakdownValue, index),
-            }),
-        [filteredTrendSeries, incompletenessOffsetFromEnd, isIntervalView, getRetentionColor]
-    )
+    // Opacity only separates lines that are cohorts of one thing. The interval and
+    // mean-per-breakdown views draw one line per breakdown value, which needs its own color.
+    const fadeCohorts =
+        retentionFilter?.chartStyle?.seriesColorMode === 'opacity' && !isIntervalView && !shouldShowMeanPerBreakdown
+
+    // Re-resolved per theme: getColorVar reads the CSS variable, which changes with the theme.
+    const meanColor = useMemo(() => getColorVar('color-accent'), [theme])
+
+    const series = useMemo(() => {
+        const cohortSeries = buildRetentionSeries(filteredTrendSeries as RetentionTrendSeriesEntry[], {
+            incompletenessOffsetFromEnd,
+            isIntervalView,
+            getColor: (entry, index) => {
+                const color = getRetentionColor(entry.rawBreakdownValue, fadeCohorts ? 0 : index)
+                return fadeCohorts && color
+                    ? dimHexColor(color, retentionSeriesOpacity(index, filteredTrendSeries.length))
+                    : color
+            },
+        })
+        return meanLineData ? [...cohortSeries, buildRetentionMeanSeries(meanLineData, meanColor)] : cohortSeries
+    }, [
+        filteredTrendSeries,
+        incompletenessOffsetFromEnd,
+        isIntervalView,
+        getRetentionColor,
+        fadeCohorts,
+        meanLineData,
+        meanColor,
+    ])
 
     const groupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
 
     const onRowClick = useCallback(
         (datum: SeriesDatum) => {
-            if (shouldShowMeanPerBreakdown) {
+            if (shouldShowMeanPerBreakdown || series[datum.datasetIndex]?.meta?.isMean) {
                 return
             }
             // In interval view each x-position is a different cohort, otherwise each series is.
@@ -116,6 +143,9 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                     altTitle={altTitle}
                     renderCount={(value) => (isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`)}
                     renderSeriesOverride={(datum) => {
+                        if (series[datum.datasetIndex]?.meta?.isMean) {
+                            return datum.label ?? ''
+                        }
                         const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
                         return showCohortPrefix ? `Cohort ${datum.label ?? ''}` : (datum.label ?? '')
                     }}
@@ -133,12 +163,13 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             groupTypeLabel,
             onRowClick,
             canClick,
+            series,
         ]
     )
 
     const onPointClick = useCallback(
         (clickData: PointClickData<RetentionSeriesMeta>) => {
-            if (shouldShowMeanPerBreakdown) {
+            if (shouldShowMeanPerBreakdown || clickData.series.meta?.isMean) {
                 return
             }
             const rowIndex = isIntervalView
@@ -161,10 +192,13 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 showTrendLines,
                 series,
                 tooltip: INSIGHT_TOOLTIP_CONFIG,
+                isIntervalView,
+                period,
+                timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, retentionFilter?.chartStyle]
+        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

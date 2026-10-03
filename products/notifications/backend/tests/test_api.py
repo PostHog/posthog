@@ -7,10 +7,13 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, OrganizationMembership, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.models import NotificationArchiveState, NotificationEvent, NotificationReadState
 
@@ -51,6 +54,23 @@ class TestNotificationsAPI(BaseTest):
         assert len(resp.json()["results"]) == 1
         assert resp.json()["results"][0]["title"] == "Test notification"
         assert resp.json()["results"][0]["read"] is False
+
+    def test_catalog_notification_disappears_after_access_revocation(self) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save(update_fields=["available_product_features"])
+        self.event.resource_type = "data_catalog"
+        self.event.save(update_fields=["resource_type"])
+        url = f"/api/environments/{self.team.id}/notifications/"
+        assert [event["id"] for event in self.client.get(url).json()["results"]] == [str(self.event.id)]
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level="none",
+        )
+        cache.clear()
+        assert self.client.get(url).json()["results"] == []
+        assert self.client.get(url + "unread_count/").json()["count"] == 0
 
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")
@@ -525,6 +545,43 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["updated"] == 3
         for ev in (self.event, a1, a2):
             assert NotificationArchiveState.objects.filter(notification_event=ev, user=self.user).exists()
+
+    @parameterized.expand(
+        [
+            ("detail", "{base}/{id}/archive/", None),
+            ("bulk", "{base}/archive_bulk/", "notification_ids"),
+            ("all", "{base}/archive_all/", None),
+        ]
+    )
+    def test_archive_marks_notification_read(self, _name, path_template, ids_field):
+        event = self._create_notification()
+        base = f"/api/environments/{self.team.id}/notifications"
+        path = path_template.format(base=base, id=event.id)
+        payload = {ids_field: [str(event.id)]} if ids_field else None
+
+        resp = self.client.post(path, payload, format="json") if payload else self.client.post(path)
+
+        assert resp.status_code == 200
+        assert NotificationReadState.objects.filter(notification_event=event, user=self.user).exists()
+
+    def test_archived_notification_serializes_as_read(self):
+        event = self._create_notification()
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?archived=true")
+
+        row = next(r for r in resp.json()["results"] if r["id"] == str(event.id))
+        assert row["read"] is True
+        assert row["read_at"] is not None
+
+    def test_archive_does_not_mark_read_for_another_user(self):
+        other_user = User.objects.create_and_join(self.organization, "archiveread@test.com", "password")
+        event = self._create_notification()
+        NotificationEvent.objects.filter(pk=event.pk).update(resolved_user_ids=[self.user.id, other_user.id])
+
+        self.client.post(f"/api/environments/{self.team.id}/notifications/{event.id}/archive/")
+
+        assert not NotificationReadState.objects.filter(notification_event=event, user=other_user).exists()
 
     def test_archive_is_per_user(self):
         other_user = User.objects.create_and_join(self.organization, "archiveother@test.com", "password")

@@ -19,7 +19,7 @@ const OPEN_STORAGE_KEY = "tanstackRouterDevtoolsOpen";
 const ROOT_ID = "tanstack-router-devtools-root";
 const TOGGLE_ID = "tanstack-router-devtools-toggle";
 
-export function isRouterDevtoolsOpen(): boolean {
+function isRouterDevtoolsOpen(): boolean {
   try {
     return (
       JSON.parse(localStorage.getItem(OPEN_STORAGE_KEY) ?? "false") === true

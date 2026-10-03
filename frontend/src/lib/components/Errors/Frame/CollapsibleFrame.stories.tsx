@@ -153,6 +153,33 @@ export function UnresolvedFrame(): JSX.Element {
     )
 }
 
+const addressOnlyFrame: ErrorTrackingStackFrame = {
+    raw_id: 'address-only-1',
+    mangled_name: '',
+    line: null,
+    column: null,
+    source: null,
+    in_app: false,
+    resolved_name: null,
+    lang: 'swift',
+    resolved: false,
+    resolve_failure: 'No matching debug image found for frame',
+    module: null,
+    junk_drawer: { raw_frame: { instruction_addr: '0x00000001010444e4' } },
+}
+
+export function AddressOnlyFrame(): JSX.Element {
+    return <Wrapper frame={addressOnlyFrame} />
+}
+
+export function AddressOnlyInAppFrame(): JSX.Element {
+    return <Wrapper frame={{ ...addressOnlyFrame, raw_id: 'address-only-2', in_app: true }} />
+}
+
+export function FrameWithNothingToShow(): JSX.Element {
+    return <Wrapper frame={{ ...addressOnlyFrame, raw_id: 'nothing-1', junk_drawer: undefined }} />
+}
+
 const rustFrame: ErrorTrackingStackFrame = {
     ...baseFrame,
     raw_id: 'rust-1',

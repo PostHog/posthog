@@ -20,8 +20,10 @@ from products.tasks.backend.logic.services.loop_runs import (
     LOOP_RATE_CAP_PER_DAY,
     LOOP_TEAM_RATE_CAP_PER_DAY,
     TRIGGER_CONTEXT_MAX_BYTES,
+    dispatch_loop_pr_notification,
     fire_loop,
     handle_loop_run_terminal,
+    render_context_target_block,
     render_trigger_context,
 )
 from products.tasks.backend.models import (
@@ -82,6 +84,33 @@ class TestRenderTriggerContext(SimpleTestCase):
         fenced_body = context.split("```")[1].strip("\n")
         self.assertLessEqual(len(fenced_body.encode("utf-8")), TRIGGER_CONTEXT_MAX_BYTES)
         self.assertIn(f"[truncated: payload exceeded {TRIGGER_CONTEXT_MAX_BYTES} bytes]", context)
+
+
+class TestRenderContextTargetBlock(SimpleTestCase):
+    CHANNEL_ID = "0199c0de-0000-4000-8000-000000000001"
+    CANVAS_ID = "0199c0de-0000-4000-8000-000000000002"
+    LOOP_ID = "0199c0de-0000-4000-8000-000000000003"
+
+    @parameterized.expand(
+        [
+            ("context only", {"update_context": True}, "context page"),
+            ("canvas only", {"canvas_id": CANVAS_ID}, "canvas"),
+            ("both", {"update_context": True, "canvas_id": CANVAS_ID}, "canvas"),
+        ]
+    )
+    def test_failures_are_published_to_a_deliverable_the_target_has(self, _name, outputs, destination):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "name": "Growth", "outputs": outputs}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"stored errors in the {destination}", block)
+
+    def test_failure_history_names_the_firing_loop(self):
+        block = render_context_target_block(
+            {"channel_id": self.CHANNEL_ID, "outputs": {"update_context": True}}, loop_id=self.LOOP_ID
+        )
+
+        self.assertIn(f"`loops-runs-retrieve` with id={self.LOOP_ID}", block)
 
 
 class LoopRunsTestCase(TestCase):
@@ -482,10 +511,35 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
-            ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
-            ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
-            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
-            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "xhigh", "gpt-5", None),
+            ("repo_less_loop_gets_read_only_github", False, True),
+            ("repo_pinned_loop_uses_repository_integration", True, False),
+        ]
+    )
+    def test_fire_grants_github_read_access_only_to_repo_less_loops(self, _name, pin_repository, expected_flag):
+        repositories = []
+        if pin_repository:
+            integration = Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+            repositories = [{"github_integration_id": integration.id, "full_name": "acme/repo"}]
+        loop = self.create_loop(repositories=repositories)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        if expected_flag:
+            self.assertIs(task_run.state["github_read_access"], True)
+        else:
+            self.assertNotIn("github_read_access", task_run.state)
+
+    @parameterized.expand(
+        [
+            ("claude_default_resolves_to_sonnet_5_5", "claude", "", None, "claude-sonnet-5-5", None),
+            ("codex_default_resolves_to_gpt_6_1_sol", "codex", "", None, "gpt-6.1-sol", None),
+            ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5-5", "high"),
+            ("supported_effort_on_codex_default_model_is_kept", "codex", "", "xhigh", "gpt-6.1-sol", "xhigh"),
+            ("unsupported_effort_on_default_model_falls_back_to_auto", "codex", "", "ultracode", "gpt-6.1-sol", None),
             ("pinned_model_keeps_its_supported_effort", "claude", "claude-sonnet-5", "low", "claude-sonnet-5", "low"),
             (
                 "pinned_model_clamps_unsupported_stored_effort",
@@ -790,7 +844,13 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             (
                 "update_context_only",
                 {"update_context": True},
-                ["channel-instructions-retrieve", "channel-instructions-update"],
+                [
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
+                ],
             ),
             (
                 "canvas_only",
@@ -807,7 +867,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
                 {"update_context": True, "canvas_id": CANVAS_ID},
                 [
                     CANVAS_ID,
-                    "channel-instructions-retrieve",
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
                     "canvas-source-retrieve",
                     "canvas-publish-create",
                     "expected_current_version_id",
@@ -850,7 +914,10 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         self.assertIsInstance(scopes, list)
         if outputs.get("update_context"):
+            self.assertIn("task:read", scopes)
             self.assertIn("task:write", scopes)
+            self.assertIn("loop_context_internal:write", scopes)
+            self.assertNotIn("organization:write", scopes)
         if outputs.get("canvas_id"):
             self.assertIn("canvas:write", scopes)
             self.assertIn("canvas:read", scopes)
@@ -870,6 +937,19 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         task_run = TaskRun.objects.get(id=result.task_run_id)
         self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
+
+    def test_context_update_adds_loop_scope_to_full_preset(self):
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "full"},
+            context_target=self.context_target(update_context=True),
+        )
+        trigger = self.create_trigger(loop)
+
+        _, scopes = self.fire_and_capture(loop, trigger)
+
+        self.assertIsInstance(scopes, list)
+        self.assertIn("loop_context_internal:write", scopes)
+        self.assertIn("task:write", scopes)
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
         loop = self.create_loop()
@@ -1091,3 +1171,46 @@ class TestTerminalizeUnstartedTaskRun(LoopRunsTestCase):
             "run_failed",
             {"task_id": str(task_run.task_id), "task_run_id": str(task_run.id), "status": TaskRun.Status.FAILED},
         )
+
+
+class TestDispatchLoopPrNotification(LoopRunsTestCase):
+    PR_URL = "https://github.com/posthog/posthog/pull/42"
+
+    def make_run(self, team: Team, *, loop: Loop | None = None, state_loop_id: str | None = None) -> TaskRun:
+        task = Task.objects.create(
+            team=team,
+            created_by=self.user,
+            title="Loop run",
+            description="d",
+            origin_product=Task.OriginProduct.LOOP,
+            loop=loop,
+        )
+        return task.create_run(mode="background", extra_state={"loop_id": state_loop_id} if state_loop_id else None)
+
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_sends_each_pr_event_once_per_run(self, mock_dispatch):
+        loop = self.create_loop()
+        run = self.make_run(self.team, loop=loop)
+
+        sent = [
+            dispatch_loop_pr_notification(str(run.id), "pr_merged", self.PR_URL),
+            dispatch_loop_pr_notification(str(run.id), "pr_merged", self.PR_URL),
+            dispatch_loop_pr_notification(str(run.id), "pr_created", self.PR_URL),
+        ]
+
+        self.assertEqual(sent, [True, False, True])
+        first_loop, first_event, first_payload = mock_dispatch.call_args_list[0].args
+        self.assertEqual((first_loop.id, first_event), (loop.id, "pr_merged"))
+        self.assertEqual(first_payload["url"], self.PR_URL)
+        self.assertEqual(first_payload["body"], f"Merged {self.PR_URL}")
+        self.assertEqual(first_payload["dedupe_key"], f"pr_merged:{self.PR_URL}")
+
+    @parameterized.expand([("run_outside_a_loop", False), ("forged_loop_id_from_another_team", True)])
+    @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
+    def test_sends_nothing_without_a_loop_in_the_runs_team(self, _name, forge_loop_id, mock_dispatch):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        victim_loop = self.create_loop()
+        run = self.make_run(other_team, state_loop_id=str(victim_loop.id) if forge_loop_id else None)
+
+        self.assertFalse(dispatch_loop_pr_notification(str(run.id), "pr_closed", self.PR_URL))
+        mock_dispatch.assert_not_called()

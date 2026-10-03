@@ -38,9 +38,30 @@ then dies in the rendered canvas. Declare:
 - `capabilities.posthog.insights` — every insight short id the canvas passes to `ph.loadInsight`.
 - `capabilities.posthog.captureEvents` — every event name it passes to `ph.capture`.
 - `capabilities.posthog.inlineQueries: true` — when it calls `ph.query` at all.
+- `capabilities.posthog.agentRequests: true` — when it calls `ph.agent.request`.
+- `capabilities.connectors` — one `{ "provider", "tools" }` entry per third-party provider the
+  canvas reads through `ph.connectors.call`, listing every tool it calls on that provider. A
+  provider is a native id (`github`) or `mcp:<server host>` (`mcp:mcp.calendly.com`). Unknown
+  providers, unregistered native tools, and private MCP hosts fail validation; every declared
+  tool must have `is_read_only: true` in the catalog. An upstream hint alone does not grant access.
+  A canvas with connectors cannot declare shared state.
+- `capabilities.network.origins` — each exact HTTPS origin used by `fetch`, `XMLHttpRequest`, or an
+  external stylesheet, image, font, media file, or frame. Remote scripts remain blocked.
+  Do not include paths, credentials, queries, fragments, or wildcards. The host must be public:
+  loopback and private IPs, single-label names like `intranet`, and the `.local`, `.localhost`,
+  `.internal`, and `.home.arpa` suffixes are all rejected, so a local dev host such as
+  `https://localhost:8010` fails validation with an `invalid_network_origin` error. Data sent to a
+  declared origin leaves PostHog and appears in the capability review before promotion.
 
-Validation rejects undeclared literal calls (`capability_missing_*` diagnostics) so you can fix
-them before publishing; dynamic ids it can only warn about, so keep the declarations complete.
+Before validation, inventory every literal external URL in every source file. Classify navigation
+links and `ph.openExternal()` URLs as navigation; they do not need a network origin. For every
+request or resource URL, declare its scheme + host + optional port only. Include every origin a
+request redirects to and every secondary origin a stylesheet references for fonts or images.
+Never infer that one CDN hostname covers another.
+
+Validation rejects undeclared literal calls and resource URLs (`capability_missing_*` diagnostics)
+so you can fix them before publishing. Dynamic URLs and redirect destinations cannot be inferred,
+so the inventory is still required even when validation is clean.
 
 ## Validate until clean
 
@@ -49,26 +70,42 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
 `path` and `line`:
 
 - `error` diagnostics block publishing — fix all of them. Common ones: `import_not_allowed`
-  (bare imports are limited to react, react-dom, @posthog/quill, recharts, lucide-react, and dayjs),
+  (bare imports are limited to the dependencies returned in the source project),
   `forbidden_dynamic_import` / `forbidden_require` / `forbidden_inline_script`,
   `invalid_path`, `capability_missing_insight` / `capability_missing_capture_event` /
-  `capability_missing_inline_queries`,
-  `dependency_not_admitted` / `dependency_version_mismatch`, and path/size violations.
+  `capability_missing_inline_queries` / `capability_missing_agent_requests` /
+  `capability_missing_network_origin`,
+  `dependency_not_admitted` / `dependency_version_mismatch`, `platform_token_redeclared` (a CSS
+  variable named like a Quill token that the platform stylesheet sets on every element, so the
+  value never applies; prefix your own variables), and path/size violations.
 - `warning` diagnostics don't block, but heed them: `network_fetch` / `network_xhr` mean the code
-  reaches for the network directly — the sandbox will block it at runtime; use the `ph` bridge.
+  reaches for the network directly. Declare the exact HTTPS origin or use the `ph` bridge.
 
 ## Publish guarded
 
-Publishing goes live immediately, so it is for a canvas's **first version** or for a change the
-user explicitly asked to make live. A canvas that already has a live version defaults to a draft
-instead — see "Draft, then promote" below.
+Publishing goes live immediately and is the default way to save a change, for a canvas's first
+version and for every follow-up edit. Every version records who published it and which task did
+the work, so the history stays reviewable after the fact. Stage a draft instead only when the user
+asked for a draft, a preview, or a review step — see "Draft, then promote" below.
 
 Two ways to publish, both guarded:
 
-- **Whole project** — `canvas-publish-create` with the complete `project`.
-- **Per-file edits** — `canvas-edit-create` with `operations` (each sets a
-  file's complete content, or deletes it with `content: null`). Prefer this for small changes to a
-  large project; the guard is mandatory here because a diff's meaning depends on its base.
+- **Edits** — `canvas-edit-create` with `operations`. This is the default for any change to a canvas that already has source.
+  The guard is mandatory here because an edit's meaning depends on its base.
+- **Whole project** — `canvas-publish-create` with the complete `project`, for a first version or to replace everything.
+
+For an edit with `canvas-edit-create`:
+
+- Use `str_replace` for a change inside a file: `old_string` is text copied from the file you read, with a few surrounding lines so it matches exactly one place.
+  Set `replace_all: true` to change every match, for example a rename.
+- Use `write` with the complete `content` for a new file or a full rewrite, `delete` to remove a file, and `rename` with `new_path` to move one.
+- When the change needs a new capability, for example a `ph.state` scope, also send `capabilities` with the complete new capabilities (the current ones plus the addition) in the same edit.
+  Do not switch to `canvas-publish-create` for that.
+- Put every operation of one change into one call. They apply in order, and the whole edit is rejected if any operation fails.
+- A 400 lists each failed operation by index. `edit_no_match` shows the closest lines of the file and `edit_ambiguous_match` lists the lines that match.
+  Fix those operations from the diagnostic and send the edit again. If one replacement fails twice, `write` that whole file instead.
+- The response returns the new `current_version_id`. Pass it to the next edit.
+  When you published or edited the canvas earlier in this session, do not call `canvas-source-retrieve` before the next edit: you already know the source, and a 409 `version_conflict` tells you when the canvas changed.
 
 For a whole-project publish with `canvas-publish-create`:
 
@@ -87,8 +124,10 @@ The response returns the new `current_version_id`.
 ## After publishing: wait for the build
 
 A publish queues a server-side build of the version. **The canvas does not update until the build
-is ready, and nobody else is watching the result — you own it.** Poll `canvas-builds-retrieve`
-every few seconds (up to ~2 minutes) until the build you queued is terminal:
+is ready, and nobody else is watching the result — you own it.** The publish or edit response
+already carries `build.build_status`. When it is `ready` or `failed`, act on it without another call.
+Only while it is `queued` or `building`, poll `canvas-builds-retrieve` every few seconds (up to ~2 minutes)
+until the build you queued is terminal:
 
 - `queued`/`building` — in progress; poll again shortly.
 - `ready` — the canvas's `published_build_id` advances to this build (unless a newer publish
@@ -97,14 +136,20 @@ every few seconds (up to ~2 minutes) until the build you queued is terminal:
   build never replaces the last good one, so the canvas keeps rendering the previous version —
   finishing the task here would leave the user with a stale canvas and a silent failure.
 
+Runtime error reports (filed on the authoring task when a rendered canvas throws) name the build
+they came from. A report from an **older build id** is history, not evidence about your current
+code — check it against the build you just published before acting on it. In particular, a report
+that a documented `ph` API is undefined (e.g. `ph.state`) means that artifact was baked by an
+older host runtime: republish so a current build replaces it. Never "fix" it by removing the API
+or its capability declaration.
+
 ## Draft, then promote
 
-Publishing goes live the moment its build is ready. For a canvas that **already has a live
-version**, that is not the default: stage the change as a draft and let the user promote it.
-Publish directly only for a canvas's first version (nothing is live to protect) or when the user
-explicitly asked to make the change live. A draft is a real, buildable version that is never the
-head: the live canvas keeps rendering the current version until someone promotes the draft. This
-is different from `canvas-validate-create`, which only compile-checks and produces no build or
+Publishing goes live the moment its build is ready, and that is the default. Use a draft only
+when the user asked for one: a preview to look at first, a review step before going live, or an
+explicit "don't publish yet". A draft is a real, buildable version that is never the head: the
+live canvas keeps rendering the current version until someone promotes the draft. This is
+different from `canvas-validate-create`, which only compile-checks and produces no build or
 preview.
 
 1. **Stage** — `canvas-draft-create` with the complete `project` (same shape, capabilities, and
@@ -120,9 +165,9 @@ preview.
    its build is `ready` the app renders that draft when the version is opened. The draft is **not**
    in `canvas-versions-retrieve` (that lists published history only) and cannot be reverted onto —
    list pending drafts with `canvas-drafts-retrieve`.
-4. **Promote** — only when the user approved the draft or explicitly asked to go live; the
-   default is to stop after staging and report the draft. `canvas-promote-create` makes the
-   draft the live head. Pass
+4. **Promote** — when the user approved the draft or asked to go live; a draft the user asked to
+   review stays staged until they say so. `canvas-promote-create` makes the draft the live head.
+   Pass
    `expected_current_version_id` (the live `current_version_id` from `canvas-source-retrieve`); it
    is guarded exactly like a publish and 409s on a moved head (recover as below). A draft whose
    build is still `ready` goes live with no rebuild; otherwise a fresh build is queued, so wait for
@@ -134,8 +179,8 @@ A 409 means the canvas moved past your base — a concurrent publish or a revert
 includes the live `current_version_id`. Never retry unguarded to force your version through:
 
 1. Re-read the source with `canvas-source-retrieve`.
-2. Re-apply your edits to the fresh source (the new head may contain someone else's changes —
-   preserve them).
+2. Re-apply your edits to the fresh source (the new head may contain the user's own edits —
+   preserve them, and do not report them in your reply).
 3. Publish again with the new `current_version_id`.
 
 ## Version history semantics

@@ -21,22 +21,23 @@ to read a specific source; otherwise the oldest source's repos are tried first, 
 
 import re
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NamedTuple
 from uuid import UUID
 
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
+from products.engineering_analytics.backend.logic.views import depot_ci, workflow_jobs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 # GitHub source endpoints (``ExternalDataSchema.name``) backing the curated builders. The
 # materialized table for each is ``prefix + "github_" + endpoint``, e.g. with prefix
@@ -53,11 +54,41 @@ TEAM_MEMBERS_SCHEMA = "team_members"
 # Immutable issue/PR events, the substrate for ready-to-merge timing. Optional at the source,
 # so reads must degrade gracefully (no transition data) exactly like workflow_jobs.
 ISSUE_EVENTS_SCHEMA = "issue_events"
+# Deploy requests and their append-oriented status history, the DORA substrate. Both are
+# optional at the source and only useful together (a deployment without statuses never
+# succeeded or failed), so reads must degrade gracefully when either is unsynced.
+DEPLOYMENTS_SCHEMA = "deployments"
+DEPLOYMENT_STATUSES_SCHEMA = "deployment_statuses"
+# Submitted pull request reviews, the substrate for the approval split on the author page. Optional
+# at the source, so reads must degrade gracefully (no review data) exactly like issue_events.
+REVIEWS_SCHEMA = "reviews"
+
+# The Depot source's one table: a row per Depot CI job attempt. Optional, and resolved from a Depot
+# source rather than the GitHub one, so reads degrade to GitHub-only CI exactly like workflow_jobs.
+DEPOT_JOB_ATTEMPTS_SCHEMA = "job_attempts"
+
+# GitHub adds this column to an issue event only for a team review request, so it lands only once some
+# pull request in the repo requested a team, and a read of it fails before that.
+REQUESTED_TEAM_COLUMN = "requested_team"
+
+# GitHub puts the membership role (``maintainer`` / ``member``) on a team member row, but it is not in
+# the endpoint's documented user object, so a snapshot can land without it. Probed per table like
+# REQUESTED_TEAM_COLUMN, and a read without it reports every member as a plain member.
+MEMBER_ROLE_COLUMN = "role"
 
 # The curated endpoints we resolve per repo. A source's other synced endpoints (issues, commits,
 # teams, …) are irrelevant to the CI/PR read layer and dropped during grouping.
 _CURATED_ENDPOINTS = frozenset(
-    {PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA, ISSUE_EVENTS_SCHEMA}
+    {
+        PULL_REQUESTS_SCHEMA,
+        WORKFLOW_RUNS_SCHEMA,
+        WORKFLOW_JOBS_SCHEMA,
+        TEAM_MEMBERS_SCHEMA,
+        ISSUE_EVENTS_SCHEMA,
+        DEPLOYMENTS_SCHEMA,
+        DEPLOYMENT_STATUSES_SCHEMA,
+        REVIEWS_SCHEMA,
+    }
 )
 
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
@@ -79,8 +110,20 @@ class GitHubTables:
     team_members: str | None = None
     # Optional: present only once issue events are synced; None means "no transition data".
     issue_events: str | None = None
+    # Optional pair: present only once deploys are synced; None means "no deploy data". Only
+    # useful together, so consumers gate on both.
+    deployments: str | None = None
+    deployment_statuses: str | None = None
+    # Optional: present only once reviews are synced; None means "no review data".
+    reviews: str | None = None
+    # True when the issue-events table has the requested_team column (see REQUESTED_TEAM_COLUMN).
+    issue_events_team_requests: bool = False
     # Used to scope cross-store reads such as CI traces to the selected source's repository.
     repository: str = ""
+    # The source these tables came from, already filtered by the caller's per-source warehouse RBAC.
+    # A read outside the warehouse that needs the repository's credential takes it from this source
+    # alone, so it can never reach a credential of a source the caller may not use.
+    source_id: str = ""
 
 
 def resolve_github_tables(
@@ -130,7 +173,7 @@ def resolve_github_tables(
         exact = [c for c in materialized if c.repository.casefold() == wanted]
         candidates = exact if exact else [c for c in materialized if c.repository == ""]
     for candidate in candidates:
-        tables = candidate.tables
+        tables = candidate.tables.names
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
         workflow_runs = tables.get(WORKFLOW_RUNS_SCHEMA)
         # Both endpoints are required together, by design: every read surface (cards, PR list,
@@ -148,7 +191,12 @@ def resolve_github_tables(
                 workflow_jobs=tables.get(WORKFLOW_JOBS_SCHEMA),
                 team_members=tables.get(TEAM_MEMBERS_SCHEMA),
                 issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
+                deployments=tables.get(DEPLOYMENTS_SCHEMA),
+                deployment_statuses=tables.get(DEPLOYMENT_STATUSES_SCHEMA),
+                reviews=tables.get(REVIEWS_SCHEMA),
+                issue_events_team_requests=candidate.tables.issue_events_team_requests,
                 repository=candidate.repository,
+                source_id=candidate.source_id,
             )
     if source_id is not None:
         raise GitHubSourceNotConnectedError(_NO_SELECTED_SOURCE)
@@ -157,13 +205,31 @@ def resolve_github_tables(
 
 @dataclass(frozen=True)
 class JobSourceTables:
-    """One qualifying repo's job-level warehouse tables, for the exposed per-job views."""
+    """One qualifying repo's job-level warehouse tables, for the exposed per-job views. Read runs and
+    jobs through ``runs_source`` and ``jobs_source``, which add the repo's Depot CI; the ``github_``
+    tables hold GitHub Actions alone."""
 
-    workflow_jobs: str
-    workflow_runs: str
+    github_workflow_jobs: str
+    github_workflow_runs: str
     # Optional: these views qualify on jobs + runs alone, so a repo can reach them with no PR
     # snapshot. Consumers that enrich from it (default-branch PR attribution) degrade without it.
     pull_requests: str | None = None
+    issue_events: str | None = None
+    reviews: str | None = None
+    source_id: str = ""
+    depot_job_attempts: depot_ci.DepotJobAttempts | None = None
+
+    @property
+    def runs_source(self) -> str:
+        """The runs to read: the GitHub runs table plus this repo's Depot CI runs when synced."""
+        return depot_ci.with_depot_runs(
+            self.github_workflow_runs, self.depot_job_attempts, self.pull_requests, self.github_workflow_jobs
+        )
+
+    @property
+    def jobs_source(self) -> workflow_jobs.JobsTable:
+        """The jobs to read: the GitHub jobs table plus this repo's Depot CI job attempts when synced."""
+        return depot_ci.with_depot_jobs(self.github_workflow_jobs, self.depot_job_attempts, self.github_workflow_runs)
 
 
 def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
@@ -177,20 +243,122 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     one source syncs several repos. Userless (the view sync runs in a system/Temporal context);
     team scoping is the boundary.
     """
-    resolved: list[JobSourceTables] = []
+    entries: list[tuple[str, JobSourceTables]] = []
     for source in _github_sources(team):
-        for tables in _synced_tables_by_repo(team=team, source=source).values():
+        for repository, repo_tables in _synced_tables_by_repo(team=team, source=source).items():
+            tables = repo_tables.names
             runs = tables.get(WORKFLOW_RUNS_SCHEMA)
             jobs = tables.get(WORKFLOW_JOBS_SCHEMA)
             if runs and jobs:
-                resolved.append(
-                    JobSourceTables(
-                        workflow_jobs=jobs,
-                        workflow_runs=runs,
-                        pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
-                    )
+                entry = JobSourceTables(
+                    github_workflow_jobs=jobs,
+                    github_workflow_runs=runs,
+                    pull_requests=tables.get(PULL_REQUESTS_SCHEMA),
+                    issue_events=tables.get(ISSUE_EVENTS_SCHEMA),
+                    reviews=tables.get(REVIEWS_SCHEMA),
+                    source_id=str(source.id),
                 )
-    return resolved
+                entries.append((repository, entry))
+    # The views union every entry, so a repository that two GitHub sources sync takes its Depot table on
+    # one entry only, or every Depot job and its cost would count twice. Entries with the PR snapshot go
+    # first, because the friction view reads only those entries.
+    entries.sort(key=lambda repository_entry: repository_entry[1].pull_requests is None)
+    depot_tables = resolve_depot_job_attempts_tables(team)
+    return [replace(entry, depot_job_attempts=depot_tables.pop(repository, None)) for repository, entry in entries]
+
+
+@dataclass(frozen=True)
+class TeamMembershipTable:
+    """The synced org team-membership snapshot: its warehouse table and whether it carries roles."""
+
+    table: str
+    has_role: bool
+
+
+def resolve_team_membership_table(
+    *, team: Team, user_access_control: "UserAccessControl | None" = None
+) -> TeamMembershipTable | None:
+    """The team's synced ``team_members`` table, or None when no connected source syncs it.
+
+    Deliberately narrower than ``resolve_github_tables``: turning a team slug into logins needs
+    neither ``pull_requests`` nor ``workflow_runs``, so requiring them would make routing fail on a
+    source that syncs the roster alone, or while the PR endpoints are still backfilling. Membership is
+    org-scoped, so every repo of every source answers with the same roster and the first match wins.
+    The endpoint is off by default (it needs the org Members grant), so None is the normal state and
+    callers degrade to "membership isn't synced" rather than "that team has nobody on it".
+    """
+    for source in _github_sources(team, user_access_control):
+        legacy_repo = _source_repository(source) or None
+        for schema in _synced_schemas(team=team, source=source):
+            _, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
+            if endpoint != TEAM_MEMBERS_SCHEMA:
+                continue
+            table = schema.table
+            if table is None or table.deleted or not _IDENTIFIER.match(table.name):
+                continue
+            return TeamMembershipTable(table=table.name, has_role=MEMBER_ROLE_COLUMN in (table.columns or {}))
+    return None
+
+
+TRUNK_MERGE_QUEUE_SCHEMA = "MergeQueuePullRequests"
+
+
+def resolve_trunk_merge_queue_table(team: Team, user_access_control: "UserAccessControl | None" = None) -> str | None:
+    """The synced Trunk merge-queue table's warehouse name, or None.
+
+    The TrunkIo source leaves its merge-queue endpoint unselected by default (it needs a target
+    branch the flaky-tests endpoints don't), so absence is the normal state and every consumer
+    degrades to the GitHub-derived proxy. Team-level: a Trunk source covers one merge queue, so
+    the first synced table (oldest source first, for determinism) wins rather than threading repo
+    scope through a source that has none. ``user_access_control`` applies the requesting user's
+    per-source warehouse RBAC through the same scope the GitHub resolver uses
+    (``_accessible_sources``): a user denied every TrunkIo source resolves None, degrading to the
+    proxy exactly like the unsynced state.
+    """
+    for source in _accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control):
+        table = _synced_table_name(team, source, TRUNK_MERGE_QUEUE_SCHEMA)
+        if table:
+            return table
+    return None
+
+
+TRUNK_QUARANTINED_TESTS_SCHEMA = "QuarantinedTests"
+
+
+@frozen
+class TrunkQuarantineSource:
+    """The synced Trunk quarantined-tests table plus the source's Trunk org slug (for app links)."""
+
+    table: str
+    org_url_slug: str | None
+
+
+def resolve_trunk_quarantined_tests_source(
+    team: Team, repository: str, user_access_control: "UserAccessControl | None" = None
+) -> TrunkQuarantineSource | None:
+    """The synced Trunk quarantined-tests table's warehouse name and org slug, or None.
+
+    A TrunkIo source is configured for one repository (``repo_owner``/``repo_name``), so prefer
+    the source matching ``repository`` and fall back to the oldest synced source only when none
+    declares a match (legacy sources without those keys). Per-user warehouse RBAC applies, and
+    None degrades the consumer to an honest ``available: false`` rather than an error.
+    """
+    fallback: TrunkQuarantineSource | None = None
+    for source in _accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control):
+        for schema in _synced_schemas(team=team, source=source):
+            if schema.name != TRUNK_QUARANTINED_TESTS_SCHEMA:
+                continue
+            table = schema.table
+            if table is None or table.deleted or not _IDENTIFIER.match(table.name):
+                continue
+            # job_inputs is an EncryptedJSONField and can hold any JSON shape.
+            inputs = source.job_inputs if isinstance(source.job_inputs, dict) else {}
+            resolved = TrunkQuarantineSource(table=table.name, org_url_slug=inputs.get("org_url_slug") or None)
+            source_repo = f"{inputs.get('repo_owner', '')}/{inputs.get('repo_name', '')}"
+            if source_repo.lower() == repository.lower():
+                return resolved
+            fallback = fallback or resolved
+    return fallback
 
 
 # Listing the team's connected sources is its own concern (no curated read handle): it threads the
@@ -220,7 +388,7 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
         synced_repos = {
             repo
             for repo, tables in by_repo.items()
-            if PULL_REQUESTS_SCHEMA in tables and WORKFLOW_RUNS_SCHEMA in tables
+            if PULL_REQUESTS_SCHEMA in tables.names and WORKFLOW_RUNS_SCHEMA in tables.names
         }
         for repo in _configured_repositories(source) or [""]:
             entries.append(
@@ -234,12 +402,18 @@ def list_github_sources(*, team: Team, user_access_control: "UserAccessControl |
     return entries
 
 
+class _RepoTables(NamedTuple):
+    # ``{endpoint: table name}`` for this one repo's synced curated schemas.
+    names: dict[str, str]
+    issue_events_team_requests: bool
+
+
 class _RepoCandidate(NamedTuple):
     # Display repo: the source's original-case ``repository`` for its legacy/bare repo (``''`` when
     # a bare row has no repo to attribute it to); the parsed ``owner/repo`` for a qualified repo.
     repository: str
-    # ``{endpoint: table name}`` for this one repo's synced curated schemas.
-    tables: dict[str, str]
+    tables: _RepoTables
+    source_id: str
 
 
 def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> Iterator[_RepoCandidate]:
@@ -269,34 +443,33 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
         by_repo = _synced_tables_by_repo(team=team, source=source)
         for repo_key in sorted(by_repo, key=order_key):
             repository = display if repo_key == legacy_key else repo_key
-            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key])
+            yield _RepoCandidate(repository=repository, tables=by_repo[repo_key], source_id=str(source.id))
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
     """The team's non-deleted GitHub sources the caller may access, oldest first — the order
     ``resolve_github_tables`` defaults from, so a picker's first entry matches the default source.
+    Access scope comes from ``_accessible_sources``, shared with the Trunk resolver.
+    """
+    return _accessible_sources(team, ExternalDataSourceType.GITHUB, user_access_control)
 
-    ``user_access_control`` applies the requesting user's per-source warehouse RBAC, so neither the
-    resolver nor the picker can reach a source the user can't access; ``None`` (system/Temporal/CLI
-    contexts) skips it, leaving team scoping. This is the single place that access scope is decided.
+
+def _accessible_sources(
+    team: Team, source_type: ExternalDataSourceType, user_access_control: "UserAccessControl | None"
+) -> QuerySet[ExternalDataSource]:
+    """The team's non-deleted sources of ``source_type`` the caller may access.
+
+    ``user_access_control`` applies the requesting user's per-source warehouse RBAC, so no resolver
+    or picker can reach a source the user can't access; ``None`` (system/Temporal/CLI contexts)
+    skips it, leaving team scoping. This is the single place that access scope is decided.
     """
     sources = (
-        ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
+        ExternalDataSource.objects.filter(team_id=team.pk, source_type=source_type)
         .exclude(deleted=True)
         .order_by("created_at", "id")
     )
     if user_access_control is not None:
         sources = user_access_control.filter_queryset_by_access_level(sources)
-        if not user_access_control.has_resource_access("external_data_source"):
-            # "none" resource-level access: the platform filter drops nothing when the user holds no
-            # object grants, so fail closed here to self-created or explicitly granted sources.
-            granted_ids = [
-                source.id
-                for source in sources
-                if (level := user_access_control.access_level_for_object(source, explicit=True))
-                and level != NO_ACCESS_LEVEL
-            ]
-            sources = sources.filter(Q(created_by=user_access_control.user) | Q(id__in=granted_ids))
     return sources
 
 
@@ -353,8 +526,59 @@ def _as_source_uuid(source_id: str) -> UUID:
         raise ValueError(f"source_id must be a UUID, got: {source_id!r}") from err
 
 
-def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[str, dict[str, str]]:
-    """Map ``{repository: {endpoint: table name}}`` for a source's actively-synced curated schemas.
+def resolve_depot_job_attempts_tables(
+    team: Team, user_access_control: "UserAccessControl | None" = None
+) -> dict[str, depot_ci.DepotJobAttempts]:
+    """The team's synced Depot CI job attempts, keyed by the casefolded ``owner/repo`` the way
+    ``_synced_tables_by_repo`` keys GitHub repos.
+
+    A Depot source syncs only the repository its ``repository`` input names, so that input decides
+    which GitHub repository its runs join. The oldest source wins, like every other resolver here.
+    """
+    tables: dict[str, depot_ci.DepotJobAttempts] = {}
+    for source in _accessible_sources(team, ExternalDataSourceType.DEPOT, user_access_control):
+        repository = _source_repository(source).casefold()
+        table = depot_source_job_attempts_table(team, source) if repository else None
+        attempts = depot_ci.DepotJobAttempts.for_repository(table, repository) if table else None
+        if attempts:
+            tables.setdefault(repository, attempts)
+    return tables
+
+
+def depot_source_api_token(team: Team, source_id: str) -> str | None:
+    """The Depot organization API token a team's Depot source syncs with, or None."""
+    source = _accessible_sources(team, ExternalDataSourceType.DEPOT, None).filter(id=source_id).first()
+    # job_inputs is an EncryptedJSONField and can hold any JSON shape.
+    inputs = source.job_inputs if source is not None and isinstance(source.job_inputs, dict) else {}
+    api_token = inputs.get("api_token")
+    return api_token if isinstance(api_token, str) and api_token else None
+
+
+def depot_source_job_attempts_table(team: Team, source: ExternalDataSource) -> str | None:
+    """The synced ``job_attempts`` table of one Depot source, or None."""
+    return _synced_table_name(team, source, DEPOT_JOB_ATTEMPTS_SCHEMA)
+
+
+def _synced_table_name(team: Team, source: ExternalDataSource, schema_name: str) -> str | None:
+    """The warehouse table a source syncs for ``schema_name``, or None. Only a plain identifier
+    qualifies, because callers interpolate the name into HogQL."""
+    for schema in _synced_schemas(team=team, source=source):
+        table = schema.table
+        if schema.name == schema_name and table is not None and not table.deleted and _IDENTIFIER.match(table.name):
+            return table.name
+    return None
+
+
+def _synced_schemas(*, team: Team, source: ExternalDataSource) -> QuerySet[ExternalDataSchema]:
+    return (
+        ExternalDataSchema.objects.filter(team_id=team.pk, source_id=source.id, should_sync=True)
+        .exclude(deleted=True)
+        .select_related("table")
+    )
+
+
+def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[str, _RepoTables]:
+    """Map ``{repository: tables}`` for a source's actively-synced curated schemas.
 
     A source syncs one repo (legacy bare endpoint names like ``pull_requests``) or several
     (repo-qualified names like ``owner/repo.pull_requests``, the multi-repo GitHub source). Each
@@ -364,17 +588,19 @@ def _synced_tables_by_repo(*, team: Team, source: ExternalDataSource) -> dict[st
     bare row with no legacy repo groups under ``''`` — the pre-multi-repo single-repo shape.
     """
     legacy_repo = _source_repository(source) or None
-    schemas = (
-        ExternalDataSchema.objects.filter(team_id=team.pk, source_id=source.id, should_sync=True)
-        .exclude(deleted=True)
-        .select_related("table")
-    )
     by_repo: dict[str, dict[str, str]] = {}
-    for schema in schemas:
+    team_requests_by_repo: dict[str, bool] = {}
+    for schema in _synced_schemas(team=team, source=source):
         repository, endpoint = github_schema_repo_endpoint(schema.schema_metadata, schema.name, legacy_repo)
         if endpoint not in _CURATED_ENDPOINTS:
             continue
         table = schema.table
         if table is not None and not table.deleted and _IDENTIFIER.match(table.name):
             by_repo.setdefault(repository or "", {})[endpoint] = table.name
-    return by_repo
+            # Set together with the table name, so a later schema row for the same endpoint replaces both.
+            if endpoint == ISSUE_EVENTS_SCHEMA:
+                team_requests_by_repo[repository or ""] = REQUESTED_TEAM_COLUMN in (table.columns or {})
+    return {
+        repository: _RepoTables(names=names, issue_events_team_requests=team_requests_by_repo.get(repository, False))
+        for repository, names in by_repo.items()
+    }

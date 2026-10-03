@@ -96,6 +96,8 @@ const Value = ({
     onChange,
     onRemove,
     initiallyOpen = false,
+    open: controlledOpen,
+    onOpenChange,
     metadataSource,
     className,
     operatorAllowlist,
@@ -106,6 +108,13 @@ const Value = ({
     onChange: (property: UniversalFilterValue) => void
     onRemove?: () => void
     initiallyOpen?: boolean
+    /**
+     * Drives the editor popover from the parent. Leave it undefined for the default behavior, where
+     * the chip owns its own open state. A caller that needs to open a chip already on screen passes
+     * this rather than remounting it, since a remount also resets everything else the chip holds.
+     */
+    open?: boolean
+    onOpenChange?: (open: boolean) => void
     metadataSource?: AnyDataNode
     className?: string
     operatorAllowlist?: OperatorValueSelectProps['operatorAllowlist']
@@ -117,7 +126,12 @@ const Value = ({
     const isAction = isActionFilter(filter)
     const isEditable = isEditableFilter(filter)
 
-    const [open, setOpen] = useState<boolean>(isEditable && initiallyOpen)
+    const [uncontrolledOpen, setUncontrolledOpen] = useState<boolean>(isEditable && initiallyOpen)
+    const open = controlledOpen !== undefined ? isEditable && controlledOpen : uncontrolledOpen
+    const setOpen = (next: boolean): void => {
+        setUncontrolledOpen(next)
+        onOpenChange?.(next)
+    }
     const [changingEvent, setChangingEvent] = useState<boolean>(false)
 
     // allowEntityNegation gates only the creation of new negations. Existing negation values
@@ -251,7 +265,7 @@ const Value = ({
 const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' | 'icon'>): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
 
-    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -263,6 +277,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    endpointFilters={endpointFilters}
                     enableKeywordShortcuts
                 />
             }
@@ -296,7 +311,7 @@ const PureTaxonomicFilter = ({
     searchQuery?: string
     taxonomicFilterLogicKey?: string
 }): JSX.Element => {
-    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -308,6 +323,7 @@ const PureTaxonomicFilter = ({
                 addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            endpointFilters={endpointFilters}
             initialSearchQuery={initialSearchQuery}
             hideSearchInput={hideSearchInput}
             searchQuery={searchQuery}

@@ -105,8 +105,7 @@ export interface ConnectivityStatus {
 
 /**
  * Reports network connectivity so the session refresh can avoid pointless
- * offline attempts and recover when the network returns. Desktop adapter wraps
- * the ConnectivityService (workspace-server connectivity stream).
+ * offline attempts and recover when the network returns.
  */
 export interface IAuthConnectivity {
   getStatus(): ConnectivityStatus;
@@ -122,4 +121,8 @@ export const AUTH_CONNECTIVITY = Symbol.for("posthog.core.auth.connectivity");
  */
 export const AUTH_TOKEN_OVERRIDE = Symbol.for(
   "posthog.core.auth.tokenOverride",
+);
+
+export const AUTH_FETCH_EXTRA_ORIGINS = Symbol.for(
+  "posthog.core.auth.fetchExtraOrigins",
 );

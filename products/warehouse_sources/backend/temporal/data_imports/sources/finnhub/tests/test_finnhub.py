@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -11,6 +11,8 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
     FINNHUB_BASE_URL,
+    FinnhubRowCapExceededError,
+    _expand_columnar,
     _extract_rows,
     _fetch,
     _parse_symbols,
@@ -93,6 +95,75 @@ class TestExtractRows:
     def test_bare_array_non_list_returns_empty(self) -> None:
         assert _extract_rows({"error": "boom"}, FINNHUB_ENDPOINTS["stock_symbols"]) == []
 
+    def test_columnar_candles_zipped_into_rows(self) -> None:
+        payload = {
+            "s": "ok",
+            "t": [100, 200],
+            "o": [1.0, 2.0],
+            "h": [1.5, 2.5],
+            "l": [0.5, 1.5],
+            "c": [1.2, 2.2],
+            "v": [10, 20],
+        }
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["stock_candles"]) == [
+            {"t": 100, "o": 1.0, "h": 1.5, "l": 0.5, "c": 1.2, "v": 10},
+            {"t": 200, "o": 2.0, "h": 2.5, "l": 1.5, "c": 2.2, "v": 20},
+        ]
+
+    @parameterized.expand(
+        [
+            ("no_data_status", {"s": "no_data", "t": [], "c": []}),
+            ("missing_status", {"t": [100], "c": [1.0]}),
+            ("no_arrays", {"s": "ok"}),
+            ("not_a_dict", []),
+        ]
+    )
+    def test_columnar_non_ok_returns_empty(self, _name: str, payload: Any) -> None:
+        assert _expand_columnar(payload) == []
+
+    def test_string_array_becomes_one_row_per_entry(self) -> None:
+        # Peers come back as a bare array of tickers, not objects.
+        rows = _extract_rows(["AAPL", "DELL", "HPQ"], FINNHUB_ENDPOINTS["peers"])
+        assert rows == [{"peer": "AAPL"}, {"peer": "DELL"}, {"peer": "HPQ"}]
+
+    @parameterized.expand(
+        [
+            ("non_string_entries", ["AAPL", 7, None], [{"peer": "AAPL"}]),
+            ("blank_entries", ["AAPL", ""], [{"peer": "AAPL"}]),
+            ("not_a_list", {"error": "boom"}, []),
+        ]
+    )
+    def test_string_array_skips_unusable_entries(self, _name: str, payload: Any, expected: Any) -> None:
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["peers"]) == expected
+
+    def test_index_constituents_prefer_the_breakdown(self) -> None:
+        payload = {
+            "symbol": "^IBEX",
+            "constituents": ["SAN.MC", "IBE.MC"],
+            "constituentsBreakdown": [{"symbol": "SAN.MC", "name": "Banco Santander SA", "weight": 17.5}],
+        }
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["index_constituents"]) == [
+            {"symbol": "SAN.MC", "name": "Banco Santander SA", "weight": 17.5}
+        ]
+
+    @parameterized.expand(
+        [
+            ("breakdown_absent", {"constituents": ["SAN.MC", "IBE.MC"]}),
+            ("breakdown_empty", {"constituents": ["SAN.MC", "IBE.MC"], "constituentsBreakdown": []}),
+        ]
+    )
+    def test_index_constituents_fall_back_to_the_plain_symbol_list(self, _name: str, payload: Any) -> None:
+        # Plans without the breakdown still return the symbol array; it lands in the same column.
+        assert _extract_rows(payload, FINNHUB_ENDPOINTS["index_constituents"]) == [
+            {"symbol": "SAN.MC"},
+            {"symbol": "IBE.MC"},
+        ]
+
+    def test_columnar_truncates_to_shortest_array(self) -> None:
+        # A short array would otherwise leave a half-populated final row.
+        payload = {"s": "ok", "t": [100, 200], "c": [1.0]}
+        assert _expand_columnar(payload) == [{"t": 100, "c": 1.0}]
+
 
 class TestRequestParams:
     def test_stock_symbols_defaults_exchange(self) -> None:
@@ -111,25 +182,53 @@ class TestRequestParams:
         params = _request_params(FINNHUB_ENDPOINTS["basic_financials"], "AAPL", "US", False, None)
         assert params == {"symbol": "AAPL", "metric": "all"}
 
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_calendar_window_is_full_rolling_window_when_not_incremental(self) -> None:
         # Calendars are full refresh: a backwards lookback plus a forward window, ignoring any cursor.
         params = _request_params(FINNHUB_ENDPOINTS["ipo_calendar"], None, "US", False, None)
         assert params == {"from": "2023-06-16", "to": "2024-12-12"}
 
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_company_news_window_uses_incremental_cursor(self) -> None:
         params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, 1704067200)  # 2024-01-01
         assert params == {"symbol": "AAPL", "from": "2024-01-01", "to": "2024-06-15"}
 
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_company_news_window_falls_back_to_lookback_without_cursor(self) -> None:
         params = _request_params(FINNHUB_ENDPOINTS["company_news"], "AAPL", "US", True, None)
         assert params == {"symbol": "AAPL", "from": "2023-06-16", "to": "2024-06-15"}
 
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_candles_window_uses_epoch_seconds(self) -> None:
+        params = _request_params(FINNHUB_ENDPOINTS["stock_candles"], "AAPL", "US", False, None)
+        assert params == {"symbol": "AAPL", "resolution": "D", "from": 1655337600, "to": 1718496000}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_candles_window_starts_at_midnight_of_the_watermark_day(self) -> None:
+        # The stored cursor is a candle timestamp mid-window; rounding down re-fetches that day.
+        params = _request_params(FINNHUB_ENDPOINTS["stock_candles"], "AAPL", "US", True, 1717000000)
+        assert params["from"] == 1716940800  # 2024-05-29T00:00:00Z
+        assert params["to"] == 1718496000
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_financials_reported_window_uses_long_lookback_and_freq(self) -> None:
+        params = _request_params(FINNHUB_ENDPOINTS["financials_reported"], "AAPL", "US", False, None)
+        assert params == {"symbol": "AAPL", "freq": "annual", "from": "2019-06-17", "to": "2024-06-15"}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_insider_transactions_window_uses_incremental_cursor(self) -> None:
+        params = _request_params(FINNHUB_ENDPOINTS["insider_transactions"], "AAPL", "US", True, "2024-05-01")
+        assert params == {"symbol": "AAPL", "from": "2024-05-01", "to": "2024-06-15"}
+
+    @time_machine.travel("2024-06-15", tick=False)
+    def test_full_refresh_omits_the_watermark(self) -> None:
+        # A full refresh must sweep the whole lookback even when a cursor is stored.
+        params = _request_params(FINNHUB_ENDPOINTS["sec_filings"], "AAPL", "US", False, "2024-05-01")
+        assert params == {"symbol": "AAPL", "from": "2023-06-16", "to": "2024-06-15"}
+
 
 class TestWindow:
-    @freeze_time("2024-06-15")
+    @time_machine.travel("2024-06-15", tick=False)
     def test_forward_days_extends_into_future(self) -> None:
         window = _window(FINNHUB_ENDPOINTS["earnings_calendar"], None)
         assert window.start == "2023-06-16"
@@ -205,6 +304,69 @@ class TestGetRows:
         with pytest.raises(KeyError):
             list(get_rows(api_key="k", endpoint="company_news", symbols="AAPL", exchange="US", logger=MagicMock()))
 
+    def test_candles_emitted_as_rows_with_symbol(self, monkeypatch: Any) -> None:
+        self._patch_fetch(
+            monkeypatch,
+            {"AAPL": {"s": "ok", "t": [200, 100], "c": [2.0, 1.0]}},
+        )
+        batches = list(
+            get_rows(api_key="k", endpoint="stock_candles", symbols="AAPL", exchange="US", logger=MagicMock())
+        )
+        # Sorted ascending on the declared `t` watermark, with the requested ticker injected.
+        assert batches == [[{"t": 100, "c": 1.0, "symbol": "AAPL"}, {"t": 200, "c": 2.0, "symbol": "AAPL"}]]
+
+    def test_raises_when_a_response_hits_the_documented_cap(self, monkeypatch: Any) -> None:
+        # Insider transactions cap at 100 rows per call with no pagination — a full page means
+        # the API silently dropped the rest of the window. Emitting that subset would let the
+        # cursor advance past the missing rows, so the sync must fail instead of checkpointing.
+        rows = [{"symbol": "AAPL", "transactionDate": f"2024-01-{i % 28 + 1:02d}"} for i in range(100)]
+        self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
+        logger = MagicMock()
+        with pytest.raises(FinnhubRowCapExceededError):
+            list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
+        logger.error.assert_called_once()
+
+    def test_no_cap_error_below_the_cap(self, monkeypatch: Any) -> None:
+        rows = [{"symbol": "AAPL", "transactionDate": "2024-01-01"}]
+        self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
+        logger = MagicMock()
+        list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
+        logger.error.assert_not_called()
+
+    def test_peers_rows_carry_the_requested_symbol(self, monkeypatch: Any) -> None:
+        self._patch_fetch(monkeypatch, {"AAPL": ["AAPL", "DELL"]})
+        batches = list(get_rows(api_key="k", endpoint="peers", symbols="AAPL", exchange="US", logger=MagicMock()))
+        assert batches == [[{"peer": "AAPL", "symbol": "AAPL"}, {"peer": "DELL", "symbol": "AAPL"}]]
+
+    def test_index_constituents_fan_out_over_indices_injecting_the_index(self, monkeypatch: Any) -> None:
+        calls = self._patch_fetch(
+            monkeypatch,
+            {"^GSPC": {"constituentsBreakdown": [{"symbol": "AAPL", "weight": 7.0}]}},
+        )
+        batches = list(
+            get_rows(
+                api_key="k",
+                endpoint="index_constituents",
+                symbols="MSFT",
+                exchange="US",
+                logger=MagicMock(),
+                indices="^GSPC",
+            )
+        )
+        # The fan-out reads Indices, not Symbols, and the constituent keeps its own `symbol`.
+        assert [c["params"]["symbol"] for c in calls] == ["^GSPC"]
+        assert batches == [[{"symbol": "AAPL", "weight": 7.0, "index_symbol": "^GSPC"}]]
+
+    def test_index_constituents_with_no_indices_yields_nothing_and_warns(self, monkeypatch: Any) -> None:
+        # A configured Symbols list must not be mistaken for an index list.
+        self._patch_fetch(monkeypatch, {})
+        logger = MagicMock()
+        batches = list(
+            get_rows(api_key="k", endpoint="index_constituents", symbols="AAPL", exchange="US", logger=logger)
+        )
+        assert batches == []
+        assert "Indices" in logger.warning.call_args[0][0]
+
     def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
         self._patch_fetch(
             monkeypatch,
@@ -230,6 +392,27 @@ class TestFinnhubSource:
             ("company_news", ["id", "symbol"], None, "asc"),
             ("recommendation_trends", ["symbol", "period"], "period", None),
             ("earnings_surprises", ["symbol", "period"], "period", None),
+            ("financials_reported", ["symbol", "accessNumber"], "endDate", "asc"),
+            ("stock_candles", ["symbol", "t"], "t", "asc"),
+            ("sec_filings", ["symbol", "accessNumber"], "filedDate", "asc"),
+            (
+                "insider_transactions",
+                [
+                    "symbol",
+                    "name",
+                    "transactionDate",
+                    "filingDate",
+                    "transactionCode",
+                    "change",
+                    "transactionPrice",
+                ],
+                "transactionDate",
+                "asc",
+            ),
+            ("dividends", ["symbol", "date", "amount"], "date", "asc"),
+            ("peers", ["symbol", "peer"], None, None),
+            ("index_constituents", ["index_symbol", "symbol"], None, None),
+            ("economic_calendar", ["country", "event", "time"], "time", None),
         ]
     )
     def test_source_response_keys_and_partitioning(

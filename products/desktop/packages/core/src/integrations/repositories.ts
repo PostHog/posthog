@@ -11,11 +11,6 @@ export interface RepositoryOption {
   repository: string;
 }
 
-export interface RepositorySelection {
-  integrationId: number | null;
-  repository: string | null;
-}
-
 export interface TeamRepositoryIntegration {
   id: number;
   display_name?: string;
@@ -100,35 +95,6 @@ export function repositoryOptionsEqual(
   );
 }
 
-export function findRepositoryOption(
-  options: ReadonlyArray<RepositoryOption>,
-  selection: RepositorySelection,
-): RepositoryOption | null {
-  if (!selection.integrationId || !selection.repository) return null;
-  return (
-    options.find(
-      (option) =>
-        option.integrationId === selection.integrationId &&
-        option.repository === selection.repository,
-    ) ?? null
-  );
-}
-
-export function toRepositorySelection(
-  option: RepositoryOption | null,
-): RepositorySelection {
-  return {
-    integrationId: option?.integrationId ?? null,
-    repository: option?.repository ?? null,
-  };
-}
-
-export function isRepositorySelectionComplete(
-  selection: RepositorySelection,
-): boolean {
-  return !!selection.integrationId && !!selection.repository;
-}
-
 export interface TeamRepositoriesResult {
   integrationId: number;
   repos?: string[] | null;
@@ -137,23 +103,30 @@ export interface TeamRepositoriesResult {
 export interface CombinedTeamRepositories {
   repositoryMap: Record<string, number>;
   isPending: boolean;
+  failedIntegrationIds: number[];
 }
 
 export function combineGithubRepositories(
   results: ReadonlyArray<RepositoryQueryResult<TeamRepositoriesResult>>,
+  integrationIds: ReadonlyArray<number>,
 ): CombinedTeamRepositories {
   const map: Record<string, number> = {};
+  const failedIntegrationIds: number[] = [];
   let pending = false;
-  for (const result of results) {
+  results.forEach((result, index) => {
     if (result.isPending) pending = true;
-    if (!result.data) continue;
+    if (result.isError) {
+      const integrationId = integrationIds[index];
+      if (integrationId != null) failedIntegrationIds.push(integrationId);
+    }
+    if (!result.data) return;
     for (const repo of result.data.repos ?? []) {
       if (!(repo in map)) {
         map[repo] = result.data.integrationId;
       }
     }
-  }
-  return { repositoryMap: map, isPending: pending };
+  });
+  return { repositoryMap: map, isPending: pending, failedIntegrationIds };
 }
 
 export interface UserRepositoryIntegrationRef {
@@ -185,7 +158,10 @@ export function combineUserGithubRepositories(
 
   results.forEach((result, index) => {
     if (result.isPending) pending = true;
-    if (result.isError) {
+    // A refetch in flight is not a broken installation. Returning from the
+    // browser after connecting refetches on focus, and the new installation's
+    // first repo fetch can beat the backend finishing the link.
+    if (result.isError && !result.isRefetching) {
       const installationId = installationIds[index] ?? null;
       if (installationId) failedInstallationIds.push(installationId);
     }

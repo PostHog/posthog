@@ -9,6 +9,7 @@ from posthog.models import Team
 
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
+from products.signals.backend.models import SignalSourceConfig
 
 # Maps the CLI --type arg to (registry source_type, registry schema_name, fixture filename).
 # These sources are auto-registered at module load by registry._register_all_emitters().
@@ -103,12 +104,23 @@ class Command(BaseCommand):
             f"Loaded {len(records)} {options['type']} records from {fixture_path}, running pipeline for team {team.id}"
         )
 
+        # Same lookup the production activities do, so team steering (`config.steering` /
+        # `config.default_not_actionable`) is exercised by fixture runs too.
+        source_config = (
+            SignalSourceConfig.objects.filter(
+                team_id=team.id, source_product=config.source_product, source_type=config.source_type
+            )
+            .values_list("config", flat=True)
+            .first()
+        )
+
         result = asyncio.run(
             run_signal_pipeline(
                 team=team,
                 config=config,
                 records=records,
                 extra={"command": "emit_signals_from_fixture", "source": options["type"]},
+                source_config=source_config if isinstance(source_config, dict) else None,
             )
         )
         self.stdout.write(self.style.SUCCESS(f"Pipeline finished: {result}"))

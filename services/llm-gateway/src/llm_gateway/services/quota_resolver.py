@@ -1,6 +1,6 @@
 """Resolves a team's quota state via the PostHog API quota_limits endpoint.
 
-Mirrors :mod:`llm_gateway.services.plan_resolver` — forwards the caller's
+Forwards the caller's
 credentials to ``GET /api/projects/{team_id}/quota_limits/`` and
 caches the result per team-and-resource in the gateway's own Redis. The
 resource key is a Django ``QuotaResource`` value (matches ``CreditBucket``

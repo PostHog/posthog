@@ -2,23 +2,15 @@ import { Browser, Page } from 'puppeteer'
 import { launch as launchForCapture } from 'puppeteer-capture'
 
 import { config } from '~/session-replay/recording-rasterizer/config'
+import { resolveEgressProxyUrl } from '~/session-replay/recording-rasterizer/egress-proxy'
 import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 
 const log = createLogger()
 
 function resolveProxyArgs(): string[] {
-    const killed = ['false', '0', 'no', 'off'].includes((process.env.RASTERIZER_USE_PROXY ?? '').trim().toLowerCase())
-    const upstream =
-        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    const upstream = resolveEgressProxyUrl()
     if (!upstream) {
-        return []
-    }
-    if (killed) {
-        log.warn(
-            { RASTERIZER_USE_PROXY: process.env.RASTERIZER_USE_PROXY },
-            'RASTERIZER_USE_PROXY disables egress proxy — chrome will dial direct'
-        )
         return []
     }
     // Chrome's --proxy-server takes scheme://host:port — drop userinfo / path.
@@ -40,6 +32,43 @@ function resolveProxyArgs(): string[] {
         // still goes through the proxy.
         '--proxy-bypass-list=<-loopback>',
     ]
+}
+
+// Chrome renders recording content the customer's visitors produced, so it must not hold the
+// worker's secrets in its address space. puppeteer-core defaults the browser environment to this
+// process's own, which carries SECRET_KEY, INTERNAL_API_SECRET and the pod's AWS credentials, so the
+// launch names what Chrome gets instead.
+const CHROME_ENV_ALLOWLIST = [
+    // Chrome resolves its helper binaries through PATH.
+    'PATH',
+    // Chrome puts its profile, cache and crash state below HOME, or below the XDG paths when set.
+    'HOME',
+    'XDG_CONFIG_HOME',
+    'XDG_CACHE_HOME',
+    'XDG_RUNTIME_DIR',
+    // The container root filesystem is read-only, so temporary files must go where TMPDIR points.
+    'TMPDIR',
+    // The locale decides text shaping, and the timezone decides the timestamps the player draws.
+    'LANG',
+    'LANGUAGE',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    // fontconfig reads these when an image keeps its font configuration outside /etc/fonts. Without
+    // the fonts, the rendered frames fall back to boxes.
+    'FONTCONFIG_PATH',
+    'FONTCONFIG_FILE',
+]
+
+function chromeEnv(): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = {}
+    for (const name of CHROME_ENV_ALLOWLIST) {
+        const value = process.env[name]
+        if (value !== undefined) {
+            env[name] = value
+        }
+    }
+    return env
 }
 
 interface BrowserSlot {
@@ -74,6 +103,7 @@ export class BrowserPool {
         const browser = await launchForCapture({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
             args: this.launchArgs(),
+            env: chromeEnv(),
         })
         RasterizationMetrics.browserLaunched()
         const slot: BrowserSlot = { browser, usageCount: 0 }
@@ -111,10 +141,21 @@ export class BrowserPool {
         }
     }
 
+    // puppeteer-capture only rejects a non-chrome-headless-shell binary when a capture attaches. This check
+    // runs before the worker reports ready, so a bad PUPPETEER_EXECUTABLE_PATH fails the pod instead of every render.
     async launch(): Promise<void> {
-        if (this.idle.length === 0) {
-            this.idle.push(await this.launchBrowser())
+        if (this.idle.length > 0) {
+            return
         }
+        const slot = await this.launchBrowser()
+        const spawnfile = slot.browser.process()?.spawnfile
+        if (!spawnfile?.includes('chrome-headless-shell')) {
+            await this.closeBrowser(slot)
+            throw new Error(
+                `Browser is not chrome-headless-shell: "${spawnfile ?? 'unknown'}". Set PUPPETEER_EXECUTABLE_PATH to a chrome-headless-shell binary`
+            )
+        }
+        this.idle.push(slot)
     }
 
     async getPage(): Promise<Page> {
@@ -124,7 +165,16 @@ export class BrowserPool {
         } else {
             slot = await this.launchBrowser()
         }
-        const page = await slot.browser.newPage()
+        let page: Page
+        try {
+            page = await slot.browser.newPage()
+        } catch (err) {
+            // The slot is already out of the idle list, so a live-but-unresponsive browser would
+            // otherwise be orphaned as a zombie Chrome process (`disconnected` only fires when the
+            // process actually dies).
+            await this.closeBrowser(slot)
+            throw err
+        }
         slot.usageCount++
         this.slots.set(page, slot)
         RasterizationMetrics.setBrowserCounts(this.slots.size, this.idle.length)
@@ -148,6 +198,11 @@ export class BrowserPool {
         if (slot.usageCount >= this.recycleAfter) {
             log.info({ usage_count: slot.usageCount }, 'recycling browser')
             RasterizationMetrics.browserRecycled()
+            await this.closeBrowser(slot)
+        } else if (this.idle.length >= config.maxIdleBrowsers) {
+            // Beyond the warm-pool cap, an idle Chromium is pure RSS: close it instead of keeping
+            // the pod's memory footprint at its all-time concurrency high-water mark.
+            log.info({ idle: this.idle.length }, 'idle pool full, closing browser')
             await this.closeBrowser(slot)
         } else {
             this.idle.push(slot)

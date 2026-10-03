@@ -1,0 +1,349 @@
+import {
+  BellIcon,
+  BookOpenTextIcon,
+  ChatsCircleIcon,
+  EnvelopeSimple,
+  HouseSimple,
+  type IconProps,
+  Lightning,
+  ListMagnifyingGlassIcon,
+  ShapesIcon,
+} from "@phosphor-icons/react";
+import type { RailVisit } from "@posthog/shared";
+import type { SidebarNavItem } from "@posthog/shared/analytics-events";
+import { readMirror } from "@posthog/ui/features/browser-tabs/tabsSync";
+import { SpacesIcon } from "@posthog/ui/features/canvas/components/SpacesIcon";
+import {
+  isRestorableVisitHref,
+  type NavRailPane,
+  railPaneFoldsIntoWork,
+} from "@posthog/ui/features/canvas/railPane";
+import {
+  applyTabViewState,
+  showChannelList,
+} from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { requestSidebarSearchFocus } from "@posthog/ui/features/canvas/stores/sidebarSearchStore";
+import {
+  formatHotkey,
+  SHORTCUTS,
+} from "@posthog/ui/features/command/keyboard-shortcuts";
+import { isInboxTriagePath } from "@posthog/ui/features/inbox/triageRoute";
+import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
+import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
+import {
+  navigateToActivity,
+  navigateToCanvases,
+  navigateToChannel,
+  navigateToCommandCenter,
+  navigateToFeeds,
+  navigateToHome,
+  navigateToInbox,
+  navigateToLoops,
+  navigateToSpaces,
+  navigateToSpacesContext,
+} from "@posthog/ui/router/navigationBridge";
+import { hrefPath } from "@posthog/ui/router/reportNavigation";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
+import type { ComponentType } from "react";
+
+export interface RailCounts {
+  inbox: number;
+  activity: number;
+  commandCenter: number;
+}
+
+export interface RailDestination {
+  pane: NavRailPane;
+  label: string;
+  shortLabel?: string;
+  analyticsId: SidebarNavItem;
+  Icon: ComponentType<IconProps>;
+  /** Root opened by an explicit Cmd/Ctrl-click. */
+  href: string;
+  /** Where the destination lands with nothing remembered. */
+  onPick: () => void;
+  /**
+   * What a click on the destination you are already on does, when that differs
+   * from landing on its root. Defaults to `onPick`.
+   */
+  onReclick?: () => void;
+  /** `more` files the destination under the rail's overflow menu. */
+  placement?: "top" | "bottom" | "more";
+  shortcut?: string;
+  count?: (counts: RailCounts) => number;
+  countTone?: CountBadgeTone;
+  enabled?: (flags: RailFlags) => boolean;
+}
+
+export interface RailFlags {
+  home: boolean;
+  inbox: boolean;
+  loops: boolean;
+  context: boolean;
+  savedSearches: boolean;
+}
+
+/**
+ * Show the space tree. Which space you are in is unchanged — browsing the list
+ * is view state — but the destinations that own the whole screen have no column
+ * to put it in, so leaving one is part of the pick.
+ */
+function showSpaces(): void {
+  const channelId = useCurrentChannelStore.getState().currentChannelId;
+  if (!channelId) {
+    showChannelList();
+    navigateToSpaces();
+    return;
+  }
+  showChannelList({ keepForRoute: channelId });
+  navigateToChannel(channelId);
+}
+
+/** Navigating to the root instead would close what you are reading. */
+function focusColumnSearch(): void {
+  useSidebarStore.getState().setOpen(true);
+  requestSidebarSearchFocus();
+}
+
+function showInboxList(): void {
+  if (isInboxTriagePath(hrefPath(currentHref() ?? ""))) {
+    navigateToInbox();
+  }
+  focusColumnSearch();
+}
+
+/**
+ * Where each rail destination was when the ACTIVE TAB last left it. Per tab, so
+ * a pick in one tab can never restore an href another tab established, and so
+ * two tabs can sit on the same destination in different places.
+ */
+function lastVisitForActiveTab(pane: NavRailPane): RailVisit | undefined {
+  const snapshot = readMirror();
+  const window =
+    snapshot.windows.find((w) => w.isPrimary) ?? snapshot.windows[0];
+  const active = window?.activeTabId
+    ? snapshot.tabs.find((t) => t.id === window.activeTabId)
+    : undefined;
+  return active?.viewState?.lastByPane?.[pane];
+}
+
+function currentHref(): string | undefined {
+  const state = getRouterOrNull()?.state;
+  return (state?.resolvedLocation ?? state?.location)?.href;
+}
+
+/**
+ * Put a destination back the way you left it, sidebar pane included. Shares
+ * `applyTabViewState` with the tab switch, which restores the same two facts:
+ * an unscoped space route (the index, an unfiled task) has no channel to hold
+ * the list across, but the list was open and stays open.
+ */
+function restoreVisit(visit: RailVisit): void {
+  applyTabViewState(visit);
+  void getRouterOrNull()?.navigate({ href: visit.href });
+}
+
+/**
+ * Act on a rail click: return to where the destination was, or land on its root
+ * when there is nothing to return to. Clicking the destination you are already
+ * on never restores — you are looking at it.
+ */
+export function pickRailDestination(
+  destination: RailDestination,
+  current: NavRailPane,
+): void {
+  // A report page belongs to the list that opened it, and only its `?from=`
+  // says which, so a route pattern cannot answer this.
+  const here = currentHref() ?? "";
+  const onDestination =
+    destination.pane === current &&
+    isRestorableVisitHref(destination.pane, here);
+  if (onDestination) {
+    (destination.onReclick ?? destination.onPick)();
+    return;
+  }
+  const visit = lastVisitForActiveTab(destination.pane);
+  // A remembered visit that IS where we already are restores nothing, and the
+  // click would look dead. Fall through to the destination's root instead, so
+  // a pick always goes somewhere.
+  const restorable =
+    visit &&
+    visit.href !== currentHref() &&
+    isRestorableVisitHref(destination.pane, visit.href);
+  if (restorable) restoreVisit(visit);
+  else destination.onPick();
+}
+
+const RAIL_DESTINATIONS: readonly RailDestination[] = [
+  {
+    pane: "home",
+    label: "Home",
+    analyticsId: "home",
+    Icon: HouseSimple,
+    href: "/",
+    onPick: navigateToHome,
+    enabled: (flags) => flags.home,
+  },
+  {
+    pane: "spaces",
+    label: "Spaces",
+    analyticsId: "spaces",
+    Icon: SpacesIcon,
+    href: "/spaces",
+    onPick: showSpaces,
+    // Already in Spaces, so the pick is asking for the one thing above the
+    // space you are in: the list.
+    onReclick: showChannelList,
+  },
+  {
+    pane: "activity",
+    label: "Activity",
+    analyticsId: "activity",
+    Icon: BellIcon,
+    href: "/activity",
+    onPick: navigateToActivity,
+    onReclick: focusColumnSearch,
+    count: (counts) => counts.activity,
+  },
+  {
+    pane: "canvases",
+    label: "Canvases",
+    analyticsId: "canvases",
+    Icon: ShapesIcon,
+    href: "/canvases",
+    onPick: () => navigateToCanvases(),
+    onReclick: focusColumnSearch,
+  },
+  {
+    pane: "inbox",
+    label: "Self-driving",
+    analyticsId: "inbox",
+    Icon: EnvelopeSimple,
+    href: "/inbox",
+    onPick: navigateToInbox,
+    onReclick: showInboxList,
+    shortcut: formatHotkey(SHORTCUTS.INBOX),
+    count: (counts) => counts.inbox,
+    enabled: (flags) => flags.inbox,
+  },
+  {
+    pane: "command-center",
+    label: "Command Center",
+    analyticsId: "command_center",
+    Icon: Lightning,
+    href: "/command-center",
+    onPick: navigateToCommandCenter,
+    count: (counts) => counts.commandCenter,
+    countTone: "neutral",
+    placement: "more",
+    shortcut: formatHotkey(SHORTCUTS.COMMAND_CENTER),
+  },
+  {
+    pane: "loops",
+    label: "Loops",
+    analyticsId: "loops",
+    Icon: LoopIcon,
+    href: "/loops",
+    onPick: () => navigateToLoops(),
+    enabled: (flags) => flags.loops,
+  },
+  {
+    pane: "feeds",
+    label: "Saved searches",
+    shortLabel: "Saved",
+    analyticsId: "search",
+    Icon: ListMagnifyingGlassIcon,
+    href: "/feeds",
+    onPick: navigateToFeeds,
+    placement: "bottom",
+    enabled: (flags) => flags.savedSearches,
+  },
+  {
+    pane: "context",
+    label: "Context",
+    analyticsId: "contexts",
+    Icon: BookOpenTextIcon,
+    href: "/spaces/context",
+    onPick: navigateToSpacesContext,
+    enabled: (flags) => flags.context,
+  },
+];
+
+/** What decides which destination the rail lights. */
+export interface RailState {
+  railPane: NavRailPane;
+  workLayout: boolean;
+  workActivityOpen: boolean;
+}
+
+/**
+ * In the Work layout the Activity panel opens over the route, so while it is
+ * open it is the only lit destination.
+ */
+export function isRailDestinationActive(
+  pane: NavRailPane,
+  { railPane, workLayout, workActivityOpen }: RailState,
+): boolean {
+  if (!workLayout) return railPane === pane;
+  if (pane === "activity") return workActivityOpen;
+  if (workActivityOpen) return false;
+  return pane === "spaces"
+    ? railPaneFoldsIntoWork(railPane)
+    : railPane === pane;
+}
+
+/**
+ * The destination one step from the lit one in `order`, wrapping at both ends.
+ * With nothing lit, down lands on the first destination and up on the last.
+ */
+export function stepRailDestination(
+  order: readonly RailDestination[],
+  state: RailState,
+  direction: 1 | -1,
+): RailDestination | undefined {
+  const current = order.findIndex(({ pane }) =>
+    isRailDestinationActive(pane, state),
+  );
+  const next =
+    current === -1
+      ? direction === 1
+        ? 0
+        : order.length - 1
+      : (current + direction + order.length) % order.length;
+  return order[next];
+}
+
+export function visibleRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  return RAIL_DESTINATIONS.filter(({ enabled }) => enabled?.(flags) ?? true);
+}
+
+export function showWorkColumn(): void {
+  useSidebarStore.getState().setOpen(true);
+}
+
+const WORK_DESTINATION: RailDestination = {
+  pane: "spaces",
+  label: "Work",
+  analyticsId: "spaces",
+  Icon: ChatsCircleIcon,
+  href: "/spaces",
+  onPick: () => {
+    showWorkColumn();
+    navigateToSpaces();
+  },
+  onReclick: showWorkColumn,
+};
+
+export function visibleWorkRailDestinations(
+  flags: RailFlags,
+): readonly RailDestination[] {
+  const rest = RAIL_DESTINATIONS.filter(
+    ({ enabled, pane }) =>
+      !railPaneFoldsIntoWork(pane) && (enabled?.(flags) ?? true),
+  );
+  return [WORK_DESTINATION, ...rest];
+}

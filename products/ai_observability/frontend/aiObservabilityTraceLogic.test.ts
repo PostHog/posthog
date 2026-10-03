@@ -65,6 +65,20 @@ describe('aiObservabilityTraceLogic', () => {
         )
     })
 
+    it('keeps object-valued search params intact when the view mode changes', async () => {
+        const traceId = 'trace-with-filters'
+        const filters = [{ key: '$ai_model', value: 'gpt-4', operator: 'exact', type: 'event' }]
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId), { filters, tab: 'conversation' })
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setViewMode(TraceViewMode.Raw)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams.filters).toEqual(filters)
+    })
+
     it('handles trace ID with event and timestamp parameters', async () => {
         const traceIdWithColon = 'session-summary:group:16-16:81008d53ff0a708b:da6c0390-409f-485c-aab3-5e910bcf8b33'
         const eventId = 'event123'
@@ -103,6 +117,32 @@ describe('aiObservabilityTraceLogic', () => {
             traceId: traceId,
             dateRange: { dateFrom: timestamp, dateTo: null },
             viewMode: 'conversation',
+        })
+    })
+
+    const firstTraceTimestamp = '2024-01-15T12:00:00Z'
+
+    it.each([
+        ['clears the previous window when a different trace opens without a timestamp', 'other-trace-id', null],
+        ['keeps the window when the same trace reopens without a timestamp', 'test-trace-id', firstTraceTimestamp],
+    ])('%s', async (_, nextTraceId, expectedDateFrom) => {
+        router.actions.push(
+            addProjectIdIfMissing(
+                combineUrl(urls.aiObservabilityTrace('test-trace-id', { timestamp: firstTraceTimestamp })).url,
+                MOCK_TEAM_ID
+            )
+        )
+        await expectLogic(logic).toMatchValues({ dateRange: { dateFrom: firstTraceTimestamp, dateTo: null } })
+
+        router.actions.push(
+            addProjectIdIfMissing(
+                combineUrl(urls.aiObservabilityTrace(nextTraceId, { tab: 'evals' })).url,
+                MOCK_TEAM_ID
+            )
+        )
+        await expectLogic(logic).toMatchValues({
+            traceId: nextTraceId,
+            dateRange: { dateFrom: expectedDateFrom, dateTo: null },
         })
     })
 

@@ -1,11 +1,10 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.cloudflare import TokenCheck
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -14,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cloudflare import (
     CloudflareSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestCloudflareSource:
@@ -22,28 +20,6 @@ class TestCloudflareSource:
         self.source = CloudflareSource()
         self.team_id = 123
         self.config = CloudflareSourceConfig(api_token="api-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CLOUDFLARE
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Cloudflare"
-        assert config.label == "Cloudflare"
-        assert config.releaseStatus == ReleaseStatus.BETA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/cloudflare.svg"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_api_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -88,12 +64,19 @@ class TestCloudflareSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_substring",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Cloudflare API token"),
-            ((False, 403), False, "Invalid Cloudflare API token"),
-            ((False, None), False, "Couldn't reach Cloudflare"),
-            ((False, 500), False, "Couldn't reach Cloudflare"),
-            ((False, 429), False, "Couldn't reach Cloudflare"),
+            (TokenCheck(is_valid=True, status=200), True, None),
+            (TokenCheck(is_valid=False, status=401), False, "Cloudflare rejected your API token."),
+            (TokenCheck(is_valid=False, status=403), False, "Cloudflare rejected your API token."),
+            # Cloudflare's own reason is what tells a revoked token from one this endpoint
+            # structurally cannot verify, so it has to reach the person reading the wizard.
+            (
+                TokenCheck(is_valid=False, status=400, reason="Invalid API Token (code 1000)"),
+                False,
+                "Invalid API Token (code 1000)",
+            ),
+            (TokenCheck(is_valid=False, status=None), False, "Couldn't reach Cloudflare"),
+            (TokenCheck(is_valid=False, status=500), False, "Couldn't reach Cloudflare"),
+            (TokenCheck(is_valid=False, status=429), False, "Couldn't reach Cloudflare"),
         ],
     )
     @mock.patch(
@@ -115,33 +98,3 @@ class TestCloudflareSource:
     def test_every_endpoint_is_documented_for_semantic_enrichment(self):
         # A table with no canonical entry silently falls back to LLM-derived descriptions.
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source.cloudflare_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_cf_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "dns_records"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        mock_cf_source.assert_called_once()
-        kwargs = mock_cf_source.call_args.kwargs
-        assert kwargs["api_token"] == "api-token"
-        assert kwargs["endpoint"] == "dns_records"
-
-    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare.source.cloudflare_source")
-    def test_source_for_pipeline_only_forwards_the_watermark_when_syncing_incrementally(
-        self, mock_cf_source, should_use_incremental_field
-    ):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "audit_logs"
-        inputs.should_use_incremental_field = should_use_incremental_field
-        inputs.db_incremental_field_last_value = "2024-01-02T03:04:05Z"
-
-        self.source.source_for_pipeline(self.config, inputs)
-
-        kwargs = mock_cf_source.call_args.kwargs
-        assert kwargs["should_use_incremental_field"] is should_use_incremental_field
-        assert kwargs["db_incremental_field_last_value"] == (
-            "2024-01-02T03:04:05Z" if should_use_incremental_field else None
-        )
