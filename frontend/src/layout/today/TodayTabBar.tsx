@@ -8,7 +8,6 @@ import { commandLogic } from 'lib/components/Command/commandLogic'
 import { TODAY_TAB_BAR_ITEMS } from './todayRailItems'
 import { TODAY_MORE_PANES, todayShellLogic } from './todayShellLogic'
 
-/** The rail on phone-width windows: the panes in a bar across the bottom, with search beside them. */
 export function TodayTabBar(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
     const { pickPane } = useActions(todayShellLogic)

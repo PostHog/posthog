@@ -14,13 +14,11 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
-/** `more` exists only on the phone tab bar, where it holds the panes that do not fit. */
 export type TodayRailPane = 'home' | 'spaces' | 'views' | 'library' | 'tools' | 'more'
 
 export const TODAY_MORE_PANES: TodayRailPane[] = ['library', 'tools']
 
 export const TODAY_RAIL_WIDTH = 60
-/** Below this window width the rail moves to a tab bar at the bottom, and panes fill the screen. */
 export const TODAY_PHONE_MAX_WIDTH = 768
 export const TODAY_SIDEBAR_DEFAULT_WIDTH: number = 312
 export const TODAY_SIDEBAR_MIN_WIDTH = 240
@@ -250,7 +248,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
             }, 'drawerEscape')
         },
         pickPane: ({ pane }) => {
-            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
             if (pane !== 'more') {
                 router.actions.push(RAIL_PANE_HOME[pane]())

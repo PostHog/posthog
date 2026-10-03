@@ -73,7 +73,6 @@
     display: contents;
 }
 
-// The toast container mounts outside the app layout, so it cannot read the tab bar height variable.
 body:has(.TodayAppLayout--phone) .Toastify__toast-container--bottom-right {
     bottom: calc(84px + env(safe-area-inset-bottom));
 }

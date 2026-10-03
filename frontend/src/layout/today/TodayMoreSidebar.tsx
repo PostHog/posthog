@@ -6,7 +6,6 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, 
 import { TODAY_MORE_ITEMS } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
-/** The More pane on the phone tab bar. It lists the panes that do not fit in the bar. */
 export function TodayMoreSidebar(): JSX.Element {
     const { pickPane } = useActions(todayShellLogic)
 
