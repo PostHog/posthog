@@ -29,7 +29,7 @@ HUMANITIX_BASE_URL = "https://api.humanitix.com/v1"
 DEFAULT_PROBE_PATH = "/events"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HumanitixResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `_id`.
@@ -111,6 +111,9 @@ def _client_config(api_key: str) -> ClientConfig:
         "headers": _headers(),
         "auth": {"type": "api_key", "api_key": api_key, "name": "x-api-key", "location": "header"},
         "paginator": HumanitixPaginator(page_size=PAGE_SIZE),
+        # Orders and tickets carry attendee details and free-form checkout answers (`additionalFields`)
+        # that the name-based sample scrubbers can't recognise, so keep bodies out of sample capture.
+        "capture": False,
     }
 
 
