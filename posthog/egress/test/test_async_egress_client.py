@@ -1,3 +1,7 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -39,6 +43,15 @@ class _StubAsyncEgressClient(AsyncEgressClient):
 
     def _budget_exhausted_error(self, scope: str) -> _StubBudgetExhausted:
         return _StubBudgetExhausted("denied")
+
+
+@contextmanager
+def _captured_spans() -> Iterator[InMemorySpanExporter]:
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    with patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")):
+        yield exporter
 
 
 def _fake_session(status: int = 200) -> AsyncMock:
@@ -95,18 +108,42 @@ async def test_async_base_records_a_total_deadline_timeout() -> None:
 
 
 async def test_async_base_span_records_the_final_response_host() -> None:
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
     client = _StubAsyncEgressClient(granted=True)
     session = _fake_session(status=503)
     session.request.return_value.url = URL("https://redirected.example.com/final")
 
-    with patch("posthog.egress.transport.transport.tracer", provider.get_tracer("test")):
+    with _captured_spans() as exporter:
         await client.request(session, "GET", "https://example.com/start", source="test", scope="scope")
 
     span = exporter.get_finished_spans()[0]
     assert span.attributes is not None
     assert span.attributes["server.address"] == "redirected.example.com"
     assert span.attributes["http.response.status_code"] == 503
+    assert span.status.status_code.name == "ERROR"
+
+
+@pytest.mark.parametrize("granted", [True, False])
+async def test_async_base_span_records_the_admission_decision(granted: bool) -> None:
+    client = _StubAsyncEgressClient(granted=granted)
+
+    with _captured_spans() as exporter:
+        await client.request(_fake_session(), "GET", "https://example.com", source="test", scope="scope")
+
+    attributes = exporter.get_finished_spans()[0].attributes
+    assert attributes is not None
+    assert attributes["egress.admission.granted"] is granted
+
+
+async def test_async_base_span_marks_a_gate_error() -> None:
+    client = _StubAsyncEgressClient(granted=True)
+    session = _fake_session()
+
+    with _captured_spans() as exporter, patch.object(client, "_consume", AsyncMock(side_effect=RuntimeError)):
+        with pytest.raises(RuntimeError):
+            await client.request(session, "GET", "https://example.com", source="test", scope="scope")
+
+    session.request.assert_not_called()
+    span = exporter.get_finished_spans()[0]
+    assert span.attributes is not None
+    assert span.attributes["error.type"] == "RuntimeError"
     assert span.status.status_code.name == "ERROR"

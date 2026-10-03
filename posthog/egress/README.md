@@ -129,6 +129,7 @@ The base transports also emit an experimental OpenTelemetry client span for ever
 The span uses the shared `egress.*` attributes and the domain adds only API-specific attributes.
 It records the final response host after redirects, marks HTTP error responses, and records only the
 exception type when a request fails so credentials cannot enter trace attributes.
+A gated call records the limiter's decision as `egress.admission.granted`, so a denied `CRITICAL` call that proceeds shows `false`; an identity-blind call has no admission attribute.
 
 Harmonic also records `harmonic_api_request_duration_seconds` from the start of an HTTP request through response headers, and `harmonic_api_admission_wait_seconds` for waits in the bulk client's pacing loop, including time queued for the pacing lock.
 The request duration excludes the local admission wait and response-body parsing.

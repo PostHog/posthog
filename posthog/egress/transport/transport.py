@@ -63,6 +63,7 @@ def _raise_if_denied(granted: bool, priority: Priority, make_error: Callable[[],
     # regardless, so a user-facing call is never shed by us — the API's own 429 is the backstop.
     # Sheddable lanes back off so their headroom is left for higher-priority traffic. Shared by both
     # the sync and async gate so the rule can't drift between the two.
+    trace.get_current_span().set_attribute("egress.admission.granted", granted)
     if not granted and priority is not Priority.CRITICAL:
         raise make_error()
 
@@ -154,15 +155,17 @@ class RecordedEgressClient(_EgressHooks):
         ) as span:
             try:
                 self._before_request(scope, source, priority, url)
-                span.set_attribute("egress.admission.granted", True)
                 response = sender.request(method, url, headers=request_headers, timeout=timeout, **kwargs)
             except EgressBudgetExhausted:
-                span.set_attribute("egress.admission.granted", False)
+                # A shed call is the limiter working as designed, not a failed request.
                 raise
             except requests.RequestException as error:
                 self._mark_span_exception(span, error)
                 # Best-effort telemetry must never mask the real transport error.
                 self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
+                raise
+            except Exception as error:
+                self._mark_span_exception(span, error)
                 raise
 
             self._record_response(response, source=source, scope=scope, method=method, endpoint=endpoint)
@@ -277,10 +280,9 @@ class AsyncEgressClient(_EgressHooks, ABC):
         ) as span:
             try:
                 await self._gate(scope, source, priority, url)
-                span.set_attribute("egress.admission.granted", True)
                 response = await session.request(method, url, headers=request_headers, **kwargs)
             except EgressBudgetExhausted:
-                span.set_attribute("egress.admission.granted", False)
+                # A shed call is the limiter working as designed, not a failed request.
                 raise
             except (aiohttp.ClientError, TimeoutError) as error:
                 self._mark_span_exception(span, error)
@@ -289,6 +291,9 @@ class AsyncEgressClient(_EgressHooks, ABC):
                 # likely outage from the metric.
                 # Best-effort telemetry must never mask the real transport error.
                 self._record_exception(source=source, scope=scope, method=method, url=url, endpoint=endpoint)
+                raise
+            except Exception as error:
+                self._mark_span_exception(span, error)
                 raise
 
             self._set_span_response_metadata(span, response.url, response.status)
