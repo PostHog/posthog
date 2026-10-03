@@ -327,6 +327,7 @@ const viewList = (): ToolBase<
             query: {
                 include_columns: params.include_columns,
                 page: params.page,
+                page_size: params.page_size,
                 search: params.search,
             },
         })
