@@ -518,6 +518,141 @@ async fn test_delete_persons_tombstone_mode_keeps_the_rows() {
     let (_, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
     assert_eq!(version, 1);
 
+    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+async fn lifecycle_op_count(pool: &sqlx::PgPool, team_id: i64) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE team_id = $1")
+        .bind(team_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn claim_merge_mark(
+    conn: &mut sqlx::PgConnection,
+    team_id: i64,
+    person: &common::TestPerson,
+) -> Uuid {
+    let op_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
+         VALUES ($1, 'merge', $2, 'completed', '{}'::jsonb, now())",
+    )
+    .bind(op_id)
+    .bind(team_id as i32)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+         VALUES ($1, $2, $3, $4, 'target', 'marked', true)",
+    )
+    .bind(op_id)
+    .bind(team_id as i32)
+    .bind(person.id)
+    .bind(person.uuid)
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    op_id
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_waits_for_an_inflight_attach_and_tombstones_it() {
+    let ctx = TestContext::new().await;
+    let person = ctx.insert_person("attach_race_a", None).await.unwrap();
+
+    let mut attach = ctx.pool.begin().await.unwrap();
+    let op_id = claim_merge_mark(&mut attach, ctx.team_id, &person).await;
+    sqlx::query(
+        "INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version) VALUES ('attach_race_b', $1, $2, 1)",
+    )
+    .bind(person.id)
+    .bind(ctx.team_id)
+    .execute(&mut *attach)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .execute(&mut *attach)
+        .await
+        .unwrap();
+
+    let storage = ctx.storage.clone();
+    let team_id = ctx.team_id;
+    let uuid = person.uuid;
+    let delete = tokio::spawn(async move {
+        storage
+            .delete_persons(team_id, &[uuid], DeletePersonsMode::Tombstone)
+            .await
+    });
+
+    // Commit the attach only once the delete waits on the mark, so the delete cannot finish first.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE wait_event_type = 'Lock' AND query LIKE '%INSERT INTO lifecycle_op_person%'",
+        )
+        .fetch_one(&ctx.pool)
+        .await
+        .unwrap();
+        if waiting > 0 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the delete never waited on the attach's mark"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    attach.commit().await.unwrap();
+
+    let outcome = delete.await.unwrap().expect("delete persons");
+    assert_eq!(outcome.deleted, 1);
+    let (is_deleted, _, _, distinct_ids) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+    assert!(is_deleted);
+    assert_eq!(distinct_ids, vec![(true, 1), (true, 2)]);
+    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_persons_tombstone_mode_fails_when_a_lifecycle_op_holds_the_person() {
+    let ctx = TestContext::new().await;
+    let held = ctx.insert_person("held_by_op", None).await.unwrap();
+    let free = ctx.insert_person("not_held", None).await.unwrap();
+    let mut conn = ctx.pool.acquire().await.unwrap();
+    claim_merge_mark(&mut conn, ctx.team_id, &held).await;
+    drop(conn);
+
+    let result = ctx
+        .storage
+        .delete_persons(
+            ctx.team_id,
+            &[held.uuid, free.uuid],
+            DeletePersonsMode::Tombstone,
+        )
+        .await;
+
+    assert!(
+        matches!(
+            result,
+            Err(personhog_replica::storage::StorageError::FailedPrecondition(_))
+        ),
+        "expected FailedPrecondition, got {result:?}"
+    );
+    for person in [&held, &free] {
+        let (is_deleted, version, _, _) = tombstone_state(&ctx.pool, ctx.team_id, person.id).await;
+        assert!(!is_deleted);
+        assert_eq!(version, 0);
+    }
+    assert_eq!(lifecycle_op_count(&ctx.pool, ctx.team_id).await, 1);
+
     ctx.cleanup().await.ok();
 }
 

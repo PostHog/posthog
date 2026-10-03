@@ -1361,6 +1361,8 @@ async fn tombstone_persons_by_uuids(
         .execute(&mut *tx)
         .await?;
 
+    let mark_op_id = claim_delete_marks(&mut tx, team_id, uuids).await?;
+
     // Lock every requested person up front, in id order, the order the
     // ingestion writer and the tombstone drain take their locks in.
     let rows = sqlx::query!(
@@ -1430,12 +1432,101 @@ async fn tombstone_persons_by_uuids(
 
     tombstones.extend(with_tombstoned_distinct_ids(&mut tx, team_id, already).await?);
 
+    if let Some(op_id) = mark_op_id {
+        release_delete_marks(&mut tx, team_id, op_id).await?;
+    }
     tx.commit().await?;
     tombstones.sort_by(|a, b| a.uuid.cmp(&b.uuid));
     Ok(DeletePersonsOutcome {
         deleted,
         tombstones: Some(tombstones),
     })
+}
+
+/// The person row lock cannot stop an ingestion attach: its foreign-key check
+/// passes on a tombstoned row. The attach checks liveness under this mark, so a
+/// held mark makes it wait and then see the tombstone.
+///
+/// Claims go in person id order, as ingestion claims, so claimants block instead
+/// of deadlocking. A person missing from the response reads as "no longer
+/// exists" to the caller, so a mark held elsewhere fails the whole call.
+async fn claim_delete_marks(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    uuids: &[Uuid],
+) -> StorageResult<Option<Uuid>> {
+    let persons = sqlx::query!(
+        r#"
+        SELECT id::bigint as "id!", uuid as "uuid!"
+        FROM posthog_person
+        WHERE team_id = $1 AND uuid = ANY($2)
+        ORDER BY id
+        "#,
+        team_id as i32,
+        uuids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    if persons.is_empty() {
+        return Ok(None);
+    }
+
+    let op_id = Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
+        VALUES ($1, 'delete', $2, 'completed', '{"source": "personhog-replica-tombstone"}'::jsonb, now())
+        "#,
+        op_id,
+        team_id as i32
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let person_ids: Vec<i64> = persons.iter().map(|p| p.id).collect();
+    let person_uuids: Vec<Uuid> = persons.iter().map(|p| p.uuid).collect();
+    let claimed = sqlx::query_scalar!(
+        r#"
+        INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active)
+        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', 'marked', true
+        FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
+        ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
+        RETURNING person_id
+        "#,
+        op_id,
+        team_id as i32,
+        &person_ids,
+        &person_uuids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    if claimed.len() != persons.len() {
+        return Err(StorageError::FailedPrecondition(format!(
+            "{} of {} persons are claimed by another lifecycle operation",
+            persons.len() - claimed.len(),
+            persons.len()
+        )));
+    }
+    Ok(Some(op_id))
+}
+
+async fn release_delete_marks(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    op_id: Uuid,
+) -> StorageResult<()> {
+    sqlx::query!(
+        r#"
+        DELETE FROM lifecycle_op
+        WHERE op_id = $1 AND team_id = $2 AND op_type = 'delete'
+        "#,
+        op_id,
+        team_id as i32
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 /// Tombstone one chunk of persons inside the caller's transaction: their
