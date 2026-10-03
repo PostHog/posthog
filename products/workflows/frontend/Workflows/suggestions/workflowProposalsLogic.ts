@@ -25,8 +25,9 @@ import { workflowLogic } from '../workflowLogic'
 
 // Applied is terminal and each one costs an outcome request, so only the newest few load.
 const APPLIED_OUTCOME_LIMIT = 3
-// Rejected is history kept so a mistaken no is visible, so the newest few are enough.
-const REJECTED_LIST_LIMIT = 10
+// The list endpoint orders rejected suggestions by when they were filed, not when they were rejected,
+// so read well past what a workflow carries and order by rejection time here.
+const REJECTED_LIST_LIMIT = 50
 // Pending and approved both render whole, so ask for more than a workflow can realistically carry
 // rather than the server's page size — a second page nobody fetches reads as suggestions vanishing.
 const QUEUE_LIMIT = 100
@@ -223,9 +224,9 @@ export interface workflowProposalsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         approvedProposals: (approvedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         appliedProposals: (appliedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
+        rejectedProposals: (rejectedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         optimizationEnabled: (optimization: HogFlowOptimizationApi | null) => boolean
         pendingProposals: (proposalsResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
-        rejectedProposals: (rejectedResponse: PaginatedWorkflowProposalListApi | null) => WorkflowProposalApi[]
         approveDisabledReason: (hasUnsavedChanges: boolean, showDraftActions: boolean) => string | undefined
     }
 }
@@ -293,6 +294,7 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
                 loadProposalsFailure: () => true,
                 loadApprovedFailure: () => true,
                 loadAppliedFailure: () => true,
+                loadRejectedFailure: () => true,
                 reloadLists: () => false,
             },
         ],
@@ -449,7 +451,8 @@ export const workflowProposalsLogic = kea<workflowProposalsLogicType>([
         ],
         rejectedProposals: [
             (s) => [s.rejectedResponse],
-            (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] => response?.results ?? [],
+            (response: PaginatedWorkflowProposalListApi | null): WorkflowProposalApi[] =>
+                [...(response?.results ?? [])].sort((a, b) => (b.resolved_at ?? '').localeCompare(a.resolved_at ?? '')),
         ],
         optimizationEnabled: [
             (s) => [s.optimization],

@@ -72,7 +72,8 @@ export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
     // Each list answers separately; "nothing here" is unknown until all have.
-    const listsUnknown = proposalsResponse === null || approvedResponse === null || appliedResponse === null
+    const listsUnknown =
+        proposalsResponse === null || approvedResponse === null || appliedResponse === null || rejectedResponse === null
     const listsSettling =
         proposalsResponseLoading ||
         approvedResponseLoading ||

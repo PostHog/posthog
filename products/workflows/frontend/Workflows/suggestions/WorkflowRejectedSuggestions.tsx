@@ -22,7 +22,7 @@ export function WorkflowRejectedSuggestions({
                         <div className="flex flex-col gap-3" data-attr="workflow-suggestions-rejected">
                             {total > proposals.length && (
                                 <span className="text-xs text-secondary">
-                                    Showing the newest {proposals.length} of {total}.
+                                    Showing {proposals.length} of {total}.
                                 </span>
                             )}
                             {proposals.map((proposal) => {
