@@ -45,13 +45,14 @@ Two more sibling boundaries: the underlying friction (`$rageclick`, dead clicks,
 
 ## Vision SQL footguns (read second)
 
-`$recording_observed` is a normal row on the **`events`** table — SQL is your primary route and works even when the `vision-*` MCP tools aren't registered. Five traps:
+`$recording_observed` is a normal row on the **`events`** table — SQL is your primary route and works even when the `vision-*` MCP tools aren't registered. Six traps:
 
 1. **Client/ingest clocks lie.** Recordings and their observations arrive dated into the future. Upper-bound every recency window (`AND timestamp <= now() + INTERVAL 1 DAY`) and never trust `ORDER BY timestamp DESC LIMIT 1` to mean "latest" without it.
 2. **The event's `distinct_id`/`person_id` is synthetic for scheduled scans** — a per-team replay-vision id, not the end user. **Count reach with `uniq(session_id)`, never `uniq(person_id)`** on `$recording_observed`. If you need true person spread, map the `session_id`s back to their own sessions' events.
 3. **`scanner_output_tags` is a JSON-encoded array, not a native one.** In HogQL a `properties.*` value comes back as a string — you must `JSONExtract(..., 'Array(String)')` it before `arrayJoin`, exactly as Replay Vision's own chart code does (see the tag query below). A bare `arrayJoin(properties.scanner_output_tags)` errors or yields garbage. The same applies to `scanner_output_tags_freeform` — union both, or you miss the freeform tags that are often the ones concentrating.
 4. **Group and filter scanners by `scanner_id`, never `scanner_name`.** `scanner_name` is snapshotted per observation, so a rename splits one scanner's history into two buckets and breaks every prior-window comparison. `scanner_id` is stable; carry the name only as a label via `argMax(properties.scanner_name, timestamp)`. For the same reason, read any currently-toggleable flag (`emits_signals`) with `argMax(..., timestamp)` (the latest observation's value) — never `any()`, which ClickHouse fills from an arbitrary row and can hand you a stale `false` that makes the scout think the push path is off and duplicate it.
 5. **Failures never reach the events stream.** `$recording_observed` only exists for _succeeded_ observations — a scanner failing or landing `ineligible` writes **no** event. So a throughput cliff in SQL can mean either "scanner stopped running" or "scanner is running but every observation fails"; the `vision-scanners-observations-list` `status` filter (succeeded / failed / ineligible) is the only way to tell them apart.
+6. **Each `scanner_output_*` field exists only for some scanner types, and not on every project.** A monitor writes `verdict`. A scorer writes `score` and an optional `label`. A classifier writes `tags` and `tags_freeform`. A summarizer or experiment scanner writes `title` and `summary`. Older observations can lack newer fields such as `notability`. HogQL reads an absent property as `NULL` and does not fail. So `countIf(verdict = 'yes') / count()` returns `0`, and `avg(score)` returns `NULL` or averages only part of the window. Both look like a real shift. Verify the field before each scanner-specific aggregate (see "Verify the output schema" below).
 
 ## Quick close-out: is replay vision even in use?
 
@@ -108,6 +109,45 @@ LIMIT 100
 
 Expect test/abandoned scanners in the tail — judge by `obs_7d`, and write a `noise:` entry for dead ones so you stop re-checking them. `obs_7d` vs `obs_prior_7d` is your first throughput read; `emits_signals` tells you which scanners are already on the push path (cite, don't repeat).
 
+### Verify the output schema
+
+Do this before any monitor, scorer, classifier, or summarizer aggregate (footgun #6).
+Do it once per run, and again for a scanner that you add to the run later.
+
+1. Run `read-data-schema` with `{"kind": "event_properties", "event_name": "$recording_observed"}`. Note which `scanner_output_*` properties the project has.
+2. Measure field coverage per scanner and per week. Use only the properties from step 1:
+
+```sql
+SELECT properties.scanner_id AS scanner_id,
+       argMax(properties.scanner_type, timestamp) AS type,
+       if(timestamp >= now() - INTERVAL 7 DAY, 'this_week', 'prior_3_weeks') AS period,
+       count() AS obs,
+       round(countIf(isNotNull(properties.scanner_output_verdict)) / count(), 2) AS verdict_cov,
+       round(countIf(isNotNull(properties.scanner_output_score)) / count(), 2) AS score_cov,
+       round(countIf(isNotNull(properties.scanner_output_tags) OR isNotNull(properties.scanner_output_tags_freeform)) / count(), 2) AS tags_cov,
+       round(countIf(isNotNull(properties.scanner_output_title) OR isNotNull(properties.scanner_output_summary)) / count(), 2) AS summary_cov
+FROM events
+WHERE event = '$recording_observed'
+  AND timestamp >= now() - INTERVAL 28 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+GROUP BY scanner_id, period
+ORDER BY scanner_id, period
+```
+
+3. Use a field for a scanner only when its coverage is near `1.0` in both windows. A field that covers only one window gives a coverage step, not an output shift.
+4. When the field is absent or partial, use the fallback for the scanner type:
+
+| Type                    | Field it needs            | Fallback when the field is absent or partial                                                                                                                   |
+| ----------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Monitor                 | `verdict`                 | `vision-scanners-observations-stats` (`scanner_id`, `date_from`, `date_to`) per week. It reads `monitor` verdict counts from the stored result, not the event. |
+| Scorer                  | `score`                   | The same stats tool for the `scorer` mean and histogram per week. Else group on `label` if it has full coverage.                                               |
+| Classifier              | `tags` or `tags_freeform` | The same stats tool for the `classifier` tag rankings per week. Use only the tag fields with full coverage in the SQL.                                         |
+| Summarizer / experiment | `title` or `summary`      | `vision-scanners-observations-list` for the scanner. Read its `summary_line` values. It has no rate or mean to compare.                                        |
+
+If no fallback is available, do not compute the aggregate for that scanner.
+Write a `pattern:replay_vision:schema:<scanner-slug>` entry that names the absent field, and continue with the next scanner.
+Never report an output shift from a field that you did not verify.
+
 ### Profile shape — what the combinations mean
 
 | Pattern                                                                      | What it usually means                                                         |
@@ -137,7 +177,8 @@ Bundle all scanner-health items for the run into **one** P3 finding (multiple si
 
 #### Aggregate verdict / score shift (monitor & scorer)
 
-The per-session scan answers "did this session do X / how bad was it"; you answer "is X spreading / is it getting worse overall". Daily series for one scanner, this week vs its prior weeks:
+The per-session scan answers "did this session do X / how bad was it"; you answer "is X spreading / is it getting worse overall". Daily series for one scanner, this week vs its prior weeks.
+Keep only the column for the field that the schema check verified for this scanner. A monitor has no `mean_score`, and a scorer has no `yes_rate`:
 
 ```sql
 SELECT toStartOfDay(timestamp) AS day,
@@ -159,7 +200,7 @@ A candidate is a `yes_rate` or `mean_score` whose latest complete week steps cle
 
 #### Tag / theme concentration (classifier & summarizer)
 
-For classifiers, the tag distribution this week vs before. `scanner_output_tags` is a JSON-encoded array (footgun #3), so `JSONExtract` it before `arrayJoin` and union the freeform tags — exactly as Replay Vision's own chart code does. The prior window is normalized to a **weekly** rate (`/3`) so it's directly comparable to `sessions_7d`:
+For classifiers, the tag distribution this week vs before. Run it only when the schema check verified the tag fields for this scanner. Drop a tag field that it did not verify. `scanner_output_tags` is a JSON-encoded array (footgun #3), so `JSONExtract` it before `arrayJoin` and union the freeform tags — exactly as Replay Vision's own chart code does. The prior window is normalized to a **weekly** rate (`/3`) so it's directly comparable to `sessions_7d`:
 
 ```sql
 SELECT arrayJoin(arrayConcat(
@@ -180,7 +221,7 @@ ORDER BY sessions_7d DESC
 LIMIT 30
 ```
 
-A tag whose `sessions_7d` jumps clearly above its `prior_weekly_sessions` (already the weekly-equivalent baseline) is a candidate. For **summarizers**, raw `scanner_output_summary` text is freeform — don't group on it. Instead read the top recent summaries (`vision-scanners-observations-list` for the scanner, or the `scanner_output_title`/`scanner_output_summary` columns) and look for a **recurring theme** across many distinct sessions: the same complaint, flow, or failure described again and again. That's the aggregation the summarizer can't do for itself. Summarizers always emit facet embeddings, so recurring themes may also be searchable via the signals semantic surface — but the cross-session _count_ is what makes it a finding.
+A tag whose `sessions_7d` jumps clearly above its `prior_weekly_sessions` (already the weekly-equivalent baseline) is a candidate. For **summarizers**, raw `scanner_output_summary` text is freeform — don't group on it. Instead read the top recent summaries (`vision-scanners-observations-list` for the scanner, or the `scanner_output_title`/`scanner_output_summary` columns) and look for a **recurring theme** across many distinct sessions. Read the `title`/`summary` columns only when the schema check verified them; else read `summary_line` from the list tool: the same complaint, flow, or failure described again and again. That's the aggregation the summarizer can't do for itself. Summarizers always emit facet embeddings, so recurring themes may also be searchable via the signals semantic surface — but the cross-session _count_ is what makes it a finding.
 
 #### Emits-signals dedupe courtesy
 
@@ -229,6 +270,7 @@ Every `scanner_output_*` value is LLM prose _derived from_ end-user session cont
 - **Org-wide quota exhaustion already noted** — surface once per reset window; don't re-report the same `exhausted` state every run (`addressed:` entry gates it).
 - **Output distributions that are flat by design** — a monitor at a steady `yes`-rate, a scorer at a steady mean. Only a _step away from its own baseline_ is signal.
 - **Single-session findings / one loud observation** — the per-session push path's job, or the session-replay scout's. Yours is always the cross-session aggregate.
+- **Output-field coverage steps** — a `scanner_output_*` field that appears or disappears between windows (older observations, a schema rollout). Compare only the observations that carry the field, or use the stats fallback.
 - **Low-volume scanners** (< ~30 sessions/week) — too few observations for a rate or mean to mean anything; `pattern:` note and move on.
 - **Test / abandoned scanners** — dead tails in the roster. `noise:` entry, exclude thereafter.
 - **The underlying friction or exceptions themselves** — `$rageclick`/dead-click clusters and recording-capture cliffs are the session-replay scout's; exceptions are the error-tracking scout's. Your claim is always anchored in _scanner_ output or _scanner_ health.
@@ -243,12 +285,13 @@ Direct calls (read-only):
 - `vision-scanners-list` — roster + `enabled` / `emits_signals` / `scanner_type` state. The `enabled` filter is a string: send `"enabled"` or `"disabled"` (a boolean works too). Feature-gated; if absent, lean on the roster SQL above.
 - `vision-scanners-get` (`id`, **not** `scanner_id`, unlike the `vision-scanners-observations-*` tools) — the one scanner's full row: `enabled`, `scanner_version`, `updated_at`, `last_swept_at`. The **only** place to date a config edit (scanner changes aren't in the activity log).
 - `vision-scanners-observations-list` (`scanner_id`, `status`, `verdict`, `tags`, `triggered_by`) — the **only** way to see failed/ineligible observations (footgun #5) and read `error_reason`.
+- `vision-scanners-observations-stats` (`scanner_id`, `date_from`, `date_to`) — per-type distributions read from the stored scanner result: monitor verdict counts, classifier tag rankings, scorer mean and histogram. The fallback when a `scanner_output_*` event property is absent (footgun #6).
 - `vision-observations-list` (`session_id`) — every scanner's observation on one session, for example links.
   A `$recording_observed` event row's `uuid` is the observation id, so on the primary `execute-sql` route select `toString(uuid)` and pass it straight to `vision-observations-get` (`id`).
   Fall back to this list when you have only a session id, or to pick one scanner's observation out of a session several scanners observed.
 - `vision-quota-get` — the org's credit budget for the billing period: `remaining` / `exhausted`.
 - `query-session-recordings-list` / `session-recording-get` — resolve `session_id`s to watchable recordings for a finding's example links.
-- `read-data-schema` — confirm `$recording_observed` and its `scanner_output_*` properties exist before aggregating.
+- `read-data-schema` — confirm `$recording_observed` and its `scanner_output_*` properties exist before each scanner-specific aggregate (footgun #6).
 - `inbox-reports-list` — pre-author dedupe; the push path (source `replay_vision`) and the session-replay scout land findings here too. Back the source filter with an unfiltered recent scan, since an overlapping finding can sit under a neighboring source.
 
 Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
