@@ -6,10 +6,12 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-const HAS_NO_EMAIL: PersonPropertyFilter = {
+// The coverage count trims these characters before it treats an email as blank, so the list must match them too.
+const MISSING_OR_BLANK_EMAIL: PersonPropertyFilter = {
     type: PropertyFilterType.Person,
     key: 'email',
-    operator: PropertyOperator.IsNotSet,
+    operator: PropertyOperator.NotRegex,
+    value: '[^ \\t\\n\\r]',
 }
 
 /** `personsSceneLogic` reads the query from the `q` hash param; renaming it there leaves this link unfiltered. */
@@ -19,7 +21,7 @@ export function unreachablePersonsUrl(): string {
         source: {
             kind: NodeKind.ActorsQuery,
             select: defaultDataTableColumns(NodeKind.ActorsQuery),
-            properties: [HAS_NO_EMAIL],
+            properties: [MISSING_OR_BLANK_EMAIL],
         },
         full: true,
     }
