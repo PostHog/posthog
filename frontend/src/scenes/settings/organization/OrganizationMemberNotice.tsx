@@ -33,13 +33,6 @@ export function OrganizationMemberNotice(): JSX.Element {
             enableFormOnSubmit
             className="flex flex-col gap-3 max-w-160"
         >
-            <div>
-                <h3 className="mb-1">Member notice</h3>
-                <p className="mb-0">
-                    Show a message to every member of your organization at the top of each page, with an optional link
-                    button. Use it for things like a data policy or a compliance disclaimer.
-                </p>
-            </div>
             <LemonField
                 name="message"
                 label="Message"

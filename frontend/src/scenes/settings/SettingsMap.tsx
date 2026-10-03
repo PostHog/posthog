@@ -2176,36 +2176,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ),
             },
             {
-                // pinned: the setting id is a URL anchor, so it keeps its original name
                 id: 'organization-display-name',
-                title: 'General',
+                title: 'Name & logo',
                 description:
                     "Your organization's name and logo are shown across the PostHog interface. Click the avatar to upload a custom logo.",
-                component: (
-                    <div className="flex flex-col gap-8">
-                        <OrganizationDisplayName />
-                        <OrganizationMemberNotice />
-                    </div>
-                ),
-                keywords: [
-                    'name',
-                    'rename',
-                    'label',
-                    'organization',
-                    'logo',
-                    'image',
-                    'brand',
-                    'icon',
-                    'avatar',
-                    'notice',
-                    'banner',
-                    'announcement',
-                    'message',
-                    'disclaimer',
-                    'policy',
-                    'compliance',
-                    'legal',
-                ],
+                component: <OrganizationDisplayName />,
+                keywords: ['name', 'rename', 'label', 'organization', 'logo', 'image', 'brand', 'icon', 'avatar'],
             },
             {
                 id: 'organization-id',
@@ -2291,6 +2267,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When enabled, new projects will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing projects are not affected.',
                 component: <OrgIPAnonymizationDefault />,
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
+            },
+            {
+                id: 'organization-member-notice',
+                title: 'Member notice',
+                description:
+                    'Show a message to every member of your organization at the top of each page, with an optional link button. Use it for things like a data policy or a compliance disclaimer.',
+                component: <OrganizationMemberNotice />,
+                keywords: [
+                    'notice',
+                    'banner',
+                    'announcement',
+                    'message',
+                    'disclaimer',
+                    'policy',
+                    'compliance',
+                    'legal',
+                ],
             },
         ],
     },
