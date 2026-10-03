@@ -177,5 +177,40 @@ describe("session event diagnostics", () => {
         vi.useRealTimers();
       }
     });
+
+    it.each([
+      { name: "counts a sleep as paused time", clockJumpMs: 7_200_000 },
+      { name: "ignores a throttled timer", clockJumpMs: 60_000 },
+    ])("$name", ({ clockJumpMs }) => {
+      vi.useFakeTimers();
+      try {
+        const { events, deps, service } = createHarness({
+          isPromptPending: true,
+          promptStartedAt: Date.now(),
+          pausedDurationMs: 0,
+        });
+        events.subscriptions[0].handlers.onData(chunk);
+        const updateSession = deps.store.updateSession as ReturnType<
+          typeof vi.fn
+        >;
+        updateSession.mockClear();
+
+        // Timers do not fire while the computer sleeps; only the clock moves.
+        vi.setSystemTime(Date.now() + clockJumpMs);
+        vi.advanceTimersByTime(30_000);
+
+        const pauses = updateSession.mock.calls.filter(
+          ([, patch]) => "pausedDurationMs" in patch,
+        );
+        expect(pauses).toEqual(
+          clockJumpMs > 90_000
+            ? [[RUN_ID, { pausedDurationMs: clockJumpMs }]]
+            : [],
+        );
+        service.reset();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
