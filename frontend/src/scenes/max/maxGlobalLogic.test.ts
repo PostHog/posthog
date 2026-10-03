@@ -2,7 +2,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -94,6 +96,24 @@ describe('maxGlobalLogic', () => {
 
             expect(logic.values.conversationHistory).toHaveLength(1)
             expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
+        })
+
+        // A `?chat=` id the API does not return renders NotFound in the thread, so a 404 must not toast
+        it.each([
+            { status: 404, expectedToasts: [] },
+            { status: 500, expectedToasts: [['Server error']] },
+        ])('shows the expected toasts on a $status', async ({ status, expectedToasts }) => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+            jest.spyOn(api.conversations, 'get').mockRejectedValue(
+                new ApiError('failed', status, undefined, { detail: 'Server error' })
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversation('missing-conversation-id')
+            }).toDispatchActions(['loadConversationFailure'])
+
+            expect(toastSpy.mock.calls).toEqual(expectedToasts)
         })
     })
 

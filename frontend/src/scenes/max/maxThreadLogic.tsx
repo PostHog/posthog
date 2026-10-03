@@ -3031,7 +3031,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
         // Fetch message history if threadRaw is empty (may already be populated by cross-tab sync)
         if (values.threadRaw.length === 0) {
-            await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
+            try {
+                await maxGlobalLogic.asyncActions.loadConversation(parentConversationId)
+            } catch {
+                // loadConversationFailure in maxGlobalLogic handles the error
+                return
+            }
         }
 
         // The await yields to the microtask queue — bail if the user navigated away.
