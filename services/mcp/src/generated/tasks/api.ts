@@ -1800,8 +1800,12 @@ export const TasksRunsListQueryParams = () => zod.object({
  * Retrieve a single run for a specific task.
  * @summary Get task run
  */
+export const tasksRunsRetrievePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
 export const TasksRunsRetrieveParams = () => zod.object({
-    id: zod.string(),
+    id: zod.string().regex(tasksRunsRetrievePathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -1814,8 +1818,12 @@ export const TasksRunsRetrieveParams = () => zod.object({
  * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
  * @summary Get filtered task run session logs
  */
+export const tasksRunsSessionLogsRetrievePathIdRegExp = new RegExp(
+    '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+)
+
 export const TasksRunsSessionLogsRetrieveParams = () => zod.object({
-    id: zod.string(),
+    id: zod.string().regex(tasksRunsSessionLogsRetrievePathIdRegExp),
     project_id: zod
         .string()
         .describe(
