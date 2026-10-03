@@ -8,10 +8,8 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 
 import { todayShellLogic } from './todayShellLogic'
 
-// About the height of a scene title, so the header title shows once the page title scrolls under it.
 const TITLE_SCROLL_THRESHOLD = 56
 
-/** The bar above a page on phone-width windows. Back returns to the previous page, or to the pane on the first page. */
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
     const { goBackOnPhone } = useActions(todayShellLogic)

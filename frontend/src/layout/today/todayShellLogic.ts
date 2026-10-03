@@ -45,7 +45,6 @@ const RAIL_PANE_HOME: Record<Exclude<TodayRailPane, 'more'>, () => string> = {
     tools: () => urls.tools(),
 }
 
-// The list records pages on every layout, so long desktop sessions need a bound.
 const PHONE_PAGE_LIMIT = 50
 
 export interface TodayPhonePage {
@@ -53,7 +52,6 @@ export interface TodayPhonePage {
     url: string
 }
 
-/** The pages the phone layout can go back through. A new path adds a page, and a change on the same path updates it. */
 export function nextPhonePages(
     pages: TodayPhonePage[],
     method: LocationChangedPayload['method'],
@@ -226,7 +224,6 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 locationChanged: () => false,
             },
         ],
-        // Opening a pane clears the pages, so the back button on the first page returns to the pane.
         phonePages: [
             [] as TodayPhonePage[],
             {
