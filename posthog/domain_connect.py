@@ -31,6 +31,7 @@ from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.integrations import IntegrationRecord
+    from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +255,7 @@ def resolve_email_context(
     team_id: int,
     *,
     on_domain_verified: Callable[["IntegrationRecord"], None] | None = None,
+    acting_user: "User | None" = None,
 ) -> DomainConnectContext:
     """Resolve Domain Connect parameters for an email integration.
 
@@ -268,14 +270,14 @@ def resolve_email_context(
 
     instance = IntegrationManager.email.credentials.get(team_id, integration_id)
 
-    email_integration = EmailIntegration(instance)
+    email_integration = EmailIntegration(instance, acting_user=acting_user)
     verification_result = email_integration.verify(
         on_domain_verified=(lambda: on_domain_verified(instance)) if on_domain_verified else None
     )
 
     dns_records = verification_result.get("dnsRecords", [])
     domain_parts = extract_root_domain_and_host(instance.config.get("domain", ""))
-    mail_from_subdomain = instance.config.get("mail_from_subdomain", "feedback")
+    mail_from_subdomain = email_integration.mail_from_subdomain
 
     verify_token = ""
     dkim_tokens: list[str] = []

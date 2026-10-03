@@ -85,7 +85,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.integrations import IntegrationNotFound, IntegrationRecord
-from posthog.models import OrganizationMembership, ProxyRecord, Team, User
+from posthog.models import OrganizationMembership, ProxyRecord, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -143,6 +143,7 @@ from posthog.models.integration import (
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.auth_types import rows_without_source_marker_q
+from posthog.models.integration.email import EMAIL_FROM_CODE_FLAG, email_from_code_enabled
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
@@ -184,8 +185,6 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 
 
 class EmailProviderUnavailable(APIException):
@@ -1579,16 +1578,6 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
-def email_from_code_enabled(team: Team, user: User) -> bool:
-    return feature_enabled_or_false(
-        EMAIL_FROM_CODE_FLAG,
-        str(user.distinct_id),
-        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.uuid)}},
-        send_feature_flag_events=False,
-    )
-
-
 class EmailDomainAgentSetupPermission(BasePermission):
     message = "This action does not support personal API key access"
     token_actions = frozenset({"domain_connect_check", "domain_connect_apply_url", "email_update"})
@@ -2910,7 +2899,7 @@ class IntegrationViewSet(
         if instance.kind != "email":
             raise ValidationError("email/status is only supported for email integrations")
         try:
-            report = EmailIntegration(instance).status(
+            report = EmailIntegration(instance, acting_user=cast(User, request.user)).status(
                 refresh=request.validated_query_data["refresh"],
             )
         except EmailProviderUnavailableError as error:
@@ -2953,7 +2942,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("This endpoint is only supported for email integrations")
-        return EmailIntegration(instance)
+        return EmailIntegration(instance, acting_user=cast(User, self.request.user))
 
     @validated_request(
         query_serializer=EmailDomainConnectCheckQuerySerializer,
@@ -3005,6 +2994,7 @@ class IntegrationViewSet(
                     integration_id,
                     self.team_id,
                     on_domain_verified=lambda instance: self._report_email_domain_verified(request, instance),
+                    acting_user=cast(User, request.user),
                 )
             except IntegrationNotFound:
                 raise NotFound("Email integration not found.")

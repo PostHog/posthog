@@ -45,7 +45,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import EMAIL_FROM_CODE_FLAG, IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.credentials_service.errors import (
     CredentialsServiceFailure,
@@ -75,6 +75,7 @@ from posthog.models.integration import (
     github_account_type,
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
+from posthog.models.integration.email import EMAIL_FROM_CODE_FLAG
 from posthog.models.integration.github_audit import GitHubAudit, GitHubAuditPayload
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -844,6 +845,47 @@ class TestEmailIntegration:
         assert integration1.config["verified"]
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
+
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_editing_the_label_shares_it_when_the_flag_is_on_for_the_requesting_user(
+        self, _mock_update_mail_from_subdomain, client: HttpClient
+    ):
+        admin = User.objects.create_and_join(
+            self.organization, "admin@example.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        edited, sibling = (
+            Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": "example.com", "mail_from_subdomain": "feedback", "provider": "ses"},
+            )
+            for email in ["edited@example.com", "sibling@example.com"]
+        )
+        client.force_login(admin)
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, distinct_id, **_kwargs: (
+                key == EMAIL_FROM_CODE_FLAG and distinct_id == admin.distinct_id
+            ),
+        ):
+            response = client.patch(
+                f"/api/environments/{self.team.pk}/integrations/{edited.pk}/email",
+                {
+                    "config": {
+                        "email": "edited@example.com",
+                        "name": "Edited",
+                        "provider": "ses",
+                        "mail_from_subdomain": "bounce",
+                    }
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sibling.refresh_from_db()
+        assert sibling.config["mail_from_subdomain"] == "bounce"
 
 
 class TestDatabricksIntegration:
