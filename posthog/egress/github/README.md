@@ -31,6 +31,7 @@ The ownership file reader (`posthog/ownership/`, source `ownership_github_api`) 
 Stamphog reads the author-familiarity blame and history (GraphQL) and the pull request's commit messages on `BATCH`, because both signals are advisory: a shed call leaves them out of that review.
 Its merge base read (compare) stays on the default lane, because the review checkout needs it.
 The Tasks infrastructure admin reads the sandbox version pin and recent image build runs on `NORMAL`, using the shared token and a regional cache.
+Workflows Email brand detection (source `workflows_brand`) reads a repository's tree and up to 15 brand files on `NORMAL`, because a person waits for the proposal; a shed call tells them to try again and a 10-minute cache absorbs repeats.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.
 An installation whose only consumer is a bulk one (a warehouse backfill of a repository nothing else touches) would otherwise forfeit 30% of its hourly budget to contention that never arrives, and the hourly budget is what decides whether a large backfill finishes in one run.

@@ -9,13 +9,27 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import UploadedMedia
+from posthog.models.integration import Integration
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL
 
 from products.workflows.backend.models.email_brand import EmailBrand
+from products.workflows.backend.presentation.views.email_brand_detection import (
+    EmailBrandDetectionSerializer,
+    EmailBrandDetectRequestSerializer,
+    GitHubBusyError,
+    RepositoryUnreadableError,
+)
 from products.workflows.backend.presentation.views.feature_gates import require_team_feature_flag
+from products.workflows.backend.services.brand_detection.detector import UnknownAppRoot
+from products.workflows.backend.services.email_brand_detection import (
+    GitHubBusy,
+    RepositoryUnreadable,
+    detect_repository_brand,
+)
 
 BRAND_DETECTION_FEATURE_FLAG = "workflows-brand-detection"
 
@@ -151,7 +165,7 @@ class EmailBrandSerializer(serializers.ModelSerializer):
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     scope_object_read_actions = ["current"]
-    scope_object_write_actions = ["update_current"]
+    scope_object_write_actions = ["update_current", "detect"]
     # The brand styles every workflow in the project, so access to one workflow must not reach it.
     requires_resource_level_access = True
     queryset = EmailBrand.objects.unscoped()
@@ -196,6 +210,42 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             serializer.is_valid(raise_exception=True)
             serializer.save()
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=EmailBrandDetectRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=EmailBrandDetectionSerializer),
+            400: OpenApiResponse(description="Invalid input, or the GitHub App cannot read the repository."),
+            429: OpenApiResponse(description="GitHub is busy. Try again in a minute."),
+        },
+        summary="Detect an Email brand from a GitHub repository",
+        description="Reads the repository's brand files and proposes an Email brand with the source of each value. "
+        "Does not save the Email brand. A detection is reused for 10 minutes unless refresh is set.",
+    )
+    @action(detail=False, methods=["POST"])
+    def detect(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        try:
+            detection = detect_repository_brand(
+                team_id=self._project_team_id(),
+                integration=self._github_integration(data["integration_id"]),
+                repository=data["repository"],
+                app_root=data.get("app_root"),
+                refresh=data["refresh"],
+            )
+        except GitHubBusy:
+            raise GitHubBusyError()
+        except RepositoryUnreadable:
+            raise RepositoryUnreadableError()
+        except UnknownAppRoot as error:
+            raise exceptions.ValidationError({"app_root": str(error)})
+        return Response(EmailBrandDetectionSerializer(detection).data)
+
+    def _github_integration(self, integration_id: int) -> Integration:
+        integration = Integration.objects.filter(team_id=self.team.id, kind="github", id=integration_id).first()
+        if integration is None:
+            raise exceptions.ValidationError({"integration_id": "No GitHub integration with this id in this project."})
+        return integration
 
     def _project_brands(self):
         return EmailBrand.objects.for_team(self._project_team_id(), canonical=True)
