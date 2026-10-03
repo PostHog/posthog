@@ -335,6 +335,17 @@ export function effectiveLookbackDays(value: unknown): number {
     return Math.min(parsed, META_ADS_MAX_HISTORY_DAYS)
 }
 
+// Mirrors the backend's Meta Ads `_attribution_params`: blank window entries are dropped, and only
+// "true" or "false" sets the unified flag. Two configs that send the same request compare equal.
+export function effectiveAttributionSettings(jobInputs: Record<string, any> | undefined): string {
+    const windows = String(jobInputs?.action_attribution_windows ?? '')
+        .split(',')
+        .map((window) => window.trim())
+        .filter(Boolean)
+    const unified = jobInputs?.use_unified_attribution_setting
+    return JSON.stringify([windows, unified === 'true' || unified === 'false' ? unified : null])
+}
+
 // A raised history window (e.g. Meta Ads `sync_lookback_days`) only pulls in older data on a full
 // resync. An enabled incremental table that already imported keeps its start date until then, so
 // these are the tables a raise would otherwise silently skip.
@@ -1102,6 +1113,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const previousLookbackDays = effectiveLookbackDays(values.source?.job_inputs?.[SYNC_LOOKBACK_FIELD])
                 const nextLookbackDays = effectiveLookbackDays(sanitizedPayload[SYNC_LOOKBACK_FIELD])
                 const schemasToResync = schemasNeedingLookbackResync(values.source)
+                const attributionChanged =
+                    effectiveAttributionSettings(values.source?.job_inputs) !==
+                    effectiveAttributionSettings({ ...values.source?.job_inputs, ...sanitizedPayload })
 
                 // Handle file uploads
                 for (const { field, container, file } of findUploadedFiles(
@@ -1148,15 +1162,31 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     captureSaveOutcome('success')
                     lemonToast.success('Source updated')
 
-                    if (nextLookbackDays > previousLookbackDays && schemasToResync.length > 0) {
+                    const lookbackRaised = nextLookbackDays > previousLookbackDays
+                    if ((lookbackRaised || attributionChanged) && schemasToResync.length > 0) {
+                        const tables = pluralize(schemasToResync.length, 'table', 'tables')
+                        const reason =
+                            lookbackRaised && attributionChanged ? 'both' : lookbackRaised ? 'lookback' : 'attribution'
+                        const captureResyncChoice = (accepted: boolean): void => {
+                            posthog.capture('warehouse source resync prompt answered', {
+                                source_type: values.source?.source_type,
+                                reason,
+                                accepted,
+                            })
+                        }
                         LemonDialog.open({
-                            title: 'Import the older data?',
-                            description: `A wider history window applies to tables you already synced only after a full resync. Resync ${pluralize(schemasToResync.length, 'table', 'tables')} now to import the older data?`,
+                            title: attributionChanged ? 'Resync with the new settings?' : 'Import the older data?',
+                            description: attributionChanged
+                                ? `The new settings apply to tables you already synced only after a full resync. Resync ${tables} now to apply them?`
+                                : `A wider history window applies to tables you already synced only after a full resync. Resync ${tables} now to import the older data?`,
                             primaryButton: {
                                 children: 'Resync now',
-                                onClick: () => actions.bulkResync(schemasToResync),
+                                onClick: () => {
+                                    captureResyncChoice(true)
+                                    actions.bulkResync(schemasToResync)
+                                },
                             },
-                            secondaryButton: { children: 'Not now' },
+                            secondaryButton: { children: 'Not now', onClick: () => captureResyncChoice(false) },
                         })
                     }
 
