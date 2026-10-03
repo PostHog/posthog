@@ -21,6 +21,17 @@ export interface RecipientsRequest {
     pageCursors: string[]
 }
 
+// pinned: analytics event names, renaming them breaks the Audience funnel
+type RecipientsUsageEvent =
+    | 'audience recipients filtered'
+    | 'audience recipients paged'
+    | 'audience recipients retried'
+    | 'audience unreachable persons opened'
+
+function captureRecipientsUsage(event: RecipientsUsageEvent, properties: Record<string, string | number> = {}): void {
+    posthog.capture(event, properties)
+}
+
 const FIRST_PAGE: RecipientsRequest = { search: '', pageCursors: [] }
 const EMPTY_PAGE: RecipientPageApi = { results: [], next_cursor: null }
 
@@ -109,11 +120,11 @@ export interface recipientsLogicMeta {
         canPage: (pageLoading: boolean, searchPending: boolean) => boolean
         hasNextPage: (page: RecipientPageApi) => boolean
         hasPreviousPage: (shownRequest: RecipientsRequest) => boolean
-        recipients: (page: RecipientPageApi) => RecipientApi[]
+        recipients: (page: RecipientPageApi, recipientsView: RecipientsView) => RecipientApi[]
         recipientsView: (
             pageLoading: boolean,
             loadFailed: boolean,
-            recipients: RecipientApi[],
+            page: RecipientPageApi,
             shownRequest: RecipientsRequest,
             lastRequest: RecipientsRequest
         ) => RecipientsView
@@ -197,7 +208,11 @@ export const recipientsLogic = kea<recipientsLogicType>([
         ],
     })),
     selectors({
-        recipients: [(s) => [s.page], (page: RecipientPageApi): RecipientApi[] => page.results],
+        recipients: [
+            (s) => [s.page, s.recipientsView],
+            (page: RecipientPageApi, recipientsView: RecipientsView): RecipientApi[] =>
+                recipientsView === 'results' ? page.results : [],
+        ],
         searchPending: [
             (s) => [s.search, s.shownRequest],
             (search: string, shownRequest: RecipientsRequest): boolean => search.trim() !== shownRequest.search,
@@ -217,15 +232,18 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 Object.fromEntries(categories.map((category) => [category.key, category.name])),
         ],
         recipientsView: [
-            (s) => [s.pageLoading, s.loadFailed, s.recipients, s.shownRequest, s.lastRequest],
+            (s) => [s.pageLoading, s.loadFailed, s.page, s.shownRequest, s.lastRequest],
             (
                 pageLoading: boolean,
                 loadFailed: boolean,
-                recipients: RecipientApi[],
+                page: RecipientPageApi,
                 shownRequest: RecipientsRequest,
                 lastRequest: RecipientsRequest
             ): RecipientsView => {
-                const showsTable = recipients.length > 0 || shownRequest.pageCursors.length > 0
+                if (pageLoading && lastRequest.search !== shownRequest.search) {
+                    return 'loading'
+                }
+                const showsTable = page.results.length > 0 || shownRequest.pageCursors.length > 0
                 const failedWhilePaging = showsTable && lastRequest.search === shownRequest.search
                 if (loadFailed && !failedWhilePaging) {
                     return 'error'
@@ -246,6 +264,9 @@ export const recipientsLogic = kea<recipientsLogicType>([
             const search = values.search.trim()
             if (search !== values.lastRequest.search) {
                 actions.loadAudienceRecipients({ search, pageCursors: [] })
+                if (search) {
+                    captureRecipientsUsage('audience recipients filtered')
+                }
             }
         },
         clearSearch: () => actions.loadAudienceRecipients(FIRST_PAGE),
@@ -254,18 +275,22 @@ export const recipientsLogic = kea<recipientsLogicType>([
             if (values.canPage && nextCursor) {
                 const { search, pageCursors } = values.shownRequest
                 actions.loadAudienceRecipients({ search, pageCursors: [...pageCursors, nextCursor] })
+                captureRecipientsUsage('audience recipients paged', { direction: 'next' })
             }
         },
         loadPreviousPage: () => {
             if (values.canPage && values.hasPreviousPage) {
                 const { search, pageCursors } = values.shownRequest
                 actions.loadAudienceRecipients({ search, pageCursors: pageCursors.slice(0, -1) })
+                captureRecipientsUsage('audience recipients paged', { direction: 'previous' })
             }
         },
-        retryLoadRecipients: () => actions.loadAudienceRecipients(values.lastRequest),
+        retryLoadRecipients: () => {
+            actions.loadAudienceRecipients(values.lastRequest)
+            captureRecipientsUsage('audience recipients retried')
+        },
         openUnreachablePersons: () => {
-            // pinned: feature usage event name, renaming it breaks the Audience funnel
-            posthog.capture('audience unreachable persons opened', { count: values.personsWithoutEmail })
+            captureRecipientsUsage('audience unreachable persons opened', { count: values.personsWithoutEmail })
         },
     })),
     afterMount(({ actions }) => {
