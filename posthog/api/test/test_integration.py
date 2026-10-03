@@ -1793,15 +1793,6 @@ class TestIntegrationAPIKeyAccess:
             ),
             (
                 "post",
-                "domain-connect/apply-url/",
-                {"context": "proxy", "proxy_record_id": "not-a-uuid"},
-                "integration:write",
-                OrganizationMembership.Level.ADMIN,
-                400,
-                {"attr": "proxy_record_id"},
-            ),
-            (
-                "post",
                 "{email_id}/email/verify/",
                 None,
                 "integration:read",

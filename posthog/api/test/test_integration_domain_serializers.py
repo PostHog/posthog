@@ -23,7 +23,12 @@ class TestDomainConnectApplyUrlRequestSerializer(SimpleTestCase):
                 "Unsupported provider endpoint",
             ),
             ("email_with_integration", {"context": "email", "integration_id": 1}, None),
-            ("proxy_with_record", {"context": "proxy", "proxy_record_id": "a1b2"}, None),
+            ("proxy_with_malformed_record", {"context": "proxy", "proxy_record_id": "a1b2"}, "Must be a valid UUID."),
+            (
+                "proxy_with_record",
+                {"context": "proxy", "proxy_record_id": "6f1c1a52-3b7e-4c1e-9d0a-2f4b8e6c9a10"},
+                None,
+            ),
             ("null_optionals", {"context": "email", "integration_id": 1, "provider_endpoint": None}, None),
         ]
     )
