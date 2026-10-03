@@ -128,7 +128,7 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryId: null,
     messageCategoryType: null,
     trackingEnabled: true,
-    utmTagsEnabled: false,
+    utmTagsEnabled: true,
     utmParams: {},
 }
 

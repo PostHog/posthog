@@ -334,6 +334,18 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it('turns UTM tags on for a new broadcast but leaves a saved broadcast without the setting off', async () => {
+        expect(logic.values.emailSettings.utmTagsEnabled).toBe(true)
+
+        latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
+        const savedLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+        await expectLogic(savedLogic, () => {
+            savedLogic.mount()
+        }).toDispatchActions(['hydrateFromBroadcast'])
+        expect(savedLogic.values.emailSettings.utmTagsEnabled).toBe(false)
+        savedLogic.unmount()
+    })
+
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
         router.actions.push('/broadcasts/broadcast-1', { step: 'content', other: 'kept' })
