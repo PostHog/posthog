@@ -35,7 +35,11 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
-from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
+from products.signals.backend.repo_corrections import (
+    SCOUT_REPOSITORY_CONTENT_NEEDLE,
+    WRONG_REPO_CONTENT_NEEDLE,
+    sanitized_repository,
+)
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_check_research import check_versions
 from products.signals.backend.report_content_gates import team_report_metrics_enabled
@@ -76,6 +80,7 @@ from products.signals.backend.typed_report_links import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.repo_selection import list_team_connected_repositories
 
 logger = structlog.get_logger(__name__)
 
@@ -718,6 +723,46 @@ def _resolve_report_metrics_payload(
     return [metric.model_dump(mode="json", exclude=set(REPORT_METRIC_GOAL_FIELDS)) for metric in metrics]
 
 
+def _reconcile_repo_selection(
+    team_id: int, selection: RepoSelectionResult, code_repository: str | None, research_task_id: str | None
+) -> RepoSelectionResult:
+    """The selection the report keeps after research names the repository that holds its code.
+
+    The selection agent guesses from the signals before anybody reads code. Research reads the code,
+    so its answer wins over that guess. Only a guess yields: a selection without the agent's task id
+    is a pin, the only connected repository, or a correction by a person or a scout, and stays.
+
+    A connected repository replaces the guess. Any other repository clears it, because research
+    showed that the guess is wrong, and the next run then selects again.
+    """
+    found = sanitized_repository(code_repository)
+    if found is None or found == selection.repository or selection.task_id is None:
+        return selection
+    logger.info(
+        "signals repo selection reconciled with research",
+        team_id=team_id,
+        selected=selection.repository,
+        found=found,
+    )
+    # Research infers the repository, so the result never carries autostart authority.
+    if found in list_team_connected_repositories(team_id):
+        return RepoSelectionResult(
+            repository=found,
+            reason=f"Research found the code for this report in `{found}`, not in `{selection.repository}`.",
+            task_id=research_task_id,
+            autostart_eligible=False,
+        )
+    return RepoSelectionResult(
+        repository=None,
+        reason=(
+            f"Research found the code for this report in `{found}`, which this project's GitHub installation "
+            "cannot reach. Connect that repository, or pick one yourself."
+        ),
+        task_id=research_task_id,
+        autostart_eligible=False,
+    )
+
+
 async def _persist_agentic_report_artefacts(
     team_id: int,
     report_id: str,
@@ -1016,12 +1061,15 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
             )
+            repo_selection = await database_sync_to_async(_reconcile_repo_selection, thread_sensitive=False)(
+                input.team_id, input.repo_selection, result.code_repository, result.research_task_id
+            )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
                 input.team_id,
                 input.report_id,
                 result,
-                input.repo_selection,
+                repo_selection,
                 repo_selection_as_of=input.repo_selection_as_of,
             )
         actionability = result.effective_actionability()
@@ -1050,7 +1098,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             priority=priority.priority if priority else None,
             explanation=actionability.explanation,
             already_addressed=actionability.already_addressed,
-            repository=repository,
+            repository=repo_selection.repository or "",
             charts=charts_payload,
             metrics=metrics_payload,
             checks=[check.model_dump(mode="json", exclude_none=True, exclude_unset=True) for check in result.checks]

@@ -449,13 +449,27 @@ and the cache replaces it for path matching.
 **When SQL already points clearly to one candidate (paths matching in only one repo, an unambiguous
 README hit), pick it.** Don't read files to "confirm" what the cache already shows. Repo selection is the only goal — not code analysis.
 
+## Application versus vendor ownership
+
+Most context comes from data this project collects about its own product: events it captures, its
+errors, logs, session recordings, and user feedback. That data describes the project's own
+application, so the subject is the candidate that emits or handles it. An event name that sounds
+like a vendor concept (`billing`, `subscription`, `ingestion`, `usage limit`) does not
+make the request the vendor's problem. A project can capture its own billing events.
+
+Before you decide that a third party (an analytics vendor, a payment provider, a cloud host) owns the
+behavior, find explicit evidence: the context says the behavior happens inside that vendor's own
+service, and no candidate contains the code that emits or handles it. Grep `tree_paths` and the
+README for the event name, error message, or feature first. A match in a candidate is ownership
+evidence for that candidate. `reason` must name the ownership evidence you used.
+
 ## When to return `null`
 
 When the source privacy rule prevents a safe selection, or no candidate is plausibly the subject —
-e.g. a question purely about billing, sales, or
-internal ops that a developer can't fix in any of these repos. **Don't return `null` just because
-the request is vague.** If the request maps to a domain and one of the candidates owns that domain,
-pick it.
+e.g. a question purely about the team's own billing, sales, or internal ops that a developer can't
+fix in any of these repos. A billing or infrastructure word in an event name is not this case.
+**Don't return `null` just because the request is vague.** If the request maps to a domain and one
+of the candidates owns that domain, pick it.
 
 ## Examples
 

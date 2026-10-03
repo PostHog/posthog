@@ -29,6 +29,10 @@ It is exercised locally via management commands, and it is also used by the prod
   - an optional task-attributed fix verification note for actionable reports
 
   The repository used for research is tracked separately via the `repo_selection` artefact.
+  The presentation turn can name a `code_repository` when the code evidence is in another repository.
+  The caller activity then reconciles the selection agent's guess: a connected repository replaces it, and any other repository clears it.
+  A pin, a single connected repository, and a correction by a person or a scout stay as they are.
+  A reconciled selection is never autostart eligible.
 
 - `ownership_reviewers.py`
   Matches a finding's relevant code paths against the repository's `owners.yaml` and CODEOWNERS on the connected GitHub repository. When both name different project members, it suggests the `owners.yaml` owner first and the CODEOWNERS owner second. A human reviewer edit prevents subsequent research runs from replacing the selection.
