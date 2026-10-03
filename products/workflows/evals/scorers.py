@@ -159,8 +159,8 @@ class FinalMessageMentions(Scorer):
         spec = _spec(expected, self._name())
         if spec is None:
             return _skip(self._name(), "Not applicable to this case")
-        message = _final_message(output).lower()
-        missing = [value for value in spec.get("values", []) if value.lower() not in message]
+        message = _final_message(output)
+        missing = [value for value in spec.get("values", []) if value not in message]
         return Score(name=self._name(), score=0.0 if missing else 1.0, metadata={"missing": missing})
 
 
