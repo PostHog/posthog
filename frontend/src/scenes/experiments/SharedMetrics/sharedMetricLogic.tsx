@@ -22,7 +22,7 @@ import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experime
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { BillingType } from '../../../types'
-import { getDefaultFunnelMetric, withoutUnitlessConversionWindow } from '../utils'
+import { getDefaultFunnelMetric } from '../utils'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
 export interface SharedMetricLogicProps {
@@ -212,10 +212,10 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
         loadSharedMetricSuccess: () => {
             if (props.action === 'duplicate' && values.sharedMetric) {
                 // Generate a new UUID for the duplicated metric's query
-                const duplicatedQuery = withoutUnitlessConversionWindow({
+                const duplicatedQuery = {
                     ...values.sharedMetric.query,
                     uuid: crypto.randomUUID(),
-                })
+                }
 
                 actions.setSharedMetric({
                     ...values.sharedMetric,

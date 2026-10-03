@@ -63,8 +63,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     UNITLESS_CONVERSION_WINDOW_ERROR,
+    UNITLESS_CONVERSION_WINDOW_UUID_HINT,
     extract_entity_nodes,
     first_unitless_conversion_window,
+    is_stored_metric_without_uuid,
     parse_and_validate_metric,
     validate_metric_action_ids,
     validate_saved_metric_link_overrides,
@@ -794,8 +796,12 @@ class ExperimentService:
         holds each stored metric to the one incoming metric it excuses.
         """
         index = first_unitless_conversion_window(metrics, unmatched_stored_metrics)
-        if index is not None:
-            raise ValidationError(f"Invalid metric at index {index} in {section}: {UNITLESS_CONVERSION_WINDOW_ERROR}")
+        if index is None:
+            return
+        message = f"Invalid metric at index {index} in {section}: {UNITLESS_CONVERSION_WINDOW_ERROR}"
+        if is_stored_metric_without_uuid((metrics or [])[index], unmatched_stored_metrics):
+            message = f"{message} {UNITLESS_CONVERSION_WINDOW_UUID_HINT}"
+        raise ValidationError(message)
 
     VALID_STATS_METHODS = {"bayesian", "frequentist"}
 

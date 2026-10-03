@@ -262,6 +262,11 @@ UNITLESS_CONVERSION_WINDOW_ERROR = (
     "or remove conversion_window."
 )
 
+UNITLESS_CONVERSION_WINDOW_UUID_HINT = (
+    "This metric has no uuid, but a stored metric on this experiment has the same window. To leave the "
+    "stored metric unchanged, resend it with its uuid."
+)
+
 
 def _has_unitless_conversion_window(metric: Any) -> bool:
     if not isinstance(metric, Mapping):
@@ -312,3 +317,19 @@ def first_unitless_conversion_window(
             return index
         del unmatched_stored_metrics[matched]
     return None
+
+
+def is_stored_metric_without_uuid(metric: Any, unmatched_stored_metrics: Sequence[Any]) -> bool:
+    """True when `metric` has no uuid but carries the unit-less window of a stored metric that has one.
+
+    The match keys on the uuid as sent, so a stored metric resent without its uuid reads as a new
+    metric and is rejected. A caller that dropped the uuid needs to hear that, not only the unit rule.
+    """
+    if not isinstance(metric, Mapping) or metric.get("uuid"):
+        return False
+    return any(
+        _has_unitless_conversion_window(stored)
+        and stored.get("uuid")
+        and stored.get("conversion_window") == metric.get("conversion_window")
+        for stored in unmatched_stored_metrics
+    )

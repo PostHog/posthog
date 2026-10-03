@@ -50,6 +50,7 @@ from products.experiments.backend.experiment_service import (
 )
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
 from products.experiments.backend.metric_validation import (
+    UNITLESS_CONVERSION_WINDOW_UUID_HINT,
     extract_entity_nodes,
     is_events_node_actions_node_confusion,
     logger as metric_validation_logger,
@@ -1137,20 +1138,34 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("new_metric", 7, []),
+            ("new_metric", _STORED_UNITLESS_UUID, 7, [], False),
             # Same uuid as the stored metric, but the window changed, so the caller touched it.
-            ("changed_window_on_stored_metric", 14, [{"uuid": _STORED_UNITLESS_UUID, "conversion_window": 7}]),
+            (
+                "changed_window_on_stored_metric",
+                _STORED_UNITLESS_UUID,
+                14,
+                [{"uuid": _STORED_UNITLESS_UUID, "conversion_window": 7}],
+                False,
+            ),
+            (
+                "stored_metric_resent_without_uuid",
+                None,
+                7,
+                [{"uuid": _STORED_UNITLESS_UUID, "conversion_window": 7}],
+                True,
+            ),
         ]
     )
     def test_validate_conversion_window_units_rejects_window_without_unit(
-        self, _: str, window: int, stored_metrics: list
+        self, _: str, uuid: str | None, window: int, stored_metrics: list, names_the_uuid: bool
     ) -> None:
-        metric = self._metric_with_window(self._STORED_UNITLESS_UUID, window, None)
+        metric = self._metric_with_window(uuid, window, None)
         with self.assertRaises(ValidationError) as ctx:
             ExperimentService.validate_conversion_window_units([metric], stored_metrics, section="metrics_secondary")
         message = str(ctx.exception)
         assert "conversion_window_unit" in message
         assert "metrics_secondary" in message
+        assert (UNITLESS_CONVERSION_WINDOW_UUID_HINT in message) == names_the_uuid
 
     def test_validate_conversion_window_units_rejects_a_second_copy_of_one_stored_metric(self) -> None:
         # One stored metric excuses one incoming metric. The second copy is a new metric, and
