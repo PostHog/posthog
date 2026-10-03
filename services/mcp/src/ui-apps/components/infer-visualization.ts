@@ -194,7 +194,7 @@ export function inferVisualizationType(data: unknown): VisualizationType | null 
  * query on `source.kind`: `DataVisualizationNode` (HogQL/SQL insights) and `InsightVizNode`
  * (standard insights). Returns the wrapper's own kind when there's nothing to unwrap.
  */
-export function unwrapQueryKind(query: Record<string, unknown> | undefined): string | undefined {
+function unwrapQueryKind(query: Record<string, unknown> | undefined): string | undefined {
     if (!query) {
         return undefined
     }

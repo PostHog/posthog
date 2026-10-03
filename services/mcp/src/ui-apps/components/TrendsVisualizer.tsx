@@ -22,7 +22,7 @@ import {
     buildTrendsSeries,
 } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/trendsChartTransforms'
 
-import { captureChartTypeChanged } from '../analytics/posthog'
+import { captureInsightDisplayChanged } from '../analytics/posthog'
 import { ChartHeader } from './ChartHeader'
 import { BigNumber, Select } from './charts'
 import { colorAt, useMcpChartTheme } from './charts/theme'
@@ -31,6 +31,7 @@ import {
     type ChartType,
     chartConfigFromTrendsFilter,
     defaultChartType,
+    displayForChartType,
     isBarFamily,
     resolveChartView,
     supportsPercentStack,
@@ -135,7 +136,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     }))
     const { slopeAvailable, effectiveType } = resolveChartView(chartType, labels.length)
     const handleChartTypeChange = (next: ChartType): void => {
-        captureChartTypeChanged({ from: effectiveType, to: next })
+        captureInsightDisplayChanged({ from: displayForChartType(effectiveType), to: displayForChartType(next) })
         setChartType(next)
     }
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS

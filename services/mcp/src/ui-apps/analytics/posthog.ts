@@ -186,22 +186,26 @@ export function captureHostContextChanged(params: {
     })
 }
 
-export function captureChartRendered(params: {
-    visualizationType: string
+export function captureInsightViewed(params: {
     queryKind?: string | undefined
+    querySourceKind?: string | undefined
     display?: string | undefined
+    funnelVizType?: string | undefined
+    isSupported: boolean
 }): void {
-    capture('mcp_ui_app_chart_rendered', {
-        visualization_type: params.visualizationType,
+    capture('mcp_ui_app_insight_viewed', {
         query_kind: params.queryKind,
+        query_source_kind: params.querySourceKind,
         display: params.display,
+        funnel_viz_type: params.funnelVizType,
+        is_supported: params.isSupported,
     })
 }
 
-export function captureChartTypeChanged(params: { from: string; to: string }): void {
-    capture('mcp_ui_app_chart_type_changed', {
-        from_chart_type: params.from,
-        to_chart_type: params.to,
+export function captureInsightDisplayChanged(params: { from: string; to: string }): void {
+    capture('mcp_ui_app_insight_display_changed', {
+        from_display: params.from,
+        to_display: params.to,
     })
 }
 
