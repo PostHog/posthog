@@ -16,11 +16,13 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { messagingRecipientsRetrieve } from 'products/messaging/frontend/generated/api'
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { optOutSceneLogic } from '../OptOuts/optOutSceneLogic'
+import { captureRecipientsUsage } from './recipientsUsage'
 
 export interface RecipientDetailLogicProps {
     email: string
@@ -64,7 +66,13 @@ export interface recipientDetailLogicActions {
         recipient: RecipientLookup
         payload?: any
     }
+    copyAddress: () => {
+        value: true
+    }
     openPreferencesPage: () => {
+        value: true
+    }
+    retryLoadRecipient: () => {
         value: true
     }
 }
@@ -113,6 +121,8 @@ export const recipientDetailLogic: LogicWrapper<recipientDetailLogicType> = kea<
     })),
     actions({
         openPreferencesPage: true,
+        retryLoadRecipient: true,
+        copyAddress: true,
     }),
     loaders(({ props }) => ({
         recipient: [
@@ -150,7 +160,7 @@ export const recipientDetailLogic: LogicWrapper<recipientDetailLogicType> = kea<
             },
         ],
     }),
-    listeners(({ values }) => ({
+    listeners(({ actions, props, values }) => ({
         openPreferencesPage: async () => {
             if (!values.recipient) {
                 return
@@ -163,8 +173,16 @@ export const recipientDetailLogic: LogicWrapper<recipientDetailLogicType> = kea<
         },
         loadAudienceRecipientSuccess: ({ recipient }) => {
             if (recipient) {
-                // pinned: event name is a wire string; never send the address
-                posthog.capture('audience recipient opened')
+                captureRecipientsUsage('audience recipient opened', {})
+            }
+        },
+        retryLoadRecipient: () => {
+            actions.loadAudienceRecipient()
+            captureRecipientsUsage('audience recipient retried', {})
+        },
+        copyAddress: async () => {
+            if (await copyToClipboard(props.email, 'email address')) {
+                captureRecipientsUsage('audience recipient address copied', {})
             }
         },
     })),

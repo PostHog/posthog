@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
 import { isAccessDeniedError } from 'lib/api-error'
@@ -9,6 +8,7 @@ import * as api from 'products/messaging/frontend/generated/api'
 import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { MessageCategory, optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
+import { captureRecipientsUsage } from './recipientsUsage'
 
 const RECIPIENTS_PAGE_SIZE = 50
 export const RECIPIENT_SEARCH_MAX_LENGTH = 512
@@ -19,22 +19,6 @@ export type RecipientsView = 'loading' | 'error' | 'empty' | 'no-match' | 'resul
 export interface RecipientsRequest {
     search: string
     pageCursors: string[]
-}
-
-// pinned: analytics event names and properties, renaming them breaks the Audience funnel
-interface RecipientsUsageEvents {
-    'audience recipients filtered': { has_results: boolean }
-    'audience recipients search cleared': Record<string, never>
-    'audience recipients paged': { direction: 'next' | 'previous' }
-    'audience recipients retried': Record<string, never>
-    'audience unreachable persons opened': { count: number }
-}
-
-function captureRecipientsUsage<Event extends keyof RecipientsUsageEvents>(
-    event: Event,
-    properties: RecipientsUsageEvents[Event]
-): void {
-    posthog.capture(event, properties)
 }
 
 const FIRST_PAGE: RecipientsRequest = { search: '', pageCursors: [] }

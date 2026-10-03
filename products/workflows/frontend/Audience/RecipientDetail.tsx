@@ -4,7 +4,6 @@ import { IconArrowLeft, IconCopy, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import type { RecipientApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -34,6 +33,7 @@ function OpenPreferencesPageButton(): JSX.Element {
 }
 
 function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Element {
+    const { copyAddress } = useActions(recipientDetailLogic)
     return (
         <>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -44,7 +44,7 @@ function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Eleme
                     <LemonButton
                         size="small"
                         icon={<IconCopy />}
-                        onClick={() => void copyToClipboard(recipient.email, 'email address')}
+                        onClick={copyAddress}
                         tooltip="Copy email address"
                         data-attr="audience-recipient-copy-email"
                     />
@@ -63,7 +63,7 @@ function RecipientProfile({ recipient }: { recipient: RecipientApi }): JSX.Eleme
 
 function RecipientDetailBody(): JSX.Element {
     const { recipientView } = useValues(recipientDetailLogic)
-    const { loadAudienceRecipient } = useActions(recipientDetailLogic)
+    const { retryLoadRecipient } = useActions(recipientDetailLogic)
 
     switch (recipientView.state) {
         case 'loading':
@@ -74,7 +74,7 @@ function RecipientDetailBody(): JSX.Element {
                     type="error"
                     action={{
                         children: 'Try again',
-                        onClick: loadAudienceRecipient,
+                        onClick: retryLoadRecipient,
                         'data-attr': 'audience-recipient-retry',
                     }}
                 >
