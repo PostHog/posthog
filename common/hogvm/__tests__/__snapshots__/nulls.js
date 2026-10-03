@@ -55,6 +55,14 @@ function trim (str, char) {
     }
     return str.slice(start, end)
 }
+function toInt(value) {
+    if (__isHogDateTime(value)) { return Math.floor(value.dt); }
+    else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = Math.floor((date - epoch) / (1000 * 60 * 60 * 24)); return diffInDays; }
+    return !isNaN(parseInt(value)) ? parseInt(value) : null; }
+function toFloat(value) {
+    if (__isHogDateTime(value)) { return value.dt; }
+    else if (__isHogDate(value)) { const date = new Date(Date.UTC(value.year, value.month - 1, value.day)); const epoch = new Date(Date.UTC(1970, 0, 1)); const diffInDays = (date - epoch) / (1000 * 60 * 60 * 24); return diffInDays; }
+    return !isNaN(parseFloat(value)) ? parseFloat(value) : null; }
 function splitByString (separator, str, maxSplits) { if (str === null || str === undefined) { return null } if (maxSplits === undefined || maxSplits === null) { return str.split(separator) } return str.split(separator, maxSplits) }
 function reverse (value) { return value === null || value === undefined ? null : value.split('').reverse().join('') }
 function replaceOne (str, searchValue, replaceValue) { return str === null || str === undefined ? null : str.replace(searchValue, replaceValue) }
@@ -140,6 +148,8 @@ print(replaceAll(null, "a", "b"));
 print(trim(null));
 print(trimLeft(null));
 print(trimRight(null));
+print(toInt(null));
+print(toFloat(null));
 print(keys(null));
 print(values(null));
 print(arrayExists(__lambda((x) => (x == "a")), null));

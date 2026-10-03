@@ -851,6 +851,10 @@ class TestBytecodeExecute:
         ):
             assert self._run_program(program) is None, program
 
+    def test_bytecode_number_conversions_return_null_for_null(self):
+        assert self._run_program("return toInt(null);") is None
+        assert self._run_program("return toFloat(null);") is None
+
     def test_bytecode_ordering_with_a_null_operand_is_false(self):
         # A filter comparing a missing value must not match, and must not fail either.
         for program in (
