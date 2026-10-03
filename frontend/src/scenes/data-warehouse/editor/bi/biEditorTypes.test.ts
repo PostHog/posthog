@@ -5,13 +5,19 @@ import {
     BIConfig,
     BIEditorView,
     BIField,
+    DEFAULT_BI_CONFIG,
     buildBIQuery,
     createDefaultDateFilter,
     defaultAggregationForField,
     getBIDataSourceKey,
+    getBIChartFit,
+    getBIDropTarget,
     getBIFieldId,
     getBISortOptions,
+    getBIValueSortKey,
+    getBIValuePillLabel,
     isBIFieldCompatible,
+    isBIMeasureField,
     parseBIEditorState,
 } from './biEditorTypes'
 
@@ -108,32 +114,35 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
-    it('maps every BI row and column dimension to pivot table axes', () => {
-        const result = buildBIQuery({
-            source: { table: 'events' },
-            chartType: ChartDisplayType.TwoDimensionalHeatmap,
-            rows: [eventField, timestampField],
-            columns: [browserField, countryField],
-            values: [{ field: revenueField, aggregation: 'sum' }],
-            filters: [],
-            limit: 50000,
-        })
+    it.each([100, 1000, 10000, 50000] as const)(
+        'maps every BI row and column dimension to pivot table axes with limit %i',
+        (limit) => {
+            const result = buildBIQuery({
+                source: { table: 'events' },
+                chartType: ChartDisplayType.TwoDimensionalHeatmap,
+                rows: [eventField, timestampField],
+                columns: [browserField, countryField],
+                values: [{ field: revenueField, aggregation: 'sum' }],
+                filters: [],
+                limit,
+            })
 
-        expect(result?.query).toContain('toJSONString(tuple(event, timestamp)) AS bi_rows')
-        expect(result?.query).toContain(
-            'toJSONString(tuple(properties.$browser, properties.$geoip_country_name)) AS bi_columns'
-        )
-        expect(result?.query).toContain('LIMIT 1000')
-        expect(result?.node.chartSettings).toEqual({
-            heatmap: {
-                xAxisColumn: 'bi_columns',
-                yAxisColumn: 'bi_rows',
-                valueColumn: 'sum_revenue',
-                xAxisLabel: 'browser / country',
-                yAxisLabel: 'event / timestamp',
-            },
-        })
-    })
+            expect(result?.query).toContain('toJSONString(tuple(event, timestamp)) AS bi_rows')
+            expect(result?.query).toContain(
+                'toJSONString(tuple(properties.$browser, properties.$geoip_country_name)) AS bi_columns'
+            )
+            expect(result?.query).toContain(`LIMIT ${limit}`)
+            expect(result?.node.chartSettings).toEqual({
+                heatmap: {
+                    xAxisColumn: 'bi_columns',
+                    yAxisColumn: 'bi_rows',
+                    valueColumn: 'sum_revenue',
+                    xAxisLabel: 'browser / country',
+                    yAxisLabel: 'event / timestamp',
+                },
+            })
+        }
+    )
 
     it('ignores blank shelf fields until they are configured', () => {
         const blankField: BIField = {
@@ -182,7 +191,15 @@ describe('BI editor query generation', () => {
         )
     })
 
-    it('keeps nested object paths and explicit SQL expressions in the generated query', () => {
+    test.each([
+        [undefined, 'custom_revenue'],
+        ['ARPU', 'ARPU'],
+        ['Revenue per user', '"Revenue per user"'],
+        ['`Revenue`', '"`Revenue`"'],
+        ['Revenue"quoted`', '`Revenue"quoted```'],
+        ['properties', 'properties_2'],
+        ['event', 'event_2'],
+    ])('keeps SQL expressions and measure label %s through persistence', (label, alias) => {
         const browserField: BIField = {
             id: 'warehouse:events:properties',
             name: 'properties',
@@ -190,7 +207,7 @@ describe('BI editor query generation', () => {
             type: 'json',
             source: { table: 'events' },
         }
-        const result = buildBIQuery({
+        const config: BIConfig = {
             source: { table: 'events' },
             chartType: ChartDisplayType.ActionsBar,
             rows: [browserField],
@@ -200,6 +217,7 @@ describe('BI editor query generation', () => {
                     field: revenueField,
                     aggregation: 'custom',
                     customExpression: "sumIf(properties.revenue, event = 'purchase')",
+                    label,
                 },
             ],
             filters: [
@@ -212,13 +230,50 @@ describe('BI editor query generation', () => {
                 },
             ],
             limit: 100,
-        })
+        }
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(config))!.config
+        const result = buildBIQuery(restored)
 
         expect(result?.query).toContain('properties.$browser')
-        expect(result?.query).toContain("sumIf(properties.revenue, event = 'purchase') AS custom_revenue")
+        expect(result?.query).toContain(`sumIf(properties.revenue, event = 'purchase') AS ${alias}`)
+        expect(getBIValuePillLabel(restored.values[0])).toBe(label ?? "sumIf(properties.revenue, event = 'purchase')")
+        expect(getBISortOptions(restored).at(-1)?.label).toBe(label ?? "sumIf(properties.revenue, event = 'purchase')")
         expect(result?.query).toContain("timestamp > '2026-08-04 09:30:00'")
         expect(result?.query).toContain("properties.$browser != 'HeadlessChrome'")
     })
+
+    test.each([ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap])(
+        'disambiguates measure names from dimensions and generated aliases in %s',
+        (chartType) => {
+            const config: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                source: eventField.source,
+                chartType,
+                rows: [eventField],
+                values: [
+                    {
+                        field: revenueField,
+                        aggregation: 'custom',
+                        customExpression: 'sum(properties.revenue)',
+                        label: 'sum_revenue_2',
+                    },
+                    { field: revenueField, aggregation: 'sum' },
+                    { field: revenueField, aggregation: 'custom', customExpression: 'count(*)', label: 'event' },
+                ],
+                sort: { key: `values:${revenueField.id}:2`, direction: 'asc' },
+            }
+            const result = buildBIQuery(config)!
+            expect(result.query).toContain('sum(properties.revenue) AS sum_revenue_2,')
+            expect(result.query).toContain('sum(properties.revenue) AS sum_revenue_2_2,')
+            expect(result.query).toContain('ORDER BY\n    sum_revenue_2_2 ASC')
+            expect(getBISortOptions(config).find(({ key }) => key === config.sort?.key)?.expression).toBe(
+                'sum_revenue_2_2'
+            )
+            if (chartType === ChartDisplayType.TwoDimensionalHeatmap) {
+                expect(result.node.chartSettings?.heatmap?.valueColumn).toBe('sum_revenue_2')
+            }
+        }
+    )
 
     test.each([
         ['events', 'timestamp'],
@@ -385,12 +440,71 @@ describe('BI editor query generation', () => {
             `values:${revenueField.id}`,
             `values:${revenueField.id}:2`,
         ])
+        expect([0, 1].map((index) => getBIValueSortKey(twoAggregationsConfig, index))).toEqual([
+            `values:${revenueField.id}`,
+            `values:${revenueField.id}:2`,
+        ])
         expect(
             buildBIQuery({
                 ...twoAggregationsConfig,
                 sort: { key: `values:${revenueField.id}:2`, direction: 'asc' },
             })?.query
         ).toContain('ORDER BY\n    average_revenue_2 ASC')
+    })
+
+    const userIdField: BIField = { ...revenueField, id: 'warehouse:events:user_id', name: 'user_id', type: 'integer' }
+
+    test.each([
+        ['userId', false],
+        ['accountId', false],
+        ['userID', false],
+        ['accountUuid', false],
+        ['accountUUID', false],
+        ['USER_ID', false],
+        ['UUID', false],
+        ['grid', true],
+        ['paid', true],
+    ])('classifies numeric field %s as a measure: %s', (name, isMeasure) => {
+        const field = { ...userIdField, name }
+        expect(isBIMeasureField(field)).toBe(isMeasure)
+        expect(getBIDropTarget(field, 'rows').shelf).toBe(isMeasure ? 'values' : 'rows')
+    })
+
+    test.each([0, 1, 2])('checks pivot fit with %i measures', (measureCount) => {
+        const pivotConfig: BIConfig = {
+            ...sortableConfig,
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+            rows: [browserField],
+            columns: [countryField],
+            values: Array.from({ length: measureCount }, () => ({ field: revenueField, aggregation: 'sum' })),
+        }
+        expect(getBIChartFit(pivotConfig, ChartDisplayType.TwoDimensionalHeatmap).fits).toBe(measureCount <= 1)
+        expect(buildBIQuery(pivotConfig)?.node.chartSettings?.heatmap?.valueColumn).toBe(
+            measureCount === 0 ? 'count' : 'sum_revenue'
+        )
+    })
+
+    test.each([
+        ['a measure dropped on rows becomes a value', revenueField, 'rows', revenueField, 'values'],
+        ['a measure dropped on columns becomes a value', revenueField, 'columns', revenueField, 'values'],
+        ['a measure dropped on filters stays a filter', revenueField, 'filters', revenueField, 'filters'],
+        ['a numeric identifier stays a dimension', userIdField, 'rows', userIdField, 'rows'],
+        [
+            'a timestamp on rows is bucketed by day',
+            timestampField,
+            'rows',
+            { ...timestampField, dateBucket: 'day' },
+            'rows',
+        ],
+        [
+            'a bucketed timestamp keeps its bucket',
+            { ...timestampField, dateBucket: 'month' },
+            'columns',
+            { ...timestampField, dateBucket: 'month' },
+            'columns',
+        ],
+    ] as const)('routes a dropped field: %s', (_, field, shelf, expectedField, expectedShelf) => {
+        expect(getBIDropTarget(field as BIField, shelf)).toEqual({ field: expectedField, shelf: expectedShelf })
     })
 
     test.each([

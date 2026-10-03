@@ -1,9 +1,10 @@
-import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
+import posthog, { BeforeSendFn, BrowserMetricsConfig, PostHogConfig, SessionRecordingOptions } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
-import { isHobbyDeployment } from 'lib/utils/getAppContext'
+import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -18,6 +19,61 @@ export function isInDeferredInitSample(sessionId: string): boolean {
         hash |= 0
     }
     return Math.abs(hash) % 100 < 50
+}
+
+const LAST_SEEN_FEATURE_FLAGS_KEY = 'posthog-app-last-seen-feature-flags'
+
+export interface LastSeenFeatureFlags {
+    distinctId: string
+    featureFlags: Record<string, boolean | string>
+}
+
+type UserIdentityWithFlags = NonNullable<Window['POSTHOG_USER_IDENTITY_WITH_FLAGS']>
+
+/**
+ * The Django bootstrap leaves out every flag it cannot evaluate locally, for example a flag whose
+ * cohort reads a person property that Django does not send. posthog-js treats a flag that is not in
+ * the bootstrap as off until /flags responds, so the first render drops those flags and then shows
+ * them again. This fills only the missing keys from the last flags this same user saw, so server
+ * values still win and a different user on the same browser never gets them.
+ *
+ * `distinctId` is the user Django evaluated the bootstrap for. The bootstrap itself carries no
+ * distinct ID, so it cannot identify the user.
+ */
+export function withLastSeenFeatureFlags(
+    bootstrap: UserIdentityWithFlags,
+    lastSeen: LastSeenFeatureFlags | null,
+    distinctId: string | undefined
+): NonNullable<PostHogConfig['bootstrap']> {
+    if (!bootstrap.featureFlags) {
+        return { ...bootstrap, featureFlags: undefined }
+    }
+    // An empty bootstrap makes posthog-js use its own persisted flags, which are already complete.
+    if (!lastSeen || !distinctId || lastSeen.distinctId !== distinctId || !Object.keys(bootstrap.featureFlags).length) {
+        return bootstrap
+    }
+    return { ...bootstrap, featureFlags: { ...lastSeen.featureFlags, ...bootstrap.featureFlags } }
+}
+
+// pinned: analytics property name. Insights filter the framed pages by it.
+const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
+    event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
+
+function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
+    try {
+        const stored = window.localStorage.getItem(LAST_SEEN_FEATURE_FLAGS_KEY)
+        return stored ? JSON.parse(stored) : null
+    } catch {
+        return null
+    }
+}
+
+function writeLastSeenFeatureFlags(lastSeen: LastSeenFeatureFlags): void {
+    try {
+        window.localStorage.setItem(LAST_SEEN_FEATURE_FLAGS_KEY, JSON.stringify(lastSeen))
+    } catch {
+        // Storage can be full or blocked. The cache only smooths the first render, so skip it.
+    }
 }
 
 export interface LoadPostHogJSOptions {
@@ -56,7 +112,13 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
             ],
-            bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
+            bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+                ? withLastSeenFeatureFlags(
+                      window.POSTHOG_USER_IDENTITY_WITH_FLAGS,
+                      readLastSeenFeatureFlags(),
+                      getAppContext()?.current_user?.distinct_id
+                  )
+                : {},
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,
@@ -66,7 +128,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+            // `register` would persist the property in storage the main window shares, so it is stamped per event.
+            before_send: isEmbeddedPageFrame()
+                ? [stampEmbeddedPageFrame, ...(options.beforeSend ? [options.beforeSend].flat() : [])]
+                : options.beforeSend,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
@@ -181,7 +247,11 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             identity_hash: window.JS_POSTHOG_IDENTITY_HASH,
         })
 
-        posthog.onFeatureFlags((_flags, _variants, context) => {
+        posthog.onFeatureFlags((_flags, variants, context) => {
+            if (!context?.errorsLoading) {
+                writeLastSeenFeatureFlags({ distinctId: posthog.get_distinct_id(), featureFlags: variants })
+            }
+
             if (inStorybook() || inStorybookTestRunner() || !context?.errorsLoading) {
                 return
             }

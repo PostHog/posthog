@@ -106,7 +106,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Stale</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -156,7 +156,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <LemonTag>Not seen</LemonTag>
+            <LemonTag className="ml-auto shrink-0">Not seen</LemonTag>
         </Tooltip>
     )
 }
@@ -268,8 +268,10 @@ const renderItemContents = ({
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
-        (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
-        !(item as PropertyDefinition).is_seen_on_filtered_events
+        // Only an explicit false means "not seen on these events". The flag is undefined
+        // for items the backend never scored (virtual properties, suggested-filter rows
+        // synthesized from primary properties), and those must not be tagged.
+        (item as PropertyDefinition).is_seen_on_filtered_events === false
 
     const icon = rowContentsIcon(item, itemGroup, isActive)
 
@@ -471,8 +473,7 @@ export const InfiniteListRow = ({
         return (
             <div style={style} className="flex flex-col items-center justify-center gap-1 pt-2">
                 <IconSearch className="text-3xl text-tertiary" />
-                <span className="text-secondary text-center text-xs">Start searching and we'll suggest filters...</span>
-                <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                <SuggestedFiltersMessage taxonomicGroupTypes={taxonomicGroupTypes} className="text-xs" />
             </div>
         )
     }
@@ -703,6 +704,7 @@ const MAX_OTHER_GROUP_SWITCHES = 3
 function InfiniteListEmptyState(): JSX.Element {
     const {
         searchQuery,
+        activeTab,
         taxonomicGroups,
         taxonomicGroupTypes,
         metaGroupTypes,
@@ -723,6 +725,11 @@ function InfiniteListEmptyState(): JSX.Element {
         !emptySearchQuery &&
         !includeStaleEvents &&
         (listGroupType === TaxonomicFilterGroupType.Events || listGroupType === TaxonomicFilterGroupType.CustomEvents)
+    // Inactive tabs stay mounted but hidden, so only the open tab's empty state may ask for suggestions.
+    const canOfferEventMatch =
+        !emptySearchQuery &&
+        listGroupType === activeTab &&
+        (listGroupType === TaxonomicFilterGroupType.Events || isSuggestedFilters)
 
     // When this tab has no results but the aggregated "all" (suggested filters) section does, offer a
     // jump there so the user doesn't have to guess which tab their match lives in.
@@ -761,8 +768,7 @@ function InfiniteListEmptyState(): JSX.Element {
             {suggestedFiltersBeforeSearching ? (
                 <>
                     <IconSearch className="text-5xl text-tertiary" />
-                    <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
-                    <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                    <SuggestedFiltersMessage taxonomicGroupTypes={taxonomicGroupTypes} />
                 </>
             ) : needsMoreSearchCharacters ? (
                 <>
@@ -802,9 +808,7 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
-                    {!emptySearchQuery && listGroupType === TaxonomicFilterGroupType.Events && (
-                        <TaxonomicEventMatchSuggestions />
-                    )}
+                    {canOfferEventMatch && <TaxonomicEventMatchSuggestions />}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"
@@ -1062,11 +1066,24 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     )
 }
 
-function SuggestedFiltersSearchHint({
+function SuggestedFiltersMessage({
     taxonomicGroupTypes,
+    className,
 }: {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
-}): JSX.Element | null {
+    className?: string
+}): JSX.Element {
+    const examples = suggestedFiltersSearchExamples(taxonomicGroupTypes)
+    return (
+        <span className={clsx('text-secondary text-center', className)}>
+            {examples
+                ? `Type a value like ${examples} and we'll suggest a filter for it`
+                : "Start typing and we'll suggest filters"}
+        </span>
+    )
+}
+
+function suggestedFiltersSearchExamples(taxonomicGroupTypes: TaxonomicFilterGroupType[]): string | null {
     const groupSet = new Set(taxonomicGroupTypes)
     const hints: string[] = []
     if (groupSet.has(TaxonomicFilterGroupType.EmailAddresses)) {
@@ -1081,13 +1098,11 @@ function SuggestedFiltersSearchHint({
     if (hints.length === 0) {
         return null
     }
-    const joined =
-        hints.length === 1
-            ? hints[0]
-            : hints.length === 2
-              ? `${hints[0]} or ${hints[1]}`
-              : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
-    return <span className="text-center text-secondary italic">Try searching for {joined}</span>
+    return hints.length === 1
+        ? hints[0]
+        : hints.length === 2
+          ? `${hints[0]} or ${hints[1]}`
+          : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
 }
 
 function resolveItemRendering({

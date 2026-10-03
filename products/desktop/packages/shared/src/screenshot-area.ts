@@ -58,7 +58,7 @@ export function screenshotArea(
   const visibleRight = Math.min(viewport.width, element.right);
   const visibleTop = Math.max(0, element.top);
   const visibleBottom = Math.min(viewport.height, element.bottom);
-  if (visibleRight <= visibleLeft || visibleBottom <= visibleTop) return null;
+  if (visibleRight < visibleLeft || visibleBottom < visibleTop) return null;
   const [left, right] = span(
     visibleLeft,
     visibleRight,

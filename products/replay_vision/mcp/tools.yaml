@@ -197,7 +197,9 @@ tools:
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them.
+            someone, deep-link the one or two moments it turns on rather than only describing them. A summarizer's
+            `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same
+            way.
         url_prefix: /replay
     vision-observations-label-create:
         operation: vision_observations_label_create
@@ -838,7 +840,9 @@ tools:
             `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a chip's
             `timestamp_ms` is the recording-relative offset of the moment being cited — append `?t=<seconds>`
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
-            someone, deep-link the one or two moments it turns on rather than only describing them.
+            someone, deep-link the one or two moments it turns on rather than only describing them. A summarizer's
+            `model_output.chapters` breaks the recording into ordered parts; each chapter's `start_ms` seeks the same
+            way.
         url_prefix: /replay
     vision-scanners-observations-label-create:
         operation: vision_scanners_observations_label_create
@@ -1165,6 +1169,9 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-scanners-variants-list:
+        operation: vision_scanners_variants_list
+        enabled: false
     vision-scanners-watch-feed:
         operation: vision_scanners_watch_feed_retrieve
         enabled: true

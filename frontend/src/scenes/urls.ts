@@ -60,8 +60,11 @@ export const urls = {
     transformations: (): string => '/data-management/transformations',
     eventFiltering: (): string => '/data-management/event-filtering',
     activity: (tab: ActivityTab | ':tab' = ActivityTab.ExploreEvents): string => `/activity/${tab}`,
-    event: (id: string, timestamp: string): string =>
-        `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+    event: (id: string, timestamp: string, eventName?: string): string =>
+        combineUrl(
+            `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
+            eventName ? { event: eventName } : {}
+        ).url,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     ingestionWarningsV2: (): string => '/data-management/ingestion-warnings-v2',
     revenueSettings: (): string => '/data-management/revenue',
@@ -167,6 +170,11 @@ export const urls = {
     projectCreateFirst: (): string => '/organization/create-project',
     projectRoot: (): string => '/',
     projectHomepage: (): string => '/home',
+    todayReport: (reportId: string): string => `/home/reports/${reportId}`,
+    library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
+    views: (): string => '/views',
+    viewsNew: (): string => '/views/new',
+    tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
     aiHistory: (): string => '/ai/history',
@@ -274,7 +282,6 @@ export const urls = {
     asyncMigrationsSettings: (): string => '/instance/async_migrations/settings',
     // nosemgrep: frontend-url-hyphen -- shipped app URL, existing links point here
     deadLetterQueue: (): string => '/instance/dead_letter_queue',
-    experimentsStaffTools: (): string => '/experiments/staff',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
     codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,

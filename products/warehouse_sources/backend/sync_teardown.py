@@ -24,13 +24,11 @@ from prometheus_client import Counter
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 logger = structlog.get_logger(__name__)
 
