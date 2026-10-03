@@ -53,6 +53,9 @@ tools:
     today-excerpt-choice-create:
         operation: today_excerpt_choice_create
         enabled: false
+    today-reports-figure-marks-retrieve:
+        operation: today_reports_figure_marks_retrieve
+        enabled: false
     today-reports-key-clauses-create:
         operation: today_reports_key_clauses_create
         enabled: false
