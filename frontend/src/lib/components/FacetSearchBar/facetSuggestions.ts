@@ -1,5 +1,7 @@
 import uniqBy from 'lodash.uniqby'
 
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+
 import {
     ClientFacet,
     FacetDraft,
@@ -123,7 +125,7 @@ function countOrHidden(option: FacetValueOption, negated: boolean): Pick<FacetSu
     if (!negated) {
         return { count: option.count }
     }
-    return { detail: option.count !== undefined ? `Hides ${option.count}` : undefined }
+    return { detail: option.count !== undefined ? `Hides ${humanFriendlyNumber(option.count)}` : undefined }
 }
 
 /** Rows match client facet values in any case, so two client pills that differ only by case are the same pill. */
@@ -178,8 +180,10 @@ function draftSuggestions(draft: FacetDraft, context: SuggestionContext, isChose
         return message('none', 'Every value is already a filter')
     }
     const hasOtherFilters = context.filters.some((filter) => filter.facet !== facet.key) || !!draft.rest.trim()
-    const otherFiltersHideEverything = !!context.data && !state.options.length && hasOtherFilters
-    return message('none', otherFiltersHideEverything ? 'No values match your other filters' : 'No values match')
+    if (context.data && !state.options.length && hasOtherFilters) {
+        return message('none', 'No values match your other filters')
+    }
+    return message('none', partial ? 'No values match' : 'This filter has no values')
 }
 
 function sortFacets(facets: AnyFacet[]): AnyFacet[] {
@@ -260,21 +264,17 @@ export function buildSuggestions(
     const negated = token.startsWith('-')
     const search = negated ? token.slice(1) : token
     const bare = search.toLowerCase()
-    const result: FacetSuggestion[] = []
-    if (bare) {
-        for (const facet of ordered) {
-            const names = [facet.key, facet.label.toLowerCase(), ...(facet.aliases ?? [])]
-            if (names.some((name) => name.startsWith(bare))) {
-                result.push({
-                    id: `facet-${facet.key}`,
-                    kind: 'facet',
-                    label: `${negated ? '-' : ''}${facet.key}:`,
-                    detail: facet.description,
-                    nextInput: `${rest}${negated ? '-' : ''}${facet.key}:`,
-                })
-            }
-        }
-    }
+    const namedByToken = (facet: AnyFacet): boolean =>
+        [facet.key, facet.label.toLowerCase(), ...(facet.aliases ?? [])].some((name) => name.startsWith(bare))
+    // A lone `-` starts an exclusion, so it lists the facets the empty input lists.
+    const offeredFacets = ordered.filter(bare ? namedByToken : (facet) => facet.showOnFocus)
+    const result: FacetSuggestion[] = offeredFacets.map((facet) => ({
+        id: `facet-${facet.key}`,
+        kind: 'facet',
+        label: `${negated ? '-' : ''}${facet.key}:`,
+        detail: facet.description,
+        nextInput: `${rest}${negated ? '-' : ''}${facet.key}:`,
+    }))
     result.push({ id: 'search', kind: 'search', label: `Search for "${input.trim()}"` })
     if (bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
         result.push(...crossFacetValueSuggestions({ rest, search, bare, negated }, context, isChosen))
@@ -383,26 +383,41 @@ export function labelsByFilterValue(facets: AnyFacet[], valueLoads: FacetValueLo
     return labels
 }
 
-/** Loaded facets whose label list failed to load, so their pills can only show the raw value. */
-export function facetsWithFailedLabels(facets: AnyFacet[], valueLoads: FacetValueLoads): Set<string> {
-    return new Set(
-        facets
-            .filter(isLoadedFacet)
-            .filter((facet) => valueLoads[valueLoadKey(facet.key, '')]?.status === 'error')
-            .map((facet) => facet.key)
-    )
+/** `loading` and `failed`: the pill shows the raw value until its facet's `loadValues('')` gives the label. */
+export type PillLabelStatus = 'shown' | 'loading' | 'failed'
+
+export interface FacetPill {
+    filter: FacetFilter
+    label: string
+    labelStatus: PillLabelStatus
 }
 
-export function isPillLabelMissing(
-    filter: FacetFilter,
-    failedLabelFacets: Set<string>,
+function pillLabelStatus(filter: FacetFilter, facet: AnyFacet | undefined, context: PillContext): PillLabelStatus {
+    if (!facet || !isLoadedFacet(facet) || context.valueLabels.has(labelKey(filter.facet, filter.value))) {
+        return 'shown'
+    }
+    const status = context.valueLoads[valueLoadKey(facet.key, '')]?.status
+    if (status === 'error') {
+        return 'failed'
+    }
+    return status === 'loaded' ? 'shown' : 'loading'
+}
+
+interface PillContext {
+    facets: AnyFacet[]
+    valueLoads: FacetValueLoads
     valueLabels: FacetValueLabels
-): boolean {
-    return failedLabelFacets.has(filter.facet) && !valueLabels.has(labelKey(filter.facet, filter.value))
 }
 
-export function pillLabel(filter: FacetFilter, facets: AnyFacet[], valueLabels: FacetValueLabels): string {
-    const facet = findFacet(facets, filter.facet)
-    const valueLabel = valueLabels.get(labelKey(filter.facet, filter.value)) ?? formatFacetValue(facet, filter.value)
-    return `${facet?.label ?? filter.facet}${filter.negated ? ' is not' : ''}: ${valueLabel}`
+export function describePills(filters: FacetFilter[], context: PillContext): FacetPill[] {
+    return filters.map((filter) => {
+        const facet = findFacet(context.facets, filter.facet)
+        const valueLabel =
+            context.valueLabels.get(labelKey(filter.facet, filter.value)) ?? formatFacetValue(facet, filter.value)
+        return {
+            filter,
+            label: `${facet?.label ?? filter.facet}${filter.negated ? ' is not' : ''}: ${valueLabel}`,
+            labelStatus: pillLabelStatus(filter, facet, context),
+        }
+    })
 }

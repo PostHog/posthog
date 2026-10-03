@@ -2,15 +2,20 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSnack, Popover, PopoverReferenceContext } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSnack, Popover, PopoverReferenceContext, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { ClientFacet, FacetSearchRows, FacetSearchValue, ServerFacet, facetFilterKey } from './facetSearch'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
-import { isPillLabelMissing, pillLabel } from './facetSuggestions'
+import { PillLabelStatus } from './facetSuggestions'
 
-const MISSING_LABEL_NOTE = " (couldn't load the label)"
+const LABEL_NOTES: Record<PillLabelStatus, string> = {
+    shown: '',
+    loading: ' (loading the label)',
+    failed: " (couldn't load the label)",
+}
 
 interface FacetSearchBarBaseProps {
     value: FacetSearchValue
@@ -58,14 +63,13 @@ export function FacetSearchBar<TRow>({
         tabTarget,
         title,
         hints,
-        valueLabels,
-        failedLabelFacets,
+        pills,
     } = useValues(logic)
     const {
         setInput,
         setOpen,
         moveHighlight,
-        setHighlightedIndex,
+        setHighlightedId,
         applySuggestion,
         applyHighlighted,
         applyTabTarget,
@@ -150,7 +154,7 @@ export function FacetSearchBar<TRow>({
                             onClick={() => applySuggestion(suggestion)}
                             onMouseEnter={() => {
                                 movedByKeyboard.current = false
-                                setHighlightedIndex(index)
+                                setHighlightedId(suggestion.id)
                             }}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
@@ -168,7 +172,7 @@ export function FacetSearchBar<TRow>({
                                         className="ml-auto shrink-0 text-secondary font-normal tabular-nums"
                                         translate="no"
                                     >
-                                        {suggestion.count}
+                                        {humanFriendlyNumber(suggestion.count)}
                                     </span>
                                 )}
                             </span>
@@ -232,14 +236,13 @@ export function FacetSearchBar<TRow>({
                             <IconSearch className="text-secondary shrink-0" />
                             {/* Pills are not the popover's trigger, so their close buttons must not look pressed while it is open. */}
                             <PopoverReferenceContext.Provider value={null}>
-                                {value.filters.map((filter) => {
-                                    const label = pillLabel(filter, facets, valueLabels)
-                                    const labelFailed = isPillLabelMissing(filter, failedLabelFacets, valueLabels)
+                                {pills.map(({ filter, label, labelStatus }) => {
+                                    const note = LABEL_NOTES[labelStatus]
                                     return (
                                         <LemonSnack
                                             key={facetFilterKey(filter)}
                                             data-attr={`${dataAttr}-filter`}
-                                            title={labelFailed ? `${label}${MISSING_LABEL_NOTE}` : label}
+                                            title={`${label}${note}`}
                                             closeLabel={`Remove filter ${label}`}
                                             onClose={() => {
                                                 removeFilter(filter)
@@ -247,8 +250,9 @@ export function FacetSearchBar<TRow>({
                                             }}
                                             className="max-w-80"
                                         >
+                                            {labelStatus === 'loading' && <Spinner className="mr-1" />}
                                             <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
-                                            {labelFailed && <span className="sr-only">{MISSING_LABEL_NOTE}</span>}
+                                            {note && <span className="sr-only">{note}</span>}
                                         </LemonSnack>
                                     )
                                 })}

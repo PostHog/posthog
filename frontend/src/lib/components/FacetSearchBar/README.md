@@ -47,7 +47,7 @@ The bar shows what `loadValues` returns as is, so it can match on fields the lab
 A failed load shows the error message and runs again on the next keystroke.
 Keep `loadValues` stable between renders: a new function drops the values the old one loaded.
 A pill restored from a URL takes its label from `loadValues('')`. If that list can miss the value, give `formatValue` too.
-If that load fails, the pill shows the raw value. Its tooltip and screen reader text add "couldn't load the label".
+While that load runs, the pill shows the raw value with a spinner. If it fails, the pill keeps the raw value, and its tooltip and screen reader text add "couldn't load the label".
 
 ## Keeping the search in the URL
 
@@ -56,6 +56,6 @@ If that load fails, the pill shows the raw value. Its tooltip and screen reader 
 
 ## Keyboard
 
-- ↑ and ↓ move through the suggestions. Enter picks the highlighted one.
+- ↑ and ↓ move through the suggestions. Enter picks the highlighted one. The search row starts highlighted, so Enter on a typed word runs the search.
 - Tab and → pick the first facet or value, never the plain search. Until the person types, Tab moves focus as usual.
 - Backspace on an empty input removes the last pill. Esc closes the suggestions.

@@ -125,7 +125,7 @@ const PLAN: ServerFacet = {
     showOnFocus: true,
     values: [
         { value: 'free', label: 'Free' },
-        { value: 'paid', label: 'Paid', count: 12 },
+        { value: 'paid', label: 'Paid', count: 1204 },
     ],
 }
 
@@ -303,12 +303,15 @@ describe('FacetSearchBar', () => {
             const { rerender } = render(<ClientConsumer url="" />)
             const user = userEvent.setup()
             await user.click(input())
-            await user.keyboard('status:')
+            await user.keyboard('status:{ArrowDown}')
             expect(suggestions()).toEqual(['Draft (2)', 'Active (1)', 'Archived (1)'])
 
             const moreRows = { ...DATA, rows: [...DATA.rows, { name: 'Launch', status: 'active', subjects: [] }] }
             rerender(<ClientConsumer url="" data={moreRows} />)
             expect(suggestions()).toEqual(['Active (2)', 'Draft (2)', 'Archived (1)'])
+
+            await user.keyboard('{Enter}')
+            expect(pills()).toEqual(['Status: Active'])
         })
 
         it('offers "Not" values with how many rows they hide for a negated draft', async () => {
@@ -345,7 +348,7 @@ describe('FacetSearchBar', () => {
         it('Tab and → take the first filter row, never the search row', async () => {
             const user = setup()
             await user.click(input())
-            await user.keyboard('sta{ArrowDown}{ArrowDown}')
+            await user.keyboard('sta')
             expect(document.querySelector('[role="option"][aria-selected="true"]')).toHaveTextContent(
                 'Search for "sta"'
             )
@@ -360,13 +363,27 @@ describe('FacetSearchBar', () => {
             expect(input()).toHaveFocus()
         })
 
-        it('Enter on the search row closes the popover and keeps the text', async () => {
+        it.each([
+            ['no facet name', 'renew', 'Renewal'],
+            ['the start of a facet name', 'sta', ''],
+        ])('Enter runs the search for a word that is %s and keeps the text', async (_, typed, rows) => {
             const user = setup()
             await user.click(input())
-            await user.keyboard('renew{Enter}')
+            await user.keyboard(`${typed}{Enter}`)
             expect(listbox()).toBeNull()
-            expect(input()).toHaveValue('renew')
-            expect(shown('rows')).toEqual('Renewal')
+            expect(input()).toHaveValue(typed)
+            expect(shown('url')).toEqual(typed)
+            expect(shown('rows')).toEqual(rows)
+        })
+
+        it('lists the on-focus facets as exclusions when the person types a minus', async () => {
+            const user = setup()
+            await user.click(input())
+            await user.keyboard('-')
+            expect(suggestions()).toEqual(['-status: · Lifecycle', '-sends: · Email subject', 'Search for "-"'])
+
+            await user.keyboard('{Tab}')
+            expect(input()).toHaveValue('-status:')
         })
 
         it('leaves ArrowUp to the input while the popover is closed', async () => {
@@ -603,7 +620,7 @@ describe('FacetSearchBar', () => {
         it.each([
             ['the typed value', '', DATA, 'status:zzz', 'No values match'],
             ['the other filters', '', DATA, 'zzz status:', 'No values match your other filters'],
-            ['a facet no row has a value for', 'sends:Old', NO_SUBJECTS, 'sends:', 'No values match'],
+            ['a facet no row has a value for', 'sends:Old', NO_SUBJECTS, 'sends:', 'This filter has no values'],
             ['a facet whose every value is a pill', 'stage:one', DATA, 'stage:', 'Every value is already a filter'],
         ])('shows the no-values message for %s as text, not as an option', async (_, url, data, typed, expected) => {
             render(<ClientConsumer url={url} data={data} />)
@@ -638,7 +655,7 @@ describe('FacetSearchBar', () => {
             const user = userEvent.setup()
             await user.click(input())
             await user.keyboard('plan:')
-            expect(suggestions()).toEqual(['Free', 'Paid (12)'])
+            expect(suggestions()).toEqual(['Free', 'Paid (1,204)'])
 
             await user.keyboard('{Enter}-plan:pa{Enter}acme')
             expect(pills()).toEqual(['Plan: Free', 'Plan is not: Paid'])
@@ -797,15 +814,24 @@ describe('FacetSearchBar', () => {
             expect(pills()).toEqual(['Team is not: t-2'])
         })
 
-        it('labels a pill restored from the URL once its value loads', async () => {
-            const loadValues = async (): Promise<FacetValueOption[]> => [{ value: 't-2', label: 'Platform' }]
+        it('marks a restored pill while its label loads, then labels it', async () => {
+            const teams = deferred<FacetValueOption[]>()
             render(
                 <ServerConsumer
                     url="-team:t-2"
-                    facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues }]}
+                    facets={[{ key: 'team', label: 'Team', description: 'Owner', loadValues: () => teams.promise }]}
                 />
             )
+            const pill = (): Element => document.querySelector('[data-attr="server-search-filter"]')!
+            const note = 'Team is not: t-2 (loading the label)'
+            expect(pill()).toHaveTextContent(note)
+            expect(screen.getByTitle(note)).toBeInTheDocument()
+            expect(pill().querySelector('.Spinner')).not.toBeNull()
+
+            teams.resolve([{ value: 't-2', label: 'Platform' }])
             await waitFor(() => expect(pills()).toEqual(['Team is not: Platform']))
+            expect(pill()).toHaveTextContent(/^Team is not: Platform$/)
+            expect(pill().querySelector('.Spinner')).toBeNull()
         })
 
         it('drops values from a replaced loader, including a load still in flight', async () => {
@@ -824,7 +850,19 @@ describe('FacetSearchBar', () => {
             await waitFor(() => expect(suggestions()).toEqual(['New project team']))
         })
 
-        it('keeps the newest load when a loader comes back while its older load is in flight', async () => {
+        it.each([
+            [
+                'after the new load',
+                async (finishOldLoad: () => Promise<void>): Promise<void> => {
+                    await waitFor(() => expect(suggestions()).toEqual(['New project team']))
+                    await finishOldLoad()
+                },
+            ],
+            [
+                'before the new load starts',
+                async (finishOldLoad: () => Promise<void>): Promise<void> => finishOldLoad(),
+            ],
+        ])("keeps the newest load when a returning loader's older load finishes %s", async (_, settle) => {
             const oldTeams = deferred<FacetValueOption[]>()
             const loadTeams = jest
                 .fn<Promise<FacetValueOption[]>, [string]>()
@@ -841,13 +879,13 @@ describe('FacetSearchBar', () => {
 
             rerender(<ServerConsumer facets={teamFacet(async () => [])} />)
             rerender(<ServerConsumer facets={teamFacet(loadTeams)} />)
-            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
-
-            await act(async () => {
-                oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
-                await oldTeams.promise
+            await settle(async () => {
+                await act(async () => {
+                    oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
+                    await oldTeams.promise
+                })
             })
-            expect(suggestions()).toEqual(['New project team'])
+            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
         })
 
         const repeatedValues: FacetValueOption[] = [
@@ -864,30 +902,6 @@ describe('FacetSearchBar', () => {
             await user.click(input())
             await user.paste('team:')
             await waitFor(() => expect(suggestions()).toEqual(['Alpha', 'Beta']))
-        })
-
-        it('drops a load that finishes after its loader left and came back, before the new load starts', async () => {
-            const oldTeams = deferred<FacetValueOption[]>()
-            const loadTeams = jest
-                .fn<Promise<FacetValueOption[]>, [string]>()
-                .mockReturnValueOnce(oldTeams.promise)
-                .mockResolvedValue([{ value: 'new', label: 'New project team' }])
-            const teamFacet = (loadValues: LoadFacetValues): ServerFacet[] => [
-                { key: 'team', label: 'Team', description: 'Owner', loadValues },
-            ]
-            const { rerender } = render(<ServerConsumer facets={teamFacet(loadTeams)} />)
-            const user = userEvent.setup()
-            await user.click(input())
-            await user.paste('team:')
-            await waitFor(() => expect(loadTeams).toHaveBeenCalledTimes(1))
-
-            rerender(<ServerConsumer facets={teamFacet(async () => [])} />)
-            rerender(<ServerConsumer facets={teamFacet(loadTeams)} />)
-            await act(async () => {
-                oldTeams.resolve([{ value: 'old', label: 'Old project team' }])
-                await oldTeams.promise
-            })
-            await waitFor(() => expect(suggestions()).toEqual(['New project team']))
         })
 
         it('loads values again for a facet that comes back while its last load was in flight', async () => {
