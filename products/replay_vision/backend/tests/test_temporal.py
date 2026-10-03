@@ -295,6 +295,28 @@ class TestCreateObservationActivity:
         assert observation.started_at is None  # set when transitioning to running, not here
         assert observation.completed_at is None
 
+    def test_records_the_dispatching_ticks_variant_sampling_rates_on_the_snapshot(self) -> None:
+        # The variants readout explains even per-variant counts with these rates; a snapshot built
+        # only from the scanner row would silently drop them, since the row never carries them.
+        scanner = _make_scanner(
+            scanner_type=ScannerType.EXPERIMENT, scanner_config={"prompt": "p", "experiment_id": 42}
+        )
+        result = create_observation_activity(
+            CreateObservationInputs(
+                scanner_id=scanner.id,
+                team_id=scanner.team_id,
+                session_id="sess-balanced",
+                triggered_by=ObservationTrigger.SCHEDULE,
+                triggered_by_user_id=None,
+                workflow_id="wf-balanced",
+                variant_sampling_rates={"control": 0.055, "test": 0.5},
+            )
+        )
+
+        assert result.observation_id is not None
+        observation = ReplayObservation.objects.get(id=result.observation_id)
+        assert observation.scanner_snapshot["variant_sampling_rates"] == {"control": 0.055, "test": 0.5}
+
     def test_decays_enqueue_claim_once_the_row_exists(self) -> None:
         # A claim that never decays holds a phantom cap slot for the full TTL.
         scanner = _make_scanner()
