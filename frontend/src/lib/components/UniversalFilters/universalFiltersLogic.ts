@@ -39,9 +39,11 @@ import {
 } from '../TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from './constants'
 
-function isApplicableSavedFilter(
-    item: unknown
-): item is SessionRecordingPlaylistType & { filters: NonNullable<SessionRecordingPlaylistType['filters']> } {
+type ApplicableSavedFilter = SessionRecordingPlaylistType & {
+    filters: NonNullable<SessionRecordingPlaylistType['filters']>
+}
+
+function isApplicableSavedFilter(item: unknown): item is ApplicableSavedFilter {
     return typeof item === 'object' && item !== null && 'short_id' in item && 'filters' in item && item.filters != null
 }
 
@@ -260,8 +262,14 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
             if (taxonomicGroup.type === TaxonomicFilterGroupType.ReplaySavedFilters) {
+                const savedFiltersLogic = sessionRecordingSavedFiltersLogic.findMounted()
                 if (isApplicableSavedFilter(item)) {
-                    sessionRecordingSavedFiltersLogic.findMounted()?.actions.requestApplySavedFilter(item)
+                    savedFiltersLogic?.actions.requestApplySavedFilter(item)
+                } else if (propertyKey) {
+                    // A row from the Recent category is a stored summary of a saved filter: it holds
+                    // the short id the row is keyed by and never the filters, which are too heavy to
+                    // keep in local storage. The replay logic resolves the short id back to a filter.
+                    savedFiltersLogic?.actions.requestApplySavedFilterByShortId(String(propertyKey))
                 }
                 return
             }
