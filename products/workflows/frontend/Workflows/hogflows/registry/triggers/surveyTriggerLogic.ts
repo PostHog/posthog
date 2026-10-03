@@ -204,16 +204,19 @@ export const surveyTriggerLogic = kea<surveyTriggerLogicType>([
         selectedSurveys: [
             {} as Record<string, Survey | null>,
             {
-                loadSurveyById: async ({ id }) => {
+                loadSurveyById: async ({ id }, breakpoint) => {
                     if (id in values.selectedSurveys) {
                         return values.selectedSurveys
                     }
+                    let survey: Survey | null
                     try {
-                        const survey = await api.surveys.get(id)
-                        return { ...values.selectedSurveys, [id]: survey }
+                        survey = await api.surveys.get(id)
                     } catch {
-                        return { ...values.selectedSurveys, [id]: null }
+                        survey = null
                     }
+                    // The panel can close while the request runs, and `values` throws on an unmounted logic.
+                    breakpoint()
+                    return { ...values.selectedSurveys, [id]: survey }
                 },
             },
         ],
