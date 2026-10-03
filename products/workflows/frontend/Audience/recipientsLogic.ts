@@ -29,8 +29,6 @@ export interface recipientsLogicValues {
     categories: MessageCategory[] // optOutCategoriesLogic
     accessDenied: boolean
     canPage: boolean
-    coverage: number | null
-    coverageLoading: boolean
     hasNextPage: boolean
     hasPreviousPage: boolean
     lastRequest: RecipientsRequest
@@ -38,6 +36,7 @@ export interface recipientsLogicValues {
     page: RecipientPageApi
     pageLoading: boolean
     personsWithoutEmail: number
+    personsWithoutEmailLoading: boolean
     recipients: RecipientApi[]
     recipientsView: RecipientsView
     search: string
@@ -77,12 +76,12 @@ export interface recipientsLogicActions {
         errorObject?: any
     }
     loadAudienceCoverageSuccess: (
-        coverage: number | null,
+        personsWithoutEmail: number,
         payload?: {
             value: true
         }
     ) => {
-        coverage: number | null
+        personsWithoutEmail: number
         payload?: {
             value: true
         }
@@ -110,7 +109,6 @@ export interface recipientsLogicMeta {
         canPage: (pageLoading: boolean, searchPending: boolean) => boolean
         hasNextPage: (page: RecipientPageApi) => boolean
         hasPreviousPage: (shownRequest: RecipientsRequest) => boolean
-        personsWithoutEmail: (coverage: number | null) => number
         recipients: (page: RecipientPageApi) => RecipientApi[]
         recipientsView: (
             pageLoading: boolean,
@@ -188,10 +186,10 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 },
             },
         ],
-        coverage: [
-            null as number | null,
+        personsWithoutEmail: [
+            0,
             {
-                loadAudienceCoverage: async (): Promise<number | null> => {
+                loadAudienceCoverage: async (): Promise<number> => {
                     const coverage = await api.messagingRecipientsCoverageRetrieve(currentTeamId())
                     return coverage.persons_without_email
                 },
@@ -218,7 +216,6 @@ export const recipientsLogic = kea<recipientsLogicType>([
             (categories: MessageCategory[]): Record<string, string> =>
                 Object.fromEntries(categories.map((category) => [category.key, category.name])),
         ],
-        personsWithoutEmail: [(s) => [s.coverage], (coverage: number | null): number => coverage ?? 0],
         recipientsView: [
             (s) => [s.pageLoading, s.loadFailed, s.recipients, s.shownRequest, s.lastRequest],
             (

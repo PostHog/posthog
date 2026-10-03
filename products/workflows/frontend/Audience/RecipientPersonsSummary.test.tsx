@@ -5,18 +5,13 @@ import { cleanup, render, screen } from '@testing-library/react'
 import type { RecipientApi, RecipientPersonApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { RecipientPersonsSummary } from './RecipientPersonsSummary'
+import { recipient } from './recipientTestFixtures'
 
 function recipientWith(personCount: number, persons: Partial<RecipientPersonApi>[]): RecipientApi {
-    return {
-        email: 'alex@example.com',
-        all_marketing: 'NO_PREFERENCE',
-        topics: {},
-        suppression: null,
-        persons: persons.map((person) => ({ uuid: 'person-1', distinct_id: '', name: null, ...person })),
+    return recipient('alex@example.com', {
         person_count: personCount,
-        last_sent_at: null,
-        preferences_updated_at: null,
-    }
+        persons: persons.map((person) => ({ uuid: 'person-1', distinct_id: '', name: null, ...person })),
+    })
 }
 
 describe('RecipientPersonsSummary', () => {

@@ -8,20 +8,15 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { recipientsLogic } from './recipientsLogic'
+import { MockResponse, useRecipientsApiMocks } from './recipientTestFixtures'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
 describe('UnreachablePersonsNotice', () => {
-    function useCoverageResponse(response: [number, unknown]): void {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_recipients/': { results: [], next_cursor: null },
-                '/api/projects/:team_id/messaging_recipients/coverage/': () => response,
-            },
-        })
+    function useCoverageResponse(response: MockResponse): void {
+        useRecipientsApiMocks({ recipients: () => [200, { results: [], next_cursor: null }], coverage: response })
     }
 
     beforeEach(() => {

@@ -5,25 +5,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { RecipientApi, RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { optOutCategoriesLogic } from '../OptOuts/optOutCategoriesLogic'
 import { recipientsLogic } from './recipientsLogic'
+import { MockResponse, useRecipientsApiMocks, recipient } from './recipientTestFixtures'
 
 const SEARCH_DEBOUNCE_MS = 300
-
-function recipient(email: string): RecipientApi {
-    return {
-        email,
-        all_marketing: 'NO_PREFERENCE',
-        topics: {},
-        suppression: null,
-        persons: [],
-        person_count: 0,
-        last_sent_at: null,
-        preferences_updated_at: null,
-    }
-}
 
 const PAGES_BY_CURSOR: Record<string, RecipientPageApi> = {
     '': { results: [recipient('alex@example.com'), recipient('jamie@example.com')], next_cursor: 'after-jamie' },
@@ -34,18 +22,13 @@ describe('recipientsLogic', () => {
     let logic: ReturnType<typeof recipientsLogic.build>
     let requests: URLSearchParams[]
 
-    type MockResponse = [number, unknown]
-
     function useRecipientsResponse(respond: (params: URLSearchParams) => MockResponse | Promise<MockResponse>): void {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
-                    const params = new URL(request.url).searchParams
-                    requests.push(params)
-                    return respond(params)
-                },
-                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 12 },
+        useRecipientsApiMocks({
+            recipients: (params) => {
+                requests.push(params)
+                return respond(params)
             },
+            coverage: [200, { persons_without_email: 12 }],
         })
     }
 
