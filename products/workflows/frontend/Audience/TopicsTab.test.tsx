@@ -177,22 +177,31 @@ describe('the Topics tab', () => {
         expect(screen.getByTestId('audience-topics-more')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    it('opens the preferences page from the More menu', async () => {
-        useMocks({
-            post: {
-                '/api/projects/:team_id/messaging_preferences/generate_link/': {
-                    preferences_url: 'https://example.com/preferences/abc',
-                },
-            },
-        })
+    it.each([
+        {
+            outcome: 'opens',
+            generateLink: () => Promise.resolve({ preferences_url: 'https://example.com/preferences/abc' }),
+            openedTabs: [['https://example.com/preferences/abc', '_blank']],
+        },
+        {
+            outcome: 'fails',
+            generateLink: () => Promise.reject(new Error('Server error')),
+            openedTabs: [],
+        },
+    ])('frees the More menu once the preferences page preview $outcome', async ({ generateLink, openedTabs }) => {
+        jest.spyOn(messagingApi, 'messagingPreferencesGenerateLinkCreate').mockImplementation(generateLink)
         const openTab = jest.spyOn(window, 'open').mockReturnValue(null)
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: true })
         render(<AudienceScene />)
         await screen.findByText('Product updates')
+        const moreTrigger = screen.getByTestId('audience-topics-more')
 
-        act(() => screen.getByTestId('audience-topics-more').click())
+        act(() => moreTrigger.click())
         act(() => screen.getByText('Preview preferences page').click())
 
-        await waitFor(() => expect(openTab).toHaveBeenCalledWith('https://example.com/preferences/abc', '_blank'))
+        expect(moreTrigger).toHaveAttribute('aria-disabled', 'true')
+        await waitFor(() => expect(optOutSceneLogic.values.preferencesUrlLoading).toBe(false))
+        expect(moreTrigger).not.toHaveAttribute('aria-disabled', 'true')
+        expect(openTab.mock.calls).toEqual(openedTabs)
     })
 })
