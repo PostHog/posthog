@@ -17,7 +17,7 @@ from prometheus_client import CollectorRegistry
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags import person_pg_cleanup_drain as drain
-from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
+from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE, clickhouse_deletion_sweep_job
 from posthog.dags.person_pg_cleanup_drain import (
     Chunk,
     DrainTotals,
@@ -58,12 +58,20 @@ def queued(conn) -> list[tuple[int, str, datetime, datetime | None]]:
         return cursor.fetchall()
 
 
-def run_job(cluster: ClickhouseCluster, *, dry_run: bool = False, raise_on_error: bool = True, **overrides):
+def run_job(
+    cluster: ClickhouseCluster,
+    *,
+    dry_run: bool = False,
+    raise_on_error: bool = True,
+    instance: dagster.DagsterInstance | None = None,
+    **overrides,
+):
     config = {"dry_run": dry_run, **FAST, **overrides}
     return person_pg_cleanup_drain_job.execute_in_process(
         run_config={"ops": {OP: {"config": config}}},
         resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
         raise_on_error=raise_on_error,
+        instance=instance,
     )
 
 
@@ -563,6 +571,48 @@ def test_max_runtime_stops_between_pages_unless_disabled(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,starts,expected_deleted,stopped_reason",
+    [
+        pytest.param(dagster.DagsterRunStatus.STARTED, "before", 0, "sweep_running", id="executing_sweep"),
+        # A canceling sweep's last mutation keeps applying server-side, so it still executes.
+        pytest.param(dagster.DagsterRunStatus.CANCELING, "before", 0, "sweep_running", id="canceling_sweep"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, "mid_run", 1, "sweep_running", id="sweep_starts_mid_run"),
+        pytest.param(dagster.DagsterRunStatus.SUCCESS, "before", 3, "drained", id="finished_sweep"),
+    ],
+)
+def test_the_drain_stops_between_pages_while_a_sweep_executes(
+    cluster: ClickhouseCluster, persons_database, monkeypatch, status, starts, expected_deleted, stopped_reason
+):
+    # The sweep waits for the drain to stop, so a drain that kept going would hold the weekly sweep.
+    fake = get_active_fake()
+    uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4)]
+    queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    instance = dagster.DagsterInstance.ephemeral()
+    start_sweep = partial(instance.create_run_for_job, job_def=clickhouse_deletion_sweep_job, status=status)
+    if starts == "before":
+        start_sweep()
+    else:
+        original = fake.delete_tombstoned_persons
+
+        def start_sweep_on_the_first_request(
+            request: DeleteTombstonedPersonsRequest, timeout: float | None = None
+        ) -> DeleteTombstonedPersonsResponse:
+            if not delete_requests(fake):
+                start_sweep()
+            return original(request, timeout=timeout)
+
+        monkeypatch.setattr(fake, "delete_tombstoned_persons", start_sweep_on_the_first_request)
+
+    result = run_job(cluster, page_size=1, instance=instance)
+
+    assert result.success
+    totals = totals_of(result)
+    assert (totals.stopped_reason, totals.persons_deleted) == (stopped_reason, expected_deleted)
+    assert len(queued(persons_database)) == 3 - expected_deleted
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("failing", ["rpc", "pg"])
 def test_max_runtime_ends_a_retry_loop_cleanly(cluster: ClickhouseCluster, persons_database, monkeypatch, failing):
     # A request or statement that keeps failing must not retry past the deadline: the run stops
@@ -758,8 +808,15 @@ def publish(totals: DrainTotals) -> tuple[CollectorRegistry, list[str]]:
     return registry, pushed_jobs
 
 
-def test_a_dry_run_publishes_no_metrics():
-    registry, pushed_jobs = publish(DrainTotals(dry_run=True, rows_read=5))
+@pytest.mark.parametrize(
+    "totals",
+    [
+        pytest.param(DrainTotals(dry_run=True, rows_read=5), id="dry_run"),
+        pytest.param(DrainTotals(stopped_reason="sweep_running", rows_read=5), id="stopped_for_the_sweep"),
+    ],
+)
+def test_a_run_that_cannot_prove_the_drain_works_publishes_no_metrics(totals: DrainTotals):
+    registry, pushed_jobs = publish(totals)
 
     # The helper pushes with PUT, which replaces the whole job. Entering it with an empty
     # registry would delete the last-success gauge, so not entering it at all is the assertion.

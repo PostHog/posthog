@@ -20,6 +20,9 @@ reopened and the statement run again), a fatal gRPC code, or more blocked person
 max_blocked. The one state the job parks is a tombstoned person that still owns a live distinct
 id: personhog reports it as blocked, and its row is stamped blocked_at and skipped for a retry
 interval, because ingestion can still reach that person and no delete may resolve it.
+
+The drain and the sweep never run together. Before each page the drain checks for an executing
+sweep run and stops if it finds one, and the sweep waits for the drain to stop before it writes.
 """
 
 import math
@@ -42,8 +45,13 @@ from prometheus_client import Gauge
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
-from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE, PublishedGauge
-from posthog.dags.common import JobOwners
+from posthog.dags.clickhouse_cleanup import (
+    PERSON_PG_CLEANUP_DRAIN_JOB,
+    PG_CLEANUP_QUEUE_TABLE,
+    PublishedGauge,
+    clickhouse_deletion_sweep_job,
+)
+from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
 from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.personhog_client.client import PersonHogClient, personhog_call, require_personhog_client
@@ -562,9 +570,29 @@ class _Drain:
             self.totals.pg_seconds_total += time.perf_counter() - started
             return result
 
+    def yield_to_sweep(self) -> bool:
+        """Stop when a sweep run executes, so the drain never runs while the sweep does.
+
+        The sweep waits for this run to finish before it touches anything, so stopping here
+        releases it. Rows not yet read stay queued for the next run.
+        """
+        sweeps = describe_runs(
+            self.context.instance,
+            (clickhouse_deletion_sweep_job.name,),
+            statuses=EXECUTING_RUN_STATUSES,
+            exclude_run_id=self.context.run_id,
+        )
+        if not sweeps:
+            return False
+        self.context.log.warning("stopping for the ClickHouse sweep: %s", "; ".join(sweeps))
+        self.totals.stopped_reason = "sweep_running"
+        return True
+
     def pages(self) -> Iterator[list[QueueRow]]:
         after: QueueCursor | None = None
         while not self.out_of_time():
+            if self.yield_to_sweep():
+                return
             limit = self.page_limit()
             if limit <= 0:
                 self.totals.stopped_reason = "max_persons"
@@ -898,7 +926,7 @@ def _drain_gauges(totals: DrainTotals, completed_at: float) -> list[PublishedGau
         ),
         PublishedGauge(
             name=f"{prefix}pg_queue_conflict_retries",
-            help_text="Queue statements retried after a lock or serialization conflict, mostly with the sweep",
+            help_text="Queue statements retried after a lock or serialization conflict",
             value=totals.pg_queue_conflict_retries,
         ),
         PublishedGauge(
@@ -914,10 +942,14 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
     """Publish what the run measured, so alerting and dashboards can read it.
 
     A dry run publishes nothing. It deletes nothing, so moving the last-success gauge would let an
-    ad-hoc run from the Dagster UI mask a drain that has stopped working.
+    ad-hoc run from the Dagster UI mask a drain that has stopped working. A run that stopped for
+    the sweep publishes nothing for the same reason: a sweep that never finishes stops every drain.
     """
     if totals.dry_run:
         context.log.info("dry run: publishing no metrics")
+        return totals
+    if totals.stopped_reason == "sweep_running":
+        context.log.info("stopped for the sweep: publishing no metrics")
         return totals
 
     gauges = _drain_gauges(totals, time.time())
@@ -930,6 +962,7 @@ def publish_drain_metrics(context: dagster.OpExecutionContext, totals: DrainTota
 
 
 @dagster.job(
+    name=PERSON_PG_CLEANUP_DRAIN_JOB,
     tags={
         "owner": JobOwners.TEAM_INGESTION.value,
         # Limit 1 in charts (argocd/dagster/deployment_settings), so a second drain queues rather
