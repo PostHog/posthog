@@ -21,7 +21,7 @@ export const claudeCloudAccountQueryKey = ["claude-cloud-account"] as const;
 
 export interface ClaudeCloudConnectResult {
   integration: UserClaudeIntegration | null;
-  localClearError: Error | null;
+  localSaveError: Error | null;
 }
 
 export function useClaudeCloudAccount(): UseQueryResult<UserClaudeIntegration | null> {
@@ -61,7 +61,7 @@ export function useConnectClaudeCloudAccount(
   return useMutation({
     mutationFn: async (token) => {
       if (!client) throw new Error("Log in to PostHog first.");
-      let integration: UserClaudeIntegration;
+      let integration: UserClaudeIntegration | null = null;
       try {
         integration = await client.connectClaudeUserIntegration(token);
       } catch (error) {
@@ -70,26 +70,26 @@ export function useConnectClaudeCloudAccount(
           !tokenStore
         )
           throw error;
-        await tokenStore.save(token);
-        return { integration: null, localClearError: null };
       }
-      let localClearError: Error | null = null;
+      if (!integration) {
+        await tokenStore?.save(token);
+        return { integration: null, localSaveError: null };
+      }
+      let localSaveError: Error | null = null;
       if (tokenStore) {
         try {
-          await tokenStore.clear();
+          await tokenStore.save(token);
         } catch (error) {
-          localClearError =
+          localSaveError =
             error instanceof Error ? error : new Error(String(error));
         }
       }
-      return { integration, localClearError };
+      return { integration, localSaveError };
     },
-    onSuccess: ({ integration, localClearError }) => {
+    onSuccess: ({ integration, localSaveError }) => {
       queryClient.setQueryData(claudeCloudAccountQueryKey, integration);
-      if (!integration) {
+      if (!localSaveError) {
         queryClient.setQueryData(claudeSubscriptionTokenQueryKey, true);
-      } else if (!localClearError) {
-        queryClient.setQueryData(claudeSubscriptionTokenQueryKey, false);
       }
     },
   });

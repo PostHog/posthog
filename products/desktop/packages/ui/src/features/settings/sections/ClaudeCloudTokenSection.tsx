@@ -53,13 +53,13 @@ export function ClaudeCloudTokenSection({
     }
     setValidationError(null);
     connect.mutate(token, {
-      onSuccess: ({ localClearError }) => {
+      onSuccess: ({ localSaveError }) => {
         setTokenDraft("");
         setReplacingToken(false);
         track(ANALYTICS_EVENTS.CLAUDE_CLOUD_TOKEN_SAVED);
-        if (localClearError) {
+        if (localSaveError) {
           toast.warning("Token saved", {
-            description: `Desktop could not delete the old token on this device. ${localClearError.message}`,
+            description: `Desktop could not keep a copy on this device, so resumed older tasks can fail. ${localSaveError.message}`,
           });
         } else {
           toast.success("Token saved");
