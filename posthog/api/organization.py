@@ -153,7 +153,7 @@ def _resolve_cached_user_id(serializer_context: dict[str, Any]) -> int | None:
 
 
 class OrganizationMemberNoticeActionSerializer(serializers.Serializer):
-    label = serializers.CharField(max_length=40, help_text="Text on the button shown next to the notice.")
+    label = serializers.CharField(max_length=40, help_text="Text on the button shown next to the notice.")  # type: ignore[assignment]
     url = serializers.URLField(
         max_length=2000,
         validators=[URLValidator(schemes=["http", "https"])],
