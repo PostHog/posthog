@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,7 +20,8 @@ import type { MessageCategoryApi, RecipientApi } from 'products/messaging/fronte
 
 import { AudienceScene } from './AudienceScene'
 import { audienceSceneLogic } from './audienceSceneLogic'
-import { recipient } from './recipientTestFixtures'
+import { recipientDetailLogic } from './recipientDetailLogic'
+import { MockResponse, recipient } from './recipientTestFixtures'
 
 const NEWSLETTER: MessageCategoryApi = {
     id: '0199c1aa-0000-7000-8000-000000000001',
@@ -46,16 +48,36 @@ const SUPPRESSED_JAMIE: RecipientApi = {
 
 const ALEX = recipient('alex@example.com')
 
+type TimelineRow = [string, string, string | null, string | null, string | null]
+
+const THREE_EMAIL_EVENTS: TimelineRow[] = [
+    ['$workflows_email_unsubscribed', '2026-09-30T11:00:00Z', null, null, '$all'],
+    ['$workflows_email_link_clicked', '2026-09-30T10:05:00Z', 'September news', 'https://example.com/pricing', null],
+    ['$workflows_email_opened', '2026-09-30T10:00:00Z', 'September news', null, null],
+]
+
+const FOUND_JAMIE: MockResponse = [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
+
 const TEAM_WITH_ENGAGEMENT_EVENTS: TeamType = {
     ...MOCK_DEFAULT_TEAM,
     workflows_config: { capture_workflows_engagement_events: true },
 }
 
 describe('recipient detail', () => {
-    let lookups: (string | null)[]
+    let lookups: string[]
     let timelineQueries: string[]
+    let respondToLookup: () => MockResponse | Promise<MockResponse>
+    let respondToTimeline: () => MockResponse | Promise<MockResponse>
 
-    function useRecipientLookup(response: [number, unknown]): void {
+    function heldResponse(): { respond: () => Promise<MockResponse>; release: (response: MockResponse) => void } {
+        let release: (response: MockResponse) => void = () => {}
+        const response = new Promise<MockResponse>((resolve) => {
+            release = resolve
+        })
+        return { respond: () => response, release }
+    }
+
+    function useRecipientMocks(): void {
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
@@ -66,7 +88,7 @@ describe('recipient detail', () => {
                         return [200, { results: listed, next_cursor: null }]
                     }
                     lookups.push(email)
-                    return response
+                    return respondToLookup()
                 },
                 '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
                 '/api/projects/:team_id/messaging_categories/': { results: [NEWSLETTER], next: null },
@@ -78,22 +100,7 @@ describe('recipient detail', () => {
                         return [200, { results: [] }]
                     }
                     timelineQueries.push(query)
-                    return [
-                        200,
-                        {
-                            results: [
-                                ['$workflows_email_unsubscribed', '2026-09-30T11:00:00Z', null, null, '$all'],
-                                [
-                                    '$workflows_email_link_clicked',
-                                    '2026-09-30T10:05:00Z',
-                                    'September news',
-                                    'https://example.com/pricing',
-                                    null,
-                                ],
-                                ['$workflows_email_opened', '2026-09-30T10:00:00Z', 'September news', null, null],
-                            ],
-                        },
-                    ]
+                    return respondToTimeline()
                 },
             },
             patch: {
@@ -127,6 +134,9 @@ describe('recipient detail', () => {
     beforeEach(() => {
         lookups = []
         timelineQueries = []
+        respondToLookup = () => FOUND_JAMIE
+        respondToTimeline = () => [200, { results: THREE_EMAIL_EVENTS }]
+        useRecipientMocks()
         jest.spyOn(posthog, 'capture')
     })
 
@@ -137,7 +147,6 @@ describe('recipient detail', () => {
     })
 
     it('looks the address up, shows why it is suppressed and tracks the visit once without the address', async () => {
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         await openRecipient()
 
         expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
@@ -153,7 +162,6 @@ describe('recipient detail', () => {
     })
 
     it('opens from its row without the address in the url or breadcrumbs, and goes back to the same search', async () => {
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         showRecipients()
         expect(await screen.findByText('alex@example.com')).toBeInTheDocument()
         fireEvent.change(screen.getByLabelText('Search recipients by email address'), { target: { value: 'jamie' } })
@@ -166,16 +174,59 @@ describe('recipient detail', () => {
         expect(currentUrl()).toEqual(listUrl)
         expect(listUrl).not.toContain('example.com')
         expect(JSON.stringify(audienceSceneLogic.values.breadcrumbs)).not.toContain('example.com')
+        expect(screen.getByText('Back to recipients').closest('button')).toHaveFocus()
 
         fireEvent.click(screen.getByText('Back to recipients'))
 
-        expect(await screen.findByLabelText('Search recipients by email address')).toHaveValue('jamie')
+        const search = await screen.findByLabelText('Search recipients by email address')
+        expect(search).toHaveValue('jamie')
+        expect(search).toHaveFocus()
         expect(await screen.findByText('jamie@example.com')).toBeInTheDocument()
         expect(screen.queryByText('alex@example.com')).not.toBeInTheDocument()
     })
 
+    it.each([
+        { click: 'a plain click', modifiers: {} },
+        { click: 'a Cmd-click', modifiers: { metaKey: true } },
+        { click: 'a Ctrl-click', modifiers: { ctrlKey: true } },
+    ])('opens a recipient on $click on its address', async ({ modifiers }) => {
+        showRecipients()
+
+        fireEvent.click(await screen.findByText('jamie@example.com'), modifiers)
+
+        expect(await screen.findByTestId('audience-recipient-detail')).toBeInTheDocument()
+    })
+
+    it('stays open while its activity pages and the side panel opens, and closes on a tab change', async () => {
+        const twentyFiveEvents = Array.from(
+            { length: 25 },
+            (_, index): TimelineRow => [
+                '$workflows_email_sent',
+                `2026-09-${String(30 - index).padStart(2, '0')}T10:00:00Z`,
+                `Issue ${index + 1}`,
+                null,
+                null,
+            ]
+        )
+        respondToTimeline = () => [200, { results: twentyFiveEvents }]
+        await openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
+
+        const timeline = await screen.findByTestId('audience-recipient-timeline')
+        await within(timeline).findByText('Issue 1')
+        fireEvent.click(within(timeline).getByLabelText('Next page'))
+
+        expect(await within(timeline).findByText('Issue 21')).toBeInTheDocument()
+        router.actions.replace(`${router.values.location.pathname}${router.values.location.search}#panel=docs`)
+        expect(screen.getByTestId('audience-recipient-detail')).toBeInTheDocument()
+
+        router.actions.push(urls.audience('topics'))
+        router.actions.push(urls.audience())
+
+        expect(await screen.findByLabelText('Search recipients by email address')).toBeInTheDocument()
+        expect(screen.queryByTestId('audience-recipient-detail')).not.toBeInTheDocument()
+    })
+
     it('keeps the recipient page out of autocapture and replay', async () => {
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         await openRecipient()
 
         expect(await screen.findByTestId('audience-recipient-detail')).toHaveClass('ph-no-capture')
@@ -184,7 +235,6 @@ describe('recipient detail', () => {
     it('tracks a copied address without the address', async () => {
         const writeText = jest.fn().mockResolvedValue(undefined)
         Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         await openRecipient()
 
         fireEvent.click(await screen.findByTestId('audience-recipient-copy-email'))
@@ -199,23 +249,10 @@ describe('recipient detail', () => {
 
     it('shows its own error with a retry instead of a toast, and tracks the visit once it loads', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
-        let failNextLookup = true
-        useMocks({
-            get: {
-                '/api/projects/:team_id/messaging_recipients/': ({ request }) => {
-                    if (!new URL(request.url).searchParams.get('email')) {
-                        return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
-                    }
-                    if (failNextLookup) {
-                        failNextLookup = false
-                        return [500, { detail: 'The query took too long.' }]
-                    }
-                    return [200, { results: [SUPPRESSED_JAMIE], next_cursor: null }]
-                },
-                '/api/projects/:team_id/messaging_recipients/coverage/': { persons_without_email: 0 },
-                '/api/projects/:team_id/messaging_categories/': { results: [NEWSLETTER], next: null },
-            },
-        })
+        respondToLookup = () => {
+            respondToLookup = () => FOUND_JAMIE
+            return [500, { detail: 'The query took too long.' }]
+        }
         await openRecipient()
 
         fireEvent.click((await screen.findAllByTestId('audience-recipient-retry'))[0])
@@ -226,9 +263,35 @@ describe('recipient detail', () => {
         expect(capturedEvents('audience recipient retried')).toEqual([['audience recipient retried', {}]])
     })
 
-    it('shows a way back to the list when the address is unknown', async () => {
-        useRecipientLookup([404, { detail: 'No recipient with this email address.' }])
+    it('keeps a reopened recipient when the lookup from its earlier visit fails late', async () => {
+        const firstLookup = heldResponse()
+        respondToLookup = () => {
+            respondToLookup = () => FOUND_JAMIE
+            return firstLookup.respond()
+        }
         await openRecipient()
+        fireEvent.click(await screen.findByText('Back to recipients'))
+        fireEvent.click(await screen.findByText('jamie@example.com'))
+        expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
+
+        firstLookup.release([500, { detail: 'The query took too long.' }])
+
+        await expectLogic(recipientDetailLogic({ email: 'jamie@example.com' })).toFinishAllListeners()
+        expect(screen.getByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
+        expect(screen.queryByTestId('audience-recipient-retry')).not.toBeInTheDocument()
+    })
+
+    it.each([
+        { answer: 'a 404', response: [404, { detail: 'No recipient with this email address.' }] as MockResponse },
+        { answer: 'an empty page', response: [200, { results: [], next_cursor: null }] as MockResponse },
+    ])('shows a way back to the list when the lookup answers with $answer', async ({ response }) => {
+        const lookup = heldResponse()
+        respondToLookup = lookup.respond
+        await openRecipient()
+        await waitFor(() => expect(lookups).toEqual(['jamie@example.com']))
+        expect(screen.queryByText('No recipient with this address')).not.toBeInTheDocument()
+
+        lookup.release(response)
 
         expect(await screen.findByText('No recipient with this address')).toBeInTheDocument()
         expect(capturedEvents('audience recipient opened')).toEqual([])
@@ -240,7 +303,6 @@ describe('recipient detail', () => {
     })
 
     it('with engagement events on, lists the email events for the address in lower case, not the person', async () => {
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         await openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
 
         const timeline = await screen.findByTestId('audience-recipient-timeline')
@@ -255,8 +317,22 @@ describe('recipient detail', () => {
         expect(timelineQueries[0]).toContain("lower(properties.$email) = 'jamie@example.com'")
     })
 
+    it('shows a failed activity load inline instead of a toast and loads it again on retry', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        respondToTimeline = () => {
+            respondToTimeline = () => [200, { results: THREE_EMAIL_EVENTS }]
+            return [500, { detail: 'Query timed out' }]
+        }
+        await openRecipient(TEAM_WITH_ENGAGEMENT_EVENTS)
+
+        fireEvent.click((await screen.findAllByTestId('audience-recipient-timeline-retry'))[0])
+
+        const timeline = await screen.findByTestId('audience-recipient-timeline')
+        expect(await within(timeline).findByText('Clicked a link')).toBeInTheDocument()
+        expect(toastError).not.toHaveBeenCalled()
+    })
+
     it('with engagement events off, offers to turn them on and then shows the timeline', async () => {
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
         await openRecipient()
 
         const turnOnButton = await screen.findByTestId('audience-turn-on-engagement-events-button')
@@ -271,28 +347,37 @@ describe('recipient detail', () => {
         ])
     })
 
-    it('opens the preferences page this recipient sees and tracks the preview from the recipient page', async () => {
-        const linkRequests: unknown[] = []
-        useRecipientLookup([200, { results: [SUPPRESSED_JAMIE], next_cursor: null }])
-        useMocks({
-            post: {
-                '/api/projects/:team_id/messaging_preferences/generate_link/': async ({ request }) => {
-                    linkRequests.push(await request.json())
-                    return [200, { preferences_url: 'https://app.example.com/messaging-preferences/token/' }]
+    it.each([
+        { outcome: 'opens', openedWindow: {} as Window, previews: 1 },
+        { outcome: 'is blocked', openedWindow: null, previews: 0 },
+    ])(
+        'asks for the preferences page this recipient sees and tracks the preview only when it $outcome',
+        async ({ openedWindow, previews }) => {
+            const linkRequests: unknown[] = []
+            const openWindow = jest.spyOn(window, 'open').mockImplementation(() => openedWindow)
+            await openRecipient()
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/messaging_preferences/generate_link/': async ({ request }) => {
+                        linkRequests.push(await request.json())
+                        return [200, { preferences_url: 'https://app.example.com/messaging-preferences/token/' }]
+                    },
                 },
-            },
-        })
-        const openWindow = jest.spyOn(window, 'open').mockImplementation(() => null)
-        await openRecipient()
+            })
 
-        fireEvent.click(await screen.findByTestId('audience-recipient-preferences-page'))
+            fireEvent.click(await screen.findByTestId('audience-recipient-preferences-page'))
 
-        await waitFor(() =>
-            expect(openWindow).toHaveBeenCalledWith('https://app.example.com/messaging-preferences/token/', '_blank')
-        )
-        expect(linkRequests).toEqual([{ recipient: 'jamie@example.com' }])
-        expect(capturedEvents('messaging preferences page previewed')).toEqual([
-            ['messaging preferences page previewed', { surface: 'recipient' }],
-        ])
-    })
+            await waitFor(() =>
+                expect(openWindow).toHaveBeenCalledWith(
+                    'https://app.example.com/messaging-preferences/token/',
+                    '_blank'
+                )
+            )
+            await expectLogic(recipientDetailLogic({ email: 'jamie@example.com' })).toFinishAllListeners()
+            expect(linkRequests).toEqual([{ recipient: 'jamie@example.com' }])
+            expect(capturedEvents('messaging preferences page previewed')).toEqual(
+                Array(previews).fill(['messaging preferences page previewed', { surface: 'recipient' }])
+            )
+        }
+    )
 })
