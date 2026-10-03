@@ -18,7 +18,7 @@ import { biEditorLogic } from 'scenes/data-warehouse/editor/bi/biEditorLogic'
 import type { DatabaseSchemaTable } from '../../../../frontend/src/queries/schema/schema-general'
 import type { TableFieldsStatus } from '../../../../frontend/src/scenes/data-management/database/databaseTableListLogic'
 import type { BIConfig } from '../../../../frontend/src/scenes/data-warehouse/editor/bi/biEditorTypes'
-import { buildBIConnections, filterBIConnections } from './biConnectionTree'
+import { buildBIConnections, filterBIConnections, getPendingBIConnectionTables } from './biConnectionTree'
 import type { BIConnection } from './biConnectionTree'
 
 export interface BIConnectionsLogicProps {
@@ -50,6 +50,13 @@ export interface biConnectionsLogicActions {
     } // biEditorLogic
     hydrateTableFields: (tableNames: string[]) => {
         tableNames: string[]
+    } // databaseTableListLogic
+    hydrateTableFieldsSuccess: (
+        tableNames: string[],
+        tables: Record<string, DatabaseSchemaTable>
+    ) => {
+        tableNames: string[]
+        tables: Record<string, DatabaseSchemaTable>
     } // databaseTableListLogic
     toggleConnection: (
         id: string,
@@ -98,7 +105,7 @@ export const biConnectionsLogic: LogicWrapper<biConnectionsLogicType> = kea<biCo
             biEditorLogic({ tabId: props.tabId }),
             ['setDataSource', 'resetConfig'],
             databaseTableListLogic,
-            ['hydrateTableFields'],
+            ['hydrateTableFields', 'hydrateTableFieldsSuccess'],
         ],
     })),
     actions({ toggleConnection: (id: string, tableName?: string) => ({ id, tableName }) }),
@@ -141,6 +148,12 @@ export const biConnectionsLogic: LogicWrapper<biConnectionsLogicType> = kea<biCo
         ],
     }),
     listeners(({ actions, values }) => ({
+        hydrateTableFieldsSuccess: () => {
+            const tables = getPendingBIConnectionTables(values.connections)
+            if (tables.length) {
+                actions.hydrateTableFields(tables)
+            }
+        },
         toggleConnection: ({ id, tableName }) => {
             if (tableName && values.expandedIds.includes(id)) {
                 actions.hydrateTableFields([tableName])

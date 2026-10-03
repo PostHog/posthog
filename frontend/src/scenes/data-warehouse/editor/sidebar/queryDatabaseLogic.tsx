@@ -561,7 +561,7 @@ const createVirtualTableField = (
     tableLookup?: TableLookup
 ): DatabaseSchemaField => {
     const referencedTable = parentField.table ? tableLookup?.[parentField.table] : undefined
-    const referencedField = referencedTable?.fields?.[fieldName]
+    const referencedField = parentField.fields_schema?.[fieldName] ?? referencedTable?.fields?.[fieldName]
 
     if (referencedField) {
         return referencedField
@@ -587,7 +587,8 @@ export const resolveFieldTraverserTarget = (
     tableName: string,
     field: DatabaseSchemaField,
     tableLookup?: TableLookup,
-    visitedChains: Set<string> = new Set()
+    visitedChains: Set<string> = new Set(),
+    onUnloadedTable?: (tableName: string) => void
 ): DatabaseSchemaField | null => {
     if (!field.chain || !tableLookup) {
         return null
@@ -619,6 +620,9 @@ export const resolveFieldTraverserTarget = (
         if (!currentField) {
             const nextField: DatabaseSchemaField | undefined = currentTable?.fields?.[segmentKey]
             if (!nextField) {
+                if (currentTable && Object.keys(currentTable.fields ?? {}).length === 0) {
+                    onUnloadedTable?.(currentTable.name)
+                }
                 return null
             }
             currentField = nextField
@@ -647,7 +651,13 @@ export const resolveFieldTraverserTarget = (
                 return null
             }
             visitedChains.add(chainKey)
-            currentField = resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains)
+            currentField = resolveFieldTraverserTarget(
+                tableName,
+                currentField,
+                tableLookup,
+                visitedChains,
+                onUnloadedTable
+            )
             if (!currentField) {
                 return null
             }
@@ -658,7 +668,10 @@ export const resolveFieldTraverserTarget = (
     }
 
     if (currentField?.type === 'field_traverser') {
-        return resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains) ?? currentField
+        return (
+            resolveFieldTraverserTarget(tableName, currentField, tableLookup, visitedChains, onUnloadedTable) ??
+            currentField
+        )
     }
 
     return currentField

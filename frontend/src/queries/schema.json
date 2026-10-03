@@ -20932,6 +20932,13 @@
                     },
                     "type": "array"
                 },
+                "fields_schema": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "description": "Field definitions owned by a virtual table, independent of its printed parent table.",
+                    "type": "object"
+                },
                 "hogql_value": {
                     "type": "string"
                 },

@@ -8,7 +8,7 @@ import {
 
 import { DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 
-import { buildBIConnections } from './biConnectionTree'
+import { buildBIConnections, filterBIConnections, getPendingBIConnectionTables } from './biConnectionTree'
 
 const field = (
     name: string,
@@ -32,75 +32,142 @@ const tables = {
     companies: table('companies', [field('name', 'string'), field('annual_revenue', 'decimal')]),
 }
 
-it('drags nested dimensions and measures using paths from the original source', () => {
-    const [person] = buildBIConnections(source, tables, ['["person"]', '["person","company"]'], {}, true)
-    const [company] = person.connections
-    expect(company.connections).toEqual([])
-    const dimension = company.fields.dimensions[0]
-    const measure = company.fields.measures[0]
-    expect(dimension).toMatchObject({ name: 'person.company.name', expression: 'person.company.name', source })
-    expect(measure).toMatchObject({ name: 'person.company.annual_revenue', type: 'decimal', source })
-    const value = getBIDropTarget(measure, 'rows').field as BIField
-    const query = buildBIQuery({
-        ...DEFAULT_BI_CONFIG,
-        source,
-        rows: [dimension],
-        values: [{ field: value, aggregation: 'sum' }],
+describe('BI connections', () => {
+    it('drags nested dimensions and measures using paths from the original source', () => {
+        const [person] = buildBIConnections(source, tables, ['["person"]', '["person","company"]'], {}, true)
+        const [company] = person.connections
+        expect(company.connections).toEqual([])
+        const dimension = company.fields.dimensions[0]
+        const measure = company.fields.measures[0]
+        expect(dimension).toMatchObject({ name: 'person.company.name', expression: 'person.company.name', source })
+        expect(measure).toMatchObject({ name: 'person.company.annual_revenue', type: 'decimal', source })
+        const value = getBIDropTarget(measure, 'rows').field as BIField
+        const query = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source,
+            rows: [dimension],
+            values: [{ field: value, aggregation: 'sum' }],
+        })
+        expect(query?.query).toContain('person.company.name')
+        expect(query?.query).toContain('sum(person.company.annual_revenue)')
+        expect(query?.query).toContain('FROM events')
     })
-    expect(query?.query).toContain('person.company.name')
-    expect(query?.query).toContain('sum(person.company.annual_revenue)')
-    expect(query?.query).toContain('FROM events')
-})
 
-it.each(['lazy_table', 'view', 'materialized_view', 'virtual_table'] as const)(
-    'uses declared fields for %s connections',
-    (type) => {
+    it.each(['lazy_table', 'view', 'materialized_view', 'virtual_table'] as const)(
+        'uses declared fields for %s connections',
+        (type) => {
+            const catalog = {
+                ...tables,
+                events: table('events', [field('person', type, { table: 'persons', fields: ['email'] })]),
+            }
+            const [person] = buildBIConnections(source, catalog, ['["person"]'], {}, true)
+            expect(person.fields.dimensions.map((field) => field.name)).toEqual(['person.email'])
+            expect(person.fields.measures).toEqual([])
+            expect(person.connections).toEqual([])
+        }
+    )
+
+    it('resolves linked aliases and only expands requested paths through cyclic tables', () => {
         const catalog = {
             ...tables,
-            events: table('events', [field('person', type, { table: 'persons', fields: ['email'] })]),
+            events: table('events', [
+                field('person', 'lazy_table', { table: 'persons' }),
+                field('customer', 'field_traverser', { chain: ['person'] }),
+            ]),
+            persons: table('persons', [field('email', 'string'), field('manager', 'lazy_table', { table: 'persons' })]),
         }
-        const [person] = buildBIConnections(source, catalog, ['["person"]'], {}, true)
-        expect(person.fields.dimensions.map((field) => field.name)).toEqual(['person.email'])
-        expect(person.fields.measures).toEqual([])
-        expect(person.connections).toEqual([])
-    }
-)
+        const [customer] = buildBIConnections(source, catalog, ['["customer"]', '["customer","manager"]'], {}, true)
+        expect(customer.fields.dimensions[0].expression).toBe('customer.email')
+        const [manager] = customer.connections
+        expect(manager.fields.dimensions[0].expression).toBe('customer.manager.email')
+        expect(manager.connections[0]).toMatchObject({ expanded: false, connections: [] })
+    })
 
-it('resolves linked aliases and only expands requested paths through cyclic tables', () => {
-    const catalog = {
-        ...tables,
-        events: table('events', [
-            field('person', 'lazy_table', { table: 'persons' }),
-            field('customer', 'field_traverser', { chain: ['person'] }),
-        ]),
-        persons: table('persons', [field('email', 'string'), field('manager', 'lazy_table', { table: 'persons' })]),
-    }
-    const [customer] = buildBIConnections(source, catalog, ['["customer"]', '["customer","manager"]'], {}, true)
-    expect(customer.fields.dimensions[0].expression).toBe('customer.email')
-    const [manager] = customer.connections
-    expect(manager.fields.dimensions[0].expression).toBe('customer.manager.email')
-    expect(manager.connections[0]).toMatchObject({ expanded: false, connections: [] })
-})
+    it.each([
+        [undefined, false, 'loading'],
+        ['error', false, 'error'],
+        ['missing', false, 'missing'],
+        ['loaded', false, 'ready'],
+        [undefined, true, 'ready'],
+    ] as const)(
+        'distinguishes unresolved, failed, and empty connections (%s, complete=%s)',
+        (status, complete, state) => {
+            const catalog = { ...tables, persons: table('persons', []) }
+            const [person] = buildBIConnections(
+                source,
+                catalog,
+                ['["person"]'],
+                status ? { persons: status } : {},
+                complete
+            )
+            expect(person.state).toBe(state)
+            expect(person.fields).toEqual({ dimensions: [], measures: [] })
+        }
+    )
 
-it.each([
-    [undefined, false, 'loading'],
-    ['error', false, 'error'],
-    ['missing', false, 'missing'],
-    ['loaded', false, 'ready'],
-    [undefined, true, 'ready'],
-] as const)('distinguishes unresolved, failed, and empty connections (%s, complete=%s)', (status, complete, state) => {
-    const catalog = { ...tables, persons: table('persons', []) }
-    const [person] = buildBIConnections(source, catalog, ['["person"]'], status ? { persons: status } : {}, complete)
-    expect(person.state).toBe(state)
-    expect(person.fields).toEqual({ dimensions: [], measures: [] })
-})
+    it('does not recurse forever when aliases refer to each other', () => {
+        const catalog = {
+            events: table('events', [
+                field('first', 'field_traverser', { chain: ['second'] }),
+                field('second', 'field_traverser', { chain: ['first'] }),
+            ]),
+        }
+        expect(buildBIConnections(source, catalog, [], {}, true)).toEqual([])
+    })
 
-it('does not recurse forever when aliases refer to each other', () => {
-    const catalog = {
-        events: table('events', [
-            field('first', 'field_traverser', { chain: ['second'] }),
-            field('second', 'field_traverser', { chain: ['first'] }),
-        ]),
-    }
-    expect(buildBIConnections(source, catalog, [], {}, true)).toEqual([])
+    it('uses the virtual person schema instead of the printed events table', () => {
+        const personFields = {
+            id: field('id', 'string'),
+            created_at: field('created_at', 'datetime'),
+            revenue_analytics: field('revenue_analytics', 'lazy_table', { table: 'persons_revenue_analytics' }),
+        }
+        const catalog = {
+            events: table('events', [
+                field('person', 'field_traverser', { chain: ['poe'] }),
+                field('poe', 'virtual_table', {
+                    table: 'events',
+                    fields: Object.keys(personFields),
+                    fields_schema: personFields,
+                }),
+            ]),
+            persons_revenue_analytics: table('persons_revenue_analytics', [field('lifetime_value', 'float')]),
+        }
+        const person = buildBIConnections(
+            source,
+            catalog,
+            ['["person"]', '["person","revenue_analytics"]'],
+            {},
+            true
+        ).find((c) => c.name === 'person')!
+        expect(person.fields.dimensions).toEqual(
+            expect.arrayContaining([expect.objectContaining({ name: 'person.created_at', type: 'datetime' })])
+        )
+        expect(person.connections[0].fields.measures[0]).toMatchObject({
+            name: 'person.revenue_analytics.lifetime_value',
+            type: 'float',
+        })
+    })
+
+    it.each([undefined, 'error'] as const)(
+        'keeps unresolved aliases visible and searchable while intermediate fields are %s',
+        (status) => {
+            const catalog = {
+                events: table('events', [
+                    field('person', 'field_traverser', { chain: ['pdi', 'person'] }),
+                    field('pdi', 'lazy_table', { table: 'person_distinct_ids' }),
+                ]),
+                person_distinct_ids: table('person_distinct_ids', []),
+            }
+            const connections = buildBIConnections(
+                source,
+                catalog,
+                ['["person"]'],
+                status ? { person_distinct_ids: status } : {},
+                false
+            )
+            const person = filterBIConnections(connections, 'email').find((c) => c.name === 'person')!
+            expect(person).toMatchObject({ state: status ?? 'loading', tableName: 'person_distinct_ids' })
+            expect(getPendingBIConnectionTables(connections)).toEqual(status ? [] : ['person_distinct_ids'])
+        }
+    )
 })

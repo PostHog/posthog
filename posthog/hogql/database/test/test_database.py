@@ -431,6 +431,13 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         for table_name in posthog_table_names:
             assert serialized_database.get(table_name) is not None
 
+        person = serialized_database["events"].fields["poe"]
+        assert person.table == "events"
+        assert person.fields_schema is not None
+        assert person.fields_schema["created_at"].type == "datetime"
+        assert person.fields_schema["revenue_analytics"].type == "lazy_table"
+        assert person.fields_schema["revenue_analytics"].table == "persons_revenue_analytics"
+
     @parameterized.expand([(True,), (False,)])
     def test_flag_evaluations_visibility_follows_the_org_flag(self, flag_enabled: bool) -> None:
         with patch(

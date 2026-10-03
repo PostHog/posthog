@@ -5067,6 +5067,10 @@ class DatabaseSchemaField(BaseModel):
     )
     chain: list[str | int] | None = None
     fields: list[str] | None = None
+    fields_schema: dict[str, DatabaseSchemaField] | None = Field(
+        default=None,
+        description=("Field definitions owned by a virtual table, independent of its printed parent table."),
+    )
     hogql_value: str
     id: str | None = None
     name: str
@@ -33978,6 +33982,7 @@ class VisualizationArtifactContent(BaseModel):
 
 
 ProsemirrorJSONContent.model_rebuild()
+DatabaseSchemaField.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()

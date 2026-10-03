@@ -248,3 +248,4 @@ Measures are aggregated automatically. The worksheet keeps its original source t
 connection path in queries and shelf labels, such as `person.company.name`.
 Connections expand on demand, including repeated links to the same table. Search filters the fields
 inside expanded connections, and a failed field load has a Retry button.
+Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.

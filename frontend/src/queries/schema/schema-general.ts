@@ -6516,6 +6516,8 @@ export interface DatabaseSchemaField {
     schema_valid: boolean
     table?: string
     fields?: string[]
+    /** Field definitions owned by a virtual table, independent of its printed parent table. */
+    fields_schema?: Record<string, DatabaseSchemaField>
     chain?: (string | integer)[]
     id?: string
 }

@@ -17,10 +17,13 @@ export interface BIConnection {
 
 function getConnectionState(
     field: DatabaseSchemaField,
-    table: DatabaseSchemaTable | undefined,
+    table: DatabaseSchemaTable | null,
     status: TableFieldsStatus[string] | undefined,
     complete: boolean
 ): BIConnection['state'] {
+    if (field.fields_schema) {
+        return 'ready'
+    }
     if (status === 'error' || status === 'missing') {
         return status
     }
@@ -30,10 +33,10 @@ function getConnectionState(
     return !table && !field.fields?.length ? 'missing' : 'ready'
 }
 
-function getConnectionFields(
-    field: DatabaseSchemaField,
-    table: DatabaseSchemaTable | undefined
-): DatabaseSchemaField[] {
+function getConnectionFields(field: DatabaseSchemaField, table: DatabaseSchemaTable | null): DatabaseSchemaField[] {
+    if (field.fields_schema) {
+        return Object.values(field.fields_schema)
+    }
     return field.fields?.length
         ? field.fields
               .filter((name) => name !== 'team_id')
@@ -57,23 +60,42 @@ export function buildBIConnections(
     databaseFieldsComplete: boolean
 ): BIConnection[] {
     const expanded = new Set(expandedIds)
-    const getTable = (name?: string): DatabaseSchemaTable | undefined =>
-        name ? (tables[name] ?? tables[name.replaceAll('`', '')]) : undefined
-    const visit = (tableName: string, fields: DatabaseSchemaField[], path: string[]): BIConnection[] =>
-        fields
+    const getTable = (name?: string): DatabaseSchemaTable | null =>
+        name ? (tables[name] ?? tables[name.replaceAll('`', '')] ?? null) : null
+    const visit = (tableName: string, fields: DatabaseSchemaField[], path: string[]): BIConnection[] => {
+        const tableLookup = {
+            ...tables,
+            [tableName]: { name: tableName, fields: Object.fromEntries(fields.map((field) => [field.name, field])) },
+        }
+        return fields
             .flatMap((originalField): BIConnection[] => {
+                let pendingTableName: string | undefined
                 const field =
                     originalField.type === 'field_traverser'
-                        ? resolveFieldTraverserTarget(tableName, originalField, tables)
+                        ? resolveFieldTraverserTarget(tableName, originalField, tableLookup, new Set(), (name) => {
+                              pendingTableName = name
+                          })
                         : originalField
-                if (!field || !['lazy_table', 'virtual_table', 'view', 'materialized_view'].includes(field.type)) {
+                const pendingTable = pendingTableName ? getTable(pendingTableName) : null
+                const pendingState = pendingTable
+                    ? getConnectionState(
+                          originalField,
+                          pendingTable,
+                          tableFieldsStatus[pendingTable.name],
+                          databaseFieldsComplete
+                      )
+                    : null
+                if (
+                    (!field || !['lazy_table', 'virtual_table', 'view', 'materialized_view'].includes(field.type)) &&
+                    (!pendingState || pendingState === 'ready')
+                ) {
                     return []
                 }
                 const childPath = [...path, originalField.name]
                 const id = JSON.stringify(childPath)
-                const table = getTable(field.table)
+                const table = pendingTable ?? getTable(field?.table)
                 const status = table ? tableFieldsStatus[table.name] : undefined
-                const state = getConnectionState(field, table, status, databaseFieldsComplete)
+                const state = pendingState ?? getConnectionState(field!, table, status, databaseFieldsComplete)
                 const connection: BIConnection = {
                     id,
                     name: originalField.name,
@@ -84,15 +106,22 @@ export function buildBIConnections(
                     fields: { dimensions: [], measures: [] },
                     connections: [],
                 }
-                if (!connection.expanded || state !== 'ready') {
+                if (!connection.expanded || state !== 'ready' || !field) {
                     return [connection]
                 }
                 const childFields = getConnectionFields(field, table)
                 const nestedTableName = table?.name ?? field.table ?? tableName
+                const childLookup = {
+                    ...tables,
+                    [nestedTableName]: {
+                        name: nestedTableName,
+                        fields: Object.fromEntries(childFields.map((child) => [child.name, child])),
+                    },
+                }
                 const scalarFields = childFields.map((child) => {
                     const resolved =
                         child.type === 'field_traverser'
-                            ? resolveFieldTraverserTarget(nestedTableName, child, tables)
+                            ? resolveFieldTraverserTarget(nestedTableName, child, childLookup)
                             : child
                     return resolved ? { ...resolved, name: child.name } : child
                 })
@@ -109,7 +138,23 @@ export function buildBIConnections(
                 ]
             })
             .sort((left, right) => left.name.localeCompare(right.name))
+    }
     return visit(source.table, Object.values(getTable(source.table)?.fields ?? {}), [])
+}
+
+export function getPendingBIConnectionTables(connections: BIConnection[]): string[] {
+    return [
+        ...new Set(
+            connections.flatMap((connection) =>
+                connection.expanded
+                    ? [
+                          ...(connection.state === 'loading' && connection.tableName ? [connection.tableName] : []),
+                          ...getPendingBIConnectionTables(connection.connections),
+                      ]
+                    : []
+            )
+        ),
+    ]
 }
 
 export function filterBIConnections(connections: BIConnection[], search: string): BIConnection[] {
@@ -126,7 +171,12 @@ export function filterBIConnections(connections: BIConnection[], search: string)
             measures: connection.fields.measures.filter((field) => field.name.toLowerCase().includes(term)),
         }
         const children = filterBIConnections(connection.connections, term)
-        return !connection.expanded || fields.dimensions.length || fields.measures.length || children.length
+        return !connection.expanded ||
+            fields.dimensions.length ||
+            fields.measures.length ||
+            children.length ||
+            connection.state === 'loading' ||
+            connection.state === 'error'
             ? [{ ...connection, fields, connections: children }]
             : []
     })
