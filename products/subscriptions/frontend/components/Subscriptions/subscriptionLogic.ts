@@ -50,6 +50,8 @@ import {
     urlForSubscription,
 } from './utils'
 
+const PREVIEW_IMAGE_ERROR = "We couldn't load the preview image. Please try again."
+
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
     dashboard: 'dashboard export nudge clicked',
@@ -352,6 +354,9 @@ export interface subscriptionLogicActions {
     generatePreview: () => {
         value: true
     }
+    previewImageRenderFailed: () => {
+        value: true
+    }
     loadLastDelivery: () => any
     loadLastDeliveryFailure: (
         error: string,
@@ -559,6 +564,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     actions({
         generatePreview: true,
+        previewImageRenderFailed: true,
         sendTestDelivery: true,
         sendTestDeliveryFailure: true,
         sendTestDeliverySuccess: true,
@@ -1054,6 +1060,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.setPreviewLoading(false)
             }
         },
+
+        previewImageRenderFailed: () => {
+            if (values.previewImageUrl) {
+                URL.revokeObjectURL(values.previewImageUrl)
+            }
+            actions.setPreviewImageUrl(null)
+            reportPreviewImageFailure(actions, values.previewAsset, { reason: 'render_error' })
+        },
     })),
 
     events(({ actions, values, props }) => ({
@@ -1194,10 +1208,32 @@ async function fetchPreviewImage(
     const url = api.exports.determineExportFetchUrl(asset.id)
     const response = await fetch(url, { credentials: 'include' })
     if (!response.ok) {
-        actions.setPreviewError('Failed to load preview image')
+        reportPreviewImageFailure(actions, asset, { reason: 'http_error', status: response.status })
         return
     }
     const blob = await response.blob()
+    // An empty or non-image body still returns 200, and the <img> then shows only its alt text.
+    if (blob.size === 0 || !blob.type.startsWith('image/')) {
+        reportPreviewImageFailure(actions, asset, {
+            reason: 'invalid_content',
+            content_type: blob.type,
+            size: blob.size,
+        })
+        return
+    }
     const objectUrl = URL.createObjectURL(blob)
     actions.setPreviewImageUrl(objectUrl)
+}
+
+function reportPreviewImageFailure(
+    actions: { setPreviewError: (error: string | null) => void },
+    asset: ExportedAssetType | null,
+    properties: Record<string, string | number>
+): void {
+    actions.setPreviewError(PREVIEW_IMAGE_ERROR)
+    posthog.capture('subscription preview failed', {
+        export_id: asset?.id,
+        export_format: asset?.export_format,
+        ...properties,
+    })
 }
