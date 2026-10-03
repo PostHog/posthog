@@ -5,13 +5,14 @@ export interface AudienceSetupSnippetContext {
 }
 
 const BARE_OBJECT_KEY = /^[A-Za-z_$][\w$]*$/
-
-function singleQuoted(text: string): string {
-    return `'${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
-}
+// An object literal treats a `__proto__` key, bare or quoted, as the prototype; only a computed key is an own property.
+const PROTOTYPE_KEY = '__proto__'
 
 function objectKey(topicKey: string): string {
-    return BARE_OBJECT_KEY.test(topicKey) ? topicKey : singleQuoted(topicKey)
+    if (topicKey === PROTOTYPE_KEY) {
+        return `[${JSON.stringify(topicKey)}]`
+    }
+    return BARE_OBJECT_KEY.test(topicKey) ? topicKey : JSON.stringify(topicKey)
 }
 
 const EXAMPLE_UNSUBSCRIBED_TOPIC_INDEX = 0
@@ -36,7 +37,7 @@ export function posthogNodeSnippet({ projectToken, host, topicKeys }: AudienceSe
 const posthog = new PostHog('${projectToken}', {
     host: '${host}',
     secretKey: process.env.POSTHOG_PERSONAL_API_KEY,
-    // The key can only send preferences, so turn off feature flag polling.
+    // The key has no feature flag access, so turn off feature flag polling.
     enableLocalEvaluation: false,
 })
 
@@ -52,8 +53,8 @@ function topicKeysInstruction(topicKeys: string[]): string {
     if (topicKeys.length === 0) {
         return 'We have no topics yet, so only send `allMarketing`.'
     }
-    const keys = topicKeys.map((topicKey) => `\`${topicKey}\``).join(', ')
-    return `\`categories\` maps topic keys to booleans. Our topic keys are: ${keys}.`
+    const keys = topicKeys.map((topicKey) => JSON.stringify(topicKey)).join(', ')
+    return `\`categories\` maps topic keys to booleans. Our topic keys, as JSON strings: ${keys}.`
 }
 
 export function codingAgentPrompt({ projectToken, host, topicKeys }: AudienceSetupSnippetContext): string {

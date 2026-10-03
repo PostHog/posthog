@@ -61,6 +61,7 @@ export interface recipientsLogicValues {
     search: string
     searchPending: boolean
     shownRequest: RecipientsRequest
+    setupDecisionPending: boolean
     showsSetup: boolean
     topicNames: Record<string, string>
 }
@@ -140,6 +141,11 @@ export interface recipientsLogicMeta {
             categoriesLoading: boolean
         ) => RecipientsView
         searchPending: (search: string, shownRequest: RecipientsRequest) => boolean
+        setupDecisionPending: (
+            recipientsView: RecipientsView,
+            lastRequest: RecipientsRequest,
+            shownRequest: RecipientsRequest
+        ) => boolean
         showsSetup: (
             recipientsView: RecipientsView,
             categories: MessageCategory[],
@@ -284,6 +290,14 @@ export const recipientsLogic = kea<recipientsLogicType>([
                 }
                 return shownRequest.search ? 'no-match' : 'empty'
             },
+        ],
+        setupDecisionPending: [
+            (s) => [s.recipientsView, s.lastRequest, s.shownRequest],
+            (
+                recipientsView: RecipientsView,
+                lastRequest: RecipientsRequest,
+                shownRequest: RecipientsRequest
+            ): boolean => recipientsView === 'loading' && !lastRequest.search && !shownRequest.search,
         ],
         showsSetup: [
             (s) => [s.recipientsView, s.categories, s.categoriesLoadFailed],

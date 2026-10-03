@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 import type { RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { AudienceRecipients } from './AudienceRecipients'
+import { AudienceRecipientsTab } from './AudienceRecipientsTab'
 import { MockResponse, useRecipientsApiMocks, recipient } from './recipientTestFixtures'
 
 const FIRST_PAGE: RecipientPageApi = { results: [recipient('alex@example.com')], next_cursor: 'after-alex' }
@@ -83,7 +84,7 @@ describe('AudienceRecipients', () => {
             403,
             { code: 'permission_denied', detail: 'You need hog_flow viewer access to view recipients.' },
         ])
-        render(<AudienceRecipients />)
+        render(<AudienceRecipientsTab />)
 
         expect(await screen.findByText('Access denied')).toBeInTheDocument()
         expect(screen.getByText(/viewer access to Workflows/)).toBeInTheDocument()

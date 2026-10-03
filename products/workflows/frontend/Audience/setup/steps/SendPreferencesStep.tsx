@@ -32,7 +32,7 @@ function SnippetBody(): JSX.Element {
 export function SendPreferencesStep(): JSX.Element {
     return (
         <SetupStepCard
-            title="Send preferences from your app"
+            title="Send preferences from your backend"
             description={
                 <>
                     Call <code>setPreferences</code> wherever users save their email preferences. Copy the snippet, or

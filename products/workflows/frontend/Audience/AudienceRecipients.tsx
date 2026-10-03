@@ -4,7 +4,6 @@ import { useRef } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { AccessDenied } from 'lib/components/AccessDenied'
 import { urls } from 'scenes/urls'
 
 import { RecipientsBody } from './RecipientsBody'
@@ -12,16 +11,12 @@ import { RECIPIENT_SEARCH_MAX_LENGTH, recipientsLogic } from './recipientsLogic'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
 export function AudienceRecipients(): JSX.Element {
-    const { search, loadFailed, accessDenied, recipientsView } = useValues(recipientsLogic)
+    const { search, loadFailed, recipientsView } = useValues(recipientsLogic)
     const { setSearch, clearSearch, retryLoadRecipients } = useActions(recipientsLogic)
     const searchInputRef = useRef<HTMLInputElement>(null)
     const thenFocusSearch = (action: () => void) => (): void => {
         action()
         searchInputRef.current?.focus()
-    }
-
-    if (accessDenied) {
-        return <AccessDenied reason="You need viewer access to Workflows to see recipients." inline />
     }
 
     return (
