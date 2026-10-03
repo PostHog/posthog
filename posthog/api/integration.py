@@ -466,6 +466,22 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
 
 
+def github_branches_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
+    """Build one `GitHubBranchesResponseSerializer` page from validated `GitHubBranchesQuerySerializer` data."""
+    try:
+        branches, default_branch, has_more = github.list_cached_branches(
+            query["repo"],
+            search=query["search"],
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+    except GitHubIntegrationError as err:
+        capture_exception(err)
+        raise GitHubBranchesUnavailable() from err
+
+    return {"branches": branches, "default_branch": default_branch, "has_more": has_more}
+
+
 class SlackChannelSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel.")
     name = serializers.CharField(help_text="Slack channel name without the leading '#'.")
@@ -2404,28 +2420,13 @@ class IntegrationViewSet(
         params = GitHubBranchesQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
 
-        repo: str = params.validated_data["repo"]
-        search: str = params.validated_data["search"]
-        limit: int = params.validated_data["limit"]
-        offset: int = params.validated_data["offset"]
-
-        validate_github_repository_name(repo)
+        validate_github_repository_name(params.validated_data["repo"])
 
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
         github = GitHubIntegration(instance)
-        try:
-            branches, default_branch, has_more = github.list_cached_branches(
-                repo,
-                search=search,
-                limit=limit,
-                offset=offset,
-            )
-        except GitHubIntegrationError as err:
-            raise GitHubBranchesUnavailable() from err
-
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        return Response(github_branches_page(github, params.validated_data))
 
     @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")

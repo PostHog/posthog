@@ -6105,16 +6105,18 @@ class TestGitHubBranches:
         "posthog.models.integration.github.GitHubIntegration.list_cached_branches",
         side_effect=GitHubIntegrationError("Cache refresh already in progress"),
     )
-    def test_api_endpoint_returns_503_when_branches_cannot_load(self, _mock_list_cached, client: HttpClient):
+    def test_api_endpoint_returns_503_when_branches_cannot_load(self, mock_list_cached, client: HttpClient):
         client.force_login(self.user)
 
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
-            {"repo": "org/repo"},
-        )
+        with patch("posthog.api.integration.capture_exception") as capture:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+                {"repo": "org/repo"},
+            )
 
         assert response.status_code == 503
         assert response.json()["code"] == "github_branches_unavailable"
+        capture.assert_called_once_with(mock_list_cached.side_effect)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_branches")
     def test_api_endpoint_prepends_default_branch_even_when_not_in_list(self, mock_list_cached, client: HttpClient):
