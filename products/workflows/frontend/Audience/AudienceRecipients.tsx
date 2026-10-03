@@ -10,7 +10,7 @@ import { RECIPIENT_SEARCH_MAX_LENGTH, recipientsLogic } from './recipientsLogic'
 import { UnreachablePersonsNotice } from './UnreachablePersonsNotice'
 
 export function AudienceRecipients(): JSX.Element {
-    const { search, loadFailed, accessDenied } = useValues(recipientsLogic)
+    const { search, loadFailed, accessDenied, recipientsView } = useValues(recipientsLogic)
     const { setSearch, clearSearch, retryLoadRecipients } = useActions(recipientsLogic)
     const searchInputRef = useRef<HTMLInputElement>(null)
     const thenFocusSearch = (action: () => void) => (): void => {
@@ -45,7 +45,9 @@ export function AudienceRecipients(): JSX.Element {
                         'data-attr': 'audience-recipients-retry',
                     }}
                 >
-                    Couldn't load recipients. Search for part of an address to load fewer, or try again in a moment.
+                    {recipientsView === 'results'
+                        ? "Couldn't load that page of recipients. Try again in a moment."
+                        : "Couldn't load recipients. Search for part of an address to load fewer, or try again in a moment."}
                 </LemonBanner>
             )}
             <RecipientsBody onClearSearch={thenFocusSearch(clearSearch)} />

@@ -23,7 +23,7 @@ export function TopicStatusTag({ status, topicName }: TopicStatusTagProps): JSX.
     const label = topicName ? `${topicName}: ${STATUS_LABELS[status]}` : STATUS_LABELS[status]
     return (
         <LemonTag type={STATUS_TAG_TYPES[status]} size="small" wrap>
-            {label}
+            <span>{label}</span>
         </LemonTag>
     )
 }
