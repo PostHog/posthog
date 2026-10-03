@@ -84,10 +84,12 @@ describe('recipient detail', () => {
         openRecipient()
 
         expect(await screen.findByText(/Suppressed after 5 soft bounces in a row/)).toBeInTheDocument()
-        expect(screen.getByText('Open suppression list').closest('a')).toHaveAttribute(
-            'href',
-            expect.stringContaining(urls.audience('suppression'))
-        )
+        for (const suppressionListLink of screen.getAllByText('Open suppression list')) {
+            expect(suppressionListLink.closest('a')).toHaveAttribute(
+                'href',
+                expect.stringContaining(urls.audience('suppression'))
+            )
+        }
         expect(lookups).toEqual(['Jamie@example.com'])
         expect(capturedEvents('audience recipient opened')).toHaveLength(1)
         expect(JSON.stringify(capturedEvents('audience recipient opened'))).not.toContain('example.com')

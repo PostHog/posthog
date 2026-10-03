@@ -19,6 +19,7 @@ import { SuppressionScene } from '../Suppression/SuppressionScene'
 import { AudienceEngagement } from './AudienceEngagement'
 import { AudienceRecipients } from './AudienceRecipients'
 import { AUDIENCE_TAB_LABELS, AudienceTab, audienceSceneLogic } from './audienceSceneLogic'
+import { RecipientDetail } from './RecipientDetail'
 
 export const scene: SceneExport = {
     component: AudienceScene,
@@ -26,12 +27,17 @@ export const scene: SceneExport = {
     productKey: ProductKey.WORKFLOWS,
 }
 
+function RecipientsTabContent(): JSX.Element {
+    const { selectedEmail } = useValues(audienceSceneLogic)
+    return selectedEmail ? <RecipientDetail email={selectedEmail} /> : <AudienceRecipients />
+}
+
 const AUDIENCE_SCENE_TABS: LemonTab<AudienceTab>[] = [
     {
         key: 'recipients',
         label: AUDIENCE_TAB_LABELS.recipients,
         link: urls.audience(),
-        content: <AudienceRecipients />,
+        content: <RecipientsTabContent />,
     },
     {
         key: 'engagement',
