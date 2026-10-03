@@ -16,6 +16,7 @@ import { visionScannersWatchFeedRetrieve } from '../generated/api'
 import type { ReplayScannerApi, VisionQuotaApi, WatchFeedResponseApi } from '../generated/api.schemas'
 import type { VisionScannersWatchFeedRetrieveParams, WatchFeedItemApi } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
+import type { RankerEnumApi } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
 import { csvParam, parseCsvParam } from '../utils/urlParams'
@@ -94,7 +95,7 @@ export interface watchFeedLogicActions {
         dateTo: string | null
     }
     setFeedRanker: (ranker: WatchFeedRanker) => {
-        ranker: WatchFeedRanker
+        ranker: RankerEnumApi
     }
     setScannerIdsFilter: (scannerIds: string[]) => {
         scannerIds: string[]
