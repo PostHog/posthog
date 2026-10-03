@@ -203,7 +203,7 @@ describe('recipientsLogic', () => {
         expect(logic.values.recipientsView).toBe(view)
     })
 
-    it('links unreachable persons to the persons list filtered to persons with no email', () => {
+    it('links unreachable persons to the persons list filtered to persons with a missing or blank email', () => {
         router.actions.push(unreachablePersonsUrl())
         const { q } = router.values.hashParams
 
@@ -213,7 +213,12 @@ describe('recipientsLogic', () => {
         // Without an explicit select the persons list renders its person column as "Unknown"
         expect(q.source.select).toContain(PERSON_DISPLAY_NAME_COLUMN_NAME)
         expect(q.source.properties).toEqual([
-            { type: PropertyFilterType.Person, key: 'email', operator: PropertyOperator.IsNotSet },
+            {
+                type: PropertyFilterType.Person,
+                key: 'email',
+                operator: PropertyOperator.NotRegex,
+                value: '[^ \\t\\n\\r]',
+            },
         ])
     })
 })
