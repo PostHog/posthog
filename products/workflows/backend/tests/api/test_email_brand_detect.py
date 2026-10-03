@@ -299,7 +299,7 @@ class TestEmailBrandDetectAPI(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         assert response.json()["code"] == expected_code
 
-    def test_reports_busy_for_a_timeout_after_the_installation_came_back(self, _flag):
+    def test_a_stale_unavailable_marker_does_not_turn_a_timeout_into_disconnected(self, _flag):
         self.integration.config = {**self.integration.config, INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY: 1}
         self.integration.save()
         self.github.times_out_on = "/git/blobs/"
