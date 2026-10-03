@@ -1,47 +1,53 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
+import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
-import { todayToolsLogic, toolHrefForPath, toolLabel } from './todayToolsLogic'
+import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { todayToolsLogic } from './todayToolsLogic'
 
 export function TodayToolsSidebar(): JSX.Element {
-    const { tools, toolGroups, search } = useValues(todayToolsLogic)
+    const { tools, toolGroups, recentTools, search } = useValues(todayToolsLogic)
     const { setSearch } = useActions(todayToolsLogic)
     const { location } = useValues(router)
     const activeHref = toolHrefForPath(removeProjectIdIfPresent(location.pathname), tools)
+    const groups = [
+        ...(recentTools.length ? [{ key: 'recent', label: 'Recently viewed', tools: recentTools }] : []),
+        ...toolGroups.map((group) => ({ key: group.category, label: group.category, tools: group.tools })),
+    ]
+    // A tool can show in Recently viewed and in its own group, so the group keeps the two rows apart on the keyboard path.
+    const optionValue = (groupKey: string, tool: FileSystemImport): string => `${groupKey}:${tool.href ?? ''}`
 
     return (
-        <div className="TodayPane">
-            <div className="TodayPane__filters">
-                <LemonInput
-                    type="search"
-                    size="small"
-                    placeholder="Search tools"
-                    value={search}
-                    onChange={setSearch}
-                    data-attr="today-tools-search"
-                    fullWidth
-                />
-            </div>
-            <div className="TodayPane__scroll">
-                {!toolGroups.length ? (
-                    <div className="TodayPane__state">No tools match that search.</div>
+        <div className="TodayPane" data-quill>
+            <TodayPaneSearchList
+                query={search}
+                onQueryChange={setSearch}
+                searchLabel="Search tools"
+                dataAttr="today-tools-search"
+            >
+                {!groups.length ? (
+                    <Text size="xs" variant="muted" className="block px-2 py-1">
+                        No tools match that search.
+                    </Text>
                 ) : (
-                    toolGroups.map((group) => (
-                        <div key={group.category}>
-                            <div className="TodayPane__heading Today__label">{group.category}</div>
+                    groups.map((group, index) => (
+                        <div key={group.key}>
+                            <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>
                             {group.tools.map((tool) => {
                                 const href = tool.href ?? ''
                                 return (
                                     <TodayPaneRow
                                         key={href}
+                                        value={optionValue(group.key, tool)}
                                         label={toolLabel(tool)}
                                         icon={iconForType(
                                             (tool.iconType ?? tool.type) as FileSystemIconType,
@@ -49,14 +55,14 @@ export function TodayToolsSidebar(): JSX.Element {
                                         )}
                                         to={href}
                                         active={!!href && href === activeHref}
-                                        dataAttr="today-tool"
+                                        dataAttr={group.key === 'recent' ? 'today-tool-recent' : 'today-tool'}
                                     />
                                 )
                             })}
                         </div>
                     ))
                 )}
-            </div>
+            </TodayPaneSearchList>
         </div>
     )
 }

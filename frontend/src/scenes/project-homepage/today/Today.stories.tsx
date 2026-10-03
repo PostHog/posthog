@@ -593,7 +593,9 @@ const meta: Meta = {
                         ? channel === 'space-checkout'
                             ? CANVASES
                             : []
-                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind'))
+                        : VIEW_CANVASES.filter((canvas) => canvas.kind === params.get('kind')).sort((first, second) =>
+                              second.updated_at.localeCompare(first.updated_at)
+                          )
                     return [200, { results, count: results.length, next: null, previous: null }]
                 },
                 '/api/projects/:team_id/task_activity/': {
@@ -923,6 +925,17 @@ export const NarrowWindowWithSidebar: Story = {
     },
 }
 
+export const PhoneWidth: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
+export const PhoneWidthMorePane: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
+    },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
@@ -1056,6 +1069,7 @@ export const ViewsEmpty: Story = {
 export const ViewsNewMenu: Story = {
     parameters: { pageUrl: urls.views() },
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('New…'))
+        const [newView] = await within(canvasElement).findAllByText('New view')
+        await userEvent.click(newView)
     },
 }

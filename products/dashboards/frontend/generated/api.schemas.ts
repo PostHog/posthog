@@ -1594,6 +1594,8 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -10631,6 +10633,10 @@ export type DashboardsListParams = {
      */
     offset?: number
     /**
+     * Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.
+     */
+    ordering?: DashboardsListOrdering
+    /**
      * Optional. Return only pinned dashboards.
      */
     pinned?: boolean
@@ -10645,6 +10651,12 @@ export type DashboardsListFormat = (typeof DashboardsListFormat)[keyof typeof Da
 export const DashboardsListFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsListOrdering = (typeof DashboardsListOrdering)[keyof typeof DashboardsListOrdering]
+
+export const DashboardsListOrdering = {
+    LastViewedAt: '-last_viewed_at',
 } as const
 
 export type DashboardsCreateParams = {

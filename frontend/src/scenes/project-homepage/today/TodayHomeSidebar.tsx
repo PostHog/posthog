@@ -96,7 +96,6 @@ export function TodayHomeSidebar(): JSX.Element {
                 New session
             </Button>
             <div className="TodayPane__scroll">
-                <div className="TodayPane__heading Today__label">Today</div>
                 <div className="TodaySidebar__list">
                     <TodayNavItem
                         title="Home"

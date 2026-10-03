@@ -141,7 +141,6 @@
 
     &[data-active='true'] {
         background: var(--today-soft);
-        transform: translateX(3px);
 
         .TodayNavItem__marker {
             color: #fff;
@@ -219,59 +218,22 @@
     color: var(--today-faint);
 }
 
-// Shared sidebar footer
-
-.TodaySidebarFooter {
-    display: grid;
-    flex: none;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px;
-    align-items: center;
-    padding: 7px 0 16px;
-    margin: 0 12px;
-    border-top: 1px solid var(--today-line);
-}
-
-.TodaySidebarFooter__account,
-.TodaySidebarFooter__settings {
-    color: var(--today-secondary-text);
-
-    &:hover,
-    &[data-popup-open] {
-        color: var(--today-ink);
-    }
-}
-
-.TodaySidebarFooter__account {
-    min-width: 0;
-    padding-inline: 6px 8px;
-}
-
-.TodaySidebarFooter__name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 // Home
 
 .TodayHome,
 .TodayReport {
     width: min(840px, 100% - 144px);
+    padding: 94px 0 140px;
     margin: 0 auto;
 
     @container main-content (max-width: 900px) {
         width: min(100% - 72px, 700px);
     }
-}
 
-.TodayHome {
-    padding: 94px 0 140px;
-}
-
-.TodayReport {
-    padding: 94px 0 140px;
+    @container main-content (max-width: 600px) {
+        width: calc(100% - 40px);
+        padding: 20px 0 64px;
+    }
 }
 
 .TodayHome__meta {
@@ -283,6 +245,7 @@
     time {
         font-variant-numeric: tabular-nums;
         color: var(--today-ink);
+        white-space: nowrap;
     }
 }
 
@@ -410,6 +373,16 @@
         font-weight: 500;
         color: #ff4800;
         text-decoration: none;
+    }
+
+    [theme='dark'] & {
+        background: #ff48002e;
+
+        .TodayReportLink,
+        .TodayReportLink:hover,
+        .TodayReportLink[data-active='true'] {
+            color: #ff9e7a;
+        }
     }
 }
 
@@ -740,6 +713,16 @@
     from {
         opacity: 0;
         transform: translateY(2px);
+    }
+}
+
+@container main-content (max-width: 600px) {
+    .TodayHome__intro {
+        margin-top: 32px;
+    }
+
+    .TodayAsk {
+        margin-top: 40px;
     }
 }
 
