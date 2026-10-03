@@ -68,6 +68,7 @@ export function ModelsScene(): JSX.Element {
             label: 'Lineage',
             link: urls.models('lineage'),
             content: <ModelsLineageTab />,
+            keepMounted: true,
             'data-attr': 'models-tab-lineage',
         },
         ...(dataQualityTabEnabled

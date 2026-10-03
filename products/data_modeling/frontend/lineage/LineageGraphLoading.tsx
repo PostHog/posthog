@@ -160,6 +160,8 @@ export function LineageGraphLoading({
                 zoomOnPinch={false}
                 zoomOnDoubleClick={false}
                 proOptions={{ hideAttribution: true }}
+                fitView
+                fitViewOptions={loadingFitViewOptions}
             >
                 <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             </ReactFlow>
