@@ -121,6 +121,24 @@ describe('recipientsLogic', () => {
         expect(requests.every((params) => params.get('limit') === '50')).toBe(true)
     })
 
+    it('shows the loading view until the first page answers', async () => {
+        let releaseFirstPage = (): void => {}
+        const firstPageReleased = new Promise<void>((resolve) => {
+            releaseFirstPage = resolve
+        })
+        useRecipientsResponse(async () => {
+            await firstPageReleased
+            return [200, { results: [], next_cursor: null }]
+        })
+        logic = recipientsLogic()
+        logic.mount()
+
+        expect(logic.values.recipientsView).toBe('loading')
+        releaseFirstPage()
+        await expectLogic(logic).toDispatchActions(['loadAudienceRecipientsSuccess'])
+        expect(logic.values.recipientsView).toBe('empty')
+    })
+
     it('keeps paging back available when a later page comes back empty', async () => {
         await mountLogic()
         useRecipientsResponse((params) =>

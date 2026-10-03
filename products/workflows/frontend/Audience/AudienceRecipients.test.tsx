@@ -67,6 +67,22 @@ describe('AudienceRecipients', () => {
         expect(await screen.findByText('sam@example.com')).toBeInTheDocument()
     })
 
+    it('keeps recipient rows out of autocapture', async () => {
+        useRecipientsResponse(() => [200, FIRST_PAGE])
+        render(<AudienceRecipients />)
+
+        expect((await screen.findByText('alex@example.com')).closest('tr')).toHaveClass('ph-no-capture')
+    })
+
+    it('puts focus back in the search field after Try again', async () => {
+        useRecipientsResponse(() => [500, { detail: 'Query timed out' }])
+        render(<AudienceRecipients />)
+
+        fireEvent.click(await screen.findByText('Try again'))
+
+        expect(screen.getByLabelText('Search recipients by email address')).toHaveFocus()
+    })
+
     it('names the missing permission instead of the search advice when access is denied', async () => {
         useRecipientsResponse(() => [
             403,
