@@ -422,7 +422,10 @@ def build_agent_description(
         whole inference population, under a query time limit. A query that passes training can fail
         at scoring, so a feature must earn its cost in AUC.
         - For long windows, aggregate to daily (or hourly) counts per person in a subquery before
-          you join.
+          you join. A training cutoff falls at any time of day, so the bucket that holds it also holds
+          events after it: join only whole buckets (`day < toStartOfDay(fromUnixTimestamp(a.cutoff_ts))`),
+          and read the part of the cutoff's day before the cutoff from raw events, with the strict `<`
+          of rule 2.
         - Keep windows short on high-volume events such as `$pageview`, and filter on event names early.
         - Prefer columns that are already on events, such as `person.properties.*` (the framework
           sets the persons-on-events modifiers), to `LEFT JOIN persons`, which is slow on large teams.
