@@ -35,11 +35,6 @@ function topicKeyFromName(name: string): string {
     return slugify(name).slice(0, TOPIC_KEY_MAX_LENGTH).replace(/-+$/, '')
 }
 
-function withoutKeyError(manualErrors: Record<string, any>): Record<string, any> {
-    const { key: _staleKeyError, ...otherErrors } = manualErrors
-    return otherErrors
-}
-
 function fieldName(name: FieldName): string {
     return Array.isArray(name) ? name.join('.') : String(name)
 }
@@ -211,12 +206,12 @@ export const newCategoryLogic = kea<newCategoryLogicType>([
             }
         },
         setCategoryFormValue: ({ name }) => {
+            if (Object.keys(values.categoryFormManualErrors).length > 0) {
+                actions.setCategoryFormManualErrors({})
+            }
             const keyFollowsName = values.speaksAudience && !props.category && !values.keyTypedByHand
             if (fieldName(name) === 'name' && keyFollowsName) {
                 actions.setCategoryFormValues({ key: topicKeyFromName(values.categoryForm.name) })
-                if ('key' in values.categoryFormManualErrors) {
-                    actions.setCategoryFormManualErrors(withoutKeyError(values.categoryFormManualErrors))
-                }
             }
         },
     })),
