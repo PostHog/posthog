@@ -1,3 +1,4 @@
+from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
 
@@ -13,6 +14,7 @@ from posthog.models.integration import Integration
 from products.cdp.backend.api.hog_function import HogFunctionInvocationSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.api import ensure_sandbox_email_sender
+from products.workflows.backend.models.hog_flow import HogFlow
 
 
 @override_settings(
@@ -103,6 +105,39 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert "sandbox sender" in response.json()["detail"].lower()
         assert "workflow email steps and test sends" in response.json()["detail"].lower()
 
+    def test_broadcast_cannot_select_the_sandbox_sender_with_a_numeric_id(self) -> None:
+        workflow = self._workflow()
+        workflow["origin_product"] = "broadcasts"
+        workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"]["integrationId"] = float(self.sender.id)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+
+        assert response.status_code == 400, response.json()
+        assert "broadcast" in response.json()["detail"].lower()
+
+    def test_broadcast_cannot_hide_the_sandbox_sender_in_malformed_rotation(self) -> None:
+        workflow = self._workflow()
+        workflow["origin_product"] = "broadcasts"
+        workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"]["integrationIds"] = self.sender.id
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+
+        assert response.status_code == 400, response.json()
+        assert "broadcast" in response.json()["detail"].lower()
+
+    def test_generic_workflow_step_cannot_select_the_sandbox_sender_with_a_legacy_email_schema(self) -> None:
+        template = HogFunctionTemplate.objects.get(template_id="template-email")
+        template.inputs_schema = [{**self.email_schema[0], "type": "email"}]
+        template.save()
+        workflow = self._workflow()
+        workflow["actions"][1]["type"] = "function"
+        workflow["actions"][1]["config"]["template_id"] = "template-email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", workflow)
+
+        assert response.status_code == 400, response.json()
+        assert "workflow email steps and test sends" in response.json()["detail"].lower()
+
     def test_workflow_can_select_the_sandbox_sender_alone(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._workflow())
 
@@ -184,6 +219,61 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert serializer.validated_data["configuration"]["inputs"]["email"]["value"]["from"] == {
             "integrationId": self.sender.id
         }
+
+    @parameterized.expand([("live",), ("draft",)])
+    def test_unchanged_legacy_sender_survives_unrelated_edits(self, variant: str) -> None:
+        live = self._workflow()
+        live_email = live["actions"][1]["config"]["inputs"]["email"]["value"]
+        live_email["from"].update({"email": "legacy@example.com", "name": "Legacy sender"})
+        live_email["replyTo"] = "legacy-reply@example.com"
+        draft = deepcopy(live)
+        draft_email = draft["actions"][1]["config"]["inputs"]["email"]["value"]
+        draft_email["from"]["name"] = "Draft legacy sender"
+        draft_email["replyTo"] = "draft-reply@example.com"
+        stored = HogFlow.objects.create(
+            team=self.team,
+            name="Legacy workflow",
+            actions=live["actions"],
+            edges=live["edges"],
+            status=HogFlow.State.ACTIVE,
+            draft=draft,
+        )
+        actions = deepcopy(live["actions"] if variant == "live" else draft["actions"])
+        actions[1]["config"]["inputs"]["email"]["value"]["subject"] = "Updated legacy subject"
+        self.flag_enabled.return_value = False
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}",
+            {"name": "Renamed legacy workflow", "actions": actions},
+        )
+
+        assert response.status_code == 200, response.json()
+
+    @parameterized.expand([("email",), ("name",), ("replyTo",)])
+    def test_legacy_sender_overrides_cannot_be_changed(self, field: str) -> None:
+        workflow = self._workflow()
+        email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
+        email["from"].update({"email": "legacy@example.com", "name": "Legacy sender"})
+        email["replyTo"] = "legacy-reply@example.com"
+        stored = HogFlow.objects.create(
+            team=self.team,
+            name="Legacy workflow",
+            actions=workflow["actions"],
+            edges=workflow["edges"],
+            status=HogFlow.State.ACTIVE,
+        )
+        if field == "replyTo":
+            email[field] = "changed@example.com"
+        else:
+            email["from"][field] = "changed@example.com" if field == "email" else "Changed sender"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}",
+            {"actions": workflow["actions"]},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "fixed From address and name" in response.json()["detail"]
 
     def test_malformed_sender_rotation_returns_a_validation_error(self) -> None:
         workflow = self._workflow()

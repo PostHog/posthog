@@ -614,7 +614,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         if get_team:
             context_extra["get_team"] = lambda: self.team
         if cache is not None:
-            context_extra["email_integration_domain_cache"] = cache
+            context_extra["email_integration_cache"] = cache
         return validate_inputs(inputs_schema, {"email": {"value": value}}, context_extra=context_extra)
 
     @parameterized.expand(

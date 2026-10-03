@@ -867,7 +867,7 @@ def _existing_email_values_by_action(instance: "HogFlow") -> dict[str, list[dict
             email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
             value = email_input.get("value") if isinstance(email_input, dict) else None
             from_value = value.get("from") if isinstance(value, dict) else None
-            if isinstance(from_value, dict):
+            if isinstance(value, dict) and isinstance(from_value, dict):
                 result.setdefault(stored_action["id"], []).append(value)
     return result
 
@@ -1612,11 +1612,13 @@ class HogFlowActionSerializer(serializers.Serializer):
                     **self.context,
                     "workflow_action_type": data.get("type"),
                     "existing_email_values": existing_emails,
-                    "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
+                    # Request-scoped: a drip sequence's steps share senders, and the actions
+                    # list validates one action at a time (mirrors _message_template_cache).
+                    "email_integration_cache": self.context.setdefault("_email_integration_cache", {}),
                     "sandbox_sender_enabled_cache": self.context.setdefault("_sandbox_sender_enabled_cache", {}),
                 }
                 for schema in input_schema or []:
-                    if schema.get("type") == "native_email":
+                    if schema.get("type") in {"email", "native_email"} and isinstance(inputs, dict):
                         email_input = inputs.get(schema["key"])
                         if isinstance(email_input, dict):
                             validate_sandbox_email_sender(email_input.get("value"), input_context)
@@ -1639,11 +1641,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # save time, while an unchanged stored value is grandfathered.
                         "get_team": self.context.get("get_team"),
                         "existing_email_from": [email["from"] for email in existing_emails],
-                        # Request-scoped: a drip sequence's steps share senders, and the actions
-                        # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
                     },
                 )
 

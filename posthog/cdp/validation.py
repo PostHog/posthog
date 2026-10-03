@@ -73,36 +73,43 @@ FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
+    rotation = from_value.get("integrationIds")
     return {
-        integration_id
-        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
-        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
+        int(integration_id)
+        for integration_id in [from_value.get("integrationId"), *(rotation if isinstance(rotation, list) else [])]
+        if isinstance(integration_id, (int, float))
+        and not isinstance(integration_id, bool)
+        and (not isinstance(integration_id, float) or integration_id.is_integer())
     }
+
+
+def _email_integrations(integration_ids: set[int], context: dict[str, Any]) -> dict[int, Integration | None]:
+    cache: dict[int, Integration | None] = context.setdefault("email_integration_cache", {})
+    missing_ids = integration_ids - cache.keys()
+    if missing_ids:
+        integrations = {
+            integration.id: integration
+            for integration in Integration.objects.filter(
+                team_id=context["get_team"]().id, id__in=missing_ids, kind="email"
+            )
+        }
+        cache.update({integration_id: integrations.get(integration_id) for integration_id in missing_ids})
+    return cache
 
 
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
     if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
         return
-    rotation = email_value["from"].get("integrationIds")
-    if rotation is not None and not isinstance(rotation, list):
-        return
     integration_ids = _sender_integration_ids(email_value["from"])
     get_team = context.get("get_team")
     if not integration_ids or get_team is None:
         return
-    sender_cache: dict[int, bool] = context.setdefault("sandbox_email_integration_cache", {})
-    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in sender_cache]
-    if missing_ids:
-        sandbox_ids = set(
-            Integration.objects.filter(
-                team_id=get_team().id,
-                id__in=missing_ids,
-                kind="email",
-                config__provider=SANDBOX_EMAIL_PROVIDER,
-            ).values_list("id", flat=True)
-        )
-        sender_cache.update({integration_id: integration_id in sandbox_ids for integration_id in missing_ids})
-    if not any(sender_cache[integration_id] for integration_id in integration_ids):
+    integrations = _email_integrations(integration_ids, context)
+    if not any(
+        (integration := integrations[integration_id]) is not None
+        and (integration.config or {}).get("provider") == SANDBOX_EMAIL_PROVIDER
+        for integration_id in integration_ids
+    ):
         return
     if context.get("workflow_origin_product") == "broadcasts":
         raise serializers.ValidationError(
@@ -213,20 +220,11 @@ def _validate_email_sender_override(from_value: dict, context: dict) -> None:
         return
 
     override_domain = override.split("@")[1].lower()
-    # An empty cached domain means the id resolved to no email integration for this team; the
-    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
-    shared_cache = context.get("email_integration_domain_cache")
-    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
-    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
-    if missing_ids:
-        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
-            config = integration.config or {}
-            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
-        for integration_id in missing_ids:
-            domain_cache.setdefault(integration_id, "")
-
+    integrations = _email_integrations(integration_ids, context)
     for integration_id in sorted(integration_ids):
-        integration_domain = domain_cache.get(integration_id) or ""
+        integration = integrations[integration_id]
+        config = (integration.config or {}) if integration is not None else {}
+        integration_domain = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
         if integration_domain and override_domain != integration_domain:
             raise serializers.ValidationError(
                 {
