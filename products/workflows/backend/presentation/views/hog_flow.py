@@ -213,6 +213,7 @@ from products.workflows.backend.services.workflow_email_health import (
     resume_workflow_email_sending,
 )
 from products.workflows.backend.tasks.hog_flows import reschedule_hog_flow_timing
+from products.workflows.backend.utils.batch_trigger_limit import hogflow_batch_trigger_limit_can_rise
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
@@ -892,6 +893,14 @@ class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
     limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
+    limit_can_rise = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Whether 'limit' grows on its own as the project keeps sending with low bounce and complaint "
+            "rates. False when the limit is fixed: sending tiers are off, the tier is pinned or at the top, "
+            "or the workflow sends no email."
+        ),
+    )
     dedupe_key = serializers.ChoiceField(
         choices=list(SUPPORTED_DEDUPE_KEYS),
         allow_null=True,
@@ -6128,6 +6137,9 @@ class HogFlowViewSet(
                         "affected": size.affected,
                         "total": size.total,
                         "limit": size.limit,
+                        "limit_can_rise": hogflow_batch_trigger_limit_can_rise(
+                            self.team_id, sends_email=params["sends_email"]
+                        ),
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
                     }
@@ -6149,6 +6161,9 @@ class HogFlowViewSet(
                     "affected": size.affected,
                     "total": size.total,
                     "limit": size.limit,
+                    "limit_can_rise": hogflow_batch_trigger_limit_can_rise(
+                        self.team_id, sends_email=params["sends_email"]
+                    ),
                     "dedupe_key": size.dedupe_key,
                     "confirm_token": mint_audience_confirm_token(
                         self.team_id, filters, group_type_index, size.dedupe_key

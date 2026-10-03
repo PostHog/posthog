@@ -2,6 +2,7 @@ from django.conf import settings
 
 from products.workflows.backend.utils.email_sending_tiers import (
     email_sending_tier_mode,
+    max_email_sending_tier,
     resolve_team_email_sending_tier,
 )
 
@@ -51,3 +52,16 @@ def get_hogflow_batch_trigger_limit(team_id: int, *, sends_email: bool = True) -
     if not resolved.enforced:
         return settings.HOGFLOW_BATCH_TRIGGER_LIMIT
     return resolved.limits.max_batch_audience
+
+
+def hogflow_batch_trigger_limit_can_rise(team_id: int, *, sends_email: bool = True) -> bool:
+    """
+    Whether the batch limit from `get_hogflow_batch_trigger_limit` can grow without staff action:
+    only when the team's email sending tier sets it, the tier is not pinned, and a higher tier exists.
+    """
+    if team_id in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
+        return False
+    if not sends_email or email_sending_tier_mode() != "enforce":
+        return False
+    resolved = resolve_team_email_sending_tier(team_id)
+    return resolved.enforced and not resolved.pinned and resolved.tier < max_email_sending_tier()

@@ -46,13 +46,26 @@ function AudienceSizePreview(): JSX.Element | null {
             </span>
             {exceeded && (
                 <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
-                    This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now. The limit
-                    rises as the project sends without bounces or spam complaints. Add filters to narrow the audience,
-                    or{' '}
-                    <Link to={urls.workflows('reputation')} target="_blank">
-                        see your sending limits
-                    </Link>
-                    .
+                    {blastRadius.limit_can_rise ? (
+                        <>
+                            This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now.
+                            The limit rises over time as the project keeps sending with low bounce and spam complaint
+                            rates. Add filters to narrow the audience, or{' '}
+                            <Link
+                                to={urls.workflows('reputation')}
+                                target="_blank"
+                                data-attr="broadcast-audience-limit-see-sending-limits"
+                            >
+                                see your sending limits
+                            </Link>
+                            .
+                        </>
+                    ) : (
+                        <>
+                            This project can send a broadcast to up to {humanFriendlyNumber(limit)} people. Add filters
+                            to narrow the audience.
+                        </>
+                    )}
                 </div>
             )}
         </div>
