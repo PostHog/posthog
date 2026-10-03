@@ -34,7 +34,7 @@ HUGGING_FACE_BASE_URL = "https://huggingface.co"
 DISCUSSIONS_DISABLED_ERROR = "Discussions are disabled for this repo"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class HuggingFaceResumeConfig:
     # URL of the page to resume from. We checkpoint the *next* page's self-contained Link-header URL
     # after a page is yielded, so a resumed run continues from where it left off (already-yielded

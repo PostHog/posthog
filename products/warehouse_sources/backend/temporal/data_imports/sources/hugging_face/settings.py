@@ -14,7 +14,7 @@ REPO_LIST_PARAMS: dict[str, Any] = {"sort": "createdAt", "direction": 1, "limit"
 REPO_KINDS = ("models", "datasets", "spaces")
 
 
-@dataclass
+@dataclass(frozen=True)
 class HuggingFaceEndpointConfig:
     name: str
     path: str
