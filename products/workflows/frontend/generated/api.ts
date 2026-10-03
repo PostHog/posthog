@@ -112,7 +112,7 @@ export const getEmailBrandCreateStarterTemplateCreateUrl = (projectId: string) =
 }
 
 /**
- * Creates an ordinary email template. Later Email brand changes do not change it. Returns 422 with the code design_rendering_unavailable when this instance cannot render designs; open the starter design in the email editor instead.
+ * Creates an ordinary email template. Later Email brand changes do not change it. Returns 422 with the code design_rendering_unavailable when the design can't be rendered on the server; open the starter design in the email editor instead.
  * @summary Create a starter email template from the Email brand
  */
 export const emailBrandCreateStarterTemplateCreate = async (

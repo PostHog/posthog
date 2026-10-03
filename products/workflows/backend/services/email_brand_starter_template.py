@@ -11,7 +11,8 @@ WHITE = "#ffffff"
 BLACK = "#000000"
 FOOTER_TEXT_COLOR = "#6b6b6b"
 OUTER_BACKGROUND_COLOR = "#f5f5f5"
-LOGO_MAX_WIDTH = "160px"
+# Unlayer sizes images in percent of the column. 29% of the 552px content column is the 160px logo slot.
+LOGO_MAX_WIDTH = "29%"
 
 # Unlayer only shows a design font as selected when label, value and url match one of its defaults exactly.
 # https://docs.unlayer.com/builder/font-management/default-fonts
@@ -116,7 +117,7 @@ def cta_text_color(background: str) -> str:
 
 def _header_contents(brand: EmailBrand) -> list[dict[str, Any]]:
     if brand.logo:
-        return [_logo(brand)]
+        return [_logo(brand, logo_url=brand.logo.get_absolute_url())]
     if brand.name:
         return [_brand_name_heading(brand)]
     return []
@@ -170,14 +171,14 @@ def _accent_band(brand: EmailBrand) -> dict[str, str]:
     return {"borderTopWidth": "4px", "borderTopStyle": "solid", "borderTopColor": brand.accent_color}
 
 
-def _logo(brand: EmailBrand) -> dict[str, Any]:
+def _logo(brand: EmailBrand, logo_url: str) -> dict[str, Any]:
     return _content(
         "brand-starter-logo",
         "image",
         "u_content_image_1",
         {
             "containerPadding": "32px 24px 16px",
-            "src": {"url": brand.logo.get_absolute_url(), "autoWidth": False, "maxWidth": LOGO_MAX_WIDTH},
+            "src": {"url": logo_url, "autoWidth": False, "maxWidth": LOGO_MAX_WIDTH},
             "textAlign": "center",
             "altText": _liquid_safe_name(brand),
             "action": {"name": "web", "values": {"href": "", "target": "_blank"}},

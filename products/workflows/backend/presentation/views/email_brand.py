@@ -1,8 +1,9 @@
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -12,7 +13,8 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models import UploadedMedia
+from posthog.event_usage import report_user_action
+from posthog.models import UploadedMedia, User
 from posthog.models.integration import Integration
 from posthog.models.uploaded_media import MEDIA_PURPOSE_EMAIL
 
@@ -34,6 +36,8 @@ from products.workflows.backend.services.email_brand_detection import (
     detect_repository_brand,
 )
 from products.workflows.backend.services.email_brand_starter_template import StarterTemplate, build_starter_template
+
+logger = structlog.get_logger(__name__)
 
 BRAND_DETECTION_FEATURE_FLAG = "workflows-brand-detection"
 
@@ -183,7 +187,7 @@ class EmailBrandStarterTemplateSerializer(serializers.Serializer):
 class DesignRenderingUnavailable(exceptions.APIException):
     status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
     default_code = "design_rendering_unavailable"
-    default_detail = "This instance can't render email designs. Open the starter design in the email editor instead."
+    default_detail = "The email design couldn't be rendered here. Open the starter design in the email editor instead."
 
 
 class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -284,19 +288,20 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(
         summary="Create a starter email template from the Email brand",
         description="Creates an ordinary email template. Later Email brand changes do not change it. "
-        "Returns 422 with the code design_rendering_unavailable when this instance cannot render designs; "
+        "Returns 422 with the code design_rendering_unavailable when the design can't be rendered on the server; "
         "open the starter design in the email editor instead.",
         request=None,
         responses={
             201: EmailBrandStarterTemplateSerializer,
             404: OpenApiResponse(description="The project has no Email brand yet."),
-            422: OpenApiResponse(description="Design rendering is unavailable on this instance."),
+            422: OpenApiResponse(description="The design can't be rendered on the server."),
         },
     )
     @action(detail=False, methods=["POST"])
     def create_starter_template(self, request: Request, **kwargs: Any) -> Response:
         starter = build_starter_template(self._saved_brand())
         template = self._create_template(starter, html=self._render(starter))
+        self._report_template_created(template)
         return Response(
             EmailBrandStarterTemplateSerializer({"template_id": template.id}).data, status=status.HTTP_201_CREATED
         )
@@ -312,7 +317,7 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _create_template(self, starter: StarterTemplate, html: str) -> MessageTemplate:
         return MessageTemplate.objects.create(
             team_id=self.team.id,
-            created_by=self.request.user,
+            created_by=cast(User, self.request.user),
             name=starter.name,
             description=starter.description,
             type="email",
@@ -321,6 +326,25 @@ class EmailBrandViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "email": {"subject": starter.subject, "html": html, "design": starter.design},
             },
         )
+
+    def _report_template_created(self, template: MessageTemplate) -> None:
+        # Capture must never fail a request whose template is already saved.
+        try:
+            report_user_action(
+                cast(User, self.request.user),
+                "message_template_created",
+                {
+                    "template_id": str(template.id),
+                    "team_id": str(self.team_id),
+                    "organization_id": str(self.organization_id),
+                    "source": "email_brand_starter",
+                },
+                team=self.team,
+                organization=self.organization,
+                request=self.request,
+            )
+        except Exception as error:
+            logger.warning("Failed to capture message template usage event", error=str(error))
 
     def _saved_brand(self) -> EmailBrand:
         brand = self._project_brands().first()

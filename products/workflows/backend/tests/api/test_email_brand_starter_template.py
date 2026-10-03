@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,8 +12,10 @@ from posthog.models import UploadedMedia
 
 from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models import MessageTemplate
+from products.messaging.backend.unlayer import UnlayerRenderError
 
 BRAND_DETECTION_FLAG = "workflows-brand-detection"
+RENDER_DESIGN_HTML = "products.workflows.backend.presentation.views.email_brand.render_design_html"
 RENDERED_HTML = "<html><body>Rendered by Unlayer</body></html>"
 
 
@@ -97,8 +101,11 @@ class TestEmailBrandStarterTemplateAPI(APIBaseTest):
         header = design["body"]["rows"][0]["columns"][0]["contents"]
         assert [(content["type"], content["values"]["text"]) for content in header] == [("heading", "Acme")]
 
-    @patch("products.workflows.backend.presentation.views.email_brand.render_design_html", return_value=RENDERED_HTML)
-    def test_creates_a_template_that_later_brand_edits_leave_unchanged(self, render: MagicMock, _flag):
+    @patch("products.workflows.backend.presentation.views.email_brand.report_user_action")
+    @patch(RENDER_DESIGN_HTML, return_value=RENDERED_HTML)
+    def test_creates_a_template_that_later_brand_edits_leave_unchanged(
+        self, render: MagicMock, report: MagicMock, _flag
+    ):
         self._save_brand(name="Acme", primary_color="#1d4aff")
         design = self._starter_design()["design"]
 
@@ -113,16 +120,27 @@ class TestEmailBrandStarterTemplateAPI(APIBaseTest):
         assert created["content"]["email"]["html"] == RENDERED_HTML
         assert created["content"]["email"]["subject"]
         render.assert_called_once_with(design)
+        event, properties = report.call_args.args[1:3]
+        assert (event, properties["template_id"]) == ("message_template_created", response.json()["template_id"])
 
         self._save_brand(name="Globex", primary_color="#00aa55")
 
         assert self.client.get(template_url).json()["content"] == created["content"]
 
+    @parameterized.expand(
+        [
+            ("no unlayer key", nullcontext()),
+            ("unlayer export failed", patch(RENDER_DESIGN_HTML, side_effect=UnlayerRenderError("HTTP 503"))),
+        ]
+    )
     @override_settings(UNLAYER_API_KEY="")
-    def test_without_an_unlayer_key_creation_asks_for_the_editor_and_creates_nothing(self, _flag):
+    def test_when_the_server_cannot_render_creation_asks_for_the_editor_and_creates_nothing(
+        self, _flag, _name, rendering
+    ):
         self._save_brand(name="Acme")
 
-        response = self._create_starter_template()
+        with rendering:
+            response = self._create_starter_template()
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.json()
         assert response.json()["code"] == "design_rendering_unavailable"
