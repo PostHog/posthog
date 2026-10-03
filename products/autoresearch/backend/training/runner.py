@@ -431,8 +431,8 @@ def build_agent_description(
           the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
           events). `person.properties.*` and `LEFT JOIN persons` both join the persons table, which is
           slow on large teams, and return current values, which leak the label window at training.
-        - Compare iterations on AUC and on the cost that `autoresearch-materialize-features` returns
-          (step 3).
+        - Check the cost that `autoresearch-materialize-features` returns (step 3) before you build on
+          a query. Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
 
@@ -452,8 +452,9 @@ def build_agent_description(
         Call materialize ONCE per `features_sql` and run many model iterations in Python on the same
         parquet; re-call it only after you edit `features_sql`. The response also gives the feature query's
         cost: `feature_query_elapsed_ms`, `feature_query_rows_read` and `feature_query_bytes_read`. Record
-        them in the iteration's `agent_description`, and prefer the cheaper query when two iterations
-        score about the same AUC. Each call rebuilds the population, T0s
+        them in the iteration's `agent_description`. The backend promotes the kept iteration with the
+        highest holdout AUC, whatever it costs, and your uploaded `features.sql` must be that iteration's
+        query, so never upload a cheaper query that scored lower. Each call rebuilds the population, T0s
         and labels from current data, so compare model changes on one materialization, and treat a small
         AUC shift across two materializations as possible data drift, not proof the new SQL is better. `execute-sql` is for lightweight schema exploration only — never for
         pulling feature rows (it caps at 500 rows and would force the data through your context).
