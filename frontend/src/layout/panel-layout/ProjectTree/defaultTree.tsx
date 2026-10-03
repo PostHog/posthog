@@ -84,7 +84,7 @@ import {
 } from '@posthog/icons'
 
 import {
-    IconBracketsChart,
+    IconSQL,
     IconInsightFunnels,
     IconInsightLifecycle,
     IconInsightRetention,
@@ -328,7 +328,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconInsightStickiness />,
     },
     'insight/hog': {
-        icon: <IconBracketsChart />,
+        icon: <IconSQL />,
     },
     team_activity: {
         icon: <IconNotification />,

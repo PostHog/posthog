@@ -847,23 +847,39 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             overlay: (
                                                 <LemonMenuOverlay
                                                     items={[
-                                                        continueInNotebookMenuItem,
                                                         {
-                                                            label: 'Save as new insight...',
-                                                            disabledReason: saveAsInsightDisabledReason,
-                                                            onClick: () => saveAsInsight(),
+                                                            items: [
+                                                                continueInNotebookMenuItem,
+                                                                {
+                                                                    label: 'Save as new insight...',
+                                                                    disabledReason: saveAsInsightDisabledReason,
+                                                                    onClick: () => saveAsInsight(),
+                                                                },
+                                                                {
+                                                                    label: 'Save as new view...',
+                                                                    disabledReason:
+                                                                        saveAsDisabledReason ??
+                                                                        saveAsViewAccessDisabledReason,
+                                                                    onClick: () => saveAsView(),
+                                                                },
+                                                                {
+                                                                    label: 'Save as endpoint...',
+                                                                    disabledReason:
+                                                                        saveAsDisabledReason ??
+                                                                        saveAsEndpointDisabledReason,
+                                                                    onClick: () => saveAsEndpoint(),
+                                                                },
+                                                            ],
                                                         },
                                                         {
-                                                            label: 'Save as new view...',
-                                                            disabledReason:
-                                                                saveAsDisabledReason ?? saveAsViewAccessDisabledReason,
-                                                            onClick: () => saveAsView(),
-                                                        },
-                                                        {
-                                                            label: 'Save as endpoint...',
-                                                            disabledReason:
-                                                                saveAsDisabledReason ?? saveAsEndpointDisabledReason,
-                                                            onClick: () => saveAsEndpoint(),
+                                                            items: [
+                                                                {
+                                                                    label: 'Reset view',
+                                                                    'data-attr': 'sql-editor-reset-view',
+                                                                    tooltip: closeObjectTooltip,
+                                                                    onClick: () => closeEditingObject(),
+                                                                },
+                                                            ],
                                                         },
                                                     ]}
                                                 />
@@ -873,15 +889,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     Update insight
                                 </LemonButton>
-                                <LemonButton
-                                    onClick={() => closeEditingObject()}
-                                    icon={<IconX />}
-                                    type="secondary"
-                                    size="small"
-                                    noPadding
-                                    aria-label="close"
-                                    tooltip={closeObjectTooltip}
-                                />
                             </>
                         ) : editingMetricName ? (
                             <>

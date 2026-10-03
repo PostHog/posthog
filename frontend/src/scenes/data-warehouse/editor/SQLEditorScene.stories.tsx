@@ -316,7 +316,11 @@ export const EditedInsight: Story = {
             'aria-disabled',
             'true'
         )
-        await userEvent.keyboard('{Escape}')
+        await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
+        await userEvent.click(menu.getByText('Reset view'))
+        await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
+        await expect(canvas.getByRole('button', { name: 'Save as insight' })).toBeVisible()
+        await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
     },
 }
 
