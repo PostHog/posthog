@@ -51,7 +51,11 @@ class HoneycombRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class HoneycombSloCountsUnavailableError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class HoneycombResumeConfig:
     # The fan-out dataset currently being processed, bookmarked by its stable slug (not a
     # positional index) so datasets created/deleted between a crash and the retry can't resume
@@ -132,13 +136,13 @@ def _fetch_list_skipping_missing(
 
 def _fetch_slo_counts_buckets(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> list[dict[str, Any]]:
-    """Fetch one SLO's hourly count buckets, treating 404 as empty (SLO deleted mid-sync)."""
+) -> list[dict[str, Any]] | None:
+    """Fetch one SLO's hourly count buckets, or None on 404 (SLO deleted, or feature off)."""
     try:
         data = _fetch_page(session, url, headers, logger).json()
     except requests.HTTPError as exc:
         if exc.response is not None and exc.response.status_code == 404:
-            return []
+            return None
         raise
     buckets = data.get("buckets") if isinstance(data, dict) else None
     return buckets if isinstance(buckets, list) else []
@@ -300,9 +304,11 @@ def _iter_slo_counts_history(
     watermark hour itself is re-read: the latest bucket is often `is_partial` and keeps
     growing until the hour completes, and merge on the primary key replaces it."""
     now = int(datetime.now(UTC).timestamp())
-    start = _to_epoch_seconds(db_incremental_field_last_value)
-    if start is None:
-        start = now - int(SLO_COUNTS_HISTORY_LOOKBACK.total_seconds())
+    floor = now - int(SLO_COUNTS_HISTORY_LOOKBACK.total_seconds())
+    watermark = _to_epoch_seconds(db_incremental_field_last_value)
+    # The lookback also floors the watermark: a non-epoch value (e.g. a user-picked count
+    # column) would otherwise walk decades of empty windows, one request per SLO each.
+    start = floor if watermark is None else max(watermark, floor)
     start -= start % SECONDS_PER_HOUR
 
     slos: list[tuple[str, str]] = []
@@ -316,10 +322,20 @@ def _iter_slo_counts_history(
         window_end = min(window_start + window_seconds, now)
         query = urlencode({"start_time": window_start, "end_time": window_end})
         rows: list[dict[str, Any]] = []
+        found_any = False
         for dataset_slug, slo_id in slos:
             url = f"{base_url}{config.path.format(dataset_slug=dataset_slug, slo_id=slo_id)}?{query}"
             buckets = _fetch_slo_counts_buckets(session, url, headers, logger)
+            if buckets is None:
+                continue
+            found_any = True
             rows.extend({**bucket, "dataset_slug": dataset_slug, "slo_id": slo_id} for bucket in buckets)
+        # One deleted SLO 404s on its own; every SLO 404ing means the endpoint is off for this
+        # team, which must fail loudly rather than finish as an empty sync.
+        if slos and not found_any and window_start == start:
+            raise HoneycombSloCountsUnavailableError(
+                "Honeycomb SLO counts history is unavailable for this API key: every SLO returned 404"
+            )
         if rows:
             yield rows
         window_start = window_end

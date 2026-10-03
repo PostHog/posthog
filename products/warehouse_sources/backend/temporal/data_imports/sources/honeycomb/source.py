@@ -95,6 +95,7 @@ Keys are region-specific — pick the region that matches your Honeycomb account
             "401 Client Error: Unauthorized for url: https://api.eu1.honeycomb.io": "Your Honeycomb API key is invalid, revoked, or for a different region. Create a configuration key in your Honeycomb environment settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.honeycomb.io": "Your Honeycomb API key is missing a permission needed to sync this data. Grant the matching access (e.g. Manage SLOs, Manage Triggers) on the key, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.eu1.honeycomb.io": "Your Honeycomb API key is missing a permission needed to sync this data. Grant the matching access (e.g. Manage SLOs, Manage Triggers) on the key, then reconnect.",
+            "Honeycomb SLO counts history is unavailable": "Honeycomb SLO counts history needs the Enterprise plan, with the feature turned on for your team by Honeycomb. Ask your Honeycomb account team to turn it on, or stop syncing the slo_counts_history table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

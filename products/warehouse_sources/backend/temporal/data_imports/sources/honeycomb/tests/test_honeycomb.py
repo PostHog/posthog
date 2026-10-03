@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb 
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.honeycomb import (
     HoneycombResumeConfig,
     HoneycombRetryableError,
+    HoneycombSloCountsUnavailableError,
     _base_url,
     _get_headers,
     get_rows,
@@ -317,7 +318,14 @@ def _history_url(dataset_slug: str, slo_id: str, start: int, end: int) -> str:
 
 
 class TestSloCountsHistory:
-    def test_full_refresh_walks_lookback_in_weekly_windows_across_every_slo(self, monkeypatch: Any) -> None:
+    @parameterized.expand(
+        [
+            ("no_watermark", None),
+            # A watermark from a non-epoch column must not walk back to 1970.
+            ("watermark_older_than_lookback", 84513),
+        ]
+    )
+    def test_walks_lookback_in_weekly_windows_across_every_slo(self, _name: str, last_value: Any) -> None:
         aligned_now = NOW - NOW % HOUR
         first_start = aligned_now - 90 * DAY
         window_starts = list(range(first_start, NOW, 7 * DAY))
@@ -332,7 +340,9 @@ class TestSloCountsHistory:
             # A deleted SLO 404s; that must drop its rows, not fail the sync.
             responses[_history_url("prod", "slo2", start, end)] = 404
 
-        batches, session = _collect_counts_history(responses, None, monkeypatch)
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            batches, session = _collect_counts_history(responses, last_value, mp)
 
         assert len(batches) == len(window_starts)
         assert batches[0] == [{**_bucket(first_start), "dataset_slug": "prod", "slo_id": "slo1"}]
@@ -371,6 +381,17 @@ class TestSloCountsHistory:
                 {**_bucket(watermark_hour), "dataset_slug": "api", "slo_id": "slo2"},
             ]
         ]
+
+    def test_every_slo_404ing_fails_instead_of_syncing_empty(self, monkeypatch: Any) -> None:
+        watermark_hour = NOW - NOW % HOUR
+        responses: dict[str, Any] = {
+            f"{US}/1/datasets": [{"slug": "prod"}],
+            f"{US}/1/slos/prod": [{"id": "slo1"}, {"id": "slo2"}],
+            _history_url("prod", "slo1", watermark_hour, NOW): 404,
+            _history_url("prod", "slo2", watermark_hour, NOW): 404,
+        }
+        with pytest.raises(HoneycombSloCountsUnavailableError):
+            _collect_counts_history(responses, watermark_hour, monkeypatch)
 
 
 class TestRecipientCredentialScrubbing:

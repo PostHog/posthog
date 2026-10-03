@@ -123,6 +123,10 @@ class TestHoneycombSource:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
+    def test_unavailable_slo_counts_history_is_non_retryable(self) -> None:
+        observed = "Honeycomb SLO counts history is unavailable for this API key: every SLO returned 404"
+        assert any(key in observed for key in self.source.get_non_retryable_errors())
+
     @parameterized.expand(
         [
             ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.honeycomb.io/1/datasets"),
