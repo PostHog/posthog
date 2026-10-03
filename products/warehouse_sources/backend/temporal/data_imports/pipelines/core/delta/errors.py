@@ -63,6 +63,13 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     subclass, so the message-matched branch below never sees it; recognized by type for the same
     reason as `NoCredentialsError`.
 
+    `ensure_bucket_exists` already retries a `HeadBucket` 403 itself (the response carries no error
+    body to tell a credential-bootstrap race apart from a genuine denial, same ambiguity as the
+    sibling `HeadObject` case `_is_retryable_purge_error` documents) before giving up. An exhausted
+    retry here is the tail of that same startup race against our own instance-role-authenticated
+    bucket, not a customer permission problem, so it's recognized by exact shape (operation name +
+    the bodyless "403" code) rather than by message.
+
     A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
     descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
     botocore's own bundled `endpoints.json` fails with this errno before any network call is even
@@ -78,10 +85,22 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
+    if _is_exhausted_head_bucket_forbidden(error):
+        return True
     if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE):
         return True
     return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
         needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
+
+
+def _is_exhausted_head_bucket_forbidden(error: BaseException) -> bool:
+    """True for the `ClientError` `ensure_bucket_exists` raises once its own `HeadBucket` 403 retries
+    are exhausted (see its `_HEAD_BUCKET_MAX_ATTEMPTS` loop) — see `is_transient_object_store_error`."""
+    return (
+        isinstance(error, botocore.exceptions.ClientError)
+        and error.operation_name == "HeadBucket"
+        and error.response.get("Error", {}).get("Code") == "403"
     )
 
 

@@ -94,6 +94,28 @@ class TestIsTransientObjectStoreError:
             # further up the stack that catches broadly and re-runs this classifier on the caught
             # exception sees the wrapper, not the original — it must still read as transient.
             ("already_wrapped_transient_error", TransientObjectStoreError("Please reduce your request rate"), True),
+            (
+                # `ensure_bucket_exists` already retries this exact shape (a bodyless HeadBucket 403,
+                # same ambiguity as the HeadObject case above) before giving up — an exhausted retry
+                # is the tail of that same local/self-hosted object-store bootstrap race.
+                "exhausted_head_bucket_forbidden",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "HeadBucket"),
+                True,
+            ),
+            (
+                # A 403 from some other S3 operation isn't the bodyless-response ambiguity HeadBucket
+                # has — must not be swept up just because it shares the error code.
+                "other_operation_403_not_matched",
+                botocore.exceptions.ClientError({"Error": {"Code": "403"}}, "PutObject"),
+                False,
+            ),
+            (
+                # A HeadBucket failure with a different code (e.g. a real AccessDenied that does
+                # carry a body) isn't the bootstrap race either.
+                "head_bucket_non_403_not_matched",
+                botocore.exceptions.ClientError({"Error": {"Code": "AccessDenied"}}, "HeadBucket"),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
