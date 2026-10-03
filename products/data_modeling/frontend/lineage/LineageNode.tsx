@@ -347,6 +347,11 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     const handleKeyDown = (e: React.KeyboardEvent): void => {
+        // The card holds its own controls, such as the open link. Keys pressed on one of those
+        // belong to it, so only act on keys the card itself received.
+        if (e.target !== e.currentTarget) {
+            return
+        }
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault()
             callbacks.onClick?.(e)
@@ -354,8 +359,9 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     }
 
     const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const cardAction = callbacks.onSelectLineage ? 'highlights its lineage' : `opens ${destination}`
     const ariaLabel = [
-        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, opens ${destination}`,
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
         node.lineage_issue && lineageIssueMessage(node.lineage_issue),
     ]
         .filter(Boolean)

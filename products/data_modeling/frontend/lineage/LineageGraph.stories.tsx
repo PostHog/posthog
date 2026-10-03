@@ -263,8 +263,11 @@ export const DraggableNodes: Story = {
         ) {
             throw new Error('The explicit node link must open in a new tab')
         }
-        if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
+        if (!nodeCard || nodeCard.closest('a')) {
             throw new Error('A draggable node must not navigate as a card')
+        }
+        if (!nodeCard.getAttribute('aria-label')?.includes('highlights its lineage')) {
+            throw new Error('A node card must announce that it highlights lineage, not that it opens the model')
         }
     },
 }
