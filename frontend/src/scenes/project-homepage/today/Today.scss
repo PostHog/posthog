@@ -1,7 +1,12 @@
 // The Today layout keeps its own "paper" palette. Colours that also appear on tinted surfaces stay literal,
-// the rest switch with the app theme. The app layout shares it so the page behind the rail matches.
+// the rest switch with the app theme. The app layout shares it so the page behind the rail matches, and
+// pen strokes inside portaled evidence cards read it too.
 .Today,
-.TodayAppLayout {
+.TodayAppLayout,
+.TodayPenned,
+.TodayEvidenceCard,
+.TodayEvidencePopup,
+.TodayMenu {
     --today-ink: #151515;
     --today-muted: #8d8d88;
     --today-faint: #a3a39e;
@@ -27,6 +32,8 @@
     --today-ease-rise: cubic-bezier(0.22, 1, 0.36, 1);
     --today-ease-nudge: cubic-bezier(0.2, 0.8, 0.2, 1);
     --today-card-shadow: 0 1px 2px #00000008, 0 12px 32px -24px #00000059;
+    --today-marker: #f54e00;
+    --today-key-clause: rgb(29 74 255 / 0.75);
 
     [theme='dark'] & {
         --today-ink: #f1f1ee;
@@ -49,6 +56,8 @@
         --today-button-text: #151515;
         --today-pill: #262624;
         --today-pill-border: #333331;
+        --today-marker: #ff8a4c;
+        --today-key-clause: rgb(138 164 255 / 0.85);
     }
 }
 
@@ -265,7 +274,7 @@
 }
 
 .TodayReport {
-    padding: 56px 0 140px;
+    padding: 94px 0 140px;
 }
 
 .TodayHome__meta {
@@ -508,6 +517,259 @@
     margin: 0;
     font-size: 12px;
     color: var(--today-muted);
+}
+
+// A figure marked by hand, the way a reader marks a printed report: a pen stroke under it,
+// and a pen circle around it while its source is open.
+// The small side margin is always there, so the loop has room in the word gaps without the line moving on hover.
+.TodayMark {
+    position: relative;
+    display: inline-block;
+    margin-inline: 0.04em;
+    white-space: nowrap;
+    cursor: default;
+    outline: none;
+
+    &:first-child {
+        margin-inline-start: 0;
+    }
+}
+
+// The clause Jev picked as the cause or the key change, underlined in a second ink so it never reads as a sourced figure.
+.TodayKeyClause {
+    padding-bottom: 0.12em;
+    background-image: linear-gradient(var(--today-key-clause), var(--today-key-clause));
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 100% 1.5px;
+    outline: none;
+    cursor: default;
+    transition: background-size 0.15s var(--today-ease);
+    animation: TodayKeyClause__sweep 0.7s var(--today-ease-in-out) 0.5s both;
+
+    &:hover,
+    &:focus-visible,
+    &[data-popup-open] {
+        background-size: 100% 2.5px;
+    }
+}
+
+@keyframes TodayKeyClause__sweep {
+    from {
+        background-size: 0% 1.5px;
+    }
+}
+
+// An evidence card opens under its paragraph across the full column. A narrow halo in the page color keeps
+// its edge clean, and the blocks below fade evenly, so nothing reads as half erased.
+// Lines the card cuts through fade out under it rather than ending at a hard edge.
+.TodayEvidencePopup {
+    position: relative;
+
+    &::after {
+        position: absolute;
+        top: calc(100% + 1px);
+        right: -8px;
+        left: -8px;
+        height: 32px;
+        content: '';
+        pointer-events: none;
+        background: linear-gradient(var(--today-paper), transparent);
+    }
+}
+
+.TodayEvidenceCard {
+    border-color: var(--today-line);
+    background: var(--today-card);
+
+    [theme='dark'] & {
+        border-color: #5c5c55;
+        background: #242422;
+        box-shadow:
+            0 0 0 8px var(--today-paper),
+            0 10px 28px -10px #000000b3;
+    }
+
+    box-shadow:
+        0 0 0 8px var(--today-paper),
+        0 1px 2px #00000008,
+        0 6px 16px -8px #00000024;
+}
+
+// While an evidence card is open, the blocks below its paragraph step back, so the card never leaves
+// half-covered lines or buttons around it.
+.TodayReportArticle {
+    > *,
+    [data-attr='today-report-abstract'] {
+        transition: opacity 0.15s;
+    }
+
+    &:has(.TodayMark[data-popup-open], .TodayKeyClause[data-popup-open]) {
+        > :not(:has(.TodayMark[data-popup-open], .TodayKeyClause[data-popup-open])),
+        [data-attr='today-report-abstract']:not(:has(.TodayMark[data-popup-open], .TodayKeyClause[data-popup-open])) {
+            opacity: 0.06;
+            filter: grayscale(1);
+        }
+    }
+}
+
+// The action menu sits on the same raised surface as the evidence card, so it lifts off the page.
+.TodayMenu.TodayMenu {
+    border: 1px solid var(--today-line);
+    background: var(--today-card);
+    box-shadow:
+        0 1px 2px #0000000f,
+        0 12px 32px -8px #00000038;
+
+    [role='separator'] {
+        background-color: var(--today-line);
+    }
+
+    [theme='dark'] & {
+        border-color: #5c5c55;
+        background: #242422;
+        box-shadow: 0 12px 32px -8px #000000c0;
+
+        [role='separator'] {
+            background-color: #3c3c38;
+        }
+    }
+}
+
+// An opened evidence row eases its detail into place below the headline.
+.TodaySignalReading {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: TodaySignalReading__open 0.22s var(--today-ease);
+}
+
+@keyframes TodaySignalReading__open {
+    from {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+}
+
+// A code excerpt inside an opened evidence row: a file header, then the lines on the card surface.
+.TodayCode {
+    border-color: var(--today-line);
+    background: var(--today-card);
+
+    &__header {
+        border-bottom: 1px solid var(--today-line);
+    }
+
+    &__body {
+        color: color-mix(in srgb, currentColor 78%, transparent);
+    }
+
+    &__line {
+        padding-inline-start: 2ch;
+        text-indent: -2ch;
+
+        .TodayPenned {
+            text-indent: 0;
+        }
+    }
+}
+
+.TodaySignalReading .TodaySignalReading__text {
+    color: color-mix(in srgb, var(--foreground) 72%, transparent);
+}
+
+.TodayEvidenceCard blockquote {
+    border-inline-start-color: color-mix(in srgb, currentColor 22%, transparent);
+}
+
+// A number in an evidence card that backs a marked figure carries the same stroke.
+.TodayPenned {
+    position: relative;
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.TodayPen {
+    position: absolute;
+    bottom: -0.18em;
+    left: -0.04em;
+    width: calc(100% + 0.16em);
+    height: 0.38em;
+    overflow: visible;
+    pointer-events: none;
+    transition: opacity 0.15s;
+
+    path {
+        fill: none;
+        stroke: var(--today-marker);
+        stroke-width: 3.8;
+        stroke-linecap: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        animation: TodayPen__draw 0.42s cubic-bezier(0.55, 0.1, 0.35, 1) var(--today-mark-delay, 0ms) forwards;
+    }
+
+    path + path {
+        opacity: 0.5;
+        stroke-width: 2.6;
+        animation-duration: 0.3s;
+        animation-delay: calc(var(--today-mark-delay, 0ms) + 0.36s);
+    }
+}
+
+// Drawn behind the text, so the loop never crosses a letter.
+.TodayMark__circle {
+    position: absolute;
+    z-index: -1;
+    top: -0.12em;
+    left: -0.26em;
+    width: calc(100% + 0.52em);
+    height: calc(100% + 0.24em);
+    overflow: visible;
+    pointer-events: none;
+
+    path {
+        fill: none;
+        stroke: var(--today-marker);
+        stroke-width: 1.8px;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        vector-effect: non-scaling-stroke;
+        transition: stroke-dashoffset 0.18s ease-in;
+    }
+}
+
+.TodayMark:hover,
+.TodayMark:focus-visible,
+.TodayMark[data-popup-open] {
+    .TodayPen {
+        opacity: 0;
+    }
+
+    .TodayMark__circle path {
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 0.5s var(--today-ease);
+    }
+}
+
+@keyframes TodayPen__draw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayPen path {
+        stroke-dashoffset: 0;
+        animation: none;
+    }
+
+    .TodayMark .TodayMark__circle path,
+    .TodayMark:hover .TodayMark__circle path,
+    .TodayMark[data-popup-open] .TodayMark__circle path {
+        transition: none;
+    }
 }
 
 // Keyframes

@@ -5,31 +5,22 @@ import { Button, Heading, Skeleton, Text } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { ReportChartsContext } from 'products/signals/frontend/inbox/components/detail/reportChartsContext'
-import { ReportFeedbackFooter } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackFooter'
-
-import { TodayReportContinue } from './TodayReportContinue'
-import { TodayReportEvidence } from './TodayReportEvidence'
-import { TodayReportHeader } from './TodayReportHeader'
-import { TodayReportImpact } from './TodayReportImpact'
-import { TodayReportLiveContinue } from './TodayReportLiveContinue'
+import { TodayReportBody } from './TodayReportBody'
+import { TodayReportLiveBody } from './TodayReportLiveBody'
 import { todayReportLogic } from './todayReportLogic'
-import { TodayReportPrompts } from './TodayReportPrompts'
-import { TodayReportProposal } from './TodayReportProposal'
 import { TodaySampleBanner } from './TodaySampleBanner'
 import { isSampleReportId } from './todaySampleReports'
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, chartsById, reportUrl, sections, reportState } =
-        useValues(logic)
+    const { currentReport, reportFailed, fullReportLoading, reportUrl, sections, reportState } = useValues(logic)
     const { loadFullReport } = useActions(logic)
 
     if (!currentReport) {
         return reportFailed ? (
             <div className="TodayReport Today__page" data-quill>
                 <TodaySampleBanner />
-                <div className="flex max-w-170 flex-col gap-3">
+                <div className="flex max-w-150 flex-col gap-3">
                     <Heading size="lg" render={<h1 />}>
                         Couldn’t open this report.
                     </Heading>
@@ -47,6 +38,7 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                         </Button>
                         <Button
                             variant="outline"
+                            nativeButton={false}
                             render={<LinkPrimitive to={urls.projectHomepage()} />}
                             data-attr="today-report-missing-home"
                         >
@@ -57,43 +49,56 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
             </div>
         ) : (
             <div className="TodayReport Today__page" data-quill>
-                <div className="flex max-w-170 flex-col gap-4">
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-7 w-3/4" />
-                    <Skeleton className="h-8 w-full" />
-                    <Skeleton className="h-24 w-full" />
+                <div className="flex max-w-150 flex-col gap-10" aria-busy>
+                    <div className="flex flex-col gap-3">
+                        <div className="flex h-7 items-center justify-between">
+                            <Skeleton className="h-3 w-48" />
+                            <Skeleton className="h-3 w-40" />
+                        </div>
+                        <Skeleton className="h-6 w-4/5" />
+                        <div className="flex flex-col gap-2 pt-1">
+                            <Skeleton className="h-3.5 w-full" />
+                            <Skeleton className="h-3.5 w-2/3" />
+                        </div>
+                        <Skeleton className="mt-3 h-3.5 w-3/5" />
+                    </div>
+                    <div className="flex flex-col gap-2">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-3.5 w-full" />
+                        <Skeleton className="h-3.5 w-1/2" />
+                        <div className="mt-2 flex items-center gap-4">
+                            <Skeleton className="h-8 w-32" />
+                            <Skeleton className="h-3.5 w-16" />
+                            <Skeleton className="h-3.5 w-24" />
+                        </div>
+                    </div>
+                    <div className="flex flex-col gap-5">
+                        <Skeleton className="h-4 w-20" />
+                        {['w-11/12', 'w-3/4', 'w-5/6'].map((width) => (
+                            <div key={width} className="flex items-start justify-between gap-6">
+                                <div className="flex flex-1 flex-col gap-2">
+                                    <Skeleton className="h-3.5 w-full" />
+                                    <Skeleton className={`h-3.5 ${width}`} />
+                                </div>
+                                <Skeleton className="h-3 w-12" />
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         )
     }
 
-    const isSample = isSampleReportId(currentReport.id)
+    const bodyProps = { report: currentReport, reportState, reportUrl, sections }
 
     return (
         <div className="TodayReport Today__page" data-quill>
             <TodaySampleBanner />
-            <article className="flex max-w-170 flex-col gap-8">
-                <div className="flex flex-col gap-5">
-                    <TodayReportHeader report={currentReport} reportState={reportState} />
-                    <ReportChartsContext.Provider value={chartsById}>
-                        <TodayReportImpact report={currentReport} sections={sections} />
-                    </ReportChartsContext.Provider>
-                </div>
-                <TodayReportProposal sections={sections} />
-                {isSample ? (
-                    <TodayReportContinue
-                        report={currentReport}
-                        reportUrl={reportUrl}
-                        reportTaskToOpen={null}
-                        implementationSlotClaim={null}
-                    />
-                ) : (
-                    <TodayReportLiveContinue report={currentReport} reportUrl={reportUrl} />
-                )}
-                <TodayReportEvidence reportId={currentReport.id} />
-                <TodayReportPrompts report={currentReport} />
-                {!isSample && <ReportFeedbackFooter report={currentReport} />}
-            </article>
+            {isSampleReportId(currentReport.id) ? (
+                <TodayReportBody {...bodyProps} live={null} />
+            ) : (
+                <TodayReportLiveBody {...bodyProps} />
+            )}
         </div>
     )
 }

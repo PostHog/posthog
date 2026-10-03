@@ -1,19 +1,41 @@
+import { useValues } from 'kea'
+
 import { Text } from '@posthog/quill'
 
-import { TodayReportSections } from './todayReportPresentation'
-import { TodayReportProse } from './TodayReportProse'
+import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-export function TodayReportProposal({ sections }: { sections: TodayReportSections }): JSX.Element | null {
-    if (!sections.proposal && !sections.expected) {
-        return null
-    }
+import { renderedText } from './todayKeyClauses'
+import { TodayMarkedText } from './TodayMarkedText'
+import { todayReportLogic } from './todayReportLogic'
+import { TodayReportSections, reportProposal } from './todayReportPresentation'
+import { TodayReportSectionTitle } from './TodayReportSectionTitle'
+
+export function TodayReportProposal({
+    report,
+    sections,
+}: {
+    report: SignalReport
+    sections: TodayReportSections
+}): JSX.Element {
+    const { keyClauses } = useValues(todayReportLogic({ reportId: report.id }))
+    const proposal = reportProposal(report, sections)
     return (
-        <section className="flex flex-col gap-2" data-attr="today-report-proposal">
-            <Text size="sm" render={<h2 />} className="font-semibold">
-                Proposal
-            </Text>
-            {sections.proposal && <TodayReportProse markdown={sections.proposal} tone="body" />}
-            {sections.expected && <TodayReportProse markdown={`**Expected:** ${sections.expected}`} tone="body" />}
-        </section>
+        <div className="flex flex-col gap-2">
+            <TodayReportSectionTitle>Proposal</TodayReportSectionTitle>
+            {proposal ? (
+                <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
+                    <TodayMarkedText
+                        markdown={proposal}
+                        marked={[]}
+                        reportId={report.id}
+                        keyClauses={keyClauses[renderedText(proposal)]}
+                    />
+                </Text>
+            ) : (
+                <Text size="sm" variant="muted" render={<p />}>
+                    No fix proposed yet.
+                </Text>
+            )}
+        </div>
     )
 }

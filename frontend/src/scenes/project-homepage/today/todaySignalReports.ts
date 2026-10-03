@@ -5,7 +5,25 @@ import type { TodayReportCard } from '~/layout/today/todayPreviewCards'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-export type TodayReportIcon = 'pr' | 'replay' | 'error' | 'llm' | 'survey' | 'analytics' | 'trace' | 'inbox'
+export type TodayReportIcon =
+    | 'pr'
+    | 'replay'
+    | 'error'
+    | 'llm'
+    | 'support'
+    | 'survey'
+    | 'analytics'
+    | 'logs'
+    | 'alert'
+    | 'scout'
+    | 'github'
+    | 'gitlab'
+    | 'linear'
+    | 'jira'
+    | 'database'
+    | 'signal'
+    | 'code'
+    | 'slack'
 
 /** One run of text in the briefing. A run with `reportId` links to that report. */
 export interface TodayBriefingSegment {
@@ -28,28 +46,30 @@ const SOURCES: Record<string, TodayReportSource> = {
     replay_vision: { label: 'Replay vision', color: 'var(--color-product-session-replay-light)', icon: 'replay' },
     llm_analytics: { label: 'LLM analytics', color: 'var(--color-product-llm-analytics-light)', icon: 'llm' },
     analytics: { label: 'Product analytics', color: 'var(--color-product-product-analytics-light)', icon: 'analytics' },
-    conversations: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'survey' },
-    zendesk: { label: 'Zendesk', color: 'var(--color-product-support-light)', icon: 'survey' },
+    conversations: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'support' },
+    zendesk: { label: 'Zendesk', color: 'var(--color-product-support-light)', icon: 'support' },
     surveys: { label: 'Surveys', color: 'var(--color-product-surveys-light)', icon: 'survey' },
-    logs: { label: 'Logs', color: 'var(--color-product-logs-light)', icon: 'trace' },
-    github: { label: 'GitHub', color: 'var(--color-text-secondary)', icon: 'pr' },
-    gitlab: { label: 'GitLab', color: 'var(--color-text-secondary)', icon: 'pr' },
-    linear: { label: 'Linear', color: 'var(--color-text-secondary)', icon: 'inbox' },
-    jira: { label: 'Jira', color: 'var(--color-text-secondary)', icon: 'inbox' },
+    logs: { label: 'Logs', color: 'var(--color-product-logs-light)', icon: 'logs' },
+    github: { label: 'GitHub', color: 'var(--color-text-secondary)', icon: 'github' },
+    gitlab: { label: 'GitLab', color: 'var(--color-text-secondary)', icon: 'gitlab' },
+    linear: { label: 'Linear', color: 'var(--color-text-secondary)', icon: 'linear' },
+    jira: { label: 'Jira', color: 'var(--color-text-secondary)', icon: 'jira' },
+    signals_scout: { label: 'Scout', color: 'var(--color-text-secondary)', icon: 'scout' },
+    pganalyze: { label: 'pganalyze', color: 'var(--color-text-secondary)', icon: 'database' },
     // Today item sources that are not signal products.
     product_analytics: {
         label: 'Product analytics',
         color: 'var(--color-product-product-analytics-light)',
         icon: 'analytics',
     },
-    alerts: { label: 'Alerts', color: 'var(--color-product-product-analytics-light)', icon: 'trace' },
-    support: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'survey' },
+    alerts: { label: 'Alerts', color: 'var(--color-product-product-analytics-light)', icon: 'alert' },
+    support: { label: 'Support', color: 'var(--color-product-support-light)', icon: 'support' },
 }
 
 const FALLBACK_SOURCE: TodayReportSource = {
-    label: 'Self-driving',
+    label: 'Signals',
     color: 'var(--color-text-secondary)',
-    icon: 'inbox',
+    icon: 'signal',
 }
 
 /** Questions that only ask for an answer, so they are safe to offer on any report. */
