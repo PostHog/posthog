@@ -15,6 +15,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.request import Request
 
+from posthog.models import User
+
 from products.signals.backend.artefact_schemas import ActionabilityChoice, RankingModelResult, RankingScore
 from products.signals.backend.briefing_reports import (
     BriefingReportRelation,
@@ -26,7 +28,7 @@ from products.signals.backend.briefing_reports import (
     reports_for_briefing,
     summary_lead,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
@@ -122,6 +124,50 @@ class TestReportsForBriefing(BaseTest):
         ]
         assert [(c.chart_id, c.query) for c in details.charts] == [("form-errors", query), ("page-leaves", query)]
         assert unreadable.metrics == []
+
+    def _name_me(self, report: SignalReport) -> None:
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content=json.dumps([{"github_login": "reviewer", "user_uuid": str(self.user.uuid)}]),
+        )
+
+    def test_each_report_keeps_its_strongest_relation_and_owned_urgent_reports_drop_out(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        waiting = self._urgent_report("Waiting")
+        SignalReport.objects.filter(pk=waiting.pk).update(status=SignalReport.Status.PENDING_INPUT)
+        self._name_me(waiting)
+        claimed = self._urgent_report("Claimed and urgent")
+        SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
+        self._name_me(self._urgent_report("Named and urgent"))
+        self._urgent_report("Urgent")
+        merged = self._urgent_report("Urgent, PR merged")
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=merged, pr_url="https://github.com/x/y/pull/1", pr_merged=True
+        )
+        open_pr = self._urgent_report("Urgent, PR open")
+        SignalReportAssignment.all_teams.create(team=self.team, report=open_pr, pr_url="https://github.com/x/y/pull/2")
+        claimed_by_other = self._urgent_report("Urgent, claimed by someone else")
+        SignalReportAssignment.all_teams.create(
+            team=self.team, report=claimed_by_other, actor_kind="user", actor_user=other
+        )
+        not_urgent = self._urgent_report("Not urgent")
+        SignalReport.objects.filter(pk=not_urgent.pk).update(
+            latest_actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT.value
+        )
+
+        with patch(SOURCE_PRODUCTS, return_value={}):
+            reports = reports_for_briefing(team_id=self.team.id, user_id=self.user.id)
+
+        assert {report.title: report.relation for report in reports} == {
+            "Waiting": BriefingReportRelation.WAITING_FOR_YOU,
+            "Claimed and urgent": BriefingReportRelation.CLAIMED,
+            "Named and urgent": BriefingReportRelation.SUGGESTED_REVIEWER,
+            "Urgent": BriefingReportRelation.URGENT_UNOWNED,
+            "Urgent, PR merged": BriefingReportRelation.URGENT_UNOWNED,
+        }
+        assert open_report_counts(team_id=self.team.id, user=self.user).for_person == len(reports)
 
     def test_open_report_counts_do_not_subtract_a_report_that_was_never_open(self) -> None:
         shown_open = self._urgent_report("Shown, still open")
