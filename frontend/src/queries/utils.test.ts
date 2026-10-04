@@ -23,6 +23,7 @@ import {
     queryVizDefinitelyRendersToCanvas,
     queryVizRendersToCanvas,
     supportsBarValueStacking,
+    taxonomicPersonFilterToHogQL,
     taxonomicSessionFilterToHogQL,
 } from './utils'
 
@@ -181,6 +182,18 @@ describe('taxonomicSessionFilterToHogQL', () => {
     it('rejects event-scoped picks, which the sessions table cannot resolve', () => {
         expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.EventProperties, '$browser')).toBeNull()
         expect(taxonomicSessionFilterToHogQL(TaxonomicFilterGroupType.EventFeatureFlags, '$feature/foo')).toBeNull()
+    })
+})
+
+describe('taxonomicPersonFilterToHogQL', () => {
+    it.each([
+        [TaxonomicFilterGroupType.PersonProperties, '$browser', 'properties.$browser'],
+        // Person metadata is a column on the persons table, so it carries no property prefix.
+        [TaxonomicFilterGroupType.PersonMetadata, 'created_at', 'created_at'],
+        [TaxonomicFilterGroupType.HogQLExpression, 'count()', 'count()'],
+        [TaxonomicFilterGroupType.EventProperties, '$browser', null],
+    ])('maps %s to %s', (groupType, value, expected) => {
+        expect(taxonomicPersonFilterToHogQL(groupType, value)).toEqual(expected)
     })
 })
 

@@ -155,6 +155,22 @@ describe('useTaxonomicFilter', () => {
         expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.SuggestedFilters)
     })
 
+    it('a browse-first picker opens on the tab it asks for, All stays available', () => {
+        const { result } = renderHook(
+            () =>
+                useTaxonomicFilter({
+                    taxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.SessionProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ],
+                    defaultGroupType: TaxonomicFilterGroupType.SessionProperties,
+                }),
+            { wrapper }
+        )
+        expect(result.current.groupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
+        expect(result.current.activeGroupType).toBe(TaxonomicFilterGroupType.SessionProperties)
+    })
+
     it('SuggestedFilters injected by a late-growing group list becomes the default', () => {
         const { result, rerender } = renderHook(
             ({ types }: { types: TaxonomicFilterGroupType[] }) => useTaxonomicFilter({ taxonomicGroupTypes: types }),

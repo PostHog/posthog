@@ -24,6 +24,7 @@ import { TaxonomicSearchIntentBanner } from './TaxonomicSearchIntentBanner'
 export function TaxonomicFilter({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
     groupType,
+    defaultGroupType,
     value,
     filter,
     onChange,
@@ -73,6 +74,7 @@ export function TaxonomicFilter({
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         taxonomicFilterLogicKey,
         groupType,
+        defaultGroupType,
         value,
         filter,
         onChange,
