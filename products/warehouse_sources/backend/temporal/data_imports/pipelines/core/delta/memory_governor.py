@@ -778,6 +778,11 @@ class MemoryGovernor:
         if self._sampler is None and self.config.rss_sample_ms > 0:
             self._sampler = RssPeakSampler(self.config.rss_sample_ms / 1000)
 
+    @property
+    def rss_sampler(self) -> RssPeakSampler | None:
+        """The process RSS sampler, or None when ``rss_sample_ms`` turns sampling off."""
+        return self._sampler
+
     # -- accounting --------------------------------------------------------------------------
 
     def _per_upsert_budget_mb(self, limit_mb: float) -> float:

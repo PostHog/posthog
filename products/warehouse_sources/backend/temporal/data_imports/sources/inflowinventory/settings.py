@@ -27,6 +27,14 @@ INFLOWINVENTORY_ENDPOINTS: dict[str, InflowInventoryEndpointConfig] = {
     "purchase_orders": InflowInventoryEndpointConfig(
         name="purchase_orders", path="purchase-orders", id_field="purchaseOrderId"
     ),
+    "manufacturing_orders": InflowInventoryEndpointConfig(
+        name="manufacturing_orders", path="manufacturing-orders", id_field="manufacturingOrderId"
+    ),
+    "stock_transfers": InflowInventoryEndpointConfig(
+        name="stock_transfers", path="stock-transfers", id_field="stockTransferId"
+    ),
+    "locations": InflowInventoryEndpointConfig(name="locations", path="locations", id_field="locationId"),
+    "categories": InflowInventoryEndpointConfig(name="categories", path="categories", id_field="categoryId"),
 }
 
 ENDPOINTS = tuple(INFLOWINVENTORY_ENDPOINTS.keys())

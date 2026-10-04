@@ -22,7 +22,6 @@ import {
     IconDocument,
     IconDownload,
     IconEndpoints,
-    IconExternal,
     IconEye,
     IconFeatures,
     IconFilter,
@@ -47,7 +46,6 @@ import {
     IconMagicWand,
     IconMegaphone,
     IconMessage,
-    IconMicrophone,
     IconNotebook,
     IconNotification,
     IconPencil,
@@ -192,10 +190,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconSpotlight />,
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
     },
-    user_interview: {
-        icon: <IconMicrophone />,
-        iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
-    },
     home: {
         icon: <IconHome />,
     },
@@ -244,10 +238,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     data_warehouse: {
         icon: <IconDatabase />,
         iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
-    },
-    link: {
-        icon: <IconExternal />,
-        iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
     },
     workflows: {
         icon: <IconDecisionTree />,
