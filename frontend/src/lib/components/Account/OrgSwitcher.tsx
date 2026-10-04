@@ -1,5 +1,6 @@
 import { Combobox } from '@base-ui/react/combobox'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
@@ -145,7 +146,11 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
             } else if (item.type === 'pending-invite') {
                 closeOrgSwitcher()
                 window.location.href = urls.inviteSignup(item.invite.id)
-            } else if (!item.isCurrent && !item.isDisabled) {
+            } else if (item.isCurrent) {
+                closeOrgSwitcher()
+                setAccountMenuOpen(false)
+                router.actions.push(urls.settings('organization'))
+            } else if (!item.isDisabled) {
                 closeOrgSwitcher()
                 updateCurrentOrganization(item.org.id)
             }
@@ -247,7 +252,15 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                             value={item}
                                             onClick={() => handleItemClick(item)}
                                             render={(props) => (
-                                                <ButtonPrimitive {...props} menuItem active fullWidth>
+                                                <ButtonPrimitive
+                                                    {...props}
+                                                    menuItem
+                                                    active
+                                                    fullWidth
+                                                    tooltip="Organization settings"
+                                                    tooltipPlacement="right"
+                                                    data-attr="org-switcher-current-organization"
+                                                >
                                                     <IconCheck className="text-tertiary" />
                                                     <UploadedLogo
                                                         size="xsmall"
