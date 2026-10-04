@@ -204,7 +204,8 @@ SELECT
     substring(replaceRegexpAll(properties.$host, '[^0-9A-Za-z.:-]', ''), 1, 100) AS host,
     substring(replaceRegexpAll(replaceRegexpAll(properties.$pathname, '[0-9]+', ':id'), '[^0-9A-Za-z/_:.-]', ''), 1, 200) AS path,
     count() AS samples_7d,
-    round(quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)), 0) AS lcp_p75
+    quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)) AS lcp_p75_raw,
+    round(lcp_p75_raw, 0) AS lcp_p75   -- display only; never compare thresholds on it
 FROM events
 WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 7 DAY
@@ -212,13 +213,27 @@ WHERE event = '$web_vitals'
   AND properties.$web_vitals_LCP_value IS NOT NULL
 GROUP BY host, path                -- host-qualified: marketing / and app / are different pages
 HAVING samples_7d >= 1000          -- enough for a stable weekly p75
-   AND lcp_p75 > 4000              -- LCP poor band; swap per metric/band above
+   AND lcp_p75_raw > 4000          -- LCP poor band; swap per metric/band above
 ORDER BY samples_7d DESC
 LIMIT 25
 ```
 
 Swap the property and the `HAVING` threshold per metric/band (INP > 500, CLS > 0.25,
 FCP > 3000; use the needs-improvement floor when a top landing page sits stuck there).
+**Compare every threshold against the unrounded p75, and round only the displayed value.**
+CLS is a unitless score below 1, so `round(x, 0)` turns a poor 0.30 into 0 and the page drops out of the result.
+Show CLS to 3 decimals, never to 0:
+
+```sql
+    quantile(0.75)(toFloat(properties.$web_vitals_CLS_value)) AS cls_p75_raw,
+    round(cls_p75_raw, 3) AS cls_p75
+...
+  AND properties.$web_vitals_CLS_value IS NOT NULL
+...
+HAVING samples_7d >= 1000
+   AND cls_p75_raw > 0.25          -- CLS poor band; needs-improvement is > 0.1 AND <= 0.25
+```
+
 Weight by reach: a `poor` p75 on a top-3 landing surface is P2; a deep, low-traffic route
 is P3 at most. Before filing, confirm it isn't a known-and-accepted slow page in
 `pattern:`/`addressed:` memory. Key findings by **host + path**, not path alone — carry the
@@ -260,7 +275,8 @@ SELECT
     substring(replaceRegexpAll(properties.$host, '[^0-9A-Za-z.:-]', ''), 1, 100) AS host,
     substring(replaceRegexpAll(replaceRegexpAll(properties.$pathname, '[0-9]+', ':id'), '[^0-9A-Za-z/_:.-]', ''), 1, 200) AS path,
     count() AS samples_7d,
-    round(quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)), 0) AS lcp_p75
+    quantile(0.75)(toFloat(properties.$web_vitals_LCP_value)) AS lcp_p75_raw,
+    round(lcp_p75_raw, 0) AS lcp_p75   -- display only (CLS: round to 3, not 0)
 FROM events
 WHERE event = '$web_vitals'
   AND timestamp >= now() - INTERVAL 7 DAY
@@ -268,7 +284,7 @@ WHERE event = '$web_vitals'
   AND properties.$web_vitals_LCP_value IS NOT NULL
 GROUP BY host, path
 HAVING samples_7d >= 1000
-   AND lcp_p75 > 2500 AND lcp_p75 <= 4000   -- LCP needs-improvement (good is ≤2500, exclude it); INP >200 & ≤500, CLS >0.1 & ≤0.25, FCP >1800 & ≤3000
+   AND lcp_p75_raw > 2500 AND lcp_p75_raw <= 4000   -- LCP needs-improvement (good is ≤2500, exclude it); INP >200 & ≤500, CLS >0.1 & ≤0.25, FCP >1800 & ≤3000
 ORDER BY samples_7d DESC
 LIMIT 25
 ```
@@ -326,6 +342,8 @@ HAVING samples_24h >= 200
 ORDER BY samples_24h DESC
 LIMIT 25
 ```
+
+For CLS, round both p75 columns to 3 decimals, not 0, or every page reads 0 on both sides and no band crossing shows.
 
 A candidate is one page whose p75 crossed a band boundary (good/needs → poor, or
 needs → poor) while sibling pages held. A page that fails `samples_prior13d` is **not** a
