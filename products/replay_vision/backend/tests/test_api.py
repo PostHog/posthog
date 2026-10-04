@@ -565,6 +565,13 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 {"prompt": "p", "experiment_id": 1, "session_variant": "test", "experiment_context": {}},
                 "Unknown scanner configuration keys: experiment_context, session_variant.",
             ),
+            # Learned rules are loaded per scan; a saved value would inject rules nobody's ratings produced.
+            (
+                "learned_rules_in_config",
+                ScannerType.MONITOR,
+                {"prompt": "p", "project_rules": ["Avoid: x"], "scanner_rules": ["Avoid: y"]},
+                "Unknown scanner configuration keys: project_rules, scanner_rules.",
+            ),
         ]
     )
     def test_validation_returns_specific_message_per_invalid_config(
