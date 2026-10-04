@@ -319,8 +319,8 @@ export interface taskRunArtifactsLogicMeta {
         livingFiles: (livingArtifacts: TaskRunLivingArtifactResponseApi[]) => ArtifactFile[]
         files: (artifacts: RunArtifact[], livingFiles: ArtifactFile[]) => ArtifactFile[]
         selectedIndex: (files: ArtifactFile[], selectedFileKey: string | null) => number
-        todayPhone: (todayRailEnabled: any, phoneLayout: any) => boolean
-        showArtifactList: (todayPhone: any, artifactOpen: any) => boolean
+        todayPhone: (todayRailEnabled: boolean, phoneLayout: boolean) => boolean
+        showArtifactList: (todayPhone: boolean, artifactOpen: boolean) => boolean
         selectedFile: (files: ArtifactFile[], selectedIndex: number) => ArtifactFile | null
         selectedVersionIndex: (selectedFile: ArtifactFile | null, selectedVersionId: string | null) => number
         selectedVersion: (selectedFile: ArtifactFile | null, selectedVersionIndex: number) => RunArtifact | null
