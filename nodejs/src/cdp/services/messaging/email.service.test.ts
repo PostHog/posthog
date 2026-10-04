@@ -7,7 +7,7 @@ import {
     TooManyRequestsException,
 } from '@aws-sdk/client-sesv2'
 import { HighLevelProducer } from 'node-rdkafka'
-import { parseFragment } from 'parse5'
+import { defaultTreeAdapter, parse, parseFragment } from 'parse5'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import {
@@ -321,6 +321,18 @@ describe('EmailService', () => {
                 [false, '<body><!-- </body> --><p>Hello</p></body>', '<!-- </body> --><p>Hello</p>'],
                 [
                     false,
+                    '<body><p>Hello</p><template><p>Example</p></template></body>',
+                    '<p>Hello</p><template><p>Example</p></template>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body><p>Hello</p><script>const greeting = "Hello"</script></body>',
+                    '<p>Hello</p><script>const greeting = "Hello"</script>',
+                    true,
+                ],
+                [
+                    false,
                     '<body><style>div { display: none } /* </body> */</style><p>Hello</p></body>',
                     '<style>div { display: none } /* </body> */</style><p>Hello</p>',
                 ],
@@ -446,6 +458,17 @@ describe('EmailService', () => {
                             tagName: 'div',
                             childNodes: [{ nodeName: '#text', value: footer }],
                         })
+                        const root = parse(sentHtml!, { scriptingEnabled }).childNodes.find(
+                            defaultTreeAdapter.isElementNode
+                        )
+                        const body = root?.childNodes
+                            .filter(defaultTreeAdapter.isElementNode)
+                            .find((node) => node.tagName === 'body')
+                        expect(body?.childNodes.at(-1)).toMatchObject({
+                            tagName: 'div',
+                            namespaceURI: 'http://www.w3.org/1999/xhtml',
+                            childNodes: [{ nodeName: '#text', value: footer }],
+                        })
                     }
                     if (preheader) {
                         expect(sentHtml).toContain('&lt;textarea&gt;Preview text')
@@ -486,6 +509,68 @@ describe('EmailService', () => {
                                   }),
                               ]
                     )
+                }
+            )
+
+            it.each([
+                [false, '<body><p>Hello</p><script><!--<script>'],
+                [true, '<body><p>Hello</p><script><!--<script>'],
+                [false, '<body><p>Hello</p><template><script><!--<script>'],
+                [true, '<body><p>Hello</p><template><script><!--<script>'],
+            ] as const)(
+                'rejects HTML that cannot retain the identification footer (isTest=%s, html=%s)',
+                async (isTest, html) => {
+                    const outputs = new IngestionOutputs({
+                        message_assets: new SingleIngestionOutput(
+                            'message_assets',
+                            'message_assets',
+                            new KafkaProducerWrapper(new HighLevelProducer({})),
+                            'DEFAULT'
+                        ),
+                    })
+                    const redis = createRedisV2PoolFromConfig({
+                        connection: hub.CDP_REDIS_HOST
+                            ? {
+                                  url: hub.CDP_REDIS_HOST,
+                                  options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                              }
+                            : { url: hub.REDIS_URL },
+                        poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                        poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+                    })
+                    const limiter = new RateLimiterService(redis, { name: 'sandbox-rejected-html-budget-test' })
+                    service = createSandboxService(true, limiter, new MessageAssetsService(outputs))
+                    invocation.state.actionId = 'send-email'
+                    const params = createEmailParams({ from: { integrationId: 4 }, text: undefined, html })
+                    invocation.queueParameters = params
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result).toMatchObject({
+                        finished: true,
+                        error: 'The sandbox email template could not retain its identification footer. Update the template and try again.',
+                        messageAssets: [],
+                    })
+                    expect(result.skipped).not.toBe(true)
+                    expect(result.invocation.queueScheduledAt).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    expect(result.logs).toContainEqual(
+                        expect.objectContaining({ level: 'error', message: result.error })
+                    )
+                    expect(result.logs.some((log) => log.message.startsWith('Email sent to'))).toBe(false)
+                    expect(result.metrics.map((metric) => metric.metric_name)).toEqual(isTest ? [] : ['email_failed'])
+                    expect(capture).not.toHaveBeenCalled()
+                    expect(result.capturedPostHogEvents.some((event) => event.event === '$workflows_email_sent')).toBe(
+                        false
+                    )
+                    expect(params).toEqual(createEmailParams({ from: { integrationId: 4 }, text: undefined, html }))
+
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                    const ownSender = await service.executeSendEmail(invocation)
+                    expect(ownSender.error).toBeUndefined()
+                    expect(ownSender.finished).toBe(true)
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                 }
             )
 

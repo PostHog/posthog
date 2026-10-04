@@ -18,13 +18,20 @@ type SandboxEmailOutcome =
     | { type: 'sent'; recipientCount: number }
     | { type: 'blocked'; reason: 'switch_off'; blockedRecipientCount: number }
 
+function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
+    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
+    return root?.childNodes.find(
+        (node): node is DefaultTreeAdapterMap['element'] =>
+            defaultTreeAdapter.isElementNode(node) && node.tagName === 'body' && node.namespaceURI === root.namespaceURI
+    )
+}
+
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     const preheaderText = defaultTreeAdapter.createDocumentFragment()
     defaultTreeAdapter.insertText(preheaderText, preheader ?? '')
     const document = parse(maybeAddPreheaderToEmail(html, serialize(preheaderText)), { scriptingEnabled: false })
-    const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
-    const body = root?.childNodes.find((node) => defaultTreeAdapter.isElementNode(node) && node.tagName === 'body')
-    if (!body || !defaultTreeAdapter.isElementNode(body)) {
+    const body = htmlBody(document)
+    if (!body) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
     }
     const nodes: DefaultTreeAdapterMap['childNode'][] = [...document.childNodes]
@@ -52,7 +59,25 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     ])
     defaultTreeAdapter.insertText(paragraph, footer)
     defaultTreeAdapter.appendChild(body, paragraph)
-    return serialize(document, { scriptingEnabled: false })
+    const serialized = serialize(document, { scriptingEnabled: false })
+    for (const scriptingEnabled of [false, true]) {
+        const deliveredFooter = htmlBody(parse(serialized, { scriptingEnabled }))?.childNodes.at(-1)
+        if (
+            !deliveredFooter ||
+            !defaultTreeAdapter.isElementNode(deliveredFooter) ||
+            deliveredFooter.tagName !== 'div' ||
+            deliveredFooter.namespaceURI !== body.namespaceURI ||
+            deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value !== paragraph.attrs[0].value ||
+            deliveredFooter.childNodes.length !== 1 ||
+            !defaultTreeAdapter.isTextNode(deliveredFooter.childNodes[0]) ||
+            deliveredFooter.childNodes[0].value !== footer
+        ) {
+            throw new Error(
+                'The sandbox email template could not retain its identification footer. Update the template and try again.'
+            )
+        }
+    }
+    return serialized
 }
 
 export class SandboxEmailSender {
