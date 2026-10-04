@@ -1272,6 +1272,32 @@ describe('sessionRecordingPlayerLogic', () => {
             )
             expect(logic.values.playerError).not.toBe('replayerPlaybackFailure')
         })
+
+        it.each([
+            { description: 'buffers instead of ending while later sources are unloaded', laterSourceLoaded: false },
+            { description: 'ends once every source is loaded', laterSourceLoaded: true },
+        ])('$description', async ({ laterSourceLoaded }) => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            dataLogic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B] as any)
+            const loaded = [fs(START), inc(START + 1000), inc(START + 11000)]
+            markLoaded(dataLogic.cache.store, 0, loaded)
+            if (laterSourceLoaded) {
+                markLoaded(dataLogic.cache.store, 1, [])
+            }
+            dataLogic.actions.storeUpdated()
+            sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(loaded)
+            logic.actions.seekToTimestamp(START + 10000)
+            expect(logic.values.allSourcesLoaded).toBe(laterSourceLoaded)
+
+            const replayer = fakeReplayer(document.createElement('head'))
+            // playback has run past the last loaded snapshot and the metadata end time
+            replayer.getCurrentTime.mockReturnValue(30000)
+            logic.actions.setPlayer({ replayer, windowId: 1 })
+            logic.actions.updateAnimation()
+
+            expect(logic.values.endReached).toBe(laterSourceLoaded)
+            expect(logic.values.isBuffering).toBe(!laterSourceLoaded)
+        })
     })
 
     describe('delete session recording', () => {
