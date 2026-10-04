@@ -10,6 +10,7 @@ import type {
   ExternalDataSource,
   SignalSourceConfig,
 } from "@posthog/api-client/posthog-client";
+import { linearTeamsSummary } from "@posthog/core/integrations/linearSourceTeams";
 import { formatRepoPreview } from "@posthog/core/settings/githubRepoSummary";
 import { Button, Switch } from "@posthog/quill";
 import {
@@ -197,6 +198,8 @@ interface SourceState {
   externalSource?: ExternalDataSource;
   /** GitHub only: the repositories the warehouse source syncs. */
   configuredRepos?: string[];
+  /** The stored row, for cards that summarize their own per-source config. */
+  sourceConfig?: SignalSourceConfig;
 }
 
 /**
@@ -243,6 +246,29 @@ function GithubSourceRepositories({
 }
 
 /**
+ * The Linear source syncs the whole workspace, so the card says which teams its issues come
+ * from and offers to change that scope.
+ */
+function LinearSourceTeams({
+  config,
+  onEdit,
+}: {
+  config: SignalSourceConfig;
+  onEdit: () => void;
+}) {
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      <span className="min-w-0 truncate text-muted-foreground text-xs">
+        {linearTeamsSummary(config.config)}
+      </span>
+      <Button type="button" variant="outline" size="xs" onClick={onEdit}>
+        Edit teams
+      </Button>
+    </div>
+  );
+}
+
+/**
  * A single warehouse-source card. Its own component so the toggle/setup callbacks can be
  * memoized per product without breaking the rules of hooks (the grid renders one per source
  * from EXTERNAL_INBOX_SOURCES).
@@ -256,6 +282,7 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
   disabled,
   onToggle,
   onSetup,
+  onEditLinearTeams,
 }: {
   product: ToggleableSourceProduct;
   label: string;
@@ -265,6 +292,7 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
   disabled?: boolean;
   onToggle: (source: ToggleableSourceProduct, enabled: boolean) => void;
   onSetup?: (source: ToggleableSourceProduct) => void;
+  onEditLinearTeams?: () => void;
 }) {
   const handleToggle = useCallback(
     (value: boolean) => onToggle(product, value),
@@ -276,6 +304,10 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
   const githubSource =
     product === "github" && state?.externalSource && state.configuredRepos
       ? { source: state.externalSource, repos: state.configuredRepos }
+      : null;
+  const linearConfig =
+    product === "linear" && checked && state?.sourceConfig && onEditLinearTeams
+      ? state.sourceConfig
       : null;
 
   return (
@@ -296,6 +328,8 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
             source={githubSource.source}
             repos={githubSource.repos}
           />
+        ) : linearConfig && onEditLinearTeams ? (
+          <LinearSourceTeams config={linearConfig} onEdit={onEditLinearTeams} />
         ) : undefined
       }
       compact
@@ -309,6 +343,7 @@ interface SignalSourceTogglesProps {
   disabled?: boolean;
   sourceStates?: Partial<Record<ToggleableSourceProduct, SourceState>>;
   onSetup?: (source: ToggleableSourceProduct) => void;
+  onEditLinearTeams?: () => void;
 }
 
 export function SignalSourceToggles({
@@ -317,6 +352,7 @@ export function SignalSourceToggles({
   disabled,
   sourceStates,
   onSetup,
+  onEditLinearTeams,
 }: SignalSourceTogglesProps) {
   const toggleErrorTracking = useCallback(
     (checked: boolean) => onToggle("error_tracking", checked),
@@ -407,6 +443,7 @@ export function SignalSourceToggles({
                 disabled={disabled}
                 onToggle={onToggle}
                 onSetup={onSetup}
+                onEditLinearTeams={onEditLinearTeams}
               />
             );
           })}
