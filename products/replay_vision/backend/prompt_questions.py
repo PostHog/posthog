@@ -10,6 +10,7 @@ import uuid
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -225,7 +226,13 @@ def backfill_prompt_questions(
     Inline scanners only take a template's question, the same rule `create_inline_scanner` follows.
     """
     scanners = ReplayScanner.all_origins.order_by("created_at")
-    if not include_inline:
+    if include_inline:
+        # A custom inline prompt never gets a question, so select only the inline scanners a template can repair.
+        scanners = scanners.filter(
+            Q(origin=ScannerOrigin.CONFIGURED)
+            | Q(origin=ScannerOrigin.INLINE, scanner_config__prompt__in=list(TEMPLATE_QUESTIONS))
+        )
+    else:
         scanners = scanners.filter(origin=ScannerOrigin.CONFIGURED)
     if team_id is not None:
         scanners = scanners.filter(team_id=team_id)
