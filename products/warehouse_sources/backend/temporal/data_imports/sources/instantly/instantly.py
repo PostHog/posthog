@@ -48,6 +48,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instantly.
 )
 
 REQUEST_TIMEOUT_SECONDS = 30
+# (connect, read). Analytics responses can span years of rows, so reads get more room than probes.
+SYNC_REQUEST_TIMEOUT_SECONDS = (10, 120)
 # Bounded walk of the webhook list when reconciling ours by URL — a workspace won't have
 # thousands of webhooks, so this is a defensive cap, not an expected limit.
 MAX_WEBHOOK_LIST_PAGES = 10
@@ -202,7 +204,7 @@ def instantly_source(
 
     if config.campaign_fanout is not None:
         fanout_client = _make_client(api_key)
-        return _source_response(config, lambda: _campaign_fanout_pages(fanout_client, config))
+        return _source_response(config, lambda: _campaign_fanout_pages(fanout_client, config), supports_resume=False)
     if config.date_windowed:
         windowed_client = _make_client(api_key)
         start_date = (
@@ -210,7 +212,9 @@ def instantly_source(
             if should_use_incremental_field and db_incremental_field_last_value is not None
             else ANALYTICS_HISTORY_START_DATE
         )
-        return _source_response(config, lambda: _date_windowed_pages(windowed_client, config, start_date))
+        return _source_response(
+            config, lambda: _date_windowed_pages(windowed_client, config, start_date), supports_resume=False
+        )
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -251,10 +255,13 @@ def instantly_source(
     return _source_response(config, lambda: resource)
 
 
-def _source_response(config: InstantlyEndpointConfig, items: Callable[[], Iterable[Any]]) -> SourceResponse:
+def _source_response(
+    config: InstantlyEndpointConfig, items: Callable[[], Iterable[Any]], supports_resume: bool = True
+) -> SourceResponse:
     return SourceResponse(
         name=config.name,
         items=items,
+        supports_resume=supports_resume,
         primary_keys=config.primary_keys,
         sort_mode="asc",
         partition_count=1 if config.partition_key else None,
@@ -266,7 +273,12 @@ def _source_response(config: InstantlyEndpointConfig, items: Callable[[], Iterab
 
 
 def _make_client(api_key: str) -> RESTClient:
-    return RESTClient(base_url=BASE_URL, headers={"Accept": "application/json"}, auth=BearerTokenAuth(api_key))
+    return RESTClient(
+        base_url=BASE_URL,
+        headers={"Accept": "application/json"},
+        auth=BearerTokenAuth(api_key),
+        request_timeout=SYNC_REQUEST_TIMEOUT_SECONDS,
+    )
 
 
 def _list_request(config: InstantlyEndpointConfig) -> tuple[dict[str, Any], BasePaginator]:

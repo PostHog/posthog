@@ -223,6 +223,8 @@ class TestInstantly:
             pages = list(items)
 
         assert pages == [expected_rows]
+        # The fan-out keeps no cursor, so the pipeline must not treat the run as resumable.
+        assert response.supports_resume is False
         # A campaign without an id is skipped rather than sent as an unscoped request.
         assert client.calls == [("/api/v2/campaigns", {"limit": 100}), (child_path, expected_params)]
 
