@@ -18,6 +18,7 @@ import { loaders } from 'kea-loaders'
 import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { downloadFile, uuid } from 'lib/utils/dom'
 
 import {
@@ -62,6 +63,7 @@ import {
 } from '../components/config/scouts/trials/scoutTrialUtils'
 
 const TRIAL_POLL_INTERVAL_MS = 10_000
+const TRIAL_RESULT_POLL_CONCURRENCY = 5
 const EMPTY_LOAD_ERRORS = { configs: null, setup: null, history: null, comparisonHistory: null }
 type ScoutTrialLoadErrors = Record<keyof typeof EMPTY_LOAD_ERRORS, string | null>
 
@@ -1328,9 +1330,24 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             actions.setRefreshing(true)
             const manager = cache.disposables
             const context = getContext()
+            const concurrency = new ConcurrencyController(TRIAL_RESULT_POLL_CONCURRENCY)
             const responses = await Promise.allSettled(
-                entries.map((entry) =>
-                    signalsScoutConfigTrialResult(String(props.teamId), configId, { launch_id: entry.launchId })
+                entries.map((entry, index) =>
+                    concurrency.run({
+                        priority: index,
+                        fn: async () => {
+                            if (
+                                manager.isDisposed ||
+                                getContext() !== context ||
+                                values.selectedConfigId !== configId
+                            ) {
+                                return null
+                            }
+                            return signalsScoutConfigTrialResult(String(props.teamId), configId, {
+                                launch_id: entry.launchId,
+                            })
+                        },
+                    })
                 )
             )
             cache.refreshing = false
@@ -1342,7 +1359,9 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
             const missingLaunchIds: string[] = []
             responses.forEach((response, index) => {
                 if (response.status === 'fulfilled') {
-                    results[entries[index].launchId] = response.value
+                    if (response.value) {
+                        results[entries[index].launchId] = response.value
+                    }
                 } else {
                     if (response.reason instanceof ApiError && response.reason.status === 404) {
                         missingLaunchIds.push(entries[index].launchId)

@@ -62,7 +62,10 @@ class TestTaskCaptureEvent(TestCase):
     def test_trial_task_and_run_captures_stay_private(
         self, origin_product: str, origin_key: str | None, suppressed: bool
     ) -> None:
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+        with (
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             task = Task.objects.create(
                 team=self.team,
                 title="Test scout",

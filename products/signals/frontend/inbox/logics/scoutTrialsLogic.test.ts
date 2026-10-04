@@ -1,8 +1,11 @@
+jest.unmock('lib/utils/concurrencyController')
+
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { promiseResolveReject } from 'lib/utils/async'
 
 import { initKeaTests } from '~/test/init'
 
@@ -371,6 +374,64 @@ describe('scoutTrialsLogic', () => {
         expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(2)
     })
 
+    it('bounds concurrent result reads and preserves successful, failed, and missing launch results', async () => {
+        const launches = Array.from({ length: 12 }, (_, index) => `launch-${index}`)
+        const gate = promiseResolveReject<void>()
+        let active = 0
+        let maximumActive = 0
+        jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, { launch_id }) => {
+            active++
+            maximumActive = Math.max(maximumActive, active)
+            try {
+                await gate.promise
+                if (launch_id === launches[2]) {
+                    throw new Error('Status unavailable')
+                }
+                if (launch_id === launches[7]) {
+                    throw new ApiError('Not found', 404)
+                }
+                return { ...trialFixtureResult, launch_id }
+            } finally {
+                active--
+            }
+        })
+        logic.actions.trackLaunches(launches.map((launchId) => ({ configId: trialFixtureConfig.id, launchId })))
+        logic.actions.refreshResults()
+        try {
+            expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(5)
+            expect(logic.values.refreshing).toBe(true)
+        } finally {
+            await expectLogic(logic, () => gate.resolve()).toFinishAllListeners()
+        }
+
+        expect(maximumActive).toBe(5)
+        expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(12)
+        expect(Object.keys(logic.values.results)).toEqual(launches.filter((_, index) => index !== 2 && index !== 7))
+        expect(Object.keys(logic.values.resultErrors)).toEqual([launches[2]])
+        expect(logic.values.tracked.map(({ launchId }) => launchId)).not.toContain(launches[7])
+        expect(logic.values.refreshing).toBe(false)
+    })
+
+    it('stops queued result reads after unmounting', async () => {
+        const gate = promiseResolveReject<void>()
+        jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, { launch_id }) => {
+            await gate.promise
+            return { ...trialFixtureResult, launch_id }
+        })
+        logic.actions.trackLaunches(
+            Array.from({ length: 12 }, (_, index) => ({ configId: trialFixtureConfig.id, launchId: `launch-${index}` }))
+        )
+        logic.actions.refreshResults()
+        logic.unmount()
+        try {
+            await expectLogic(logic, () => gate.resolve()).toFinishAllListeners()
+            expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(5)
+        } finally {
+            logic = scoutTrialsLogic({ teamId: 2, userId: 42 })
+            await expectLogic(logic, () => logic.mount()).toFinishAllListeners()
+        }
+    })
+
     it.each([400, 503])('does not poll planned launches after a rejected or unconfirmed start (%s)', async (status) => {
         logic.unmount()
         jest.useFakeTimers()
@@ -588,14 +649,17 @@ describe('scoutTrialsLogic', () => {
     })
 
     it('loads the newly selected scout after an older result request finishes', async () => {
-        let resolveOld!: (value: ScoutTrialResultApi) => void
-        jest.mocked(signalsScoutConfigTrialResult).mockImplementationOnce(
-            () =>
-                new Promise((resolve) => {
-                    resolveOld = resolve
-                })
+        const gate = promiseResolveReject<void>()
+        jest.mocked(signalsScoutConfigTrialResult).mockImplementation(async (_, __, { launch_id }) => {
+            await gate.promise
+            return { ...trialFixtureResult, launch_id }
+        })
+        logic.actions.trackLaunches(
+            Array.from({ length: 12 }, (_, index) => ({
+                configId: trialFixtureConfig.id,
+                launchId: `old-launch-${index}`,
+            }))
         )
-        logic.actions.trackLaunches([{ configId: trialFixtureConfig.id, launchId: trialFixtureResult.launch_id }])
         logic.actions.refreshResults()
         const newConfig = '00000000-0000-4000-8000-000000000010'
         const newLaunch = '00000000-0000-4000-8000-000000000011'
@@ -620,8 +684,9 @@ describe('scoutTrialsLogic', () => {
         })
 
         await expectLogic(logic, () => logic.actions.selectConfig(newConfig)).toDispatchActions(['loadHistorySuccess'])
-        await expectLogic(logic, () => resolveOld(trialFixtureResult)).toFinishAllListeners()
+        await expectLogic(logic, () => gate.resolve()).toFinishAllListeners()
 
+        expect(signalsScoutConfigTrialResult).toHaveBeenCalledTimes(6)
         expect(logic.values.results[newLaunch]?.launch_id).toBe(newLaunch)
         expect(logic.values.rows.map((row) => row.launchId)).toEqual([newLaunch])
     })

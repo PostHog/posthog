@@ -364,11 +364,17 @@ class ScoutTrialComparisons:
                 progress = _read_document(
                     comparison_progress_key(entry.team_id, entry.summary.comparison_id), TrialComparisonProgress
                 )
+                state = progress.status if progress else "not_started"
+                error = progress.error if progress else None
+                if state != "completed":
+                    snapshot = self.evaluation(self.read(entry.summary.comparison_id))
+                    if snapshot is not None and read_trial_evaluation_report(snapshot) is not None:
+                        state, error = "completed", None
                 results.append(
                     entry.summary.model_copy(
                         update={
-                            "status": progress.status if progress else "not_started",
-                            "error": progress.error if progress else None,
+                            "status": state,
+                            "error": error,
                             "evaluation": None,
                         }
                     )

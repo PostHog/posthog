@@ -608,7 +608,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         super().save(*args, **kwargs)
 
         if is_new:
-            self._track_task_created()
+            transaction.on_commit(self._track_task_created)
 
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
@@ -1603,6 +1603,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             "slack_thread_context": _normalize_slack_context(slack_thread_context),
             "workflow_id_prefix": workflow_id_prefix,
         }
+        if run_extra_state.get("use_dedicated_stream") is None:
+            distinct_id = (task.created_by.distinct_id if task.created_by else None) or f"team_{task.team_id}"
+            run_extra_state["use_dedicated_stream"] = evaluate_dedicated_stream_flag(
+                organization_id=str(task.team.organization_id),
+                distinct_id=distinct_id,
+            )
 
         with transaction.atomic():
             task.save()

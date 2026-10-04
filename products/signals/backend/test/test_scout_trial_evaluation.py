@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -1032,6 +1032,23 @@ class TestScoutTrialEvaluation(BaseTest):
             ):
                 with self.assertRaisesMessage(TrialEvaluationError, "not enabled for this project"):
                     prepare_comparison_evaluation(self.team.id, request.comparison_id)
+            service = ScoutTrialComparisons(self.config, self.user)
+            service._index(plan)
+            progress_key = f"signals/scout-trials/{self.team.id}/comparisons/{request.comparison_id}/progress.json"
+            self.documents[progress_key] = json.dumps({"status": "failed", "error": "Synthetic wrapper failure"})
+            storage_client = MagicMock()
+            storage_client.list_objects_v2.side_effect = lambda **kwargs: {
+                "Contents": [{"Key": key} for key in sorted(self.documents) if key.startswith(kwargs["Prefix"])]
+            }
+            with patch.object(
+                object_storage, "object_storage_client", return_value=object_storage.ObjectStorage(storage_client)
+            ):
+                assert service.history(10).results[0].status == "failed"
+                finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+                history = service.history(10)
+            assert history.results[0].status == "completed"
+            assert history.results[0].error is None
+            assert history.results[0].evaluation is None
 
     @parameterized.expand(
         ["user_id", "config_id", "context_id", "request", "rubric_document", "judge_model", "judge_prompt_version"]
