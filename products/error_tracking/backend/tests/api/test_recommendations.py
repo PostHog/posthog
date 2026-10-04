@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from rest_framework import status
 
+from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -416,9 +417,11 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
         mock_alerts.assert_not_called()
         mock_long_running.assert_not_called()
 
-    def _make_frame(self, lang: str, resolved: bool, created_hours_ago: int = 1) -> ErrorTrackingStackFrame:
+    def _make_frame(
+        self, lang: str, resolved: bool, created_hours_ago: int = 1, team: Team | None = None
+    ) -> ErrorTrackingStackFrame:
         frame = ErrorTrackingStackFrame.objects.create(
-            team=self.team,
+            team=team or self.team,
             raw_id=str(uuid4()),
             contents={"lang": lang},
             resolved=resolved,
@@ -468,16 +471,36 @@ class TestRecommendationsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def test_source_maps_compute_ignores_other_teams_frames(self):
         other_team = self.organization.teams.create(name="other")
-        ErrorTrackingStackFrame.objects.create(
-            team=other_team,
-            raw_id=str(uuid4()),
-            contents={"lang": "javascript"},
-            resolved=False,
-        )
+        self._make_frame(lang="javascript", resolved=False, team=other_team)
 
         meta = SourceMapsRecommendation().compute(self.team)
 
         self.assertEqual(meta["total_frames"], 0)
+
+    def test_source_maps_compute_samples_the_newest_frames(self):
+        for hours_ago in (6, 5, 4):
+            self._make_frame(lang="javascript", resolved=False, created_hours_ago=hours_ago)
+        for hours_ago in (3, 2, 1):
+            self._make_frame(lang="javascript", resolved=True, created_hours_ago=hours_ago)
+
+        with patch("products.error_tracking.backend.logic.recommendations.source_maps.SAMPLE_FRAMES", 3):
+            meta = SourceMapsRecommendation().compute(self.team)
+
+        self.assertEqual(meta["total_frames"], 3)
+        self.assertEqual(meta["unresolved_frames"], 0)
+
+    def test_source_maps_compute_batch_counts_each_team_separately(self):
+        other_team = self.organization.teams.create(name="other")
+        self._make_frame(lang="javascript", resolved=False)
+        self._make_frame(lang="javascript", resolved=True)
+        self._make_frame(lang="javascript", resolved=False, team=other_team)
+
+        metas = SourceMapsRecommendation().compute_batch([self.team.id, other_team.id])
+
+        self.assertEqual(metas[self.team.id]["total_frames"], 2)
+        self.assertEqual(metas[self.team.id]["unresolved_frames"], 1)
+        self.assertEqual(metas[other_team.id]["total_frames"], 1)
+        self.assertEqual(metas[other_team.id]["unresolved_frames"], 1)
 
     def test_source_maps_is_completed_when_below_threshold(self):
         # 5% unresolved, threshold is 30%

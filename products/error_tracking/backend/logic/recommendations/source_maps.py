@@ -1,10 +1,8 @@
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count
+from django.db import connection
 from django.utils import timezone
-
-from products.error_tracking.backend.models import ErrorTrackingStackFrame
 
 from .base import Recommendation
 
@@ -17,37 +15,53 @@ UNRESOLVED_THRESHOLD = 0.30
 
 LOOKBACK_HOURS = 24
 
+# The card reports a ratio, so the newest frames answer it as well as all of them.
+# Without a cap the scan grows with a team's frame volume and never stops growing.
+SAMPLE_FRAMES = 2000
+
+# `lang` is set on the resolved frame contents by cymbal — both browser JS and Node
+# frames are tagged "javascript". TypeScript frames also surface as "javascript"
+# pre-resolution; the source map is what would map them back to the original .ts
+# source, so they're exactly the population we care about here.
+#
+# The language test and the column list must stay byte-identical to
+# et_frame_team_created_js_idx: the predicate has to match the index's own predicate
+# for Postgres to use the partial index, and reading a column outside the index pulls
+# the heap row, which detoasts the wide `contents` column with it. A LATERAL per team
+# keeps the query count constant over the batch while each scan stops at the LIMIT.
+SAMPLE_QUERY = """
+SELECT sample.team_id, sample.resolved, count(*) AS frames
+FROM unnest(%s::int[]) AS requested(team_id)
+CROSS JOIN LATERAL (
+    SELECT frame.team_id, frame.resolved
+    FROM posthog_errortrackingstackframe frame
+    WHERE frame.team_id = requested.team_id
+      AND frame.created_at >= %s
+      AND (frame.contents -> 'lang') = '"javascript"'::jsonb
+    ORDER BY frame.created_at DESC
+    LIMIT %s
+) AS sample
+GROUP BY 1, 2
+"""
+
 
 class SourceMapsRecommendation(Recommendation):
     type = "source_maps"
     refresh_interval = timedelta(hours=6)
 
     def compute_batch(self, team_ids: list[int]) -> dict[int, dict[str, Any]]:
-        # `lang` is set on the resolved frame contents by cymbal — both browser JS
-        # and Node frames are tagged "javascript". TypeScript frames also surface
-        # as "javascript" pre-resolution; the source map is what would map them
-        # back to the original .ts source, so they're exactly the population we
-        # care about here.
         since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
 
-        # This aggregate must read no column outside et_frame_team_created_js_idx. A count over
-        # `id` pulls the heap row, which detoasts the wide `contents` column with it.
-        rows = (
-            ErrorTrackingStackFrame.objects.filter(
-                team_id__in=team_ids,
-                created_at__gte=since,
-                contents__lang="javascript",
-            )
-            .values("team_id", "resolved")
-            .annotate(frames=Count("*"))
-        )
+        with connection.cursor() as cursor:
+            cursor.execute(SAMPLE_QUERY, [team_ids, since, SAMPLE_FRAMES])
+            rows = cursor.fetchall()
 
         counts_by_team: dict[int, dict[str, int]] = {}
-        for row in rows:
-            counts = counts_by_team.setdefault(row["team_id"], {"total": 0, "unresolved": 0})
-            counts["total"] += row["frames"]
-            if not row["resolved"]:
-                counts["unresolved"] += row["frames"]
+        for team_id, resolved, frames in rows:
+            counts = counts_by_team.setdefault(team_id, {"total": 0, "unresolved": 0})
+            counts["total"] += frames
+            if not resolved:
+                counts["unresolved"] += frames
 
         return {team_id: self._build_meta(counts_by_team.get(team_id)) for team_id in team_ids}
 
@@ -63,6 +77,7 @@ class SourceMapsRecommendation(Recommendation):
             "unresolved_pct": unresolved_pct,
             "threshold_pct": UNRESOLVED_THRESHOLD,
             "min_sample_frames": MIN_SAMPLE_FRAMES,
+            "sample_frames": SAMPLE_FRAMES,
             "lookback_hours": LOOKBACK_HOURS,
         }
 
