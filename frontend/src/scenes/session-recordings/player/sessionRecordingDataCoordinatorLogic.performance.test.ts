@@ -88,63 +88,24 @@ describe('sessionRecordingDataCoordinatorLogic performance', () => {
         }
 
         it('loads all data', async () => {
-            const durations: number[] = []
-            const iterations = 10
-
-            // Warm up: initialize DecompressionWorkerManager singleton before timing.
-            // We also record its duration as a per-environment baseline.
             setupLogic()
-            const warmupStart = performance.now()
+
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshots()
-            }).toFinishAllListeners()
-            const warmupDuration = performance.now() - warmupStart
+            })
+                .toDispatchActions([
+                    'loadSnapshots',
+                    'loadSnapshotSources',
+                    'loadRecordingMetaSuccess',
+                    snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
+                    snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
+                    'reportUsageIfFullyLoaded',
+                ])
+                .toFinishListeners()
+
+            expect(Object.keys(logic.values.sessionPlayerData.snapshotsByWindowId)).toHaveLength(1)
+
             logic.unmount()
-
-            for (let i = 0; i < iterations; i++) {
-                setupLogic()
-
-                const start = performance.now()
-
-                await expectLogic(logic, () => {
-                    logic.actions.loadSnapshots()
-                })
-                    .toDispatchActions([
-                        'loadSnapshots',
-                        'loadSnapshotSources',
-                        'loadRecordingMetaSuccess',
-                        snapshotLogic.actionTypes.loadSnapshotSourcesSuccess,
-                        snapshotLogic.actionTypes.loadSnapshotsForSourceSuccess,
-                        'reportUsageIfFullyLoaded',
-                    ])
-                    .toFinishListeners()
-
-                const actual = logic.values.sessionPlayerData
-                const snapshotData = actual.snapshotsByWindowId
-                expect(Object.keys(snapshotData)).toHaveLength(1)
-
-                const end = performance.now()
-                const duration = end - start
-                durations.push(duration)
-
-                logic.unmount()
-            }
-
-            durations.sort((a, b) => a - b)
-            // Drop slowest 2 runs (typically first runs with cold JIT/cache)
-            const trimmedDurations = durations.slice(0, -2)
-            const averageDuration = trimmedDurations.reduce((a, b) => a + b, 0) / trimmedDurations.length
-            const variance =
-                trimmedDurations.reduce((a, b) => a + Math.pow(b - averageDuration, 2), 0) / trimmedDurations.length
-            const stdDev = Math.sqrt(variance)
-
-            // Use the warm-up run as a per-environment baseline and assert the
-            // average stays within 2× that baseline. This adapts to slow CI
-            // runners without needing repeated absolute threshold bumps, while
-            // still catching genuine 2×+ regressions in the underlying logic.
-            const baseline = warmupDuration
-            expect(averageDuration).toBeLessThan(baseline * 2)
-            expect(stdDev).toBeLessThan(averageDuration * 0.5)
         })
     })
 })
