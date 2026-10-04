@@ -130,7 +130,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
             reports = list(
                 SignalReport.objects.select_for_update()
                 .filter(team_id=instance.team_id)
-                .filter(SignalReport.reports_for_task_filter(str(instance.task_id)))
+                .filter(SignalReport.reports_for_task_filter(str(instance.task_id), team_id=instance.team_id))
                 .order_by("id")
             )
             for pr_url in pr_urls:
@@ -141,6 +141,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
                     pr_url=pr_url,
                     pr_state=output.get("pr_state") if primary and isinstance(output.get("pr_state"), str) else None,
                     pr_merged=primary and output.get("pr_merged") is True,
+                    locked_reports=reports,
                 )
                 if updated:
                     # Dispatch after commit so a rolled-back sync never edits a pull request body.

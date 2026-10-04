@@ -225,7 +225,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     """
     report_ids = (
         SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
+        .filter(SignalReport.reports_for_task_filter(task_id, team_id=team_id))
         .values_list("id", flat=True)
     )
     retry_needed = False
