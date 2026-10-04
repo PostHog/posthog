@@ -1,6 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Instana's paginated application-monitoring catalogs accept a `pageSize` param; their analyze
@@ -36,7 +37,7 @@ SNAPSHOTS_MAX_SIZE = 1000
 PaginationStyle = Literal["page", "offset", "none"]
 
 
-@dataclass(frozen=True)
+@frozen
 class InstanaFanOutConfig:
     # Endpoint whose rows are walked to build each child request.
     parent: str
@@ -46,7 +47,7 @@ class InstanaFanOutConfig:
     child_field: str
 
 
-@dataclass(frozen=True)
+@frozen
 class InstanaEndpointConfig:
     name: str
     path: str

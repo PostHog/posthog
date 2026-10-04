@@ -1,6 +1,5 @@
 import json
 import time
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
@@ -10,6 +9,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -96,7 +96,7 @@ def _read_capped_body(response: requests.Response) -> bytes:
     return b"".join(chunks)
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class InstanaResumeConfig:
     # Next page to fetch for the page-paginated application-monitoring catalogs.
     next_page: int | None = None
