@@ -17,6 +17,12 @@
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
+        "payload_mode": {
+            "default": "preview",
+            "description": "'preview' (the default) returns a bounded payload for each row. 'full' returns every payload in full and can make a small page very large. Prefer health-issues-get for one issue's full payload.",
+            "enum": ["full", "preview"],
+            "type": "string"
+        },
         "severity": {
             "description": "Only return issues with this severity. One of: 'critical', 'warning', 'info'.",
             "type": "string"

@@ -28,6 +28,12 @@ export const HealthIssuesListQueryParams = () => zod.object({
     kind: zod.string().optional().describe("Only return issues from this check kind (e.g. 'sdk_outdated')."),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    payload_mode: zod
+        .enum(['full', 'preview'])
+        .optional()
+        .describe(
+            "How much of each issue's `payload` to return. 'full' (the default) returns the whole check-specific payload. 'preview' caps each list in the payload at 3 items and each string at 200 characters, so a page stays small. Fetch one issue by id for its full payload."
+        ),
     severity: zod
         .string()
         .optional()

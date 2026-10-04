@@ -195,6 +195,27 @@ class TestHealthIssueAPI(APIBaseTest):
         for field in ("title", "summary", "link", "remediation"):
             self.assertNotIn(field, result)
 
+    def test_list_preview_bounds_payload_and_retrieve_keeps_it_full(self):
+        usage = [{"lib_version": f"1.{index}.0", "count": index} for index in range(69)]
+        issue = self._create_issue(payload={"sdk_name": "web", "reason": "x" * 500, "usage": usage})
+
+        full = self.client.get(self._url()).json()["results"][0]["payload"]
+        self.assertEqual(full["usage"], usage)
+
+        response = self.client.get(self._url(), {"payload_mode": "preview"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        preview = response.json()["results"][0]["payload"]
+        self.assertEqual(preview["sdk_name"], "web")
+        self.assertEqual(preview["usage"], [*usage[:3], "… (+66 more)"])
+        self.assertEqual(preview["reason"], f"{'x' * 200}… (truncated)")
+
+        detail = self.client.get(self._url(f"/{issue.id}"), {"payload_mode": "preview"}).json()
+        self.assertEqual(detail["payload"]["usage"], usage)
+
+    def test_list_invalid_payload_mode_returns_400(self):
+        response = self.client.get(self._url(), {"payload_mode": "everything"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_retrieve_nonexistent_returns_404(self):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

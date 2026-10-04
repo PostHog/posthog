@@ -149,6 +149,18 @@ class HealthIssueSerializer(serializers.ModelSerializer):
         }
 
 
+class HealthIssuePreviewSerializer(HealthIssueSerializer):
+    """List row whose payload is cut down to a bounded preview. The detail view keeps the full payload."""
+
+    def to_representation(self, instance: HealthIssue) -> dict[str, Any]:
+        # Lazy import: same reentrancy reason as HealthIssueDetailSerializer._content.
+        from posthog.temporal.health_checks.framework import payload_preview  # noqa: PLC0415
+
+        data = super().to_representation(instance)
+        data["payload"] = payload_preview(data["payload"])
+        return data
+
+
 class HealthIssueCountsSerializer(serializers.Serializer):
     total = serializers.IntegerField(help_text="Total number of issues in this group.")
     by_severity = serializers.DictField(
@@ -274,6 +286,9 @@ SEVERITY_ORDERING = Case(
 
 VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
+PAYLOAD_MODE_FULL = "full"
+PAYLOAD_MODE_PREVIEW = "preview"
+VALID_PAYLOAD_MODES = {PAYLOAD_MODE_FULL, PAYLOAD_MODE_PREVIEW}
 
 
 def _kinds_hidden_by_access_control(request: Request, user_access_control: "UserAccessControl") -> set[str]:
@@ -395,6 +410,17 @@ def _report_triage_actions(
                 required=False,
                 description="Filter by dismissed state. Omit to include both dismissed and non-dismissed issues.",
             ),
+            OpenApiParameter(
+                name="payload_mode",
+                type=OpenApiTypes.STR,
+                required=False,
+                enum=sorted(VALID_PAYLOAD_MODES),
+                description=(
+                    "How much of each issue's `payload` to return. 'full' (the default) returns the whole "
+                    "check-specific payload. 'preview' caps each list in the payload at 3 items and each string "
+                    "at 200 characters, so a page stays small. Fetch one issue by id for its full payload."
+                ),
+            ),
         ],
     ),
     retrieve=extend_schema(
@@ -417,7 +443,15 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
     def get_serializer_class(self):
         if self.action == "retrieve":
             return HealthIssueDetailSerializer
+        if self.action == "list" and self._payload_mode() == PAYLOAD_MODE_PREVIEW:
+            return HealthIssuePreviewSerializer
         return HealthIssueSerializer
+
+    def _payload_mode(self) -> str:
+        payload_mode = self.request.query_params.get("payload_mode", PAYLOAD_MODE_FULL)
+        if payload_mode not in VALID_PAYLOAD_MODES:
+            raise serializers.ValidationError({"payload_mode": f"Invalid payload mode: {payload_mode}"})
+        return payload_mode
 
     http_method_names = ["get", "patch", "post", "head"]
 
