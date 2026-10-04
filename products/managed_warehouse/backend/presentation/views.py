@@ -12,7 +12,7 @@ per organization (not per team).
 
 import re
 from datetime import date
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -57,6 +57,25 @@ class PresentedConnection(TypedDict):
     username: str
 
 
+class PresentedTrinoConnection(TypedDict):
+    host: str
+    port: int
+    catalog: str
+    username: str
+
+
+TrinoStatusState = Literal["not_enabled", "pending", "provisioning", "ready", "failed", "unavailable"]
+
+
+class PresentedTrinoStatus(TypedDict):
+    state: TrinoStatusState
+    ready_at: str | None
+    connection: PresentedTrinoConnection | None
+
+
+_TRINO_LIFECYCLE_STATES = frozenset({"pending", "provisioning", "ready", "failed"})
+
+
 ManagedWarehouseMonitoringMetric = Literal[
     "query_rate",
     "error_ratio",
@@ -68,6 +87,17 @@ ManagedWarehouseMonitoringMetric = Literal[
     "acquire_by_source",
     "storage_bytes",
     "worker_crash_rate",
+]
+ManagedWarehouseTrinoMonitoringMetric = Literal[
+    "queries_in_flight",
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "queue_time_p95",
+    "scanned_bytes_rate",
+    "cpu_seconds_rate",
+    "storage_bytes",
 ]
 ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
 DataOpsVariant = Literal["trino", "duckdb"]
@@ -1097,6 +1127,64 @@ def status_for(organization_id: UUID | str) -> Response:
     return resp
 
 
+def _present_trino_connection(trino_status: dict) -> PresentedTrinoConnection | None:
+    catalog = trino_status.get("trino_catalog_name") or trino_status.get("catalog")
+    connection = trino_status.get("connection")
+    if not isinstance(catalog, str) or not catalog.strip() or not isinstance(connection, dict):
+        return None
+    host = connection.get("host")
+    username = connection.get("username")
+    port = connection.get("port")
+    if not isinstance(host, str) or not host.strip() or not isinstance(username, str) or not username.strip():
+        return None
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+        return None
+    return PresentedTrinoConnection(host=host.strip(), port=port, catalog=catalog.strip(), username=username.strip())
+
+
+def trino_status_for(organization_id: UUID | str) -> PresentedTrinoStatus:
+    """Customer-safe summary of the organization's Trino enablement, for the Trino Data ops variant.
+
+    The control plane's Trino status is an operator payload. Only the lifecycle state, the ready
+    time, and the connection target leave this function.
+    """
+    unavailable = PresentedTrinoStatus(state="unavailable", ready_at=None, connection=None)
+    resp = _request("GET", organization_id, "/trino", timeout=10)
+    if not status.is_success(resp.status_code) or not isinstance(resp.data, dict):
+        return unavailable
+    if resp.data.get("enabled") is not True:
+        return PresentedTrinoStatus(state="not_enabled", ready_at=None, connection=None)
+
+    trino_status = resp.data.get("status")
+    if not isinstance(trino_status, dict):
+        return unavailable
+    if str(trino_status.get("org")) != str(organization_id):
+        logger.warning(
+            "refusing_trino_status_for_mismatched_organization",
+            requested_organization_id=str(organization_id),
+            response_organization_id=str(trino_status.get("org")),
+        )
+        return unavailable
+
+    raw_state = trino_status.get("state")
+    # A row that has not been reconciled yet has no state, which means pending.
+    if raw_state is None or raw_state == "":
+        state: TrinoStatusState = "pending"
+    elif isinstance(raw_state, str) and raw_state in _TRINO_LIFECYCLE_STATES:
+        state = cast(TrinoStatusState, raw_state)
+    else:
+        # The control plane has lifecycle states this view does not present, such as deleting. Showing
+        # them as pending would make the scene poll for a setup that never completes.
+        logger.warning("unexpected_trino_lifecycle_state", organization_id=str(organization_id), state=str(raw_state))
+        return unavailable
+    ready_at = trino_status.get("ready_at")
+    return PresentedTrinoStatus(
+        state=state,
+        ready_at=ready_at if isinstance(ready_at, str) else None,
+        connection=_present_trino_connection(trino_status) if state == "ready" else None,
+    )
+
+
 def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
     """Fetch tenant-safe live monitoring data for one organization."""
     return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
@@ -1112,6 +1200,26 @@ def monitoring_series_for(
         "GET",
         organization_id,
         "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
+
+
+def trino_monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live Trino query data for one organization."""
+    return _request("GET", organization_id, "/monitoring/trino/snapshot", timeout=10)
+
+
+def trino_monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseTrinoMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed Trino monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/trino/series",
         params={"metric": metric, "window": window},
         timeout=10,
     )

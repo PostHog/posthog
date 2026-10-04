@@ -1,7 +1,7 @@
 # Managed warehouse monitoring
 
 The **Monitoring** tab in Data ops gives every project in an organization the same operational view of its managed warehouse.
-It combines a current fleet snapshot with allowlisted historical metrics from Duckgres.
+It has two variants. Organizations on `data-warehouse-scene` see the DuckDB worker variant described first. Organizations on `data-warehouse-scene-trino` see the Trino variant described under "Trino variant". The Trino flag wins when both are on.
 
 ## Request path and tenant boundary
 
@@ -61,6 +61,28 @@ Each response includes a unit and labeled series so the UI can format values wit
 The dashboard loads historical data when the selected range changes or the user refreshes it.
 The current snapshot polls more frequently while work is active and less frequently while the warehouse is idle.
 If a refresh fails, the UI preserves the last successful data and shows how to retry.
+
+## Trino variant
+
+Organizations on `data-warehouse-scene-trino` query through Trino, so the tab shows query activity instead of workers.
+
+The browser calls:
+
+- `GET /api/projects/{team_id}/data_warehouse/managed-warehouse-trino-monitoring/`
+- `GET /api/projects/{team_id}/data_warehouse/managed-warehouse-trino-monitoring-timeseries/?metric=...&window=...`
+
+Each monitoring endpoint serves one variant. A Trino organization gets 404 from the DuckDB endpoints, and a DuckDB organization gets 404 from the Trino endpoints. This matters because workers still run a Trino organization's internal writes, and that data is not for its users.
+
+The snapshot contains the organization's Trino lifecycle state, its concurrency and queue limits, in-flight totals, and at most 200 in-flight queries, longest-running first.
+`in_flight` equals `running` plus `queued`, and `blocked` is a subset of `running`.
+Query text has literal values replaced with `?`. Duckgres does the masking, so unmasked SQL never reaches PostHog.
+When `available` is false the live data could not be read. The UI shows that state instead of presenting zero as an idle warehouse.
+
+The Trino series metrics are queries in flight by state, query rate and outcomes, query duration, queue time, data scanned, CPU time, and storage size.
+The query counts are best-effort on a very busy warehouse and are not billing totals.
+
+MCP clients get the same data through `managed-warehouse-trino-monitoring-get` and `managed-warehouse-trino-metric-history-get`, available when `data-warehouse-scene-trino` is enabled.
+An organization with both flags still sees the two DuckDB tools listed. Those calls return the 404 that names the Trino endpoints.
 
 ## Usage scope
 
