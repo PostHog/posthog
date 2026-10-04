@@ -7,7 +7,7 @@ from uuid import UUID
 import temporalio.workflow as wf
 from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.exceptions import ActivityError, WorkflowAlreadyStartedError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import (
@@ -28,7 +28,6 @@ from products.replay_vision.backend.temporal.activities import (
     count_in_flight_applies_activity,
     count_in_flight_by_team_activity,
     find_scanner_candidates_activity,
-    refresh_prompt_suggestion_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
@@ -38,7 +37,6 @@ from products.replay_vision.backend.temporal.constants import (
     FIND_SCANNER_CANDIDATES_TIMEOUT,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
-    REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     in_flight_headroom,
@@ -49,7 +47,6 @@ from products.replay_vision.backend.temporal.sweep_types import (
     CheckScannerBudgetInputs,
     CountInFlightAppliesInputs,
     FindScannerCandidatesInputs,
-    RefreshPromptSuggestionInputs,
     SweepScannerInputs,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
@@ -64,25 +61,20 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # Declared until no history carrying the marker can replay.
         wf.deprecate_patch("drop-vision-action-dispatch-2026-09")
 
-        # Same heartbeat keeps the prompt recommendation fresh. The activity self-gates to at most one
-        # regeneration per day and only when ratings changed, so the 5-minute sweep cadence is fine.
-        # Best-effort: an LLM hiccup must never block the session scan. wf.patched keeps sweeps
-        # in flight across the deploy replaying deterministically.
-        if wf.patched("prompt-suggestion-refresh"):
+        # Histories recorded before the prompt-suggestion refresh was removed still carry its activity, so
+        # they replay it by name. The worker no longer registers it, so a live attempt fails and is swallowed.
+        if not wf.patched("drop-prompt-suggestion-refresh-2026-10") and wf.patched("prompt-suggestion-refresh"):
             try:
                 await wf.execute_activity(
-                    refresh_prompt_suggestion_activity,
-                    RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
-                    start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
+                    "refresh_prompt_suggestion_activity",
+                    {"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id},
+                    start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=common.RetryPolicy(maximum_attempts=1),
                 )
-            except Exception:
-                wf.logger.warning(
-                    "replay_vision.prompt_suggestion_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
-                )
+            except ActivityError:
+                pass
 
-        # A capped scanner scans no sessions this tick; the heartbeats above spend no scanner
-        # credits, so they ran first. Fails open (admissions stay gated at the persistence
+        # A capped scanner scans no sessions this tick. Fails open (admissions stay gated at the persistence
         # boundary); patched so in-flight sweeps replay unchanged across the deploy.
         if wf.patched("replay-vision-scanner-credit-limit"):
             try:

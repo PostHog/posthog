@@ -83,7 +83,10 @@ from products.replay_vision.backend.temporal.activities.emit_observation_signal 
     emit_observation_signals_activity,
 )
 from products.replay_vision.backend.temporal.activities.ensure_session_asset import ensure_session_asset_activity
-from products.replay_vision.backend.temporal.activities.fetch_session_events import fetch_session_events_activity
+from products.replay_vision.backend.temporal.activities.fetch_session_events import (
+    _process_events,
+    fetch_session_events_activity,
+)
 from products.replay_vision.backend.temporal.activities.fetch_session_network import fetch_session_network_activity
 from products.replay_vision.backend.temporal.activities.observation_state import (
     mark_observation_failed_activity,
@@ -185,7 +188,6 @@ def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> No
     )
     assert snapshot.model == "gemini-1.0-flash-retired-preview"
     assert snapshot.provider == "hooli"
-    assert snapshot.verify_positives == "off"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -4235,3 +4237,18 @@ async def test_apply_scanner_workflow_counts_signals_for_pre_patch_histories() -
     assert succeeded.scanner_result.signals_count == 2
     assert succeeded.scanner_result.signal_problem_types == []
     assert succeeded.scanner_result.signal_summaries == []
+
+
+def test_process_events_reads_the_device_type_and_keeps_it_from_the_model() -> None:
+    columns = ["uuid", "event", "timestamp", "$device_type"]
+    start = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+    rows = [
+        ["u1", "$pageview", start, None],
+        ["u2", "$autocapture", start + dt.timedelta(seconds=1), "Mobile"],
+    ]
+
+    processed = _process_events(columns, rows, session_start=start)
+
+    assert processed.device_type == "Mobile"
+    assert "$device_type" not in processed.columns
+    assert all("Mobile" not in row for row in processed.rows)

@@ -109,6 +109,7 @@ the row lists both.
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
+| aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
 | aws_inspector                    | HTTP                        | requests                                                        | ✅                          |
 | aws_organizations                | HTTP                        | requests                                                        | ✅                          |
 | aws_sagemaker                    | HTTP                        | requests                                                        | ✅                          |
@@ -929,7 +930,6 @@ doesn't conflict with concurrent PRs.
 - aws_cost_and_usage_report
 - aws_guardduty
 - aws_health
-- aws_iam_access_analyzer
 - aws_macie
 - aws_rds_performance_insights
 - aws_support

@@ -1,13 +1,16 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class IncidentIoEndpointConfig:
     name: str
-    # Versioned path — incident.io mixes /v1 and /v2 across resources.
+    # Versioned path — incident.io mixes /v1, /v2 and /v3 across resources.
     path: str
     # Key the list of objects is nested under in the response body (e.g. {"incidents": [...]}).
     data_key: str
@@ -15,7 +18,7 @@ class IncidentIoEndpointConfig:
     # response and accept no pagination params.
     paginated: bool = False
     page_size: int = 250
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Fields with a documented server-side `<field>[gte]` filter on the list endpoint.
     # Endpoints without one are full refresh only.
     incremental_fields: list[IncrementalField] = field(default_factory=list)
@@ -25,6 +28,13 @@ class IncidentIoEndpointConfig:
     # Server-side sort. Only the incidents list supports sorting; `created_at_oldest_first`
     # keeps pages stable and lets the incremental watermark advance monotonically.
     sort_by: Optional[str] = None
+    # Set for endpoints that require a parent id filter and so are fetched once per parent row.
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        # Read by the fan-out helper only for incremental children; every fan-out here is full refresh.
+        return None
 
 
 _DATETIME_INCREMENTAL_FIELD_CREATED_AT: IncrementalField = {
@@ -40,6 +50,22 @@ _DATETIME_INCREMENTAL_FIELD_UPDATED_AT: IncrementalField = {
     "field": "updated_at",
     "field_type": IncrementalFieldType.DateTime,
 }
+
+
+# The child rows already carry the parent id, so nothing is copied from the parent row.
+_CATALOG_ENTRIES_FANOUT = DependentEndpointConfig(
+    parent_name="catalog_types",
+    resolve_param="catalog_type_id",
+    resolve_field="id",
+    include_from_parent=[],
+)
+
+_CUSTOM_FIELD_OPTIONS_FANOUT = DependentEndpointConfig(
+    parent_name="custom_fields",
+    resolve_param="custom_field_id",
+    resolve_field="id",
+    include_from_parent=[],
+)
 
 
 # Alerts and escalations also document `created_at[gte]` filters, but neither endpoint
@@ -131,6 +157,45 @@ INCIDENT_IO_ENDPOINTS: dict[str, IncidentIoEndpointConfig] = {
         name="custom_fields",
         path="/v2/custom_fields",
         data_key="custom_fields",
+    ),
+    "custom_field_options": IncidentIoEndpointConfig(
+        name="custom_field_options",
+        # `{custom_field_id}` is bound per parent custom field row by the fan-out.
+        path="/v1/custom_field_options?custom_field_id={custom_field_id}",
+        data_key="custom_field_options",
+        paginated=True,
+        page_size=250,
+        primary_keys=["custom_field_id", "id"],
+        fanout=_CUSTOM_FIELD_OPTIONS_FANOUT,
+    ),
+    "incident_timestamps": IncidentIoEndpointConfig(
+        name="incident_timestamps",
+        path="/v2/incident_timestamps",
+        data_key="incident_timestamps",
+    ),
+    "incident_alerts": IncidentIoEndpointConfig(
+        name="incident_alerts",
+        path="/v2/incident_alerts",
+        data_key="incident_alerts",
+        paginated=True,
+        page_size=50,
+    ),
+    "catalog_types": IncidentIoEndpointConfig(
+        name="catalog_types",
+        path="/v3/catalog_types",
+        data_key="catalog_types",
+        partition_key="created_at",
+    ),
+    "catalog_entries": IncidentIoEndpointConfig(
+        name="catalog_entries",
+        # `{catalog_type_id}` is bound per parent catalog type row by the fan-out.
+        path="/v3/catalog_entries?catalog_type_id={catalog_type_id}",
+        data_key="catalog_entries",
+        paginated=True,
+        page_size=250,
+        primary_keys=["catalog_type_id", "id"],
+        partition_key="created_at",
+        fanout=_CATALOG_ENTRIES_FANOUT,
     ),
 }
 

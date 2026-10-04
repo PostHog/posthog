@@ -23,14 +23,12 @@ export function BIMarksCard(): JSX.Element {
                     icon: option.icon,
                 }))}
                 onChange={setChartType}
-                size="small"
+                size="xsmall"
                 fullWidth
                 aria-label="Mark type"
                 data-attr="bi-editor-mark-type"
+                tooltip="Change how measures on Rows are displayed"
             />
-            <span className="text-xs text-secondary">
-                Measures on rows set the values. Change how a measure is calculated from its menu.
-            </span>
         </BIShelfCard>
     )
 }
