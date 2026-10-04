@@ -7,9 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import PersonalAPIKey
+from posthog.constants import AvailableFeature
+from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.today.backend.facade.enums import BriefingStatus, BriefingTrigger
 from products.today.backend.logic import briefings
 from products.today.backend.models import DailyBriefing
@@ -197,5 +199,29 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/page/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
             )
+
+        assert response.status_code == expected
+
+    @parameterized.expand(
+        [
+            ("can read inbox reports", None, status.HTTP_200_OK),
+            ("may not read inbox reports", "none", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_member_reads_the_report_page_only_with_access_to_inbox_reports(
+        self, _sync_connect: MagicMock, _name: str, task_access: str | None, expected: int
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        if task_access is not None:
+            AccessControl.objects.create(team=self.team, resource="task", resource_id=None, access_level=task_access)
+        self.client.force_login(User.objects.create_and_join(self.organization, "member@example.com", "testtest"))
+        with (
+            self._flag(True),
+            patch("products.today.backend.logic.report_page.signals.report_page_source", return_value=page_source()),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/today/reports/{REPORT_ID}/page/")
 
         assert response.status_code == expected
