@@ -323,6 +323,60 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('stall recovery', () => {
+        const stallEvents = (captureSpy: jest.SpyInstance): any[] =>
+            captureSpy.mock.calls.filter(([event]) => event === 'stuck session player skipped forward')
+
+        const stall = async (at: number): Promise<void> => {
+            await expectLogic(logic, () => logic.actions.recoverStalledPlayer(1000, at)).toFinishAllListeners()
+        }
+
+        it('escalates through one burst and reports it once', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            captureSpy.mockClear()
+
+            for (let attempt = 0; attempt < 4; attempt++) {
+                await stall(5000 + attempt * 100)
+            }
+
+            expect(logic.values.stallRecovery.attempts).toBe(4)
+            expect(stallEvents(captureSpy)).toHaveLength(1)
+        })
+
+        it('starts a new burst once the player has played again', async () => {
+            await stall(5000)
+            await stall(60000)
+
+            expect(logic.values.stallRecovery.attempts).toBe(1)
+        })
+
+        it('jumps to the next segment once the attempts run out', async () => {
+            logic.actions.setCurrentTimestamp(0)
+
+            await expectLogic(logic, async () => {
+                for (let attempt = 0; attempt < 6; attempt++) {
+                    await stall(5000 + attempt * 100)
+                }
+            }).toDispatchActions(['seekToTimestamp'])
+
+            expect(logic.values.playerError).toBeNull()
+        })
+
+        it('reports an error when no later segment can be played', async () => {
+            logic.actions.setCurrentTimestamp(Number.MAX_SAFE_INTEGER)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            captureSpy.mockClear()
+
+            for (let attempt = 0; attempt < 6; attempt++) {
+                await stall(5000 + attempt * 100)
+            }
+
+            expect(logic.values.playerError).toBe('playbackStalled')
+            expect(stallEvents(captureSpy)).toHaveLength(2)
+            expect(stallEvents(captureSpy)[1][1]).toMatchObject({ recovery: 'giveUp', attempt: 5 })
+        })
+    })
+
     describe('end of recording', () => {
         // Reaching the end pauses the player, and currentPlayerState only reports SKIP while playing,
         // so the rewind control already replaces the "Skipping inactivity" overlay without touching the
