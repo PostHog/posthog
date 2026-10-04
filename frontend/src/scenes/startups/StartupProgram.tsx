@@ -75,8 +75,10 @@ function StartupProgramNotice({ title, children }: { title: ReactNode; children:
  */
 function BillingUpgradeButton({
     platformAndSupportProduct,
+    dataAttr = 'startup-program-upgrade-cta',
 }: {
     platformAndSupportProduct: BillingProductV2Type
+    dataAttr?: string
 }): JSX.Element {
     const { billing, billingManagedByPartnerDisabledReason } = useValues(billingLogic)
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
@@ -88,7 +90,7 @@ function BillingUpgradeButton({
         <Button
             variant="primary"
             size="lg"
-            data-attr="startup-program-upgrade-cta"
+            data-attr={dataAttr}
             loading={!!billingProductLoading}
             disabled={!!billingManagedByPartnerDisabledReason}
             onClick={() =>
@@ -109,6 +111,26 @@ function BillingUpgradeButton({
     }
 
     return button
+}
+
+/** Sits under the disabled submit button, so a person who closed the payment modal can open it again. */
+function PaidPlanRequiredNotice({
+    platformAndSupportProduct,
+}: {
+    platformAndSupportProduct: BillingProductV2Type
+}): JSX.Element {
+    const { reportPaidPlanRequiredShown } = useActions(startupProgramLogic)
+    useOnMountEffect(reportPaidPlanRequiredShown)
+
+    return (
+        <div className="flex flex-col items-start gap-2">
+            <Text variant="muted">You need a paid plan before you can submit your application.</Text>
+            <BillingUpgradeButton
+                platformAndSupportProduct={platformAndSupportProduct}
+                dataAttr="startup-program-submit-upgrade-cta"
+            />
+        </div>
+    )
 }
 
 export const scene: SceneExport<StartupProgramLogicProps> = {
@@ -506,7 +528,16 @@ export function StartupProgram(): JSX.Element {
                                                     </EmptyContent>
                                                 </Empty>
                                             ) : (
-                                                <StartupProgramForm />
+                                                <>
+                                                    <StartupProgramForm />
+                                                    {!billingLoading &&
+                                                        !billing?.has_active_subscription &&
+                                                        platformAndSupportProduct && (
+                                                            <PaidPlanRequiredNotice
+                                                                platformAndSupportProduct={platformAndSupportProduct}
+                                                            />
+                                                        )}
+                                                </>
                                             )}
                                         </CardContent>
                                     </Card>
