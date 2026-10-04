@@ -226,7 +226,7 @@ function getTodos(rawInput: Record<string, unknown>): TodoItem[] {
     )
 }
 
-/** TodoWrite — the agent's plan as a checklist, with the finished count on line 2. */
+/** TodoWrite: the agent's plan as a checklist, with the finished count on line 2. */
 const TodoToolRenderer = memo(function TodoToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, displayName, turnComplete, turnCancelled } = props
     const todos = getTodos(message.rawInput)
