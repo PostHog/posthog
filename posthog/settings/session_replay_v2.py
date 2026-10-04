@@ -39,3 +39,10 @@ else:
 RECORDING_API_JWT_SECRET = os.getenv(
     "RECORDING_API_JWT_SECRET", "dev-recording-api-jwt-secret" if (TEST or DEBUG) else ""
 )
+
+# Dedicated signing secret for the tokens that let the replay player fetch fonts and scripts through
+# replay.ph-proxy.com (github.com/PostHog/ph-proxy.com). The proxy holds the same keys, so this must
+# never be SECRET_KEY or JWT_SIGNING_KEY. Comma-separated `new_key,old_key` for rotation. There is no
+# dev default because the source is public: a known key would let anyone mint tokens the proxy accepts.
+# Empty means no token, which is what self-hosted installs get.
+REPLAY_PROXY_JWT_SECRET = os.getenv("REPLAY_PROXY_JWT_SECRET", "")
