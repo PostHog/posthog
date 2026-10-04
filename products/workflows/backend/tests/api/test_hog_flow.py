@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from io import StringIO
@@ -6753,6 +6754,23 @@ def _ai_decision_flow(config_overrides: dict, answer_edges: int | None = None, f
     }
 
 
+def _with_a_second_decision(flow: dict) -> dict:
+    return {"actions": [*flow["actions"], {**flow["actions"][1], "id": "decide_again"}]}
+
+
+def _with_the_second_decision_wired(flow: dict) -> dict:
+    second_decision_edges = [{**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"]
+    return {"edges": [*flow["edges"], *second_decision_edges]}
+
+
+def _without_the_decision(flow: dict) -> dict:
+    return {"actions": [flow["actions"][0], flow["actions"][2]]}
+
+
+def _without_the_decision_edges(flow: dict) -> dict:
+    return {"edges": [{"from": "trigger_node", "to": "exit_node", "type": "continue"}]}
+
+
 class TestAIDecisionActionValidation(APIBaseTest):
     def _post(self, flow: dict, *, flag_enabled: bool | None) -> Any:
         with _ai_decision_flag(flag_enabled):
@@ -6929,26 +6947,24 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert "graph" in response.json()["attr"], response.json()
 
     @parameterized.expand(
-        [("wired_in_the_draft", True, status.HTTP_200_OK), ("unwired", False, status.HTTP_400_BAD_REQUEST)]
+        [
+            ("wiring_a_new_decision", [_with_the_second_decision_wired, _with_a_second_decision], status.HTTP_200_OK),
+            ("adding_an_unwired_decision", [_with_a_second_decision], status.HTTP_400_BAD_REQUEST),
+            ("removing_a_decision", [_without_the_decision, _without_the_decision_edges], status.HTTP_200_OK),
+        ]
     )
-    def test_a_staged_save_that_sends_only_actions_leaves_the_edge_check_to_publish(
-        self, _name: str, wired_in_the_draft: bool, publish_status: int
+    def test_a_staged_save_that_sends_half_the_graph_leaves_the_edge_check_to_publish(
+        self, _name: str, stages: list[Callable[[dict], dict]], publish_status: int
     ) -> None:
         flow = _ai_decision_flow({})
         flow_id = self._post(flow, flag_enabled=True).json()["id"]
-        second_decision = {**flow["actions"][1], "id": "decide_again"}
-        if wired_in_the_draft:
-            second_decision_edges = [
-                {**edge, "from": "decide_again"} for edge in flow["edges"] if edge["from"] == "decide"
-            ]
-            self._stage_as_api_client(flow_id, {"edges": [*flow["edges"], *second_decision_edges]})
 
-        staged = self._stage_as_api_client(flow_id, {"actions": [*flow["actions"], second_decision]})
+        staged = [self._stage_as_api_client(flow_id, stage(flow)) for stage in stages]
         published = self._publish(flow_id)
 
-        assert staged.status_code == status.HTTP_200_OK, staged.json()
+        assert [response.status_code for response in staged] == [status.HTTP_200_OK] * len(stages)
         assert published.status_code == publish_status, published.json()
-        assert ("missing" in str(published.json())) == (not wired_in_the_draft), published.json()
+        assert ("missing" in str(published.json())) == (publish_status == status.HTTP_400_BAD_REQUEST), published.json()
 
     def test_a_stored_decision_does_not_unlock_a_flag_gated_template(self) -> None:
         template = deepcopy(webhook_template)

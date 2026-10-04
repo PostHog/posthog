@@ -3003,13 +3003,16 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
-    def _writes_to_draft(self, instance: Optional[HogFlow], data: dict) -> bool:
-        return (
-            instance is not None
-            and instance.status == HogFlow.State.ACTIVE
-            and bool(set(data.keys()) & set(DRAFT_CONTENT_FIELDS))
-            and self._stages_draft()
-        )
+    def _stages_an_active_flow(self, instance: Optional[HogFlow]) -> bool:
+        return instance is not None and instance.status == HogFlow.State.ACTIVE and self._stages_draft()
+
+    def _sends_a_graph_to_check_early(self, instance: Optional[HogFlow], data: dict) -> bool:
+        sends_actions, sends_edges = "actions" in data, "edges" in data
+        if self._stages_an_active_flow(instance):
+            # Half a staged graph would be checked against the other half of the live graph, not the
+            # draft's, so it waits for publish, which re-validates the whole draft.
+            return sends_actions and sends_edges
+        return sends_actions or sends_edges
 
     def to_internal_value(self, data):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
@@ -3075,7 +3078,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = instance.status
         if status != "active":
             self.context["is_draft"] = True
-        elif isinstance(data, dict) and self._writes_to_draft(instance, data):
+        elif (
+            isinstance(data, dict)
+            and bool(set(data.keys()) & set(DRAFT_CONTENT_FIELDS))
+            and self._stages_an_active_flow(instance)
+        ):
             # A stage_draft content save writes the draft blob, not the live row (perform_update
             # routes it there), so it validates like any other draft: the web builder saves
             # incomplete steps mid-edit, and publish revalidates strictly before promoting
@@ -3247,13 +3254,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # Unlike the advisory checks below, an AI decision's edges are enforced on a strict save that sends
         # the graph. An edit that leaves a builder draft's graph alone is not blocked by it, and the /graph
         # endpoint reports the same errors through validate_graph with the rest of the graph's errors.
-        # A staged save that sends half the graph would be checked against the other half of the live
-        # graph, not the draft's, so it waits for publish, which re-validates the whole draft.
         enforce_graph = self.context.get("enforce_graph_structure", False)
-        sends_half_a_staged_graph = self._writes_to_draft(instance, data) and not (
-            "actions" in data and "edges" in data
-        )
-        if strict and not enforce_graph and not sends_half_a_staged_graph and ("actions" in data or "edges" in data):
+        if strict and not enforce_graph and self._sends_a_graph_to_check_early(instance, data):
             missing_edges = missing_ai_decision_edges(actions, edges)
             if missing_edges:
                 raise serializers.ValidationError({"graph": missing_edges})
