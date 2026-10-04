@@ -249,6 +249,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
                       },
                   }
                 : {}),
+            table: ({ node, ...props }: any): JSX.Element => (
+                <div className="LemonMarkdown__table-wrapper">
+                    <table {...props} />
+                </div>
+            ),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
                     return <RichContentMention id={Number(props['data-mention-id'])} />

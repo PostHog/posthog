@@ -77,6 +77,25 @@ Here's a breakdown of our top traffic sources:
     },
 }
 
+export const WideTableInNarrowContainer: Story = {
+    decorators: [
+        (Story) => (
+            <div className="w-90 border p-2">
+                <Story />
+            </div>
+        ),
+    ],
+    args: {
+        children: `A wide table scrolls sideways instead of squeezing its columns:
+
+| Channel | Referring domain | Visitors | Views | Bounce rate | Session duration | Conversion rate |
+|---------|------------------|----------|-------|-------------|------------------|-----------------|
+| Organic search | google.com | 412,873 | 1,203,554 | 41.2% | 3m 12s | 2.4% |
+| Direct | (none) | 198,221 | 602,118 | 38.9% | 4m 01s | 3.1% |
+| Referral | news.ycombinator.com | 23,402 | 41,988 | 61.7% | 1m 45s | 0.9% |`,
+    },
+}
+
 export const GitHubFlavoredMarkdown: Story = {
     args: {
         children: `# GitHub-flavored Markdown features
