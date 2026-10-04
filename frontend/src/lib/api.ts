@@ -6091,6 +6091,7 @@ const api = {
                 name: string
                 level: string
                 parent_id: string
+                test_account?: boolean
             }[]
         }> {
             return await new ApiRequest().integrationGoogleAdsAccounts(id).get()

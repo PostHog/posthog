@@ -1,25 +1,36 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonInputSelectOption, LemonTag } from '@posthog/lemon-ui'
 
 import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 
-import { googleAdsIntegrationLogic } from './googleAdsIntegrationLogic'
+import { GoogleAdsAccount, googleAdsIntegrationLogic } from './googleAdsIntegrationLogic'
 
-const getGoogleAdsAccountOptions = (
-    googleAdsAccounts?: { id: string; name: string; parent_id: string; level: string }[] | null
-): LemonInputSelectOption[] | null => {
+const formatCustomerId = (customerId: string): string => customerId.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')
+
+// A picked option carries the account to log in as, as `<customer id>/<login customer id>`. A typed
+// value is a bare customer ID, so the account logs in as itself.
+export const normalizeCustomerIdValue = (value: string): string | null => {
+    const [customerId, loginCustomerId] = value.split('/').map((part) => part.replace(/\D/g, ''))
+    return customerId ? `${customerId}/${loginCustomerId || customerId}` : null
+}
+
+const getGoogleAdsAccountOptions = (googleAdsAccounts?: GoogleAdsAccount[] | null): LemonInputSelectOption[] | null => {
     return googleAdsAccounts
-        ? googleAdsAccounts.map((customer) => ({
-              key: `${customer.id}/${customer.parent_id}`,
-              labelComponent: (
-                  <span className="flex items-center">
-                      {customer.name} ({customer.id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')})
-                  </span>
-              ),
-              label: `${customer.name} (${customer.id.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3')})`,
-          }))
+        ? googleAdsAccounts.map((customer) => {
+              const formattedId = formatCustomerId(customer.id)
+              return {
+                  key: `${customer.id}/${customer.parent_id}`,
+                  labelComponent: (
+                      <span className="flex items-center gap-1">
+                          {customer.name} ({formattedId})
+                          {customer.test_account && <LemonTag type="highlight">Test</LemonTag>}
+                      </span>
+                  ),
+                  label: `${customer.name} (${formattedId})${customer.test_account ? ' test' : ''}`,
+              }
+          })
         : null
 }
 
@@ -108,9 +119,8 @@ export function GoogleAdsCustomerIdPicker({
     integration,
     disabled,
 }: GoogleAdsPickerProps): JSX.Element {
-    const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading } = useValues(
-        googleAdsIntegrationLogic({ id: integration.id })
-    )
+    const { googleAdsAccessibleAccounts, googleAdsAccessibleAccountsLoading, googleAdsAccessibleAccountsError } =
+        useValues(googleAdsIntegrationLogic({ id: integration.id }))
     const { loadGoogleAdsAccessibleAccounts } = useActions(googleAdsIntegrationLogic({ id: integration.id }))
 
     const googleAdsAccountOptions = useMemo(
@@ -125,9 +135,9 @@ export function GoogleAdsCustomerIdPicker({
     }, [loadGoogleAdsAccessibleAccounts, disabled])
 
     return (
-        <>
+        <div className="flex flex-col gap-1">
             <LemonInputSelect
-                onChange={(val) => onChange?.(val[0] ?? null)}
+                onChange={(val) => onChange?.(normalizeCustomerIdValue(val[0] ?? ''))}
                 value={value ? [value] : []}
                 onFocus={() =>
                     !googleAdsAccessibleAccounts &&
@@ -136,21 +146,31 @@ export function GoogleAdsCustomerIdPicker({
                 }
                 disabled={disabled}
                 mode="single"
+                allowCustomValues
                 data-attr="select-google-ads-customer-id-channel"
-                placeholder="Select a Customer ID..."
+                placeholder="Select a customer ID, or type one..."
                 options={
                     googleAdsAccountOptions ??
                     (value
                         ? [
                               {
                                   key: value,
-                                  label: value.replace(/(\d{3})(\d{3})(\d{4})/, '$1-$2-$3'),
+                                  label: formatCustomerId(value),
                               },
                           ]
                         : [])
                 }
                 loading={googleAdsAccessibleAccountsLoading}
             />
-        </>
+            {googleAdsAccessibleAccountsError ? (
+                <p className="m-0 text-xs text-warning">
+                    {googleAdsAccessibleAccountsError} You can type the 10-digit customer ID of the account you want.
+                </p>
+            ) : (
+                <p className="m-0 text-xs text-secondary">
+                    Account missing from the list? Type its 10-digit customer ID.
+                </p>
+            )}
+        </div>
     )
 }
