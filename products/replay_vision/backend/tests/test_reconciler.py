@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 from collections.abc import Callable
 from typing import Any
 
@@ -60,6 +61,13 @@ from products.replay_vision.backend.temporal.schedule import (
     compute_schedule_fingerprint,
     load_enabled_scanner_fingerprints,
 )
+
+
+def _live_activity_env() -> ActivityEnvironment:
+    env = ActivityEnvironment()
+    # The default start is the epoch, which would put every query budget measured from it in the past.
+    env.info = dataclasses.replace(env.info, started_time=dt.datetime.now(dt.UTC))
+    return env
 
 
 @pytest.fixture
@@ -537,7 +545,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
         AsyncMock(return_value=temporal),
     ):
-        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
+        reaped = await _live_activity_env().run(reap_orphaned_observations_activity)
 
     assert reaped == 3
     statuses = {
@@ -610,7 +618,7 @@ async def test_reap_childless_inline_scanners_activity(org_team) -> None:
 
     rows = await sync_to_async(_setup)()
 
-    reaped = await ActivityEnvironment().run(reap_childless_inline_scanners_activity)
+    reaped = await _live_activity_env().run(reap_childless_inline_scanners_activity)
 
     assert reaped == 1
     surviving = await sync_to_async(

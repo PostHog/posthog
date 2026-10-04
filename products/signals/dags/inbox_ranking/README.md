@@ -106,11 +106,57 @@ s3://<object-storage bucket>/<prefix>/serving/
 └── manifest.json                                                    # the models one scoring pass runs
 ```
 
-The manifest holds one entry per model with its `roles`: `served` for the champion of `INBOX_RANKING_SERVED_FAMILY`, `daily_candidate` for that family's candidate on this partition when it is a different, readable model, and `cross_family` for every other family's champion that has a readable head. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit, dropping `cross_family` entries first. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. No family has a champion until the first promotion, so until then the asset writes nothing and says why.
+The manifest holds one entry per model with its `roles`: `served` for the champion of `INBOX_RANKING_SERVED_FAMILY`, `daily_candidate` for that family's candidate on this partition when it is a different, readable model, `pinned` for each model the `pin` override keeps (see [Overrides](#overrides)), and `cross_family` for every other family's champion that has a readable head. A pass scores all of them, so an online paired read and a later interleaving need no rescoring; the entry count is capped at the `ranking_score` artefact's own limit, dropping `cross_family` entries first and `pinned` entries next. The schema, the role names and the object keys live in `products/signals/backend/ranking/serving_manifest.py`, and its validators run at write time, so the dag refuses a manifest the sweep could not act on. A model version is immutable, so a version already in the store is not copied again, and `manifest.json` is written last: a failed copy leaves the previous manifest and the previous models serving. No family has a champion until the first promotion, so until then the asset writes nothing and says why.
 
 A region that does not train serves the same models through a mirror. When `INBOX_RANKING_SERVING_MIRROR_BUCKET` is set, the asset repeats the publish into that bucket after the primary publish succeeds, in the same order and with the same skip of versions already there. A mirror failure does not fail the asset: it logs, and the `inbox_ranking_serving_manifest_published` event carries `mirror_published=false`. The property is absent when no mirror is set.
 
 The reader is `score_reports` in `products/signals/backend/ranking/scorer.py`. It loads every model the manifest names through `model_store.py`, reads each report's latest vector once per rendering, builds each model's matrix with its own `FeatureSet.build_matrix`, and writes one `ranking_score` artefact per report plus one `inbox_ranking_report_scored` event per report and model. The dag and the reader decide whether a model can be scored with the same functions, in `products/signals/backend/ranking/model_contract.py`. A served model that cannot load stops the pass. Any other model that cannot load, or has no vector for a report, is a `skipped` result. The embedding families are the only ones served, so a tabular entry is a `skipped` result too. No scheduled caller runs the reader yet.
+
+### Overrides
+
+An owner can change serving and promotion without a training run, through the payload of the `inbox-ranking-overrides` feature flag in the internal PostHog project. The flag is inert by default. When the flag is off, the payload is empty, or the lookup fails, the sweep and the dag run as they do without the flag. The parser is `products/signals/backend/ranking/overrides.py`, and the sweep and the dag share it.
+
+Every key is optional, but no key applies without `expires_at`:
+
+```json
+{
+  "expires_at": "2026-10-11T00:00:00Z",
+  "served": "report_embeddings@2026-10-03",
+  "pin": ["report_embeddings@2026-09-26"],
+  "promotion": {
+    "freeze": ["report_embeddings"],
+    "force": ["report_embeddings"],
+    "skip_gates": { "report_embeddings": ["min_days", "ece", "min_holdout_positives"] }
+  }
+}
+```
+
+| Key                    | Read by                                | Effect                                                                                                                                                                                                                                    |
+| ---------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `expires_at`           | sweep and dag                          | Required. After this time the sweep and the dag ignore the payload and log `inbox_ranking_override_expired`. A payload with no `expires_at`, or one more than 14 days ahead, is invalid.                                                  |
+| `served`               | sweep, once per pass                   | Gives this model key the `served` role for the pass. The key must name a model in the current manifest, a pinned one included. No `champion.json` changes, and removing the key reverts on the next tick.                                 |
+| `pin`                  | dag (`inbox_ranking_serving_manifest`) | Keeps these model keys in the manifest with the `pinned` role, so a `served` override survives the next manifest rewrite and can roll back to an older model.                                                                             |
+| `promotion.freeze`     | dag (`inbox_ranking_model_champion`)   | For these families, the run trains, grades and records the decision, but never writes `champion.json`.                                                                                                                                    |
+| `promotion.force`      | dag (`inbox_ranking_model_champion`)   | For these families, the run promotes the day's candidate when `decide_promotion` refuses it. The candidate must still be newer than the champion and have a readable head. This is a lasting champion change.                             |
+| `promotion.skip_gates` | dag (`inbox_ranking_model_champion`)   | Waives named checks of `decide_promotion` for one family: `min_days` (the `INBOX_RANKING_PROMOTION_MIN_DAYS` wait), `ece` (`ECE_TOLERANCE`), `min_holdout_positives` (a head whose candidate holdout is too thin to read does not block). |
+
+`freeze` wins over `force` and `skip_gates` for the same family. `force` and `skip_gates` still need `INBOX_RANKING_AUTO_PROMOTE` on, so the flag cannot promote where promotion is off. An unknown key, an unknown gate, or a model key that is not `<model_name>@<YYYY-MM-DD>` makes the whole payload invalid: it is never partly applied, and `inbox_ranking_override_invalid` logs the reason.
+
+The worst result of a bad payload is a warning, never a stopped pass or an unpublished manifest:
+
+- A `served` key that is not in the manifest, that did not load (missing files, a feature contract mismatch, an untrained head), that has fewer heads than the manifest's served model, or that the sweep cannot serve (a tabular model) is rejected. The sweep logs `inbox_ranking_override_rejected` and scores with the manifest's served model. The override only moves the `served` role among models the pods already load, so it never adds memory.
+- A pinned key whose `metadata.json` or boosters are missing in the dataset bucket, or that fails `model_mismatch`, is dropped before composition. The manifest still publishes, and the asset metadata lists `pinned_keys` and `dropped_pins` with reasons.
+
+During a `served` override, the override model carries the roles `served` and `served_override`, and the manifest's served model carries `manifest_served` in place of `served`. The sweep compares the served key on the latest `ranking_score` with the effective one, so setting or removing an override rescores every report in the window. The `inbox_ranking_sweep_finished` log and each `inbox_ranking_report_scored` event carry `override_served` and `override_expires_at`. The `inbox_ranking_promotion_decided` event carries `override` (`frozen`, `forced`, `skipped_gates` or null) and `override_skipped_gates`, next to the `reason` the rule gave, so a forced promotion still records why the rule refused it.
+
+Examples, each with an `expires_at` at most 14 days ahead:
+
+- Serve today's candidate now: set `served` to the `daily_candidate` key of the current manifest.
+- Roll back to an older champion: add its key to `pin`, wait for the next manifest run (or rematerialize `inbox_ranking_serving_manifest`), then set `served` to the same key.
+- Pause promotion while a regression is investigated: `"promotion": {"freeze": ["report_embeddings"]}`.
+- Promote a candidate the rule refused for a harmless reason: `"promotion": {"force": ["report_embeddings"]}`, or the narrower `skip_gates` with the gate that refused it.
+
+Both regions read the same flag, so one override applies everywhere, if the region's `posthoganalytics` client evaluates flags in the internal project. A region that cannot read the flag runs with no override. Nothing deletes old model prefixes in the dataset bucket or old `serving/models/<key>/` copies. If the bucket has a lifecycle rule, a rollback through `pin` works only while the model files are still there.
 
 ### Outcome heads
 

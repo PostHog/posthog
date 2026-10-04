@@ -17,10 +17,12 @@ from products.replay_vision.backend.temporal.activities.reaping import classify_
 from products.replay_vision.backend.temporal.constants import (
     OBSERVATION_ORPHAN_CUTOFF,
     REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE,
+    REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind
 from products.replay_vision.backend.temporal.metrics import record_failure_kind
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
 logger = structlog.get_logger(__name__)
 
@@ -30,13 +32,15 @@ _ORPHANED_ERROR_REASON = f"{FailureKind.ORPHANED.value}:The analysis stopped wit
 
 def _list_stale_observations() -> list[dict[str, Any]]:
     cutoff = datetime.now(UTC) - OBSERVATION_ORPHAN_CUTOFF
-    rows = (
-        ReplayObservation.objects.filter(status__in=_LIVE_STATUSES, created_at__lt=cutoff)
-        .order_by("created_at")
-        .values("id", "workflow_id", "scanner_snapshot")[:REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE]
-    )
+    # The listing runs before the first heartbeat, so the heartbeat timeout ends a slow attempt.
+    with bounded_queries(REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT):
+        rows = list(
+            ReplayObservation.objects.filter(status__in=_LIVE_STATUSES, created_at__lt=cutoff)
+            .order_by("created_at")
+            .values("id", "workflow_id", "scanner_snapshot")[:REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE]
+        )
     # cast: django-stubs types `.values()` rows as a TypedDict, which mypy won't widen to dict[str, Any].
-    return cast(list[dict[str, Any]], list(rows))
+    return cast(list[dict[str, Any]], rows)
 
 
 def _mark_orphaned(observation_id: UUID, scanner_type: str) -> bool:

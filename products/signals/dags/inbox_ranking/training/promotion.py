@@ -17,14 +17,19 @@ A paired grade also says how many positives the shared holdout holds. Below the 
 `min_holdout_positives` neither model can be read on it, so the head is skipped, not counted as a
 regression. A head the candidate did not train still blocks: a candidate must not replace a champion
 by losing a head the champion serves.
+
+An owner can change one family's outcome through the `promotion` override (see
+`products/signals/backend/ranking/overrides.py`). `skip_gates` waives named checks inside the rule,
+and `apply_promotion_override` applies `freeze` and `force` to the rule's decision.
 """
 
 import datetime
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.ranking.overrides import PromotionOverride
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 
 # A candidate may be this much worse than the champion on a readable head and still promote: at
@@ -44,6 +49,13 @@ class PromotionDecision:
     skipped_heads: tuple[str, ...] = ()
 
 
+@frozen
+class PromotionOutcome:
+    promote: bool
+    # "frozen", "forced" or "skipped_gates" when an override applied, else None.
+    override: str | None
+
+
 def _readable_aucs(metadata: Mapping[str, Any]) -> dict[str, float]:
     return {
         head["head"]: float(head["holdout_auc"])
@@ -60,7 +72,11 @@ def decide_promotion(
     min_days_between: int,
     champion_grades: Mapping[str, HoldoutGrade] | None = None,
     min_holdout_positives: Mapping[str, int] | None = None,
+    skip_gates: Collection[str] = (),
 ) -> PromotionDecision:
+    """`skip_gates` waives `min_days` (the wait since the last promotion), `ece` (the calibration
+    check) and `min_holdout_positives` (a head whose candidate holdout has fewer positives than its
+    minimum is skipped rather than blocking)."""
     candidate_aucs = _readable_aucs(candidate)
     candidate_heads = {head["head"]: head for head in candidate.get("heads", [])}
     if not candidate_aucs:
@@ -78,12 +94,20 @@ def decide_promotion(
         )
 
     promoted_at = datetime.datetime.fromisoformat(champion["promoted_at"])
-    if now - promoted_at < datetime.timedelta(days=min_days_between):
+    if "min_days" not in skip_gates and now - promoted_at < datetime.timedelta(days=min_days_between):
         return PromotionDecision(
             promote=False, reason=f"champion {champion['model_version']} promoted less than {min_days_between}d ago"
         )
     skipped: list[str] = []
     for head, stored_auc in _readable_aucs(champion).items():
+        candidate_positives = candidate_heads.get(head, {}).get("holdout_positives")
+        if (
+            "min_holdout_positives" in skip_gates
+            and candidate_positives is not None
+            and candidate_positives < (min_holdout_positives or {}).get(head, 0)
+        ):
+            skipped.append(head)
+            continue
         grade = (champion_grades or {}).get(head)
         if grade is None:
             # No shared holdout: readability was read on two different holdouts, so compare it as stored.
@@ -110,7 +134,12 @@ def decide_promotion(
         champion_ece = grade.expected_calibration_error if grade is not None else None
         raw_ece = candidate_heads.get(head, {}).get("holdout_expected_calibration_error")
         candidate_ece = float(raw_ece) if raw_ece is not None else None
-        if champion_ece is not None and candidate_ece is not None and candidate_ece > champion_ece + ECE_TOLERANCE:
+        if (
+            "ece" not in skip_gates
+            and champion_ece is not None
+            and candidate_ece is not None
+            and candidate_ece > champion_ece + ECE_TOLERANCE
+        ):
             return PromotionDecision(
                 promote=False,
                 reason=f"{head} calibration regressed: ECE {candidate_ece:.3f} vs champion {champion_ece:.3f}",
@@ -122,3 +151,26 @@ def decide_promotion(
             skipped_heads=tuple(skipped),
         )
     return PromotionDecision(promote=True, reason="candidate at or above champion on every readable head")
+
+
+def apply_promotion_override(
+    decision: PromotionDecision,
+    candidate: Mapping[str, Any],
+    champion: Mapping[str, Any] | None,
+    override: PromotionOverride,
+) -> PromotionOutcome:
+    """The rule's decision with `freeze` or `force` applied.
+
+    `force` still needs a readable head on a candidate newer than the champion, so it can never
+    move the pointer backwards or onto a model with nothing to read.
+    """
+    if override.freeze:
+        return PromotionOutcome(promote=False, override="frozen")
+    if (
+        override.force
+        and not decision.promote
+        and _readable_aucs(candidate)
+        and (champion is None or candidate["model_version"] > champion["model_version"])
+    ):
+        return PromotionOutcome(promote=True, override="forced")
+    return PromotionOutcome(promote=decision.promote, override="skipped_gates" if override.skip_gates else None)

@@ -55,6 +55,7 @@ export function Navigation({
         todayRailEnabled: todayRail,
         sidebarVisible: todaySidebarVisible,
         phoneLayout: todayPhoneLayout,
+        phoneHeaderHidden: todayPhoneHeaderHidden,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
@@ -175,6 +176,7 @@ export function Navigation({
                     'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
                     TodayAppLayout: todayRail,
                     'TodayAppLayout--phone': todayPhone,
+                    'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
                 })}
                 style={
                     {
