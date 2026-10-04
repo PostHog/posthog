@@ -1583,11 +1583,23 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 users: Record<string, UserBasicType>,
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet
             ): ((searchTerm: string, onlyFolders: boolean) => TreeDataItem[]) => {
+                // Hide a starred product while its flag is off, but keep the star so it comes back with the flag.
+                const productIsEnabled = (product: FileSystemImport): boolean =>
+                    !product.flag || !!(featureFlags as Record<string, boolean>)[product.flag]
+                const products = getDefaultTreeProducts()
+                const enabledProductHrefs = new Set(products.filter(productIsEnabled).map((product) => product.href))
+                const hiddenProductHrefs = new Set(
+                    products
+                        .filter((product) => product.href && !enabledProductHrefs.has(product.href))
+                        .map((product) => product.href)
+                )
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const newShortcutData = []
                     for (const shortcut of shortcutData.filter(
-                        // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
-                        (shortcut) => !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut))
+                        (shortcut) =>
+                            // only remove shortcuts that are group view shortcuts when CRM iteration one is enabled
+                            !(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && isGroupViewShortcut(shortcut)) &&
+                            !(shortcut.type !== 'folder' && !shortcut.ref && hiddenProductHrefs.has(shortcut.href))
                     )) {
                         const shortcutTreeItem = convertFileSystemEntryToTreeDataItem({
                             root: 'shortcuts://',
