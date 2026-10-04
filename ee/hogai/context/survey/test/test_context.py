@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from products.surveys.backend.models import Survey
 
 from ee.hogai.context.survey.context import SurveyContext
@@ -126,9 +128,12 @@ class TestSurveyContext(BaseTest):
         assert survey is not None
         assert survey.name == "Test NPS Survey"
 
+    @parameterized.expand(
+        [("missing_uuid", "00000000-0000-0000-0000-000000000000"), ("name", "Test NPS Survey"), ("number", "42")]
+    )
     @pytest.mark.asyncio
-    async def test_aget_survey_not_found(self):
-        context = SurveyContext(team=self.team, user=self.user, survey_id="00000000-0000-0000-0000-000000000000")
+    async def test_aget_survey_not_found(self, _name: str, survey_id: str):
+        context = SurveyContext(team=self.team, user=self.user, survey_id=survey_id)
         survey = await context.aget_survey()
 
         assert survey is None
