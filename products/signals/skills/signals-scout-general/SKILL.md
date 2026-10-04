@@ -50,8 +50,8 @@ When sibling specialists are running, leave a surface they cover in depth to the
 
 Every few runs, check whether the project's event volume stepped up, and where the new events come from.
 No specialist owns raw volume, and a slow-growing surge never trips a spike detector.
-Growth from a launch or a new integration goes in memory, so later runs can tell when that source changes shape.
-Traffic the team pays for but may not have created is worth a report: a host or app version they never shipped, events with no SDK, a flood of anonymous IDs, or a client stuck in a loop.
+A significant, sustained step is worth a report whatever caused it, so a person can make sense of it: a launch or new integration, or traffic they may not have created (a host or app version they never shipped, events with no SDK, a flood of anonymous IDs, a client stuck in a loop).
+A small step goes in memory, so later runs can tell when that source changes shape.
 [`references/new-traffic.md`](references/new-traffic.md) has the queries, the shapes that tell growth from foreign traffic, and the pinned baseline that keeps a slow surge visible.
 
 ## Decide

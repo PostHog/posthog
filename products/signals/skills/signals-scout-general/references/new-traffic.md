@@ -59,7 +59,8 @@ WHERE timestamp <= now() + INTERVAL 1 DAY
     )
 ```
 
-A candidate is a source that grew to about 2x or more against either window **and** now carries a meaningful share of the project's `last_7d` (about 10% or more), or a source that appeared from nothing at real volume.
+A candidate is a source that grew to about 2x or more against either window **and** now carries a meaningful share of the project's `last_7d` (about 10% or more), or a source that appeared from nothing at that share.
+Volume matters too. On a small project a doubling from 100 to 200 events a week costs nothing, so something around 10,000 events a week is a sensible floor before a step is worth a person's time.
 
 Also recheck every source that has a `report:general:new-traffic:<source_id>` entry, whether or not it is in the top 20. A source that falls back toward its baseline drops out of the growth ranking, and its report still needs the resolution edit.
 
@@ -132,15 +133,14 @@ Add `properties.$lib_version`, `properties.$geoip_country_code` or `countIf(even
 
 ## 4. Decide
 
-- **Suspicious** traffic and **runaway loops** get a report when the step is material and sustained.
-  Say why the source looks foreign or broken, and what to do about it:
-  confirm whether the source is theirs,
-  filter it in code (a `before_send` check on the host or app version, or an allow-list on their own version property) or with a transformation that drops it,
-  fix the loop if it is their own client,
-  set a billing limit while they look,
-  and contact PostHog support about the billed volume if the traffic was never theirs.
-- Set `actionability` against the harness criteria. A runaway loop in the team's own client is a code fix, so it is usually `immediately_actionable`. Foreign traffic needs a person to confirm the source before the filter goes in, so it is usually `requires_human_input`.
-- **Growth** and **expected** traffic are not reports: no code change follows from them, and the harness suppresses a `not_actionable` report anyway. Record the source and its level in `pattern:general:traffic-baseline:<source_id>`, so a later run can tell when that source changes shape.
+How to read the step, whether to report it, and its actionability are your call.
+Some context for that call:
+
+- A significant step (a candidate from step 1 that held for 3 days or more in step 2) usually deserves a report even when it looks like good news. It moves the team's bill and changes what their data means, and a person can often tell in seconds what you cannot see from the data.
+- A small step is usually better as a `pattern:general:traffic-baseline:<source_id>` entry, so a later run can tell when that source changes shape.
+- The shape from step 3 is the most useful lead for a reader: growth from their own surface, traffic that looks foreign, or a loop.
+- Next steps that often fit: confirm whether the source is theirs and wanted, filter it in code (a `before_send` check on the host or app version) or with a transformation that drops it, fix a loop in their own client, set a billing limit while they look, and contact PostHog support about the billed volume if the traffic was never theirs.
+- The harness suppresses a `not_actionable` report, so a step you want a person to see needs an actionability that reflects the decision in front of them.
 
 Put the evidence in the report: the source, the onset, the pinned baseline, the current daily level, the ratio, the days sustained, and an estimate of the excess events since onset (daily events minus the pinned baseline, summed).
 Do not convert the excess to a dollar figure. Billing tiers vary by plan, so name the volume and point the team at their billing page.
