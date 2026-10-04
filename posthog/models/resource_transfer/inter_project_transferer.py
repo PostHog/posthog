@@ -101,7 +101,7 @@ def duplicate_resources_from_dag(
     """
     consumed_vertices: ResourceMap = {}
     transfer_records: list[ResourceTransfer] = []
-    mapped_substitutions = _get_mapped_substitutions(substitutions, target_team=new_team)
+    mapped_substitutions = _get_mapped_substitutions(substitutions, source_team=source_team, target_team=new_team)
 
     logger.info(
         "resource_transfer.duplicate_dag.start",
@@ -404,35 +404,47 @@ def get_suggested_substitutions(
     """
     Return a list of (source_key, destination_key) pairs representing suggested substitutions
     based on past transfers to the destination team.
+
+    Each destination resource is suggested for at most one source resource. Transfer records
+    take priority over name matches.
     """
-    recommendations: list[tuple[ResourceTransferKey, ResourceTransferKey]] = []
+    suggestions: dict[ResourceTransferKey, ResourceTransferKey] = {}
+    taken_dest_keys: set[ResourceTransferKey] = set()
 
     with team_scope(new_team.id):
+        mutable_vertices: list[tuple[type[ResourceTransferVisitor], ResourceTransferVertex]] = []
         for vertex in dag:
             visitor = ResourceTransferVisitor.get_visitor(vertex.model)
 
             if visitor is None:
                 raise TypeError(f"Model has no configured visitor: {vertex.model.__name__}")
 
-            if visitor.is_immutable():
-                continue
+            if not visitor.is_immutable():
+                mutable_vertices.append((visitor, vertex))
 
+        for visitor, vertex in mutable_vertices:
             suggested_resource = _find_resource_with_transfer_record(visitor, vertex, new_team)
-
-            if suggested_resource is None:
-                suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team)
-
             if suggested_resource is None:
                 continue
+            dest_key: ResourceTransferKey = (cast(ResourceKind, visitor.kind), suggested_resource.pk)
+            if dest_key in taken_dest_keys:
+                continue
+            suggestions[(visitor.kind, vertex.source_resource.pk)] = dest_key
+            taken_dest_keys.add(dest_key)
 
+        for visitor, vertex in mutable_vertices:
             source_key: ResourceTransferKey = (visitor.kind, vertex.source_resource.pk)
-            dest_key: ResourceTransferKey = (
-                cast(ResourceKind, visitor.kind),
-                suggested_resource.pk,
-            )
-            recommendations.append((source_key, dest_key))
+            if source_key in suggestions:
+                continue
+            taken_pks = [pk for kind, pk in taken_dest_keys if kind == visitor.kind]
+            suggested_resource = _find_resource_with_same_name(visitor, vertex, new_team, exclude_pks=taken_pks)
+            if suggested_resource is None:
+                continue
+            dest_key = (cast(ResourceKind, visitor.kind), suggested_resource.pk)
+            suggestions[source_key] = dest_key
+            taken_dest_keys.add(dest_key)
 
-    return recommendations
+    return list(suggestions.items())
 
 
 def _find_resource_with_transfer_record(
@@ -461,7 +473,10 @@ def _find_resource_with_transfer_record(
 
 
 def _find_resource_with_same_name(
-    visitor: type[ResourceTransferVisitor], vertex: ResourceTransferVertex, new_team: Team
+    visitor: type[ResourceTransferVisitor],
+    vertex: ResourceTransferVertex,
+    new_team: Team,
+    exclude_pks: Iterable[Any] = (),
 ) -> Any | None:
     model = visitor.get_model()
 
@@ -470,7 +485,9 @@ def _find_resource_with_same_name(
     if not hasattr(resource, "name") or not resource.name or not hasattr(resource, "team"):
         return None
 
-    matching_resource = cast(Any, model).objects.filter(name=resource.name, team=new_team).first()
+    matching_resource = (
+        cast(Any, model).objects.filter(name=resource.name, team=new_team).exclude(pk__in=list(exclude_pks)).first()
+    )
 
     return matching_resource
 
@@ -526,6 +543,7 @@ def _deduplicate_feature_flag_key(model: type[models.Model], key: str, team: Tea
 def _get_mapped_substitutions(
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
     target_team: Team | None = None,
+    source_team: Team | None = None,
 ) -> dict[ResourceTransferKey, Any]:
     """
     Build a mapping from source resource keys to destination resource instances.
@@ -535,8 +553,10 @@ def _get_mapped_substitutions(
     - destination_key identifies the existing resource in the destination team to use instead
 
     If target_team is provided, every destination resource is verified to belong to that team.
+    If source_team is provided, every source resource must belong to that team.
     """
     mapped_substitutions: dict[ResourceTransferKey, Any] = {}
+    source_by_dest_key: dict[ResourceTransferKey, Any] = {}
 
     logger.info(
         "resource_transfer.map_substitutions.start",
@@ -574,6 +594,15 @@ def _get_mapped_substitutions(
             )
             raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
 
+        if source_team is not None and source_visitor.get_resource_team(source_resource).pk != source_team.pk:
+            logger.warning(
+                "resource_transfer.map_substitutions.source_team_mismatch",
+                source_kind=source_kind,
+                source_pk=str(source_pk),
+                source_team_id=source_team.pk,
+            )
+            raise ValueError(f"Could not find source resource: {source_kind} {source_pk}")
+
         dest_model = dest_visitor.get_model()
         try:
             if target_team is not None:
@@ -590,6 +619,21 @@ def _get_mapped_substitutions(
             raise ValueError(f"Could not find substituted resource: {dest_kind} {dest_pk}")
 
         normalized_key: ResourceTransferKey = (source_kind, source_resource.pk)
+        normalized_dest_key: ResourceTransferKey = (dest_kind, dest_resource.pk)
+        other_source = source_by_dest_key.get(normalized_dest_key)
+        if other_source is not None and other_source.pk != source_resource.pk:
+            logger.warning(
+                "resource_transfer.map_substitutions.duplicate_destination",
+                dest_kind=dest_kind,
+                dest_pk=str(dest_resource.pk),
+                source_pks=[str(other_source.pk), str(source_resource.pk)],
+            )
+            raise ValueError(
+                f'Cannot use {dest_visitor.friendly_name.lower()} "{dest_visitor.get_display_name(dest_resource)}" '
+                f'as the substitute for both "{source_visitor.get_display_name(other_source)}" and '
+                f'"{source_visitor.get_display_name(source_resource)}". Pick another substitute or copy one of them.'
+            )
+        source_by_dest_key[normalized_dest_key] = source_resource
         mapped_substitutions[normalized_key] = dest_resource
 
         logger.info(

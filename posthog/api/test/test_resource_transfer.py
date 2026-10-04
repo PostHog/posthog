@@ -410,6 +410,38 @@ class TestResourceTransferTransfer(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_transfer_rejects_two_sources_substituted_with_the_same_destination(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        first_insight = Insight.objects.create(team=self.team, name="Shared name")
+        second_insight = Insight.objects.create(team=self.team, name="Shared name")
+        DashboardTile.objects.create(dashboard=dashboard, insight=first_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=second_insight)
+        dest_insight = Insight.objects.create(team=self.dest_team, name="Shared name")
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Dashboard",
+                "resource_id": str(dashboard.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": "Insight",
+                        "source_resource_id": str(source.pk),
+                        "destination_resource_kind": "Insight",
+                        "destination_resource_id": str(dest_insight.pk),
+                    }
+                    for source in (first_insight, second_insight)
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert '"Shared name"' in response.json()["detail"]
+        assert not Dashboard.objects.filter(team=self.dest_team).exists()
+
     def test_transfer_rejects_same_team(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
         response = self.client.post(
@@ -773,6 +805,36 @@ class TestResourceTransferTenantIsolation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Secret cohort" not in str(response.json())
+
+    def test_transfer_rejects_substitution_sources_from_foreign_team(self) -> None:
+        foreign_insights = [
+            Insight.objects.create(team=self.foreign_team, name=f"Secret insight {i}") for i in range(2)
+        ]
+        dest_insight = Insight.objects.create(team=self.dest_team, name="Destination insight")
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": "Insight",
+                        "source_resource_id": str(foreign_insight.pk),
+                        "destination_resource_kind": "Insight",
+                        "destination_resource_id": str(dest_insight.pk),
+                    }
+                    for foreign_insight in foreign_insights
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Secret insight" not in str(response.json())
 
     def test_transfer_substitution_error_does_not_leak_team_id(self) -> None:
         foreign_insight = Insight.objects.create(team=self.foreign_team, name="Secret insight")
