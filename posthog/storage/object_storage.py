@@ -473,7 +473,10 @@ def is_usable_endpoint(endpoint: str | None) -> bool:
     """A usable endpoint is a syntactically valid URL with no unsubstituted ${...} deployment placeholders."""
     if not endpoint or "${" in endpoint:
         return False
-    parsed = urlparse(endpoint)
+    try:
+        parsed = urlparse(endpoint)
+    except ValueError:
+        return False
     return bool(parsed.scheme and parsed.netloc)
 
 
