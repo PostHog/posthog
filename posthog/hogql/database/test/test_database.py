@@ -2867,7 +2867,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         assert [table.id for table in loaded_tables] == [first_table.id]
 
-    def test_adds_foreign_key_joins_for_direct_postgres_tables(self):
+    @parameterized.expand([("underscore_column", "team_id", "team"), ("hyphen_column", "owner-team_id", "owner-team")])
+    def test_adds_foreign_key_joins_for_direct_postgres_tables(self, _name, column, field_name):
         credentials = DataWarehouseCredential.objects.create(
             access_key="test_key", access_secret="test_secret", team=self.team
         )
@@ -2900,7 +2901,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             url_pattern="direct://postgres",
             columns={
                 "id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
-                "team_id": {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
+                column: {"hogql": "integer", "clickhouse": "Int64", "schema_valid": True},
             },
         )
 
@@ -2914,7 +2915,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 "schema_metadata": {
                     "foreign_keys": [
                         {
-                            "column": "team_id",
+                            "column": column,
                             "target_table": "posthog_team",
                             "target_column": "id",
                         }
@@ -2927,8 +2928,16 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         activitylog = database.get_table("posthog_activitylog")
         team = database.get_table("posthog_team")
 
-        assert isinstance(activitylog.fields.get("team"), LazyJoin)
+        join = activitylog.fields.get(field_name)
+        assert isinstance(join, LazyJoin)
+        assert join.from_field == [column]
+        assert join.to_field == ["id"]
         assert isinstance(team.fields.get("posthog_activitylogs"), LazyJoin)
+
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+        prepare_and_print_ast(
+            parse_select(f"SELECT a.`{field_name}`.name FROM posthog_activitylog a"), context, dialect="postgres"
+        )
 
     def test_direct_postgres_foreign_key_joins_ignore_deleted_schemas(self):
         credentials = DataWarehouseCredential.objects.create(
