@@ -35,6 +35,9 @@ import type {
 import { MessageCategory } from './optOutCategoriesLogic'
 import { BULK_OPT_OUT_CHUNK_SIZE, MAX_REPORTED_ERRORS, parseOptOutRows, remapEntryErrors } from './optOutCsvImport'
 import { optOutSceneLogic } from './optOutSceneLogic'
+import { captureTopicsUsage } from './topicsUsage'
+import type { TopicVocabulary } from './topicVocabulary'
+import { topicVocabularyLogic } from './topicVocabularyLogic'
 import type { OptOutPersonPreference } from './types'
 
 async function parseCsvFile(file: File): Promise<string[][]> {
@@ -59,6 +62,7 @@ export type OptOutListLogicProps = {
 export interface optOutListLogicValues {
     preferencesUrlLoading: boolean // optOutSceneLogic
     currentTeamId: number | null // teamLogic
+    words: TopicVocabulary // topicVocabularyLogic
     addOptOut: MessagePreferencesApi | null
     addOptOutLoading: boolean
     csvExport: null
@@ -250,7 +254,14 @@ export const optOutListLogic = kea<optOutListLogicType>([
     path(['products', 'workflows', 'frontend', 'OptOuts', 'optOutListLogic']),
     props({} as OptOutListLogicProps),
     connect(() => ({
-        values: [optOutSceneLogic, ['preferencesUrlLoading'], teamLogic, ['currentTeamId']],
+        values: [
+            optOutSceneLogic,
+            ['preferencesUrlLoading'],
+            teamLogic,
+            ['currentTeamId'],
+            topicVocabularyLogic,
+            ['words'],
+        ],
         actions: [optOutSceneLogic, ['openPreferencesPage']],
     })),
     actions({
@@ -390,11 +401,11 @@ export const optOutListLogic = kea<optOutListLogicType>([
                             identifier,
                             category_key: props.category?.key,
                         })
-                        lemonToast.success(`${identifier} added to opt-out list`)
+                        lemonToast.success(values.words.unsubscribedList.added(identifier, props.category?.name))
                         actions.loadOptOutPersons()
                         return result
                     } catch (e) {
-                        lemonToast.error('Failed to add opt-out')
+                        lemonToast.error(values.words.unsubscribedList.addFailed)
                         throw e
                     }
                 },
@@ -410,11 +421,11 @@ export const optOutListLogic = kea<optOutListLogicType>([
                             identifier,
                             category_key: props.category?.key,
                         })
-                        lemonToast.success(`${identifier} removed from opt-out list`)
+                        lemonToast.success(values.words.unsubscribedList.removed(identifier, props.category?.name))
                         actions.loadOptOutPersons()
                         return identifier
                     } catch (e) {
-                        lemonToast.error('Failed to remove opt-out')
+                        lemonToast.error(values.words.unsubscribedList.removeFailed)
                         throw e
                     }
                 },
@@ -433,7 +444,7 @@ export const optOutListLogic = kea<optOutListLogicType>([
                         if (isBreakpoint(e as Error)) {
                             throw e
                         }
-                        lemonToast.error('Failed to load opt-outs')
+                        lemonToast.error(values.words.unsubscribedList.loadFailed)
                         // Rethrow so kea-loaders emits a *Failure action: optOutPersons keeps its
                         // previous value instead of rendering a failed fetch as "no opt-outs found",
                         // and the currentPage reducer (which only moves on *Success) stays put.
@@ -447,8 +458,9 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     try {
                         const blob = await api.messaging.exportOptOutsCsv(props.category?.key)
                         downloadFile(new File([blob], `opt-outs-${props.category?.key ?? 'all-marketing'}.csv`))
+                        captureTopicsUsage('messaging opt-outs exported')
                     } catch {
-                        lemonToast.error('Failed to export opt-outs')
+                        lemonToast.error(values.words.unsubscribedList.exportFailed)
                     }
                     return null
                 },
@@ -523,10 +535,11 @@ export const optOutListLogic = kea<optOutListLogicType>([
                     }
 
                     if (result.opted_out > 0) {
-                        lemonToast.success(`Added ${result.opted_out.toLocaleString()} opt-outs`)
+                        captureTopicsUsage('messaging opt-outs imported', { count: result.opted_out })
+                        lemonToast.success(values.words.unsubscribedList.imported(result.opted_out.toLocaleString()))
                         actions.loadOptOutPersons()
                     } else {
-                        lemonToast.warning('No opt-outs were added. Check the file and try again.')
+                        lemonToast.warning(values.words.unsubscribedList.nothingImported)
                     }
                     return result
                 },
