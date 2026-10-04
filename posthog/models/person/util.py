@@ -960,6 +960,7 @@ _T = TypeVar("_T")
 
 # An ensure call waits out a concurrent insert of the same key and classifies the winner's row.
 # It fails whole with FAILED_PRECONDITION, and commits nothing, only when that row is gone before the call can lock it.
+# A distinct id call also fails that way when the winner leaves an owner tombstone the call inserted unused.
 VERSION_FLOOR_ATTEMPTS = 3
 VERSION_FLOOR_RETRY_BACKOFF_SECONDS = 0.05
 _LOST_RACE_CODES = frozenset({grpc.StatusCode.FAILED_PRECONDITION})
@@ -1014,7 +1015,7 @@ class PersonVersionFloorResult:
 class DistinctIdVersionFloor:
     distinct_id: str
     min_version: int
-    # Owner of the tombstone inserted when the distinct id has no row. Ignored when it has one.
+    # Owner of the tombstone inserted when the distinct id has no row. Unused, but still validated, when it has one.
     person_uuid: UUID
 
 

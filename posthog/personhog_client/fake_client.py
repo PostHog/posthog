@@ -22,6 +22,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 from unittest.mock import patch
 
@@ -1020,6 +1021,11 @@ class FakePersonHogClient:
         self._check_version_rpc_batch([f.distinct_id for f in request.floors])
         if any(f.min_version < 0 for f in request.floors):
             raise ValueError("min_version must not be negative")
+        for floor in request.floors:
+            try:
+                UUID(floor.person_uuid)
+            except ValueError:
+                raise ValueError(f"Invalid UUID: {floor.person_uuid!r}") from None
         response = person_pb2.EnsureDistinctIdVersionFloorsResponse()
         for floor in request.floors:
             key = (request.team_id, floor.distinct_id)

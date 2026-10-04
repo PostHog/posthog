@@ -1672,8 +1672,9 @@ export type DistinctIdVersionFloor = Message<'personhog.types.v1.DistinctIdVersi
     minVersion: bigint
 
     /**
-     * Owner of the tombstone inserted for a distinct_id with no row, ignored otherwise. An owner
-     * with no row gets a person tombstone at version 0, because the distinct_id row needs one.
+     * Required, and must be a valid UUID, else the request fails with INVALID_ARGUMENT. It is the
+     * owner of the tombstone inserted for a distinct_id with no row, and unused when a row exists.
+     * An owner with no row gets a person tombstone at version 0, because the distinct_id row needs one.
      *
      * @generated from field: string person_uuid = 3;
      */

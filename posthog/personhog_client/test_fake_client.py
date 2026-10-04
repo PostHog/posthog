@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 import pytest
 
@@ -777,37 +778,41 @@ class TestFakePersonHogClientVersionRpcs:
         inserted = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED
         result = person_pb2.DistinctIdVersionFloorResult
         head = person_pb2.DistinctIdVersionHead
+        unused, live_owner_uuid, ghost_uuid, elsewhere_uuid = (str(uuid4()) for _ in range(4))
+        self.client.add_person(team_id=self.TEAM_ID, person_id=5, uuid=live_owner_uuid, version=1)
+        self.client.add_person(team_id=self.OTHER_TEAM_ID, person_id=6, uuid=elsewhere_uuid, version=1)
 
         assert self._ensure_distinct_ids(
-            ("live-did", 6, "ignored"),
-            ("tomb-did", 3, "ignored"),
-            ("orphan", 3, "ignored"),
-            ("new-live-owner", 6, "live"),
-            ("new-missing-owner-a", 6, "ghost"),
-            ("new-missing-owner-b", 7, "ghost"),
-            ("elsewhere-did", 6, "elsewhere"),
+            ("live-did", 6, unused),
+            ("tomb-did", 3, unused),
+            ("orphan", 3, unused),
+            ("new-live-owner", 6, live_owner_uuid),
+            ("new-missing-owner-a", 6, ghost_uuid),
+            ("new-missing-owner-b", 7, ghost_uuid),
+            ("elsewhere-did", 6, elsewhere_uuid),
         ) == [
             result(distinct_id="live-did", outcome=live, version=1, person_uuid="live"),
             result(distinct_id="tomb-did", outcome=at_floor, version=4, person_uuid="tomb-high"),
             result(distinct_id="orphan", outcome=live, version=2),
-            result(distinct_id="new-live-owner", outcome=inserted, version=6, person_uuid="live"),
-            result(distinct_id="new-missing-owner-a", outcome=inserted, version=6, person_uuid="ghost"),
-            result(distinct_id="new-missing-owner-b", outcome=inserted, version=7, person_uuid="ghost"),
-            result(distinct_id="elsewhere-did", outcome=inserted, version=6, person_uuid="elsewhere"),
+            result(distinct_id="new-live-owner", outcome=inserted, version=6, person_uuid=live_owner_uuid),
+            result(distinct_id="new-missing-owner-a", outcome=inserted, version=6, person_uuid=ghost_uuid),
+            result(distinct_id="new-missing-owner-b", outcome=inserted, version=7, person_uuid=ghost_uuid),
+            result(distinct_id="elsewhere-did", outcome=inserted, version=6, person_uuid=elsewhere_uuid),
         ]
         # Both distinct ids share one owner tombstone at version 0, and the live owner stays live.
-        ghost = self.client.stored_person(self.TEAM_ID, "ghost")
+        ghost = self.client.stored_person(self.TEAM_ID, ghost_uuid)
         assert ghost is not None and (ghost.is_deleted, ghost.version) == (True, 0)
-        live_owner = self.client.stored_person(self.TEAM_ID, "live")
+        live_owner = self.client.stored_person(self.TEAM_ID, live_owner_uuid)
         assert live_owner is not None and not live_owner.is_deleted
+        assert self.client.stored_person(self.TEAM_ID, unused) is None
         assert self._distinct_id_head("new-live-owner") == head(
-            distinct_id="new-live-owner", version=6, is_deleted=True, person_uuid="live"
+            distinct_id="new-live-owner", version=6, is_deleted=True, person_uuid=live_owner_uuid
         )
         assert self._distinct_id_head("live-did") == head(
             distinct_id="live-did", version=1, is_deleted=False, person_uuid="live"
         )
         assert self._distinct_id_head("orphan") == head(distinct_id="orphan", version=2, is_deleted=False)
-        raised_again = self._ensure_distinct_ids(("tomb-did", 8, "ignored"))[0]
+        raised_again = self._ensure_distinct_ids(("tomb-did", 8, unused))[0]
         assert (raised_again.outcome, raised_again.version) == (raised, 8)
 
     @pytest.mark.parametrize(
@@ -820,6 +825,7 @@ class TestFakePersonHogClientVersionRpcs:
             ),
             ("ensure_persons", ["k"], -1, "must not be negative"),
             ("ensure_distinct_ids", ["k"], -1, "must not be negative"),
+            ("ensure_distinct_ids_invalid_owner", ["k"], 0, "Invalid UUID"),
             ("person_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
             ("distinct_id_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
         ],
@@ -833,7 +839,10 @@ class TestFakePersonHogClientVersionRpcs:
                 person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=keys)
             ),
             "ensure_persons": lambda: self._ensure_persons(*((k, min_version) for k in keys)),
-            "ensure_distinct_ids": lambda: self._ensure_distinct_ids(*((k, min_version, "owner") for k in keys)),
+            "ensure_distinct_ids": lambda: self._ensure_distinct_ids(*((k, min_version, str(uuid4())) for k in keys)),
+            "ensure_distinct_ids_invalid_owner": lambda: self._ensure_distinct_ids(
+                *((k, min_version, "not-a-uuid") for k in keys)
+            ),
         }
         with pytest.raises(ValueError, match=error):
             calls[rpc]()
