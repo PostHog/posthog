@@ -527,6 +527,22 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches[0] is not None, "a dropped relation must surface an actionable message, not raw driver text"
         assert "no longer exists" in matches[0].lower()
 
+    def test_hibernated_branch_wins_over_a_generic_refusal_for_another_address(self, source):
+        # Host and IPs are invented, not real values.
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: Connection refused '
+            'Multiple connection attempts failed. All failures were: - host: "db.example.com", port: "5432", '
+            'hostaddr: "203.0.113.8": connection failed: connection to server at "203.0.113.8", port 5432 '
+            "failed: FATAL:  branch is hibernated, reactivate it to continue"
+        )
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "reactivate the branch" in matches[0].lower()
+
     def test_connect_timeout_surfaces_actionable_message(self, source):
         # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
         # guidance rather than the bare "connection timeout expired" driver text. Mirror the finalizer's

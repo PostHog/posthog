@@ -518,6 +518,16 @@ class PostgresSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # A serverless provider (observed on Xata) refuses the connection while the branch is
+            # hibernated. A hibernated branch does not wake on connect: the refusal itself asks for a
+            # reactivation, which only the customer can do, so every retry re-hits the same refusal.
+            # Match the stable phrase because libpq prefixes it with the customer's host and port.
+            # This entry comes first because the finalizer takes the first match, and a multi-address
+            # refusal can also carry a generic "Connection refused" or timeout for another address.
+            "branch is hibernated": (
+                "Your database provider hibernated this branch, so PostHog can't connect. "
+                "Reactivate the branch in your provider's dashboard, then re-enable the sync."
+            ),
             # xmin can't run against this relation (server < PG13, no primary key, or a partitioned
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
@@ -993,14 +1003,6 @@ class PostgresSource(
                 '("The endpoint has been disabled"). This usually happens when a usage limit is '
                 "exceeded or the endpoint was disabled manually. Re-enable the endpoint from your "
                 "provider's dashboard or API, then re-enable the sync."
-            ),
-            # A serverless provider (observed on Xata) refuses the connection while the branch is
-            # hibernated. A hibernated branch does not wake on connect: the refusal itself asks for a
-            # reactivation, which only the customer can do, so every retry re-hits the same refusal.
-            # Match the stable phrase because libpq prefixes it with the customer's host and port.
-            "branch is hibernated": (
-                "Your database provider hibernated this branch, so PostHog can't connect. "
-                "Reactivate the branch in your provider's dashboard, then re-enable the sync."
             ),
             # The same provider family names some quotas in the refusal and others not at all
             # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
