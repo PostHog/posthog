@@ -598,10 +598,31 @@ def _release_failed_forwarder(forwarder: SSHTunnelForwarder) -> None:
     forwarder cannot be started a second time, so every attempt needs a new forwarder and the
     failed one has to let go of its resources first.
     """
-    try:
-        forwarder.stop(force=True)
-    except Exception as e:
-        logger.debug("data_imports.ssh_tunnel_cleanup_failed", error=str(e)[:200])
+    if forwarder.is_active:
+        try:
+            forwarder.stop(force=True)
+        except Exception as e:
+            logger.debug("data_imports.ssh_tunnel_cleanup_failed", error=str(e)[:200])
+        return
+
+    # sshtunnel creates the local servers even when gateway authentication fails, but it raises
+    # before starting their serve_forever threads. Its stop() calls shutdown() on those servers,
+    # which waits forever for an unstarted thread. Close their sockets and transport directly.
+    for server in forwarder._server_list:
+        try:
+            server.server_close()
+        except Exception as e:
+            logger.debug("data_imports.ssh_tunnel_cleanup_failed", error=str(e)[:200])
+    forwarder._server_list = []
+    forwarder.tunnel_is_up = {}
+
+    transport = getattr(forwarder, "_transport", None)
+    if transport is not None:
+        for method in (transport.close, transport.stop_thread):
+            try:
+                method()
+            except Exception as e:
+                logger.debug("data_imports.ssh_tunnel_cleanup_failed", error=str(e)[:200])
 
 
 @contextmanager

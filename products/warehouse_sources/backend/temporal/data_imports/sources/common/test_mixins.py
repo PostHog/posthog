@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TemporaryHostResolutionError,
     ValidateDatabaseHostMixin,
     _is_host_safe,
+    _release_failed_forwarder,
     bracket_host,
     check_resolved_addresses,
     make_ssh_tunnel_factory,
@@ -521,6 +522,10 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
     def _forwarder(*, fails: bool):
         forwarder = mock.MagicMock()
         if fails:
+            forwarder.is_active = False
+            forwarder.failed_server = mock.Mock()
+            forwarder._server_list = [forwarder.failed_server]
+            forwarder._transport = mock.Mock()
             forwarder.__enter__.side_effect = BaseSSHTunnelForwarderError("Could not establish session to SSH gateway")
         else:
             tunnel = forwarder.__enter__.return_value
@@ -550,10 +555,21 @@ class TestSSHTunnelConnectRetry(SimpleTestCase):
             with self._tunnel_cm(entrypoint, self._config()) as (host, port):
                 assert (host, port) == ("127.0.0.1", 55555)
             assert get_tunnel.call_count == 3
-        # A forwarder whose start failed holds sockets and threads that the worker would otherwise
-        # keep for the life of the process.
+        # Authentication failures create local servers without starting their serving threads.
+        # Closing them directly avoids stop() blocking forever in server.shutdown().
         for forwarder in failed:
-            forwarder.stop.assert_called_once_with(force=True)
+            forwarder.stop.assert_not_called()
+            forwarder.failed_server.server_close.assert_called_once_with()
+            forwarder._transport.close.assert_called_once_with()
+            forwarder._transport.stop_thread.assert_called_once_with()
+
+    def test_active_failed_forwarder_uses_normal_stop(self):
+        forwarder = mock.MagicMock()
+        forwarder.is_active = True
+
+        _release_failed_forwarder(forwarder)
+
+        forwarder.stop.assert_called_once_with(force=True)
 
     @parameterized.expand([("open_ssh_tunnel",), ("factory",)])
     def test_connect_failing_every_attempt_still_raises_the_gateway_error(self, entrypoint: str):
