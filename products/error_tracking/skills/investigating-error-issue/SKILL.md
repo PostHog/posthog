@@ -19,14 +19,14 @@ changed, where it happens, and whether a replay shows the cause.
 
 ## Available tools
 
-| Tool                                        | Purpose                                                                                     |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates)                    |
-| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`                         |
-| `posthog:execute-sql`                       | Breakdowns, release / flag correlations, surrounding events + console logs around the error |
-| `posthog:query-logs`                        | OTEL log entries around the error timestamp for server-side issues                          |
-| `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)                             |
-| `posthog:read-data-schema`                  | Confirm property keys before filtering on them                                              |
+| Tool                                        | Purpose                                                                                                                                   |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:query-error-tracking-issue`        | Compact issue details (status, assignee, top frame, release, aggregates), standard breakdowns and sample sessions with `includeBreakdown` |
+| `posthog:query-error-tracking-issue-events` | Sampled `$exception` events with stack, URL, browser, `$session_id`                                                                       |
+| `posthog:execute-sql`                       | Custom breakdowns, release / flag correlations, surrounding events + console logs around the error                                        |
+| `posthog:query-logs`                        | OTEL log entries around the error timestamp for server-side issues                                                                        |
+| `posthog:query-session-recordings-list`     | Linked replays (delegate ranking to `finding-replay-for-issue`)                                                                           |
+| `posthog:read-data-schema`                  | Confirm property keys before filtering on them                                                                                            |
 
 ## Workflow
 
@@ -83,16 +83,38 @@ root, different URL pattern — the issue may be a grouping mistake. Flag for
 
 ### Step 3 — Run breakdowns to isolate the cause
 
-Breakdowns aren't a typed tool — drop into `execute-sql`. Run only the
+Start with the standard breakdowns. They come from the typed issue tool in one
+call, so do not write SQL for them:
+
+```json
+posthog:query-error-tracking-issue
+{
+  "issueId": "<issue_id>",
+  "dateRange": { "date_from": "-30d" },
+  "includeBreakdown": true
+}
+```
+
+The `breakdown` object has the same dimensions as the issue page:
+`top_values` for path (or URL when events have no path, as with backend SDKs),
+screen, browser, OS, library, library version, and app version, each with a
+count. It also has up to 5 `sample_session_ids` with the most events. You can
+set `includeSparkline` in the same call as step 1. The breakdown covers at most
+the last 30 days of `dateRange`. When `range_limited` is true, it covers less
+than you asked for. A dimension with no values is left out.
+
+Use `execute-sql` only for what the typed breakdown does not cover:
+`$exception_releases`, geography, time of day, feature flag variants (step 4),
+custom properties, `first_seen` per value, and per-user counts. Run only the
 breakdowns the issue's shape suggests; each one costs a query and clutters the
 synthesis.
 
-| Sparkline shape   | First breakdown to try                                                   |
-| ----------------- | ------------------------------------------------------------------------ |
-| Spike from zero   | By app version / release — almost always a deploy regression (see below) |
-| Steady-state high | By browser / OS — rendering or platform-specific bug                     |
-| Ramp              | By geography or feature flag — gradual rollout exposure                  |
-| Bursts then quiet | By time of day or `$current_url` — scheduled job or specific page        |
+| Sparkline shape   | First breakdown to try                                                   | Source                                     |
+| ----------------- | ------------------------------------------------------------------------ | ------------------------------------------ |
+| Spike from zero   | By app version / release — almost always a deploy regression (see below) | Typed breakdown, then SQL for `first_seen` |
+| Steady-state high | By browser / OS — rendering or platform-specific bug                     | Typed breakdown                            |
+| Ramp              | By geography or feature flag — gradual rollout exposure                  | `execute-sql`                              |
+| Bursts then quiet | By time of day or `$current_url` — scheduled job or specific page        | `execute-sql` / typed breakdown            |
 
 #### Picking the right version property
 
@@ -118,6 +140,10 @@ provider, or `before_send`). If the breakdown comes back with one
 `$app_version` row of all-NULL, say so explicitly in the synthesis and
 suggest the customer wire it up; falling back to `$exception_releases` or to
 a per-day timeline by `first_seen` keeps the investigation moving.
+
+The typed breakdown shows the `app_version` and `library_version` counts. When
+it has no `app_version` dimension, no event in the range carries
+`$app_version`. To see when each version first hit the error, use SQL.
 
 Example (`$app_version` — populated automatically on mobile, manually on
 web / server):
@@ -156,8 +182,8 @@ When `$exception_releases` is populated, it's a JSON dict keyed by release
 ID. There is no top-level `$release` property; query `$exception_releases`
 directly when you need release attribution and the customer has it wired up.
 
-Repeat with `properties.$browser`, `properties.$os`, `properties.$current_url`,
-or any feature flag the project tags errors with.
+Use the same query shape for any custom property the project tags errors with.
+For browser, OS, and URL counts, use the typed breakdown instead.
 
 ### Step 4 — Check feature flag exposure
 
@@ -217,7 +243,8 @@ hypothesis.
 
 ### Step 5 — Reconstruct what happened around the error
 
-Use the `$session_id` from the sample event in step 2 to pull the activity
+Use the `$session_id` from the sample event in step 2, or one of the
+`sample_session_ids` from step 3, to pull the activity
 surrounding the exception. Three sources stack on each other; run the ones
 that make sense for the SDK that captured the error.
 
@@ -324,9 +351,9 @@ ranking that finds the one most likely to show the cause. Hand off too when the
 user asks for "a replay" without specifying which.
 
 Skip the hand-off and pull a recording inline via `query-session-recordings-list`
-with `session_ids` from the sample exception events you already fetched in step 2
-when only a handful of sessions are linked, the user already named a specific
-session, or any working example will do (e.g. proving the error reproduces).
+with `session_ids` from the sample exception events in step 2 or the
+`sample_session_ids` in step 3 when only a handful of sessions are linked, the
+user already named a specific session, or any working example will do (e.g. proving the error reproduces).
 
 If neither path returns a recording, mention that session replay may not be
 enabled for the affected users — useful context, not a failure.
