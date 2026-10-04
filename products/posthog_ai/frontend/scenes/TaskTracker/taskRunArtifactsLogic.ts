@@ -573,7 +573,10 @@ export const taskRunArtifactsLogic = kea<taskRunArtifactsLogicType>([
         // A phone shows the list until a file is picked. A wider window always shows the open file beside the list.
         artifactOpen: [false, { selectArtifact: () => true, openFromUrl: () => true, closeArtifact: () => false }],
         // The panel stays open across files, so a reviewer can read the comments on each one in turn.
-        commentsOpen: [false, { setCommentsOpen: (_, { open }) => open }],
+        commentsOpen: [
+            false,
+            { setCommentsOpen: (_, { open }) => open, selectArtifact: () => false, closeArtifact: () => false },
+        ],
         selectedFileKey: [
             null as string | null,
             {

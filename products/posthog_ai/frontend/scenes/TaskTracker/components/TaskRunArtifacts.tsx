@@ -98,7 +98,7 @@ import {
 } from '../taskRunArtifacts'
 import { FullPageSource, artifactDownloadUrl, taskRunArtifactsLogic } from '../taskRunArtifactsLogic'
 import { ArtifactCommentActions } from './ArtifactCommentActions'
-import { ArtifactCommentsMenu } from './ArtifactCommentsMenu'
+import { ArtifactCommentsButton, ArtifactCommentsPage } from './ArtifactCommentsPage'
 import { ArtifactEditor } from './ArtifactEditor'
 import { ArtifactEditToolbar } from './ArtifactEditToolbar'
 import { ArtifactIcon } from './ArtifactIcon'
@@ -400,8 +400,15 @@ function ReferencePreview({ taskId, artifact }: { taskId: string; artifact: RunA
 }
 
 function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }): JSX.Element | null {
-    const { selectedArtifact, selectedKind, selectedText, selectedRun, currentProjectId, artifactTextLoading } =
-        useValues(taskRunArtifactsLogic({ taskId }))
+    const {
+        selectedArtifact,
+        selectedKind,
+        selectedText,
+        selectedRun,
+        currentProjectId,
+        artifactTextLoading,
+        todayPhone,
+    } = useValues(taskRunArtifactsLogic({ taskId }))
     const { ensureSelectedText, loadArtifactText } = useActions(taskRunArtifactsLogic({ taskId }))
     useEffect(() => {
         ensureSelectedText()
@@ -483,7 +490,7 @@ function ArtifactPreview({ taskId, mode }: { taskId: string; mode: PreviewMode }
     // Desktop counts a markdown quote in the rendered page, not in the source, so only the page takes selections.
     if (comments && supportsSelectionComments(selectedKind) && (mode === 'rendered' || selectedKind === 'text')) {
         return (
-            <ArtifactTextAnnotations key={selectedArtifact.id} logicProps={comments}>
+            <ArtifactTextAnnotations key={selectedArtifact.id} logicProps={comments} selectable={!todayPhone}>
                 {selectedKind === 'markdown' ? (
                     <MarkdownArticle text={selectedText.text} />
                 ) : (
@@ -975,7 +982,7 @@ function PhoneArtifactHeader({
                         {`${artifactDetail(artifact)} · ${dayjs(artifact.uploaded_at).fromNow()}`}
                     </Text>
                 </span>
-                {comments && <ArtifactCommentsMenu logicProps={comments} />}
+                {comments && <ArtifactCommentsButton logicProps={comments} />}
                 <Tooltip>
                     <TooltipTrigger
                         delay={0}
@@ -1123,7 +1130,7 @@ function PreviewBody({ taskId, mode }: { taskId: string; mode: PreviewMode }): J
 }
 
 function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
-    const { files, selectedArtifact, isEditing, todayPhone, showArtifactList } = useValues(
+    const { files, selectedArtifact, isEditing, todayPhone, showArtifactList, commentsOpen } = useValues(
         taskRunArtifactsLogic({ taskId })
     )
     const { setActiveTab, reportFullPageOpened } = useActions(taskRunArtifactsLogic({ taskId }))
@@ -1175,6 +1182,13 @@ function ArtifactsWorkspace({ taskId }: { taskId: string }): JSX.Element {
     }
     if (showArtifactList && !isEditing) {
         return <ArtifactFileList taskId={taskId} size="sm" label="Artifacts" />
+    }
+    const phoneComments =
+        todayPhone && commentsOpen && selectedArtifact && !isEditing
+            ? commentLogicProps(taskId, selectedArtifact, artifactPreviewKind(selectedArtifact))
+            : null
+    if (phoneComments && selectedArtifact) {
+        return <ArtifactCommentsPage logicProps={phoneComments} artifactName={selectedArtifact.name} />
     }
     const toolbar =
         todayPhone && selectedArtifact && !isEditing ? (
