@@ -1,9 +1,10 @@
-import { useMountedLogic } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import { forwardRef } from 'react'
 
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { exportRequestKey, exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat, OnlineExportContext } from '~/types'
@@ -39,6 +40,9 @@ export interface ExportButtonProps extends Pick<
 export const ExportButton: React.FunctionComponent<ExportButtonProps & React.RefAttributes<HTMLButtonElement>> =
     forwardRef(function ExportButton({ items, copyToClipboardItems, buttonCopy, ...buttonProps }, ref): JSX.Element {
         useMountedLogic(exportsLogic)
+        const { pendingExportRequests } = useValues(exportsLogic)
+        const isItemPending = ({ title: _, ...triggerExportProps }: ExportButtonItem): boolean =>
+            exportRequestKey(triggerExportProps) in pendingExportRequests
 
         const { actions } = exportsLogic
         const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
@@ -56,6 +60,8 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                 ref={ref}
                 data-attr="export-button"
                 {...buttonProps}
+                // The trigger stays clickable, so other formats can still be exported.
+                icon={items.some(isItemPending) ? <Spinner textColored /> : buttonProps.icon}
                 disabledReason={buttonProps.disabledReason ?? accessControlDisabledReason ?? undefined}
                 dropdown={{
                     actionable: true,
@@ -93,6 +99,7 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                                     <LemonButton
                                         key={i}
                                         fullWidth
+                                        loading={isItemPending(items[i])}
                                         onClick={() => void onExportClick(triggerExportProps)}
                                         data-attr={`export-button-${exportFormatExtension}`}
                                         data-ph-capture-attribute-export-target={target}
