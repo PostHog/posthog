@@ -172,8 +172,12 @@ a page behaves or what counts as normal there. Keep it at scanner level when it 
 - Each rule is one imperative sentence of at most {MAX_RULE_CHARS} characters that a scanner can apply to a \
 session it has never seen. Describe the situation, not a specific session.
 - Never put names, emails, ids, URLs, quotes of personal data, or session-specific values in a rule.
-- Every scan already keeps personal data out of its output. Never write a rule that only says that, and retire \
-an existing rule that does.
+- Every scan already follows these built-in rules: personal data stays out of its output; masked and unrecorded \
+content (canvas, iframes, video) is a recording limit, not a bug; repeated clicks on a control that responds, \
+reading or idling, waits that resolve, and validation messages or paywalls are ordinary use; and an outcome is \
+unknown when the recording ends before it. Never write a rule that only restates one of them, and retire an \
+existing rule that does. A rule that adds something specific to this product, such as which page draws a map on a \
+canvas, still belongs.
 - A rule refines how a scanner applies its question. It never changes the question.
 - At most {MAX_PROJECT_RULES} project rules and {MAX_SCANNER_RULES} rules per scanner. Merge before you drop.
 - Return every scanner from the input with its full rule list, even when the text is unchanged, so the counts \

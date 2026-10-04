@@ -182,6 +182,10 @@ class TestPreamble:
         rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
         assert "<recording_limits>" in rendered
         assert "Never infer that the user typed or submitted" in rendered
+        # Canvas, iframe, and video content is often absent rather than masked, so a blank area there is no bug.
+        assert "Unrecorded content" in rendered
+        # Desktop sessions get no <gestures> block, so the repeated-click guidance has to render without it.
+        assert "<not_friction>" in rendered
 
     @parameterized.expand([("touch", True), ("desktop", False)])
     def test_preamble_explains_gestures_only_for_touch_sessions(self, _name: str, touch: bool) -> None:
