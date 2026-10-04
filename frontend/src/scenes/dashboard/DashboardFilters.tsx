@@ -11,6 +11,7 @@ import { DashboardPlacement } from '~/types'
 import { DashboardUnsavedChangesIndicator } from 'products/dashboards/frontend/dashboardSettings/DashboardUnsavedChangesIndicator'
 
 import { DashboardEditBar } from './DashboardEditBar'
+import { DashboardFilterViews } from './DashboardFilterViews'
 import { dashboardLogic } from './dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from './DashboardReloadAction'
 
@@ -34,6 +35,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
+                        <DashboardFilterViews />
                         {placement === DashboardPlacement.Dashboard && <DashboardUnsavedChangesIndicator />}
                     </div>
                 </div>
