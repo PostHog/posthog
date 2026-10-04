@@ -15,6 +15,9 @@ import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
 import { EmptyState } from './EmptyState'
 
+/** Saves queue behind each other, so a click during one only looks like it did nothing. */
+const SAVE_IN_FLIGHT_REASON = 'Waiting for the last change to save'
+
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
@@ -58,7 +61,7 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, savingUrls } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
@@ -175,6 +178,7 @@ export function AuthorizedUrlList({
                                     data-attr="toolbar-apply-suggestion"
                                     type={isHighlighted ? 'primary' : undefined}
                                     active={isHighlighted}
+                                    disabledReason={savingUrls ? SAVE_IN_FLIGHT_REASON : undefined}
                                 >
                                     Apply suggestion
                                 </LemonButton>
@@ -245,6 +249,7 @@ export function AuthorizedUrlList({
                                             icon={<IconTrash />}
                                             tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                             center
+                                            disabledReason={savingUrls ? SAVE_IN_FLIGHT_REASON : undefined}
                                             onClick={() => {
                                                 LemonDialog.open({
                                                     title: <>Remove {keyedURL.url} ?</>,

@@ -1,27 +1,16 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-    sharedListeners,
-} from 'kea'
-import type { BreakPointFunction } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { isDomain, isURL } from 'lib/utils/url'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -290,6 +279,100 @@ export const filterNotAuthorizedUrls = (
     return suggestedDomains
 }
 
+type AuthorizedUrlsField = 'app_urls' | 'recording_domains'
+
+const readTeamUrls = (team: TeamPublicType | TeamType | null, field: AuthorizedUrlsField): string[] =>
+    ((team as TeamType | null)?.[field] || []).filter(Boolean)
+
+/**
+ * Replay one tab's edit on top of the list the server holds right now. Sending the tab's whole
+ * array instead drops any entry a second editor added since this page loaded.
+ */
+export function rebaseAuthorizedUrls(serverUrls: string[], knownUrls: string[], intendedUrls: string[]): string[] {
+    const removed = knownUrls.filter((url) => !intendedUrls.includes(url))
+    const added = intendedUrls.filter((url) => !knownUrls.includes(url))
+
+    const rebased: string[] = []
+    for (const url of serverUrls) {
+        if (!removed.includes(url)) {
+            rebased.push(url)
+        } else if (added.length) {
+            // An edit replaces its entry in place, so the list keeps the order the server has.
+            rebased.push(added.shift() as string)
+        }
+    }
+    // An addition, or an edit whose original entry is already gone from the server, goes last.
+    rebased.push(...added)
+
+    return [...new Set(rebased)]
+}
+
+/**
+ * Rebase this tab's edit on the list the server holds now, save it, then resync from what the
+ * server stored. The resync is also what rolls an optimistic edit back when the server rejects
+ * the save, because `currentTeam` is unchanged in that case.
+ */
+async function writeAuthorizedUrls(
+    type: AuthorizedUrlListType,
+    intendedUrls: string[],
+    setAuthorizedUrls: (urls: string[]) => void
+): Promise<string[]> {
+    const field: AuthorizedUrlsField =
+        type === AuthorizedUrlListType.RECORDING_DOMAINS ? 'recording_domains' : 'app_urls'
+    const knownUrls = readTeamUrls(teamLogic.values.currentTeam, field)
+
+    let serverUrls: string[]
+    try {
+        // This list is per environment, and /api/projects/ serves app_urls from the project's
+        // passthrough team, so reading there would rebase on the wrong environment. teamLogic
+        // reads and writes this same environment path.
+        // nosemgrep: no-environments-api-urls-frontend
+        serverUrls = readTeamUrls(await api.get<TeamType>('api/environments/@current'), field)
+    } catch {
+        // Without the server's list we could only send a stale whole array, which is the lost
+        // update this rebase exists to stop. Undo the edit and let the user try again.
+        posthog.capture('authorized urls save failed', { list_type: type, reason: 'rebase_read_failed' })
+        lemonToast.error('Could not save your change. Check your connection and try again.')
+        setAuthorizedUrls(knownUrls)
+        return knownUrls
+    }
+
+    if (!objectsEqual(serverUrls, knownUrls)) {
+        posthog.capture('authorized urls save conflict', {
+            list_type: type,
+            known_count: knownUrls.length,
+            server_count: serverUrls.length,
+        })
+    }
+
+    await teamLogic.asyncActions.updateCurrentTeam({
+        [field]: rebaseAuthorizedUrls(serverUrls, knownUrls, intendedUrls),
+    })
+
+    const savedUrls = readTeamUrls(teamLogic.values.currentTeam, field)
+    setAuthorizedUrls(savedUrls)
+    return savedUrls
+}
+
+/**
+ * Saves run one at a time. Two overlapping `updateCurrentTeam` calls cancel the earlier one
+ * through kea-loaders' breakpoint, so its response never reaches `currentTeam` and the resync
+ * would then read a list the server has already moved past.
+ */
+let saveQueue: Promise<unknown> = Promise.resolve()
+
+function saveAuthorizedUrls(
+    type: AuthorizedUrlListType,
+    intendedUrls: string[],
+    setAuthorizedUrls: (urls: string[]) => void
+): Promise<string[]> {
+    // The intended list is captured now, not when the turn runs, because an earlier save's
+    // resync overwrites the local list with the server's copy before this one starts.
+    const save = saveQueue.then(() => writeAuthorizedUrls(type, intendedUrls, setAuthorizedUrls))
+    saveQueue = save.catch(() => undefined)
+    return save
+}
+
 export const NEW_URL = 'https://'
 
 export interface KeyedAppUrl {
@@ -339,6 +422,7 @@ export interface authorizedUrlListLogicValues {
     proposedUrlTouched: boolean
     proposedUrlTouches: Record<string, boolean>
     proposedUrlValidationErrors: DeepPartialMap<ProposeNewUrlFormType, ValidationErrorType>
+    savingUrls: boolean
     showProposedURLForm: boolean
     showProposedUrlErrors: boolean
     suggestions: any[]
@@ -440,17 +524,6 @@ export interface authorizedUrlListLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface authorizedUrlListLogicMeta {
     key: string
-    sharedListeners: {
-        saveUrls: (
-            payload: any,
-            breakpoint: BreakPointFunction,
-            action: {
-                type: string
-                payload: any
-            },
-            previousState: any
-        ) => void | Promise<void>
-    }
     __keaTypeGenInternalSelectorTypes: {
         urlToEdit: (authorizedUrls: string[], editUrlIndex: number | null) => string
         urlsKeyed: (authorizedUrls: string[], suggestions: any[]) => KeyedAppUrl[]
@@ -600,6 +673,16 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 addUrl: (state, { url }) => [...state].filter((sd) => url !== sd.url),
             },
         ],
+        savingUrls: [
+            false as boolean,
+            {
+                addUrl: () => true,
+                updateUrl: () => true,
+                removeUrl: () => true,
+                // Every save path ends by resyncing from the server, so this covers both outcomes.
+                setAuthorizedUrls: () => false,
+            },
+        ],
         editUrlIndex: [
             null as number | null,
             {
@@ -617,16 +700,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             },
         ],
     })),
-    sharedListeners(({ values, props }) => ({
-        saveUrls: async () => {
-            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
-                await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
-            } else {
-                await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
-            }
-        },
-    })),
-    listeners(({ sharedListeners, values, actions, props }) => ({
+    listeners(({ values, actions, props }) => ({
         setEditUrlIndex: () => {
             actions.setProposedUrlValue('url', values.urlToEdit)
         },
@@ -644,18 +718,21 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         },
         addUrl: async ({ url, launch }) => {
             // Await the app_urls PATCH before markTaskAsCompleted to avoid a race on the team PATCH response.
-            if (props.type === AuthorizedUrlListType.RECORDING_DOMAINS) {
-                await teamLogic.asyncActions.updateCurrentTeam({ recording_domains: values.authorizedUrls })
-            } else {
-                await teamLogic.asyncActions.updateCurrentTeam({ app_urls: values.authorizedUrls })
+            const savedUrls = await saveAuthorizedUrls(props.type, values.authorizedUrls, actions.setAuthorizedUrls)
+            if (!savedUrls.includes(url)) {
+                return
             }
             if (launch) {
                 actions.launchAtUrl(url)
             }
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.AddAuthorizedDomain)
         },
-        removeUrl: sharedListeners.saveUrls,
-        updateUrl: sharedListeners.saveUrls,
+        removeUrl: async () => {
+            await saveAuthorizedUrls(props.type, values.authorizedUrls, actions.setAuthorizedUrls)
+        },
+        updateUrl: async () => {
+            await saveAuthorizedUrls(props.type, values.authorizedUrls, actions.setAuthorizedUrls)
+        },
         launchAtUrl: ({ url }) => {
             void addProductIntent({
                 product_type: ProductKey.TOOLBAR,
@@ -685,12 +762,12 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 dataAttributes: values.currentTeam?.data_attributes,
             }
             const templateScript = `
-                if (!window?.posthog) {
-                    console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
-                } else {
-                    window.posthog.loadToolbar(${JSON.stringify(params)})
-                }
-                `
+            if (!window?.posthog) {
+                console.warn('PostHog must be added to the window object on this page, for this to work. This is normally done in the loaded callback of your posthog init code.')
+            } else {
+                window.posthog.loadToolbar(${JSON.stringify(params)})
+            }
+            `
             await copyToClipboard(templateScript, 'code to paste into the console')
         },
     })),
