@@ -39,7 +39,8 @@ class FailureKind(StrEnum):
     INFRA_TRANSIENT = "infra_transient"  # PostHog-side dependency was slow or at capacity; retry usually helps
     INTERNAL_ERROR = "internal_error"  # Unclassified / bug paths — user can't fix
     ORPHANED = "orphaned"  # Workflow died without reaching a terminal state (timeout, terminate); set by the reaper
-    PII_DETECTED = "pii_detected"  # The answer still held personal data the scanner didn't ask for after one rewrite
+    PII_DETECTED = "pii_detected"  # The answer still held personal data the scanner didn't ask for after one fix turn
+    ANSWER_CHECK_FAILED = "answer_check_failed"  # The answer still failed a quality check after one fix turn
 
     @property
     def is_retryable(self) -> bool:

@@ -126,6 +126,7 @@ export type FailureKind =
     | 'internal_error'
     | 'orphaned'
     | 'pii_detected'
+    | 'answer_check_failed'
 
 type FailureKindInfo = {
     label: string
@@ -181,7 +182,13 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
     pii_detected: {
         label: 'Personal data in the answer',
         description:
-            "The AI's answer included personal data the scanner didn't ask for, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
+            "The AI's answer included personal data the scanner didn't ask for, and it still did after being asked to remove it, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
+        retryWorthwhile: true,
+    },
+    answer_check_failed: {
+        label: "Answer didn't pass checks",
+        description:
+            "The AI's answer contradicted itself or the session's events, ignored the format the prompt asks for, or didn't answer the prompt, and it still did after being asked to fix it. Retry the scan, or make the prompt clearer if it keeps happening.",
         retryWorthwhile: true,
     },
 }

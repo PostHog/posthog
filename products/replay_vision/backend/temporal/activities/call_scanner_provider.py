@@ -13,7 +13,7 @@ import asyncio
 import functools
 import dataclasses
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -42,6 +42,19 @@ from products.replay_vision.backend.learned_rules import ScanRules, load_scan_ru
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
+from products.replay_vision.backend.temporal.answer_checks import (
+    CONCLUSION,
+    FORMAT,
+    GROUNDED,
+    ON_QUESTION,
+    PII,
+    CheckContext,
+    CheckFailure,
+    check_answer,
+    failure_after_fix,
+    fix_instruction,
+    grounding_events,
+)
 from products.replay_vision.backend.temporal.conversation import (
     DEFAULT_MAX_TOOL_ITERATIONS,
     function_calls,
@@ -73,7 +86,6 @@ from products.replay_vision.backend.temporal.network_tool import (
     dispatch_network_tool,
     network_tool,
 )
-from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
@@ -131,6 +143,13 @@ class _StepResult:
 
     output: BaseModel | None
     provider_refused: bool = False
+
+
+# Signals are a separate report on the same session, so only the personal-data check applies to them.
+_CHECKS_BY_STEP: dict[str, tuple[str, ...]] = {
+    STEP_CORE: (PII, CONCLUSION, GROUNDED, FORMAT, ON_QUESTION),
+    STEP_SIGNALS: (PII,),
+}
 
 
 @frozen
@@ -324,21 +343,12 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
-    checked, checked_signals = await keep_unrequested_pii_out(
-        outcome.finalized,
-        outcome.signals,
-        team_id=team_id,
-        question=getattr(scanner, "prompt", "") or "",
-        scanner_type=snapshot.scanner_type.value,
-        trace_id=trace_id if trace_id is not None else str(uuid4()),
-    )
-    finalized = _resolve_citations(checked, scanner, duration_ms, video_clock)
+    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
     finalized = finalized.model_copy(
         update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
     )
     finalized = scanner.resolve_session_clock(finalized, outcome.core_response, video_clock, duration_ms)
-    signals = [_signal_on_session_clock(signal, video_clock) for signal in checked_signals]
+    signals = [_signal_on_session_clock(signal, video_clock) for signal in outcome.signals]
     return ScannerCallOutput(
         model_output=finalized,
         signals=signals,
@@ -684,6 +694,18 @@ async def _run_mission(
     def on_round(calls: int) -> None:
         record_tool_round(scanner_type, snapshot.model, calls)
 
+    check_context = CheckContext(
+        team_id=team_id,
+        question=getattr(scanner, "prompt", "") or "",
+        scanner_type=scanner_type,
+        trace_id=trace_id,
+        events=grounding_events(events_index.events),
+    )
+
+    async def check(step_name: str, output: BaseModel) -> list[CheckFailure]:
+        checks = _CHECKS_BY_STEP.get(step_name)
+        return await check_answer(output, check_context, checks=checks) if checks else []
+
     run = functools.partial(
         _run_steps,
         client=client,
@@ -697,6 +719,7 @@ async def _run_mission(
         trace_id=trace_id,
         tools=tools,
         on_round=on_round,
+        check=check,
     )
     try:
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
@@ -789,14 +812,19 @@ async def _run_steps(
     trace_id: str,
     tools: list[types.Tool],
     on_round: Callable[[int], None] | None = None,
+    check: Callable[[str, BaseModel], Awaitable[list[CheckFailure]]] | None = None,
 ) -> dict[str, BaseModel]:
-    """Run the ordered steps over one growing conversation; return the validated output keyed by step name."""
+    """Run the ordered steps over one growing conversation; return the validated output keyed by step name.
+
+    A step's answer that fails `check` gets one more turn to fix it; an answer that fails again fails the scan.
+    """
     # The video + preamble lead the conversation inline unless they're already cached as the prefix.
     convo: list[Any] = [] if cache_name else [video_part, types.Part(text=preamble_text)]
     step_outputs: dict[str, BaseModel] = {}
-    for step in steps:
+
+    async def attempt(step: MissionStep, instruction: str) -> BaseModel | None:
         checkpoint = len(convo)
-        convo.append(types.Part(text=step.instruction))
+        convo.append(types.Part(text=instruction))
         try:
             result = await _run_step(
                 client=client,
@@ -819,15 +847,28 @@ async def _run_steps(
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
             del convo[checkpoint:]
-            continue
+            return None
         if result.output is None:
             # Roll the failed step's half-finished exchange back so the next instruction follows the last good
             # model turn, not a dangling correction/tool call (which would leave two user turns in a row).
             del convo[checkpoint:]
             if step.required:
                 raise _exhausted_step_error(step, result)
+            return None
+        return result.output
+
+    for step in steps:
+        output = await attempt(step, step.instruction)
+        if output is None:
             continue
-        step_outputs[step.name] = result.output
+        if check is not None and (failures := await check(step.name, output)):
+            fixed = await attempt(step, fix_instruction(failures))
+            if fixed is None:
+                raise failure_after_fix(failures)
+            if remaining := await check(step.name, fixed):
+                raise failure_after_fix(remaining)
+            output = fixed
+        step_outputs[step.name] = output
     return step_outputs
 
 
