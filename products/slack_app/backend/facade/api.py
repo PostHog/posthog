@@ -4,12 +4,12 @@ The ONLY module other products are allowed to import. Keep the surface narrow:
 every function here lives behind a tach contract check, so each addition has a
 cost in cross-product coupling.
 
-Today the facade exists for four jobs: letting core's OAuth callback invalidate
+Today the facade exists for five jobs: letting core's OAuth callback invalidate
 the per-integration auth-state cache when a Slack install is reconnected,
 answering whether a channel has been approved for PostHog to speak in,
 telling a product that posts a report whether the bot can answer a follow-up,
-and turning an agent's tool calls into the progress lines of a streamed Slack
-reply. All are stable re-exports so the implementations can move around inside
+turning an agent's tool calls into the progress lines of a streamed Slack
+reply, and finding the Slack account to DM for a PostHog user. All are stable re-exports so the implementations can move around inside
 slack_app without breaking their callers.
 
 This module's import graph must not reach ``products.signals``. That product now imports this
@@ -45,9 +45,20 @@ from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
 from products.slack_app.backend.services.slack_scopes import has_scopes
-from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+from products.slack_app.backend.services.slack_user_info import (
+    SlackDmRecipient,
+    invalidate_workspace_bot_user_id,
+    lookup_workspace_slack_user_id_by_email,
+    resolve_slack_dm_recipient,
+)
+from products.slack_app.backend.services.slack_user_oauth import linked_integration_for_recipient, linked_slack_user_id
 
 __all__ = [
+    "SlackDmRecipient",
+    "linked_integration_for_recipient",
+    "linked_slack_user_id",
+    "resolve_slack_dm_recipient",
+    "lookup_workspace_slack_user_id_by_email",
     "ANSWER_LINE_TITLE",
     "OTHER_WORK",
     "PLAN_TITLE_STOPPED",

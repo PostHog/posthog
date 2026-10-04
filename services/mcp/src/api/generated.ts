@@ -90649,20 +90649,6 @@ export namespace Schemas {
       agent_response?: string;
     }
 
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
-
     export interface ResultReceipt {
       /** Accepted item UUID. */
       id: string;
@@ -103688,6 +103674,80 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack` - Slack
+     */
+    export type TaskRunNotifyUserRequestChannelEnum = typeof TaskRunNotifyUserRequestChannelEnum[keyof typeof TaskRunNotifyUserRequestChannelEnum];
+
+
+    export const TaskRunNotifyUserRequestChannelEnum = {
+      Slack: 'slack',
+    } as const;
+
+    /**
+     * * `update` - Progress update
+     * * `needs_input` - Needs input
+     * * `done` - Done
+     */
+    export type UserNotificationReasonEnum = typeof UserNotificationReasonEnum[keyof typeof UserNotificationReasonEnum];
+
+
+    export const UserNotificationReasonEnum = {
+      Update: 'update',
+      NeedsInput: 'needs_input',
+      Done: 'done',
+    } as const;
+
+    export interface TaskRunNotifyUserRequest {
+      /** Where to send the notification. Only 'slack' (a DM to the task owner) is available now.
+       *
+       * * `slack` - Slack */
+      channel?: TaskRunNotifyUserRequestChannelEnum;
+      /** Why the agent sends it: 'update' (progress the user asked for), 'needs_input' (the agent is blocked until the user answers), or 'done' (the work is finished). Sets the message heading.
+       *
+       * * `update` - Progress update
+       * * `needs_input` - Needs input
+       * * `done` - Done */
+      reason?: UserNotificationReasonEnum;
+      /**
+         * Plain-text message for the task owner (max 2000 chars). PostHog adds the task title and a link.
+         * @maxLength 2000
+         */
+      message: string;
+      /**
+         * Remote control from the chosen channel. Set true when the user asks to continue, mirror or remote control the task in Slack: the DM opens a thread where replies reach the task, and answers and PostHog Code messages show. Set false when the user asks to stop. Leave it out for a plain notification, which keeps the current state.
+         * @nullable
+         */
+      remote_control?: boolean | null;
+    }
+
+    /**
+     * * `sent` - Sent
+     * * `throttled` - Throttled
+     * * `not_sent` - Not sent
+     */
+    export type UserNotificationOutcomeEnum = typeof UserNotificationOutcomeEnum[keyof typeof UserNotificationOutcomeEnum];
+
+
+    export const UserNotificationOutcomeEnum = {
+      Sent: 'sent',
+      Throttled: 'throttled',
+      NotSent: 'not_sent',
+    } as const;
+
+    export interface TaskRunNotifyUserResponse {
+      /** 'sent' (the channel accepted the message), 'throttled' (sent too soon after the last one), or 'not_sent' (no way to reach the owner on this channel).
+       *
+       * * `sent` - Sent
+       * * `throttled` - Throttled
+       * * `not_sent` - Not sent */
+      result: UserNotificationOutcomeEnum;
+      /** Explanation of the result, written for the agent. */
+      detail: string;
+      /** Whether remote control is on after this call: replies in the owner's Slack DM thread reach the task, and the agent's answers post there. */
+      remote_control_active: boolean;
+    }
+
+    /**
      * One peer agent run visible to the requesting run (agent peer messaging).
      */
     export interface TaskRunPeer {
@@ -103744,13 +103804,27 @@ export namespace Schemas {
       artifact_ids?: string[];
     }
 
+    /**
+     * * `accepted` - accepted
+     * * `target_finished` - target_finished
+     * * `rejected` - rejected
+     */
+    export type TaskRunPeerMessageResponseResultEnum = typeof TaskRunPeerMessageResponseResultEnum[keyof typeof TaskRunPeerMessageResponseResultEnum];
+
+
+    export const TaskRunPeerMessageResponseResultEnum = {
+      Accepted: 'accepted',
+      TargetFinished: 'target_finished',
+      Rejected: 'rejected',
+    } as const;
+
     export interface TaskRunPeerMessageResponse {
       /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
        *
        * * `accepted` - accepted
        * * `target_finished` - target_finished
        * * `rejected` - rejected */
-      result: ResultEnum;
+      result: TaskRunPeerMessageResponseResultEnum;
       /** Human-readable explanation of the result. */
       detail: string;
       /**

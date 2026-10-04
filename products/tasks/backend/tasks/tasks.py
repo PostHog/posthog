@@ -16,6 +16,7 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from products.tasks.backend.facade.api import record_comment_activity
 from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
+from products.tasks.backend.logic.services.task_run_user_notification import mirror_user_message_to_slack
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run_id
 from products.tasks.backend.logic.stream.budget_steer import BudgetSteerCapture, BudgetSteerProperties
 
@@ -91,6 +92,13 @@ def deliver_comment_slack_dms(
         task_id=UUID(task_id) if task_id else None,
         recipients={int(user_id): kind for user_id, kind in recipients.items()},
     )
+
+
+@shared_task(ignore_result=True)
+def mirror_task_run_user_message_to_slack(
+    *, team_id: int, task_run_id: str, actor_user_id: int | None, content: str
+) -> None:
+    mirror_user_message_to_slack(team_id=team_id, task_run_id=task_run_id, actor_user_id=actor_user_id, content=content)
 
 
 # No retries: the wake is best-effort by design, and the parked step has its own deadline.

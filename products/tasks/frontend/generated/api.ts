@@ -124,6 +124,8 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
+    TaskRunNotifyUserRequestApi,
+    TaskRunNotifyUserResponseApi,
     TaskRunPeerMessageRequestApi,
     TaskRunPeerMessageResponseApi,
     TaskRunPeersResponseApi,
@@ -2202,6 +2204,29 @@ export const tasksRunsConnectionTokenRetrieve = async (
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsNotifyUserCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/notify_user/`
+}
+
+/**
+ * Send a message from this run's agent to the task owner, for example a progress update they asked for or a question that blocks the work. The recipient is always the task creator. On Slack the message is a DM. With `remote_control`, the DM thread controls the task: replies reach the task, and answers and PostHog Code messages post there.
+ * @summary Notify the task owner
+ */
+export const tasksRunsNotifyUserCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunNotifyUserRequestApi: TaskRunNotifyUserRequestApi,
+    options?: RequestInit
+): Promise<TaskRunNotifyUserResponseApi> => {
+    return apiMutator<TaskRunNotifyUserResponseApi>(getTasksRunsNotifyUserCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunNotifyUserRequestApi),
     })
 }
 

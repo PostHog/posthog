@@ -13701,6 +13701,34 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
     @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_user_message_is_mirrored_into_the_slack_dm_thread(self, _mock_signal_followup):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED, state={})
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123")
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="D-owner",
+            thread_ts="100.1",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U-owner",
+            conversation_type=SlackThreadTaskMapping.ConversationType.IM,
+        )
+
+        with (
+            patch("products.tasks.backend.logic.services.task_run_user_notification.SlackIntegration") as slack,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(self._command_url(task, run), self._make_user_message(), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        post = slack.return_value.client.chat_postMessage.call_args.kwargs
+        self.assertEqual((post["channel"], post["thread_ts"]), ("D-owner", "100.1"))
+        self.assertIn("Hello agent", post["text"])
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
     def test_command_signals_user_message_artifact_ids(self, mock_signal_followup):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
@@ -17499,6 +17527,52 @@ class TestTaskRunPeersAPI(BaseTaskAPITest):
         self.assertEqual(body["message_id"], str(row.id))
         self.assertEqual(row.outcome, AgentPeerMessage.Outcome.SIGNALED)
         mock_signal.assert_called_once()
+
+
+class TestTaskRunNotifyUserAPI(BaseTaskAPITest):
+    def _task_and_run(self, created_by: User) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=created_by,
+            title="notify task",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, environment=TaskRun.Environment.CLOUD
+        )
+        return task, run
+
+    def _set_notify_flag(self, enabled: bool) -> None:
+        enabled_flags = {"tasks", "slack-app-remote-control"} if enabled else {"tasks"}
+        self.mock_feature_flag.side_effect = lambda flag_name, *_args, **_kwargs: flag_name in enabled_flags
+
+    def _notify(self, task: Task, run: TaskRun):
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/notify_user/",
+            {"channel": "slack", "reason": "needs_input", "message": "Which region should I deploy to?"},
+            format="json",
+        )
+
+    @parameterized.expand([("flag_off", False, True), ("teammate_task", True, False)])
+    def test_only_the_task_creator_with_the_flag_can_notify(self, _name, flag_enabled, own_task):
+        self._set_notify_flag(flag_enabled)
+        creator = self.user if own_task else self.create_organization_user("notify-task-owner")
+        task, run = self._task_and_run(creator)
+
+        response = self._notify(task, run)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_creator_gets_a_result_the_agent_can_act_on(self):
+        self._set_notify_flag(True)
+        task, run = self._task_and_run(self.user)
+
+        response = self._notify(task, run)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["result"], "not_sent")
+        self.assertIn("Slack is not connected", response.json()["detail"])
 
 
 class TestTaskRunAnalyzeAPI(BaseTaskAPITest):

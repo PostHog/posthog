@@ -138,6 +138,7 @@ describe('buildToolDomainsBlock', () => {
             'launch',
             'migrate',
             'move',
+            'notify',
             'patch',
             'pause',
             'publish',

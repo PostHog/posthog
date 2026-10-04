@@ -4,6 +4,8 @@ Single home for the whole user-link feature surface:
 
 * Feature flag check + linked-user lookup, used by inbound event resolvers
   (``resolve_slack_user`` etc.) before falling back to email matching.
+* The reverse lookup, from a PostHog user to their linked Slack account, used
+  when PostHog sends that person a DM.
 * Signed-state Pydantic models (``InviteToken``, ``CallbackState``) that
   flow through Slack's OAuth redirects.
 * The Sign-in-with-Slack (OpenID Connect) dance: authorize URL builder,
@@ -21,6 +23,7 @@ resulting credential on a ``UserIntegration(kind="slack")`` row in symmetry
 with the GitHub personal integration.
 """
 
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -34,6 +37,7 @@ from slack_sdk.errors import SlackApiError, SlackClientError
 
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.instance_setting import get_instance_settings
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -119,6 +123,35 @@ def find_linked_posthog_user(
             exc_info=True,
         )
         return None
+
+
+def linked_slack_user_id(*, user_id: int, integration: Integration) -> str | None:
+    """The Slack user id that this PostHog user linked in the integration's workspace."""
+    link = (
+        UserIntegration.objects.filter(
+            user_id=user_id,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            config__slack_team_id=integration.integration_id,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    return link.integration_id if link else None
+
+
+def linked_integration_for_recipient(
+    *, user_id: int, integration_by_workspace: Mapping[str | None, Integration]
+) -> Integration | None:
+    """The first of these Slack installs whose workspace the user linked, most recent link first."""
+    linked_workspaces = (
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK)
+        .order_by("-created_at")
+        .values_list("config__slack_team_id", flat=True)
+    )
+    for linked_workspace in linked_workspaces:
+        if isinstance(linked_workspace, str) and (integration := integration_by_workspace.get(linked_workspace)):
+            return integration
+    return None
 
 
 # ---------------------------------------------------------------------------

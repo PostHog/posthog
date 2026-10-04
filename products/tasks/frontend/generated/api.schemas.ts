@@ -4291,6 +4291,80 @@ export interface ConnectionTokenResponseApi {
 }
 
 /**
+ * * `slack` - Slack
+ */
+export type TaskRunNotifyUserRequestChannelEnumApi =
+    (typeof TaskRunNotifyUserRequestChannelEnumApi)[keyof typeof TaskRunNotifyUserRequestChannelEnumApi]
+
+export const TaskRunNotifyUserRequestChannelEnumApi = {
+    Slack: 'slack',
+} as const
+
+/**
+ * * `update` - Progress update
+ * * `needs_input` - Needs input
+ * * `done` - Done
+ */
+export type UserNotificationReasonEnumApi =
+    (typeof UserNotificationReasonEnumApi)[keyof typeof UserNotificationReasonEnumApi]
+
+export const UserNotificationReasonEnumApi = {
+    Update: 'update',
+    NeedsInput: 'needs_input',
+    Done: 'done',
+} as const
+
+export interface TaskRunNotifyUserRequestApi {
+    /** Where to send the notification. Only 'slack' (a DM to the task owner) is available now.
+     *
+     * * `slack` - Slack */
+    channel?: TaskRunNotifyUserRequestChannelEnumApi
+    /** Why the agent sends it: 'update' (progress the user asked for), 'needs_input' (the agent is blocked until the user answers), or 'done' (the work is finished). Sets the message heading.
+     *
+     * * `update` - Progress update
+     * * `needs_input` - Needs input
+     * * `done` - Done */
+    reason?: UserNotificationReasonEnumApi
+    /**
+     * Plain-text message for the task owner (max 2000 chars). PostHog adds the task title and a link.
+     * @maxLength 2000
+     */
+    message: string
+    /**
+     * Remote control from the chosen channel. Set true when the user asks to continue, mirror or remote control the task in Slack: the DM opens a thread where replies reach the task, and answers and PostHog Code messages show. Set false when the user asks to stop. Leave it out for a plain notification, which keeps the current state.
+     * @nullable
+     */
+    remote_control?: boolean | null
+}
+
+/**
+ * * `sent` - Sent
+ * * `throttled` - Throttled
+ * * `not_sent` - Not sent
+ */
+export type UserNotificationOutcomeEnumApi =
+    (typeof UserNotificationOutcomeEnumApi)[keyof typeof UserNotificationOutcomeEnumApi]
+
+export const UserNotificationOutcomeEnumApi = {
+    Sent: 'sent',
+    Throttled: 'throttled',
+    NotSent: 'not_sent',
+} as const
+
+export interface TaskRunNotifyUserResponseApi {
+    /** 'sent' (the channel accepted the message), 'throttled' (sent too soon after the last one), or 'not_sent' (no way to reach the owner on this channel).
+     *
+     * * `sent` - Sent
+     * * `throttled` - Throttled
+     * * `not_sent` - Not sent */
+    result: UserNotificationOutcomeEnumApi
+    /** Explanation of the result, written for the agent. */
+    detail: string
+    /** Whether remote control is on after this call: replies in the owner's Slack DM thread reach the task, and the agent's answers post there. */
+    remote_control_active: boolean
+}
+
+/**
  * One peer agent run visible to the requesting run (agent peer messaging).
  */
 export interface TaskRunPeerApi {
@@ -4357,9 +4431,10 @@ export interface TaskRunPeerMessageRequestApi {
  * * `target_finished` - target_finished
  * * `rejected` - rejected
  */
-export type ResultEnumApi = (typeof ResultEnumApi)[keyof typeof ResultEnumApi]
+export type TaskRunPeerMessageResponseResultEnumApi =
+    (typeof TaskRunPeerMessageResponseResultEnumApi)[keyof typeof TaskRunPeerMessageResponseResultEnumApi]
 
-export const ResultEnumApi = {
+export const TaskRunPeerMessageResponseResultEnumApi = {
     Accepted: 'accepted',
     TargetFinished: 'target_finished',
     Rejected: 'rejected',
@@ -4371,7 +4446,7 @@ export interface TaskRunPeerMessageResponseApi {
      * * `accepted` - accepted
      * * `target_finished` - target_finished
      * * `rejected` - rejected */
-    result: ResultEnumApi
+    result: TaskRunPeerMessageResponseResultEnumApi
     /** Human-readable explanation of the result. */
     detail: string
     /**

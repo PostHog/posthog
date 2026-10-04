@@ -12549,6 +12549,21 @@
         },
         "feature_flag": "tasks"
     },
+    "tasks-runs-owner-notify": {
+        "description": "Send the owner of a task a Slack DM from the PostHog app. Use it when the user asks for updates, asks you to DM them when you are done or blocked, or asks to continue, mirror or remote control the task in Slack. Set `remote_control: true` for remote control: the DM opens a thread where replies reach the task, and your answers and the user's PostHog Code messages post there. Set it to false when the user asks to stop. In a PostHog Code cloud run, the task id and run id are in the POSTHOG_TASK_ID and POSTHOG_TASK_RUN_ID environment variables. Do not use it to narrate routine progress.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Notify the task owner",
+        "title": "Notify the task owner",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "slack-app-remote-control"
+    },
     "tasks-runs-retrieve": {
         "description": "Get full details for a specific task run including status, stage, environment, branch, artifacts summary, state, error message, and timestamps. Sandbox connection credentials (`state.sandbox_connect_token`, `state.sandbox_url`) and the presigned `log_url` are omitted from the response.",
         "category": "Tasks",

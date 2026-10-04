@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 28 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1808,6 +1808,51 @@ export const TasksRunsRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     task_id: zod.string(),
+})
+
+/**
+ * Send a message from this run's agent to the task owner, for example a progress update they asked for or a question that blocks the work. The recipient is always the task creator. On Slack the message is a DM. With `remote_control`, the DM thread controls the task: replies reach the task, and answers and PostHog Code messages post there.
+ * @summary Notify the task owner
+ */
+export const TasksRunsNotifyUserCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    task_id: zod.string(),
+})
+
+export const tasksRunsNotifyUserCreateBodyChannelDefault = `slack`
+export const tasksRunsNotifyUserCreateBodyReasonDefault = `update`
+export const tasksRunsNotifyUserCreateBodyMessageMax = 2000
+
+export const TasksRunsNotifyUserCreateBody = () => zod.object({
+    channel: zod
+        .enum(['slack'])
+        .describe('\* `slack` - Slack')
+        .default(tasksRunsNotifyUserCreateBodyChannelDefault)
+        .describe(
+            "Where to send the notification. Only 'slack' (a DM to the task owner) is available now.\n\n\* `slack` - Slack"
+        ),
+    reason: zod
+        .enum(['update', 'needs_input', 'done'])
+        .describe('\* `update` - Progress update\n\* `needs_input` - Needs input\n\* `done` - Done')
+        .default(tasksRunsNotifyUserCreateBodyReasonDefault)
+        .describe(
+            "Why the agent sends it: 'update' (progress the user asked for), 'needs_input' (the agent is blocked until the user answers), or 'done' (the work is finished). Sets the message heading.\n\n\* `update` - Progress update\n\* `needs_input` - Needs input\n\* `done` - Done"
+        ),
+    message: zod
+        .string()
+        .max(tasksRunsNotifyUserCreateBodyMessageMax)
+        .describe('Plain-text message for the task owner (max 2000 chars). PostHog adds the task title and a link.'),
+    remote_control: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Remote control from the chosen channel. Set true when the user asks to continue, mirror or remote control the task in Slack: the DM opens a thread where replies reach the task, and answers and PostHog Code messages show. Set false when the user asks to stop. Leave it out for a plain notification, which keeps the current state.'
+        ),
 })
 
 /**
