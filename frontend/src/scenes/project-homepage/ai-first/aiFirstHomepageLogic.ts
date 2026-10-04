@@ -521,6 +521,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         gridItemClicked: ({ item }) => {
             reportGridItemClicked(item)
         },
+        setSelectedTopic: ({ key }) => {
+            if (key) {
+                posthog.capture('homepage topic selected', { topic: key })
+            } else {
+                posthog.capture('homepage topic cleared')
+            }
+        },
         activateGridItem: ({ item }) => {
             reportGridItemClicked(item)
             if (item.taskId) {

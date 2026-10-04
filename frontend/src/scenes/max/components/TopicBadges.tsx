@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCode } from '@posthog/icons'
+import { IconCode, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -76,12 +76,26 @@ export function TopicBadges({ topics, selectedKey, onSelect, className }: TopicB
                     active={selectedKey === topic.key}
                     aria-pressed={selectedKey === topic.key}
                     icon={badgeIcon(topic)}
-                    onClick={() => onSelect(selectedKey === topic.key ? null : topic.key)}
+                    // Re-clicking the selected badge must not deselect it: users retry when the swap
+                    // feels slow, and a toggle undoes their own choice on every retry
+                    onClick={() => selectedKey !== topic.key && onSelect(topic.key)}
                     data-attr={`capability-badge-${topic.key}`}
                 >
                     {topic.label}
                 </LemonButton>
             ))}
+
+            {/* Always rendered so the centered row does not shift when a topic is selected */}
+            <LemonButton
+                size="small"
+                type="tertiary"
+                icon={<IconX />}
+                className={cn(!selectedKey && 'invisible')}
+                tooltip="Clear topic"
+                aria-label="Clear topic"
+                onClick={() => onSelect(null)}
+                data-attr="capability-badge-clear"
+            />
 
             {isProductAutonomyEnabled && (
                 <>
