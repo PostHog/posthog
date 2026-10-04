@@ -23,15 +23,24 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    get_handle_cache,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
     is_offset_overflow_compaction_error,
     is_transient_maintenance_error,
+    is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    OBJECT_STORE_TRANSIENT_MESSAGE,
     ObjectStorePermissionDeniedError,
     execute_with_conflict_retry,
+    is_object_store_permission_denied,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import _delta_table_identity
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -430,6 +439,7 @@ class DeltaMaintenance:
         started = time.monotonic()
         await self._logger.ainfo(
             "Compacting table...",
+            compact_engine="delta-rs",
             compact_target_size=target_size,
             compact_max_concurrent_tasks=max_concurrent_tasks,
             compact_compression_ratio=plan.compression_ratio,
@@ -466,6 +476,7 @@ class DeltaMaintenance:
                 )
         await self._logger.ainfo(
             "compact: done",
+            compact_engine="delta-rs",
             compact_duration_s=round(time.monotonic() - started, 1),
             compact_files_added=compact_stats.get("numFilesAdded"),
             compact_files_removed=compact_stats.get("numFilesRemoved"),
@@ -474,6 +485,112 @@ class DeltaMaintenance:
         )
         await self._logger.adebug(json.dumps(compact_stats))
         return True
+
+    async def _compact_with_deltalite(self, table: deltalake.DeltaTable) -> bool | None:
+        """Compact through deltalite's native compaction. None means delta-rs must compact instead.
+
+        deltalite streams each bin under byte budgets and caps every output file by its decoded size,
+        so it needs no compression-ratio sample and no offset-overflow retry ladder. It also retries its
+        own commit conflicts, and keeps each bin whose input files are still live.
+        """
+        try:
+            import deltalite  # noqa: PLC0415 - keeps deltalite off the import path while the setting is off
+        except ImportError:
+            await self._log_compact_fallback("deltalite_not_installed")
+            return None
+        if not hasattr(deltalite.DeltaLiteTable, "compact"):
+            await self._log_compact_fallback("deltalite_compact_unavailable")
+            return None
+
+        uri = await self._table.get_table_uri()
+        storage_options = self._table.get_storage_options()
+        identity = _delta_table_identity(table, self._table)
+        slot_budget_mb = get_governor().slot_budget_mb()
+        compact_kwargs: dict[str, Any] = {
+            "target_file_size": DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            # deltalite lowers this until the bins in flight fit the slot budget.
+            "max_parallel_bins": os.cpu_count() or 1,
+            "slot_budget_bytes": int(slot_budget_mb * 1024 * 1024) if slot_budget_mb else None,
+            # These keys must never include the loader's `run_uuid`/`batch_index` tags, because
+            # `has_batch_been_committed` would then read a compaction as a committed batch.
+            "commit_metadata": {"compact_engine": "deltalite", "job_id": str(self._table.job.id)},
+            "min_partition_removable_files": 1,
+        }
+
+        def _run() -> dict[str, Any]:
+            if identity is None:
+                return deltalite.DeltaLiteTable.open(uri, storage_options).compact(**compact_kwargs)
+            table_id, table_version = identity
+            with get_handle_cache().lease(
+                uri, storage_options=storage_options, table_id=table_id, table_version=table_version
+            ) as handle:
+                return handle.compact(**compact_kwargs)
+
+        pod_mb_before = get_governor().pod.current_mb()
+        started = time.monotonic()
+        await self._logger.ainfo(
+            "Compacting table...",
+            compact_engine="deltalite",
+            compact_target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            compact_max_parallel_bins=compact_kwargs["max_parallel_bins"],
+            compact_slot_budget_mb=round(slot_budget_mb, 1) if slot_budget_mb is not None else None,
+            pod_memory_mb=pod_mb_before,
+            peak_rss_mb=_peak_rss_mb(),
+        )
+        try:
+            compact_stats = await asyncio.to_thread(_run)
+        except deltalite.DeltaLiteUnsupportedTableError as e:
+            await self._log_compact_fallback("unsupported_table", e)
+            return None
+        except deltalite.DeltaLiteCommitConflictError as e:
+            # The retries ran out, or a concurrent writer changed the schema or the partitioning.
+            # Nothing was committed, and the next maintenance pass compacts the table again.
+            await self._logger.awarning(f"compact: deltalite lost to a concurrent commit, not reporting: {e}")
+            return False
+        except Exception as e:
+            # The object-store classifiers match the error text, but accept only OS and delta-rs errors.
+            as_os_error = OSError(str(e))
+            if is_object_store_permission_denied(as_os_error):
+                await self._logger.awarning(f"compact: the object store denied the operation ({type(e).__name__})")
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            if is_transient_object_store_error(as_os_error):
+                await self._logger.awarning(f"compact: transient object-store error, not reporting: {e}")
+                raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
+            # A failed deltalite compaction commits nothing and deletes its output files, so delta-rs
+            # can compact the same table safely.
+            capture_exception(e)
+            await self._log_compact_fallback("deltalite_error", e)
+            return None
+
+        commits = compact_stats.get("commits")
+        if isinstance(commits, int) and commits > 0:
+            # The delta-rs handle is now behind the log. Marking it stale makes the next reader refresh it.
+            version = compact_stats.get("version")
+            self._table.note_deltalite_commit(version if isinstance(version, int) else None)
+        await self._logger.ainfo(
+            "compact: done",
+            compact_engine="deltalite",
+            compact_duration_s=round(time.monotonic() - started, 1),
+            compact_files_added=compact_stats.get("numFilesAdded"),
+            compact_files_removed=compact_stats.get("numFilesRemoved"),
+            compact_commits=commits,
+            compact_commit_retries=compact_stats.get("commit_retries"),
+            compact_bins=compact_stats.get("bins"),
+            compact_bins_dropped=compact_stats.get("bins_dropped"),
+            compact_parallel_bins=compact_stats.get("parallel_bins"),
+            pod_memory_mb=get_governor().pod.current_mb(),
+            peak_rss_mb=_peak_rss_mb(),
+        )
+        await self._logger.adebug(json.dumps(compact_stats))
+        return True
+
+    async def _log_compact_fallback(self, reason: str, error: Exception | None = None) -> None:
+        await self._logger.ainfo(
+            "compact: falling back to delta-rs",
+            compact_engine="delta-rs",
+            compact_fallback_reason=reason,
+            compact_fallback_error=f"{type(error).__name__}: {error}" if error is not None else None,
+        )
 
     async def vacuum_if_due(self, watermarks: VacuumWatermarks, cadence: VacuumCadence) -> VacuumDecision | None:
         """Vacuum when the cadence says so (see `decide_vacuum`), and return the decision.
@@ -614,6 +731,12 @@ class DeltaMaintenance:
         if not triggered(small_file_stats):
             await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
+
+        if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
+            await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
+            compacted = await self._compact_with_deltalite(table)
+            if compacted is not None:
+                return compacted
 
         plan = await self._plan_compaction(table)
         if plan.target_size is None:
