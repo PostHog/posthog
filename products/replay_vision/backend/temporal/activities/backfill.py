@@ -37,6 +37,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     BACKFILL_EXCLUDED_SESSIONS_QUERY_TYPE,
     WindowedCandidateQuery,
 )
+from products.replay_vision.backend.queries.variant_sampling import variant_sampling_plan_for_scope
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import (
     count_in_flight,
@@ -168,6 +169,18 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         ) from exc
     query = apply_experiment_targeting(query, snapshot.experiment_scope())
 
+    # Live exposure counts against the frozen scope, matching the sweep: the same salted hash plus
+    # the same rates keep sampling decisions stable between a live sweep and a backfill of the
+    # same range.
+    variant_plan = variant_sampling_plan_for_scope(
+        backfill.team,
+        scanner_type=snapshot.scanner_type,
+        scope=snapshot.experiment_scope(),
+        scanner_config=snapshot.scanner_config,
+        sampling_rate=snapshot.sampling_rate,
+        user=backfill.created_by,
+        scanner_id=str(backfill.scanner_id),
+    )
     candidate_query = WindowedCandidateQuery(
         team=backfill.team,
         query=query,
@@ -185,6 +198,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
         cursor_session_id=backfill.cursor_session_id or None,
         candidate_limit=inputs.candidate_limit,
         skip_negative_blocklists=True,
+        variant_sampling_rates=variant_plan.rates if variant_plan is not None else None,
     )
     started_at = time.monotonic()
     try:
@@ -269,6 +283,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     skipped = sum(1 for c in candidates[:walked_through] if c.session_id in overtaken)
 
     return FindBackfillCandidatesOutput(
+        variant_sampling_rates=variant_plan.rates if variant_plan is not None else None,
         started_from_cursor_end_time=backfill.cursor_end_time,
         started_from_cursor_session_id=backfill.cursor_session_id,
         candidates=[

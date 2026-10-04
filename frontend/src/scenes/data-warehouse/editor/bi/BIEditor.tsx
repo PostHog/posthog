@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 
+import { BICalculatedMeasureModal } from 'products/data_warehouse/frontend/bi/BICalculatedMeasureModal'
+
 import { editorSizingLogic } from '../editorSizingLogic'
 import { biEditorLogic } from './biEditorLogic'
 import { BI_SHELF_PILL_DRAG_MIME_TYPE, parseBIShelfPillDragData } from './biEditorTypes'
@@ -44,6 +46,7 @@ export function BIEditor({ tabId, children }: { tabId: string; children: ReactNo
                 onDragEnd={() => setActiveDropShelf(null)}
             >
                 <BIToolbar />
+                <BICalculatedMeasureModal />
                 <div className="flex min-h-0 flex-1">
                     <div
                         className="relative flex w-[var(--bi-side-pane-width)] shrink-0 flex-col border-r @4xl/bi-editor:w-[calc(var(--bi-side-pane-width)+12rem)] @4xl/bi-editor:flex-row"

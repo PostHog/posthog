@@ -22,6 +22,7 @@ const DRAFT_STAMP = '2026-05-02T00:00:00.000Z'
 describe('workflowProposalsLogic', () => {
     let logic: ReturnType<typeof workflowProposalsLogic.build>
     let approveBodies: Record<string, any>[]
+    let rejectedList: Record<string, any>[]
     let approveStatus: number
     let proposalsListStatus: number
     let workflowVersion: number
@@ -47,6 +48,7 @@ describe('workflowProposalsLogic', () => {
 
     beforeEach(() => {
         approveBodies = []
+        rejectedList = []
         approveStatus = 200
         proposalsListStatus = 200
         workflowVersion = 3
@@ -70,10 +72,14 @@ describe('workflowProposalsLogic', () => {
                         updated_at: '2026-05-01T00:00:00.000Z',
                     },
                 ],
-                '/api/projects/:team_id/hog_flows/:id/proposals/': () =>
-                    proposalsListStatus === 200
+                '/api/projects/:team_id/hog_flows/:id/proposals/': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('status') === 'rejected') {
+                        return [200, { count: rejectedList.length, results: rejectedList }]
+                    }
+                    return proposalsListStatus === 200
                         ? [200, { count: 1, results: [proposal] }]
-                        : [proposalsListStatus, { detail: 'nope' }],
+                        : [proposalsListStatus, { detail: 'nope' }]
+                },
                 '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
             },
             post: {
@@ -81,9 +87,10 @@ describe('workflowProposalsLogic', () => {
                     approveBodies.push((await request.json()) as Record<string, any>)
                     return [approveStatus, approveStatus === 200 ? proposal : { code: 'stale_update' }]
                 },
-                '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': {
-                    ...proposal,
-                    status: 'rejected',
+                '/api/projects/:team_id/hog_flows/:id/proposals/:proposal_id/reject/': () => {
+                    const rejected = { ...proposal, status: 'rejected', resolved_at: '2026-05-03T00:00:00.000Z' }
+                    rejectedList.push(rejected)
+                    return [200, rejected]
                 },
             },
         })
@@ -242,5 +249,26 @@ describe('workflowProposalsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(approveBodies).toEqual([])
+    })
+
+    it('rejecting moves the suggestion into the rejected list, most recently rejected first', async () => {
+        await expectLogic(logic).toDispatchActions(['loadProposalsSuccess', 'loadRejectedSuccess'])
+        // Filed after the one about to be rejected, but rejected before it.
+        rejectedList.push({
+            ...proposal,
+            id: 'rejected-earlier',
+            status: 'rejected',
+            resolved_at: '2026-05-01T00:00:00.000Z',
+        })
+        await expectLogic(logic, () => {
+            logic.actions.loadRejected()
+        }).toDispatchActions(['loadRejectedSuccess'])
+        expect(logic.values.rejectedProposals.map((p) => p.id)).toEqual(['rejected-earlier'])
+
+        await expectLogic(logic, () => {
+            logic.actions.confirmRejectProposal(PROPOSAL_ID)
+        }).toDispatchActions(['removeResolvedProposal', 'loadRejected', 'loadRejectedSuccess'])
+
+        expect(logic.values.rejectedProposals.map((p) => p.id)).toEqual([PROPOSAL_ID, 'rejected-earlier'])
     })
 })

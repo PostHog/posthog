@@ -133,6 +133,23 @@ const InternalRow = memo(function InternalRow({
     return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
 })
 
+const FlowRow = memo(function FlowRow({ index, children }: { index: number; children: ReactNode }): JSX.Element {
+    const value = useMemo<RowContextValue>(() => ({ index }), [index])
+    return <RowContext.Provider value={value}>{children}</RowContext.Provider>
+})
+
+const FlowItemRow = memo(function FlowItemRow<T>({
+    index,
+    item,
+    render,
+}: {
+    index: number
+    item: T
+    render: (item: T, index: number) => ReactNode
+}): JSX.Element {
+    return <FlowRow index={index}>{render(item, index)}</FlowRow>
+}) as <T>(props: { index: number; item: T; render: (item: T, index: number) => ReactNode }) => JSX.Element
+
 export interface VirtualizedThreadRootProps<T> {
     items: T[]
     /** Stable key per item — keys the measurement cache (correct reuse on prepend/reorder). */
@@ -896,17 +913,18 @@ function Root<T>({
         }
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
+    const lastIndex = virtualized ? rowCount - 1 : -1
     const rootValue = useMemo<RootContextValue>(
         () => ({
             measureElement: virtualizer.measureElement,
             gap,
-            lastIndex: rowCount - 1,
+            lastIndex,
             maxWidthClassName,
             virtualized,
             isFollowing: stickToBottom && (!virtualized || pinned),
             pauseFollowing: () => setPinned(false),
         }),
-        [virtualizer, gap, rowCount, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
+        [virtualizer, gap, lastIndex, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -916,19 +934,17 @@ function Root<T>({
         return (
             <RootContext.Provider value={rootValue}>
                 {hasHeader && (
-                    <RowContext.Provider key="header" value={{ index: 0 }}>
+                    <FlowRow key="header" index={0}>
                         {header}
-                    </RowContext.Provider>
+                    </FlowRow>
                 )}
                 {items.map((item, index) => (
-                    <RowContext.Provider key={getItemKey(item, index)} value={{ index }}>
-                        {children(item, index)}
-                    </RowContext.Provider>
+                    <FlowItemRow key={getItemKey(item, index)} index={index} item={item} render={children} />
                 ))}
                 {hasFooter && (
-                    <RowContext.Provider key="footer" value={{ index: rowCount - 1 }}>
+                    <FlowRow key="footer" index={rowCount - 1}>
                         {footer}
-                    </RowContext.Provider>
+                    </FlowRow>
                 )}
             </RootContext.Provider>
         )
