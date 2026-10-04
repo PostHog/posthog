@@ -1,0 +1,100 @@
+import '@testing-library/jest-dom'
+
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+
+import { initKeaTests } from '~/test/init'
+
+import type { RecipientPageApi } from 'products/messaging/frontend/generated/api.schemas'
+
+import { AudienceRecipients } from './AudienceRecipients'
+import { MockResponse, useRecipientsApiMocks, recipient } from './recipientTestFixtures'
+
+const FIRST_PAGE: RecipientPageApi = { results: [recipient('alex@example.com')], next_cursor: 'after-alex' }
+const LAST_PAGE: RecipientPageApi = { results: [recipient('sam@example.com')], next_cursor: null }
+
+describe('AudienceRecipients', () => {
+    function useRecipientsResponse(respond: (params: URLSearchParams) => MockResponse | Promise<MockResponse>): void {
+        useRecipientsApiMocks({ recipients: respond, coverage: [200, { persons_without_email: 0 }] })
+    }
+
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('keeps the page controls on screen while the next page loads', async () => {
+        let releaseLastPage = (): void => {}
+        const lastPageReleased = new Promise<void>((resolve) => {
+            releaseLastPage = resolve
+        })
+        useRecipientsResponse(async (params) => {
+            if (params.get('cursor')) {
+                await lastPageReleased
+                return [200, LAST_PAGE]
+            }
+            return [200, FIRST_PAGE]
+        })
+        render(<AudienceRecipients />)
+
+        fireEvent.click(await screen.findByLabelText('Next page'))
+
+        expect(screen.getByLabelText('Next page')).toBeInTheDocument()
+        releaseLastPage()
+        expect(await screen.findByText('sam@example.com')).toBeInTheDocument()
+    })
+
+    it('says only the page failed, without the search advice, when a later page fails', async () => {
+        useRecipientsResponse((params) =>
+            params.get('cursor') ? [500, { detail: 'Query timed out' }] : [200, FIRST_PAGE]
+        )
+        render(<AudienceRecipients />)
+
+        fireEvent.click(await screen.findByLabelText('Next page'))
+
+        expect(
+            await screen.findByText("Couldn't load that page of recipients. Try again in a moment.")
+        ).toBeInTheDocument()
+        expect(screen.getByText('alex@example.com')).toBeInTheDocument()
+        expect(screen.queryByText(/Search for part of an address/)).not.toBeInTheDocument()
+    })
+
+    it('keeps recipient rows out of autocapture', async () => {
+        useRecipientsResponse(() => [200, FIRST_PAGE])
+        render(<AudienceRecipients />)
+
+        expect((await screen.findByText('alex@example.com')).closest('tr')).toHaveClass('ph-no-capture')
+    })
+
+    it('puts focus back in the search field after Try again', async () => {
+        useRecipientsResponse(() => [500, { detail: 'Query timed out' }])
+        render(<AudienceRecipients />)
+
+        const [tryAgain] = await screen.findAllByText('Try again')
+        fireEvent.click(tryAgain)
+
+        expect(screen.getByLabelText('Search recipients by email address')).toHaveFocus()
+    })
+
+    it('names the missing permission instead of the search advice when access is denied', async () => {
+        useRecipientsResponse(() => [
+            403,
+            { code: 'permission_denied', detail: 'You need hog_flow viewer access to view recipients.' },
+        ])
+        render(<AudienceRecipients />)
+
+        expect(await screen.findByText('Access denied')).toBeInTheDocument()
+        expect(screen.getByText(/viewer access to Workflows/)).toBeInTheDocument()
+        expect(screen.queryByText(/Search for part of an address/)).not.toBeInTheDocument()
+    })
+
+    it('keeps the retry banner for a 403 that is not about access', async () => {
+        useRecipientsResponse(() => [403, { code: 'feature_flag_required', detail: 'This feature is not enabled.' }])
+        render(<AudienceRecipients />)
+
+        expect(await screen.findByText(/Couldn't load recipients/)).toBeInTheDocument()
+        expect(screen.queryByText('Access denied')).not.toBeInTheDocument()
+    })
+})
