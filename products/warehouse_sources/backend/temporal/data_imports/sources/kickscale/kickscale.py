@@ -58,8 +58,12 @@ class KickscaleAuth(AuthConfigBase):
 
 
 class KickscalePageNumberPaginator(PageNumberPaginator):
-    """Kickscale's list responses carry no total-count field, so a full-strength page is the
-    only signal there's more to fetch; a short (or empty) page ends the sync."""
+    """A full page of `data` is the signal that there is more to fetch; a short (or empty) page
+    ends the sync.
+
+    The envelope also carries `meta.total`, but a short-page check needs no second parse of a
+    body that can hold 100 full transcripts.
+    """
 
     def __init__(self, page_size: int) -> None:
         super().__init__(base_page=0, page_param="page")
@@ -114,6 +118,11 @@ def get_resource(
 
     endpoint_config: Endpoint = {
         "path": config.path,
+        # Rows arrive in a `{"data": [...], "meta": {...}}` envelope. Without the selector the
+        # whole envelope becomes one row, and the paginator sees a short page and stops.
+        "data_selector": "data",
+        "data_selector_required": True,
+        "data_selector_empty_ok": True,
         "params": {
             "pageSize": DEFAULT_PAGE_SIZE,
             "sortingOrder": "ascending",
