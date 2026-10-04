@@ -28,13 +28,10 @@ def _aliases() -> list[str]:
     return aliases
 
 
-def _attempt_started_at(attempt_timeout: dt.timedelta) -> float:
-    now = time.time()
-    if not activity.in_activity():
-        return now
-    started = activity.info().started_time.timestamp()
-    # An attempt older than its own timeout is already dead, or the start is a test placeholder.
-    return started if now - started < attempt_timeout.total_seconds() else now
+def _attempt_started_at() -> float:
+    if activity.in_activity():
+        return activity.info().started_time.timestamp()
+    return time.time()
 
 
 def _set_statement_timeout(connection: BaseDatabaseWrapper, value: str) -> None:
@@ -47,8 +44,14 @@ def _capped(connection: BaseDatabaseWrapper, deadline: float) -> Iterator[None]:
     def cap_to_deadline(execute: Callable[..., Any], sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
         remaining_ms = max(1, int((deadline - time.time()) * 1000))
         # The driver cursor runs this outside the wrapper chain, so it does not recurse.
-        context["cursor"].cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{remaining_ms}ms"])
-        return execute(sql, params, many, context)
+        driver_cursor = context["cursor"].cursor
+        if connection.in_atomic_block:
+            driver_cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{remaining_ms}ms"])
+            return execute(sql, params, many, context)
+        # SET LOCAL needs a transaction, so an autocommit statement gets one of its own.
+        with transaction.atomic(using=connection.alias):
+            driver_cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{remaining_ms}ms"])
+            return execute(sql, params, many, context)
 
     # Inside a caller's transaction the cap must not outlive the block, so the caller's value goes back.
     previous = None
@@ -56,11 +59,10 @@ def _capped(connection: BaseDatabaseWrapper, deadline: float) -> Iterator[None]:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_setting('statement_timeout')")
             previous = cursor.fetchone()[0]
-    with transaction.atomic(using=connection.alias):
-        with connection.execute_wrapper(cap_to_deadline):
-            yield
-        if previous is not None:
-            _set_statement_timeout(connection, previous)
+    with connection.execute_wrapper(cap_to_deadline):
+        yield
+    if previous is not None:
+        _set_statement_timeout(connection, previous)
 
 
 @contextmanager
@@ -69,9 +71,9 @@ def bounded_queries(attempt_timeout: dt.timedelta, *, from_attempt_start: bool =
 
     A timed-out attempt leaves its thread and query running, so each retry would add another copy holding locks.
     Every block in one attempt shares the budget counted from the attempt's start; pass `from_attempt_start=False`
-    to give each block its own. The block is one transaction, so keep calls to other services out of it.
+    to give each block its own. No connection opens until a statement runs on it.
     """
-    started = _attempt_started_at(attempt_timeout) if from_attempt_start else time.time()
+    started = _attempt_started_at() if from_attempt_start else time.time()
     deadline = started + attempt_timeout.total_seconds() * _BUDGET_SHARE
     with ExitStack() as stack:
         for alias in _aliases():
