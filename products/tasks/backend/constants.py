@@ -32,7 +32,6 @@ EVAL_INTERACTION_ORIGIN = "eval"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
-MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
