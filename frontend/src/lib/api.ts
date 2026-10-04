@@ -27,7 +27,7 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
+import { SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { OrganizationOAuthApplicationApi, ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -148,7 +148,6 @@ import {
     IntegrationType,
     JiraProjectType,
     LinearTeamType,
-    LinkType,
     LinkedInAdsAccountType,
     LinkedInAdsConversionRuleType,
     ListOrganizationMembersParams,
@@ -731,15 +730,6 @@ export class ApiRequest {
 
     public hogFunctionTemplate(id: HogFunctionTemplateType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.hogFunctionTemplates(teamId).addPathComponent(id)
-    }
-
-    // # Links
-    public links(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('links')
-    }
-
-    public link(id: LinkType['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.links(teamId).addPathComponent(id)
     }
 
     // # Actions
@@ -4006,32 +3996,6 @@ const api = {
         },
         async enableBackfills(id: HogFunctionType['id']): Promise<{ batch_export_id: string }> {
             return await new ApiRequest().hogFunction(id).withAction('enable_backfills').create()
-        },
-    },
-
-    links: {
-        async list(
-            args: {
-                limit?: number
-                offset?: number
-                search?: string
-            } = {
-                limit: LINK_PAGE_SIZE,
-            }
-        ): Promise<CountedPaginatedResponse<LinkType>> {
-            return await new ApiRequest().links().withQueryString(args).get()
-        },
-        async get(id: LinkType['id']): Promise<LinkType> {
-            return await new ApiRequest().link(id).get()
-        },
-        async create(data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().links().create({ data })
-        },
-        async update(id: LinkType['id'], data: Partial<LinkType>): Promise<LinkType> {
-            return await new ApiRequest().link(id).update({ data })
-        },
-        async delete(id: LinkType['id']): Promise<void> {
-            await new ApiRequest().link(id).delete()
         },
     },
 
