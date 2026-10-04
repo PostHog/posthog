@@ -5,6 +5,8 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { maybeAddPreheaderToEmail } from './helpers/preheader'
+
 export interface SandboxEmailSenderConfig {
     enabled: boolean
     tenantName: string
@@ -16,8 +18,10 @@ type SandboxEmailOutcome =
     | { type: 'sent'; recipientCount: number }
     | { type: 'blocked'; reason: 'switch_off'; blockedRecipientCount: number }
 
-function appendHtmlFooter(html: string, footer: string): string {
-    const document = parse(html, { scriptingEnabled: false })
+function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
+    const preheaderText = defaultTreeAdapter.createDocumentFragment()
+    defaultTreeAdapter.insertText(preheaderText, preheader ?? '')
+    const document = parse(maybeAddPreheaderToEmail(html, serialize(preheaderText)), { scriptingEnabled: false })
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
     const body = root?.childNodes.find((node) => defaultTreeAdapter.isElementNode(node) && node.tagName === 'body')
     if (!body || !defaultTreeAdapter.isElementNode(body)) {
@@ -28,6 +32,9 @@ function appendHtmlFooter(html: string, footer: string): string {
         if (defaultTreeAdapter.isElementNode(node)) {
             if (node.tagName === 'plaintext' && node.namespaceURI === body.namespaceURI) {
                 node.tagName = 'pre'
+            }
+            if (node.tagName === 'noscript' && node.namespaceURI === body.namespaceURI) {
+                node.tagName = 'div'
             }
             nodes.push(...node.childNodes)
             if (node.tagName === 'template' && node.namespaceURI === body.namespaceURI) {
@@ -40,7 +47,7 @@ function appendHtmlFooter(html: string, footer: string): string {
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
         {
             name: 'style',
-            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;font:12px sans-serif!important;color:#525252!important;padding:16px 0!important',
+            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important',
         },
     ])
     defaultTreeAdapter.insertText(paragraph, footer)
@@ -68,8 +75,9 @@ export class SandboxEmailSender {
             ...params,
             from: { ...params.from, name: senderName, email: this.config.fromAddress },
             replyTo: undefined,
+            preheader: undefined,
             ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
-            ...(params.html ? { html: appendHtmlFooter(params.html, footer) } : {}),
+            ...(params.html ? { html: appendHtmlFooter(params.html, footer, params.preheader) } : {}),
         }
     }
 

@@ -341,18 +341,50 @@ describe('EmailService', () => {
                 [
                     false,
                     '<body><p>Hello</p><noscript><style>p {color:blue}',
-                    '<p>Hello</p><noscript><style>p {color:blue}</style></noscript>',
+                    '<p>Hello</p><div><style>p {color:blue}</style></div>',
                     true,
                 ],
                 [
                     false,
                     '<body><p>Hello</p><noscript>&lt;plaintext&gt;Example</noscript></body>',
-                    '<p>Hello</p><noscript>&lt;plaintext&gt;Example</noscript>',
+                    '<p>Hello</p><div>&lt;plaintext&gt;Example</div>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body><table><tbody><tr><td>Hello</td></tr></tbody></table></body>',
+                    '<td>Hello</td>',
+                    true,
+                    '<textarea>Preview text',
+                ],
+                [false, '<body><p>Hello</p><noscript><style></noscript><!--', '<p>Hello</p>', true],
+                [
+                    false,
+                    '<body><p>Hello</p><noscript><style>/* </noscript><plaintext> */ p {color:blue}</style></noscript>',
+                    '<style>/* </noscript><plaintext> */ p {color:blue}</style>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body><p>Hello</p><noscript><p title="</noscript><style>">Fallback</p></noscript></body>',
+                    '<p title="</noscript><style>">Fallback</p>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body><noscript><style></noscript><script></style></noscript>Hello',
+                    '<style></noscript><script></style>',
+                    true,
+                ],
+                [
+                    false,
+                    '<body style="background:#525252;color:white"><p>Hello</p></body>',
+                    '<body style="background:#525252;color:white"><p>Hello</p>',
                     true,
                 ],
             ] as const)(
                 'sends untracked with the fixed identity and organization footer (isTest=%s, html=%s)',
-                async (isTest, html, expectedContent, htmlOnly: boolean = false) => {
+                async (isTest, html, expectedContent, htmlOnly: boolean = false, preheader?: string) => {
                     const outputs = new IngestionOutputs({
                         message_assets: new SingleIngestionOutput(
                             'message_assets',
@@ -370,6 +402,7 @@ describe('EmailService', () => {
                         bcc: 'bcc@example.com',
                         text: htmlOnly ? undefined : 'Hello there.',
                         html,
+                        preheader,
                     })
                     invocation.hogFunction.metadata = { message_category_type: 'marketing', tracking_enabled: true }
 
@@ -414,12 +447,16 @@ describe('EmailService', () => {
                             childNodes: [{ nodeName: '#text', value: footer }],
                         })
                     }
+                    if (preheader) {
+                        expect(sentHtml).toContain('&lt;textarea&gt;Preview text')
+                    }
                     if (htmlOnly) {
                         expect(input.Content?.Simple?.Body?.Text).toBeUndefined()
                     }
                     expect(sentHtml).toContain(
                         'display:block!important;visibility:visible!important;opacity:1!important'
                     )
+                    expect(sentHtml).toContain('background:#fff!important')
                     expect(input.ReplyToAddresses).toBeUndefined()
                     const headerNames = input.Content?.Simple?.Headers?.map((header) => header.Name)
                     expect(headerNames).toContain('X-PostHog-Tracking-Code')
