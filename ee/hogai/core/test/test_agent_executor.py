@@ -290,7 +290,7 @@ class TestAgentExecutor(BaseTest):
 
             # Setup queue store mock
             mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.clear_and_close_async = AsyncMock(return_value=[])
             mock_queue_store_cls.return_value = mock_queue_store
 
             # Call the method - should not raise exception
@@ -303,7 +303,7 @@ class TestAgentExecutor(BaseTest):
             mock_delete.assert_called_once()
 
             # Verify cache queue was cleared
-            mock_queue_store.clear_async.assert_called_once()
+            mock_queue_store.clear_and_close_async.assert_called_once()
 
             # Verify conversation status update
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
@@ -346,7 +346,7 @@ class TestAgentExecutor(BaseTest):
             mock_cancel_queue.return_value = None
 
             mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.clear_and_close_async = AsyncMock(return_value=[])
             mock_queue_store_cls.return_value = mock_queue_store
 
             # Should NOT raise — cancellation continues despite main workflow failure
@@ -357,7 +357,7 @@ class TestAgentExecutor(BaseTest):
             mock_cancel_queue.assert_called_once_with(mock_client)
 
             # Verify cache queue was still cleared
-            mock_queue_store.clear_async.assert_called_once()
+            mock_queue_store.clear_and_close_async.assert_called_once()
 
             # Verify Redis stream was still cleaned up
             mock_delete.assert_called_once()
@@ -387,7 +387,7 @@ class TestAgentExecutor(BaseTest):
             mock_delete.side_effect = Exception("Redis cleanup failed")
 
             mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.clear_and_close_async = AsyncMock(return_value=[])
             mock_queue_store_cls.return_value = mock_queue_store
 
             # Should raise exception from delete_stream
@@ -613,7 +613,7 @@ class TestAgentExecutor(BaseTest):
             mock_cancel_subagents.return_value = None
 
             mock_queue_store = Mock()
-            mock_queue_store.clear_async = AsyncMock(return_value=[])
+            mock_queue_store.clear_and_close_async = AsyncMock(return_value=[])
             mock_queue_store_cls.return_value = mock_queue_store
 
             await self.manager.cancel_workflow()

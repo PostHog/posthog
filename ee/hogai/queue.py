@@ -30,6 +30,10 @@ class QueueFullError(Exception):
     pass
 
 
+class QueueNotDrainableError(Exception):
+    """No run will consume the queue, so a new message must be sent directly instead."""
+
+
 @dataclass(frozen=False)
 class ConversationQueueStore:
     conversation_id: str
@@ -41,6 +45,19 @@ class ConversationQueueStore:
 
     def _lock_key(self) -> str:
         return f"{self._cache_key()}_lock"
+
+    def _drain_closed_key(self) -> str:
+        return f"{self._cache_key()}_drain_closed"
+
+    def _is_drain_closed(self) -> bool:
+        return bool(caches["default"].get(self._drain_closed_key()))
+
+    def _set_drain_closed(self, closed: bool) -> None:
+        cache = caches["default"]
+        if closed:
+            cache.set(self._drain_closed_key(), True, timeout=self.cache_timeout_seconds)
+        else:
+            cache.delete(self._drain_closed_key())
 
     @contextmanager
     def _lock(self, timeout: float = 5.0):
@@ -86,13 +103,17 @@ class ConversationQueueStore:
             self.save([])
             return []
 
-    async def clear_async(self) -> builtins.list[ConversationQueueMessage]:
+    async def clear_and_close_async(self) -> builtins.list[ConversationQueueMessage]:
+        """Drop every queued message and close the drain, for a run that ends without draining."""
         async with self._async_lock():
             self.save([])
+            self._set_drain_closed(True)
             return []
 
     def enqueue(self, message: ConversationQueueMessage) -> builtins.list[ConversationQueueMessage]:
         with self._lock():
+            if self._is_drain_closed():
+                raise QueueNotDrainableError
             queue = self.list()
             if len(queue) >= self.max_messages:
                 raise QueueFullError
@@ -116,23 +137,35 @@ class ConversationQueueStore:
             self.save(queue)
             return queue
 
+    def _pop_next_locked(self) -> ConversationQueueMessage | None:
+        queue = self.list()
+        if not queue:
+            return None
+        message = queue.pop(0)
+        self.save(queue)
+        return message
+
     def pop_next(self) -> ConversationQueueMessage | None:
         with self._lock():
-            queue = self.list()
-            if not queue:
-                return None
-            message = queue.pop(0)
-            self.save(queue)
+            return self._pop_next_locked()
+
+    async def pop_next_or_close_async(self) -> ConversationQueueMessage | None:
+        """Pop the next message, or close the drain when the queue is empty.
+
+        The pop and the close share one lock, so a message that arrives after the last drain
+        of a run is either popped by that run or refused at enqueue time. Without that,
+        the message stays in the queue with no run left to consume it.
+        """
+        async with self._async_lock():
+            message = self._pop_next_locked()
+            if message is None:
+                self._set_drain_closed(True)
             return message
 
-    async def pop_next_async(self) -> ConversationQueueMessage | None:
-        async with self._async_lock():
-            queue = self.list()
-            if not queue:
-                return None
-            message = queue.pop(0)
-            self.save(queue)
-            return message
+    async def open_drain_async(self) -> None:
+        """Let a new run accept follow-ups sent mid-turn, whatever the run before it left behind."""
+        # One write to a key nothing else reads inside a lock, so the queue lock is not needed.
+        self._set_drain_closed(False)
 
     def requeue_front(self, message: ConversationQueueMessage) -> builtins.list[ConversationQueueMessage]:
         with self._lock():
