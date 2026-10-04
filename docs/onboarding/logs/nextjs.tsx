@@ -21,32 +21,38 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'npm',
                                 code: dedent`
-                                    npm install @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    npm install @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'yarn',
                                 code: dedent`
-                                    yarn add @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    yarn add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'pnpm',
                                 code: dedent`
-                                    pnpm add @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    pnpm add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'bun',
                                 code: dedent`
-                                    bun add @opentelemetry/sdk-logs @opentelemetry/exporter-logs-otlp-http @opentelemetry/resources
+                                    bun add @opentelemetry/sdk-logs@latest @opentelemetry/exporter-logs-otlp-http@latest @opentelemetry/api-logs@latest @opentelemetry/resources@latest
                                 `,
                             },
                         ]}
                     />
+                    <Markdown>
+                        These steps need `@opentelemetry/sdk-logs` 0.220.0 or later. The `@latest` tags upgrade any
+                        older version already in your project. OpenTelemetry lists Node.js 18 (18.19 or later) and
+                        Node.js 20.6 or later as supported for versions 0.220.0 through 0.222.0. Later releases may
+                        change this.
+                    </Markdown>
                 </>
             ),
         },
@@ -74,7 +80,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                     export function register() {
                                       if (process.env.NEXT_RUNTIME === 'nodejs') {
                                         const exporter = new OTLPLogExporter({
-                                          url: '<ph_client_api_host>/otlp/v1/logs',
+                                          url: '<ph_client_api_host>/i/v1/logs',
                                           headers: {
                                             Authorization: 'Bearer <ph_project_token>',
                                           },
@@ -84,9 +90,8 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                           resource: resourceFromAttributes({
                                             'service.name': 'my-nextjs-app',
                                           }),
+                                          processors: [new SimpleLogRecordProcessor({ exporter })],
                                         })
-
-                                        loggerProvider.addLogRecordProcessor(new SimpleLogRecordProcessor(exporter))
 
                                         // make the logger available globally
                                         ;(globalThis as any).__posthogLogger = loggerProvider.getLogger('my-nextjs-app')
@@ -98,18 +103,33 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     />
                     <Markdown>
                         {dedent`
-                            Enable the instrumentation hook in \`next.config.ts\`:
+                            On Next.js 13.2–14.x only, enable the instrumentation hook in your Next.js config. Skip this on Next.js 15 and later: \`instrumentation.ts\` is loaded by default, and \`experimental.instrumentationHook\` is no longer needed.
+
+                            If you already have a config file, add \`instrumentationHook: true\` under \`experimental\` and keep your other settings. Use \`export default\` in \`next.config.mjs\`, or in \`next.config.js\` when your \`package.json\` has \`"type": "module"\`. Otherwise, use \`module.exports\`.
                         `}
                     </Markdown>
                     <CodeBlock
                         blocks={[
                             {
-                                language: 'typescript',
-                                file: 'next.config.ts',
+                                language: 'javascript',
+                                file: 'next.config.js',
                                 code: dedent`
-                                    import type { NextConfig } from 'next'
+                                    /** @type {import('next').NextConfig} */
+                                    const nextConfig = {
+                                      experimental: {
+                                        instrumentationHook: true,
+                                      },
+                                    }
 
-                                    const nextConfig: NextConfig = {
+                                    module.exports = nextConfig
+                                `,
+                            },
+                            {
+                                language: 'javascript',
+                                file: 'next.config.mjs',
+                                code: dedent`
+                                    /** @type {import('next').NextConfig} */
+                                    const nextConfig = {
                                       experimental: {
                                         instrumentationHook: true,
                                       },
@@ -136,6 +156,8 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 file: 'app/api/route.ts',
                                 code: dedent`
                                     import { SeverityNumber } from '@opentelemetry/api-logs'
+
+                                    export const dynamic = 'force-dynamic'
 
                                     export async function GET() {
                                       const logger = (globalThis as any).__posthogLogger
