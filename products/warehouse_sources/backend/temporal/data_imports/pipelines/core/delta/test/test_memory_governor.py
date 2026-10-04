@@ -164,6 +164,17 @@ class TestPredictUpsertMemory:
         assert (a.reader_mb, a.writer_mb, a.decode_mb) == (b.reader_mb, b.writer_mb, b.decode_mb)
         assert b.fixed_mb - a.fixed_mb < 0.003 * (larger.files - smaller.files)
 
+    def test_decode_uses_an_independent_costliest_worker_bound(self):
+        profile = RewriteProfile(
+            partitions=(
+                PartitionShape.of([], source_bytes=50 * MB),
+                PartitionShape.of([25 * MB]),
+            )
+        )
+        estimate = predict_upsert_memory(profile, 50.0, 1, 1, retention=1.0)
+        assert estimate.writer_mb == pytest.approx(115.0)
+        assert estimate.decode_mb == pytest.approx(32.8)
+
     def test_retention_scales_only_the_rss(self):
         low = predict_upsert_memory(_WIDE, 0.0, 1, 4, retention=1.4)
         high = predict_upsert_memory(_WIDE, 0.0, 1, 4, retention=2.0)

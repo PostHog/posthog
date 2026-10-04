@@ -369,6 +369,14 @@ class WorkerTerms:
     held_mb: float
 
 
+@frozen
+class WorkerBounds:
+    """Independent upper bounds for worker memory terms."""
+
+    terms: tuple[WorkerTerms, ...]
+    held_mb: tuple[float, ...]
+
+
 def _worker_terms(shape: PartitionShape, files_per_worker: int, target_mb: float) -> WorkerTerms:
     row_groups_mb = [size / MB for size in shape.largest_file_bytes[:files_per_worker]]
     held = sum(row_groups_mb)
@@ -393,13 +401,19 @@ def _unknown_shapes(n_partitions: int | None, source_mb: float, target_mb: float
     return (shape,) * count
 
 
-def _costliest_workers(profile: RewriteProfile, files_per_worker: int) -> list[WorkerTerms]:
-    """Worker terms of the ``_MAX_PARALLEL_PARTITIONS`` costliest partitions, costliest first."""
+def _costliest_workers(profile: RewriteProfile, files_per_worker: int) -> WorkerBounds:
+    """Independent bounds for the costliest workers' reader/writer and decode terms."""
     target_mb = profile.target_file_size / MB
-    return heapq.nlargest(
-        _MAX_PARALLEL_PARTITIONS,
-        (_worker_terms(shape, files_per_worker, target_mb) for shape in profile.partitions),
-        key=lambda terms: terms.reader_mb + terms.writer_mb,
+    terms = [_worker_terms(shape, files_per_worker, target_mb) for shape in profile.partitions]
+    return WorkerBounds(
+        terms=tuple(
+            heapq.nlargest(
+                _MAX_PARALLEL_PARTITIONS,
+                terms,
+                key=lambda worker: worker.reader_mb + worker.writer_mb,
+            )
+        ),
+        held_mb=tuple(heapq.nlargest(_MAX_PARALLEL_PARTITIONS, (worker.held_mb for worker in terms))),
     )
 
 
@@ -410,19 +424,20 @@ def predict_upsert_memory(
     files_per_worker: int,
     buffered_bytes: int = _DEFAULT_BUFFERED_BYTES,
     retention: float = _RSS_RETENTION_GLIBC_DEFAULT,
-    costliest: list[WorkerTerms] | None = None,
+    costliest: WorkerBounds | None = None,
 ) -> MemoryEstimate:
     """Peak memory of one upsert with ``mpp`` partition workers of ``files_per_worker`` readers.
 
-    The ``mpp`` costliest partitions are assumed to peak at the same time. ``costliest`` is
-    ``_costliest_workers(profile, files_per_worker)`` when the caller already has it.
+    Reader/writer and decode occupancy use independent upper bounds across the ``mpp`` costliest
+    partitions. ``costliest`` is ``_costliest_workers(profile, files_per_worker)`` when the caller
+    already has it.
     """
     if costliest is None:
         costliest = _costliest_workers(profile, files_per_worker)
-    workers = costliest[:mpp]
+    workers = costliest.terms[:mpp]
     reader_mb = sum(w.reader_mb for w in workers)
     writer_mb = sum(w.writer_mb for w in workers)
-    held_mb = sum(w.held_mb for w in workers)
+    held_mb = sum(costliest.held_mb[:mpp])
     decode_mb = _DECODE_BUDGET_FILL * min(buffered_bytes / MB, _DECODED_BYTES_PER_STORED_BYTE * held_mb)
     fixed_mb = (
         _BASE_INUSE_MB
@@ -503,7 +518,7 @@ def size_upsert(
         partition_cap = min(partition_cap, n_partitions)
 
     # One pass over the partitions per reader count, however many plans are tried.
-    costliest: dict[int, list[WorkerTerms]] = {}
+    costliest: dict[int, WorkerBounds] = {}
     for mpp in range(partition_cap, 0, -1):
         for files in _reader_options(mpp):
             if files not in costliest:
