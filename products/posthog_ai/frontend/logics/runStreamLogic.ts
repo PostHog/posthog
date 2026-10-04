@@ -911,6 +911,7 @@ interface HistoryLoadTiming {
     runReadAt?: number
     historyRequestedAt?: number
     historyReadAt?: number
+    prefetched?: boolean
 }
 
 interface OptimisticResume {
@@ -2277,6 +2278,7 @@ export interface runStreamLogicValues {
     pendingPermissionRequest: PermissionRequestRecord | null
     pendingRunMessage: PendingRunMessage | null
     permissionResponseRequestIds: Set<string>
+    prefetchRunHistoryEnabled: boolean
     reconnectAttempt: number
     recoveryState: {
         attempt: number
@@ -2617,6 +2619,7 @@ export interface runStreamLogicMeta {
         ) => boolean
         hasGitArtifacts: (runArtifacts: RunArtifacts) => boolean
         streamViaProxyEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        prefetchRunHistoryEnabled: (featureFlags: FeatureFlagsSet) => boolean
         runConnectionState: (
             sseStatus: RunSseStatus,
             reconnectAttempt: number,
@@ -3480,6 +3483,11 @@ export const runStreamLogic = kea<runStreamLogicType>([
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY],
         ],
+        prefetchRunHistoryEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PHAI_PREFETCH_RUN_HISTORY],
+        ],
         /**
          * The live connection banner view-model (footer `RunAlertActivity`), or null when the connection is
          * healthy. `reconnecting` drives the attempt-counter card during the backoff loop; `connection_failed`
@@ -3652,6 +3660,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 run_status: values.currentRunStatus,
                 replay_only: !!props.replayOnly,
                 via_proxy: values.streamViaProxyEnabled,
+                prefetched_history: !!timing.prefetched,
                 entry_count: entryCount,
                 run_read_ms: sinceStart(timing.runReadAt),
                 history_requested_ms: sinceStart(timing.historyRequestedAt),
@@ -3662,12 +3671,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 duration_ms: sinceStart(performance.now()),
             })
         }
-        const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
-            const turnCompleteBeforeReconcile = values.turnComplete
-            const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
-            if (session.phase !== 'finalization') {
-                session.phase = 'history'
-            }
+        const readHistory = async (session: RunStreamRecovery): Promise<Record<string, any>[]> => {
             const timing = historyLoadFor(session)
             if (timing) {
                 timing.historyRequestedAt ??= performance.now()
@@ -3680,10 +3684,22 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     })
                 )
             )
-            session.check()
             if (timing) {
-                timing.historyReadAt = performance.now()
+                timing.historyReadAt ??= performance.now()
             }
+            return entries
+        }
+        const reconcileHistory = async (session: RunStreamRecovery): Promise<void> => {
+            const turnCompleteBeforeReconcile = values.turnComplete
+            const recoveringLiveTurn = session.phase === 'history' || session.phase === 'stream'
+            if (session.phase !== 'finalization') {
+                session.phase = 'history'
+            }
+            const prefetched: Promise<Record<string, any>[]> | undefined =
+                cache.historyPrefetch?.session === session ? cache.historyPrefetch.entries : undefined
+            cache.historyPrefetch = undefined
+            const entries = await (prefetched ?? readHistory(session))
+            session.check()
             // Django log-N cursors index the same object entries, including non-notification records.
             entries.filter(isRecord).forEach((raw, index) => {
                 const entry = normalizeNotificationEntry(raw)
@@ -3849,6 +3865,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         actions.bootstrapLogReady()
                         actions.openSseForRun({ taskId, runId, startLatest: false })
                         return
+                    }
+                    if (values.prefetchRunHistoryEnabled) {
+                        const entries = readHistory(session)
+                        entries.catch(() => undefined)
+                        cache.historyPrefetch = { session, entries }
+                        const prefetchTiming = historyLoadFor(session)
+                        if (prefetchTiming) {
+                            prefetchTiming.prefetched = true
+                        }
                     }
                     const run = await readWithRetry(session, () => readRun(session))
                     const timing = historyLoadFor(session)

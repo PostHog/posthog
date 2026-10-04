@@ -1383,6 +1383,42 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('history prefetch', () => {
+        it.each([
+            ['on', true, 1],
+            ['off', false, 0],
+        ])(
+            'reads the history once with the flag %s, and starts it early only when on',
+            async (_label, enabled, readsBeforeRun) => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_PREFETCH_RUN_HISTORY], {
+                    [FEATURE_FLAGS.PHAI_PREFETCH_RUN_HISTORY]: enabled,
+                })
+                const getLogEntries = jest
+                    .spyOn(api.tasks.runs, 'getLogEntries')
+                    .mockResolvedValue([
+                        sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } }),
+                    ] as any)
+                let releaseRun: (run: TaskRunDetailDTOApi) => void = () => {}
+                jest.mocked(tasksRunsRetrieve).mockReturnValue(
+                    new Promise<TaskRunDetailDTOApi>((resolve) => {
+                        releaseRun = resolve
+                    }) as any
+                )
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+                await Promise.resolve()
+                expect(getLogEntries).toHaveBeenCalledTimes(readsBeforeRun)
+
+                await expectLogic(logic, () => {
+                    releaseRun({ status: 'completed' } as TaskRunDetailDTOApi)
+                }).toFinishAllListeners()
+
+                expect(getLogEntries).toHaveBeenCalledTimes(1)
+                expect(logic.values.threadItems).toEqual([expect.objectContaining({ text: 'hi' })])
+            }
+        )
+    })
+
     describe('turn trace ids', () => {
         const TRACE = '1d223305-d7ca-bfeb-3775-a4a15a6a31c6'
 
