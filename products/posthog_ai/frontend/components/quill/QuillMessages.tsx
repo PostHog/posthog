@@ -26,6 +26,20 @@ const ASSISTANT_TABLE_CLASS = cn(
     '[&_:is(th,td):first-child]:sticky [&_:is(th,td):first-child]:left-0 [&_:is(th,td):first-child]:z-1 [&_:is(th,td):first-child]:bg-(--background)'
 )
 
+// The copy button sits in a header bar above the code, so it never covers the first line.
+const ASSISTANT_CODE_CLASS = cn(
+    '[&_.CodeSnippet_pre]:!pt-10',
+    '[&_.CodeSnippet_pre]:![background:linear-gradient(var(--border),var(--border))_0_2rem/100%_1px_no-repeat,linear-gradient(var(--muted),var(--muted))_0_0/100%_2rem_no-repeat,var(--card)]',
+    '[&_.CodeSnippet>div:first-child]:!top-1.5 [&_.CodeSnippet>div:first-child]:!right-1.5 [&_.CodeSnippet>div:first-child]:!bg-transparent',
+    '[&_.CodeSnippet>div:first-child_svg]:!text-(--muted-foreground)'
+)
+
+// A checklist starts at the text edge like a paragraph, and its read-only boxes draw at full strength. Inside quill the checkbox's lemon accent resolves to nothing, so a ticked box takes quill's primary colour.
+const ASSISTANT_TASK_LIST_CLASS = cn(
+    '[&_ul:has(>li>.LemonCheckbox)]:!pl-0',
+    '[&_.LemonCheckbox_label]:[--box-color:var(--primary)] [&_.LemonCheckbox_svg]:!opacity-100'
+)
+
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
  * is measured against the clamped height and re-measured on resize, and the toggle only appears when the
@@ -107,7 +121,11 @@ export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item 
             <ChatMessageContent className="gap-1">
                 <ChatBubble variant="ghost">
                     <ChatBubbleContent>
-                        <MarkdownMessage content={item.text ?? ''} id={item.id} className={ASSISTANT_TABLE_CLASS} />
+                        <MarkdownMessage
+                            content={item.text ?? ''}
+                            id={item.id}
+                            className={cn(ASSISTANT_TABLE_CLASS, ASSISTANT_CODE_CLASS, ASSISTANT_TASK_LIST_CLASS)}
+                        />
                     </ChatBubbleContent>
                 </ChatBubble>
             </ChatMessageContent>
