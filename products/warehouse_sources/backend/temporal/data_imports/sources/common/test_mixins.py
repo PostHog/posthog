@@ -238,6 +238,19 @@ class TestIsHostSafe(SimpleTestCase):
             assert "nonexistent.invalid" in error
             assert "resolve" in error
 
+    @parameterized.expand([("service_name", "postgres"), ("hyphenated", "my-db")])
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_unresolvable_short_host_name_explains_it_is_internal(self, _name: str, host: str):
+        with patch(
+            f"{_MIXINS_MODULE}.socket.getaddrinfo",
+            side_effect=socket.gaierror(socket.EAI_NONAME, "Name or service not known"),
+        ):
+            valid, error = _is_host_safe(host, team_id=999)
+            assert not valid
+            assert error is not None
+            assert "short name" in error
+            assert host not in error
+
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_malformed_host_label_blocked(self):
         valid, error = _is_host_safe("a" * 92, team_id=999)
