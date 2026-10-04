@@ -147,6 +147,7 @@ export function TaskRunComposer({
         lockedRuntimeAdapter: isTerminal ? null : logicProps.currentRuntimeAdapter,
         onOpenDefaultSettings: () =>
             router.actions.push(urls.settings('environment-task-agents', 'task-agent-my-preference')),
+        phoneSheet: todayRailEnabled && phoneLayout,
     }
     const modelPicker = codexBillingEnabled ? (
         <ComposerCodexBillingPickers
