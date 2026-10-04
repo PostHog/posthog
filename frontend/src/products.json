@@ -257,13 +257,6 @@
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         { "path": "Tracing", "category": "Monitoring", "iconType": "tracing", "type": null, "intents": ["tracing"] },
         {
-            "path": "User research",
-            "category": "Unreleased",
-            "iconType": "user_interview",
-            "type": "user_interview",
-            "intents": ["user_interviews"]
-        },
-        {
             "path": "Visual review",
             "category": "Unreleased",
             "iconType": null,

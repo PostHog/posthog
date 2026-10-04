@@ -147,8 +147,6 @@ export const AGENT_USE_CASE_SCOPES = [
     'usage_metric:write',
     'user:read',
     'user:write',
-    'user_interview:read',
-    'user_interview:write',
     'vision_alert:read',
     'vision_alert:write',
     'visual_review:read',

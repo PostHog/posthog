@@ -47,7 +47,6 @@ import {
     IconMagicWand,
     IconMegaphone,
     IconMessage,
-    IconMicrophone,
     IconNotebook,
     IconNotification,
     IconPencil,
@@ -191,10 +190,6 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     product_tour: {
         icon: <IconSpotlight />,
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
-    },
-    user_interview: {
-        icon: <IconMicrophone />,
-        iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
     },
     home: {
         icon: <IconHome />,
