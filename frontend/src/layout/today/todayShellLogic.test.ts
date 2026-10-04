@@ -135,9 +135,9 @@ describe('todayShellLogic', () => {
 
     test.each([
         ['/project/1/ai', { task: 'task-1' }, true],
-        ['/project/1/ai', { chat: 'chat-1' }, true],
+        ['/project/1/ai', { chat: 'chat-1' }, false],
         ['/project/1/ai', {}, false],
-        ['/project/1/ai-observability', { chat: 'chat-1' }, false],
+        ['/project/1/ai-observability', { task: 'task-1' }, false],
         ['/project/1/tasks', { task: 'task-1' }, false],
     ])('on phone widths, %s with %o hides the phone header: %s', (pathname, searchParams, hidden) => {
         const originalWidth = window.innerWidth

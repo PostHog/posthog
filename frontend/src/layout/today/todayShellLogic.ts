@@ -283,7 +283,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 searchParams: Record<string, any>,
                 todayRailEnabled: boolean,
                 phoneLayout: boolean
-            ): boolean => todayRailEnabled && phoneLayout && onAiPage && !!(searchParams.task || searchParams.chat),
+            ): boolean => todayRailEnabled && phoneLayout && onAiPage && !!searchParams.task,
         ],
     }),
     subscriptions(({ actions }) => ({

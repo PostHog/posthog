@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronLeft, IconOpenSidebar, IconShare } from '@posthog/icons'
+import { IconOpenSidebar, IconShare } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -10,7 +10,6 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { DebugLogsMenu, useThreadSkin } from 'products/posthog_ai/frontend/api/primitives'
 import { EmbeddedRunner } from 'products/posthog_ai/frontend/api/runner'
@@ -49,8 +48,6 @@ export function ChatHeader({
 }): JSX.Element {
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { chatTitle } = useValues(maxLogic)
-    const { phoneHeaderHidden } = useValues(todayShellLogic)
-    const { goBackOnPhone } = useActions(todayShellLogic)
     const isTitleLoading = chatTitle === 'New chat'
 
     return (
@@ -61,16 +58,6 @@ export function ChatHeader({
             )}
         >
             <div className="flex items-center gap-2 pl-2 text-sm font-medium truncate min-w-0 flex-1">
-                {phoneHeaderHidden && (
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronLeft />}
-                        tooltip="Back"
-                        aria-label="Back"
-                        onClick={goBackOnPhone}
-                        data-attr="today-phone-back"
-                    />
-                )}
                 {children}
                 {chatTitle === null ? null : isTitleLoading ? (
                     <div className="w-100">
@@ -98,7 +85,7 @@ export function ChatHeader({
                         Copy link
                     </LemonButton>
                 ) : undefined}
-                {tabId && !phoneHeaderHidden ? (
+                {tabId ? (
                     <LemonButton
                         size="small"
                         type="secondary"
