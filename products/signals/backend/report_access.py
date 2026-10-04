@@ -4,4 +4,4 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 
 
 def may_read_reports(*, user: User, team: Team) -> bool:
-    return UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource("task", "viewer")
+    return UserAccessControl(user=user, team=team).check_access_level_for_resource("task", "viewer")

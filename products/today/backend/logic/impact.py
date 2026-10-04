@@ -6,7 +6,8 @@ from posthog.dataclasses import frozen
 
 from ..facade import contracts
 from ..facade.enums import ImpactNumberKey
-from .signal_text import RECORDING_SOURCES, SignalInput, headline, js_number, text_of
+from .evidence import signal_view
+from .signal_text import RECORDING_SOURCES, SignalInput, js_number, text_of
 
 _MIN_TICKETS = 2
 _WEEKS_FROM_DAYS = 14
@@ -154,8 +155,7 @@ def _ticket_number(signals: list[SignalInput]) -> contracts.ImpactNumber | None:
         key=ImpactNumberKey.TICKETS,
         value=str(tickets.count),
         sentence=f"support tickets {_occurrence_span(tickets)}.",
-        signal_id=ticket.signal_id if ticket else None,
-        excerpt=headline(ticket) if ticket else "",
+        signal=signal_view(ticket) if ticket else None,
         values=[],
         working=None,
     )
@@ -170,8 +170,7 @@ def _query_hours_number(signals: list[SignalInput]) -> contracts.ImpactNumber | 
         key=ImpactNumberKey.QUERY_HOURS,
         value=f"{hours} {'hour' if hours == '1' else 'hours'}",
         sentence=_QUERY_HOURS_SENTENCE,
-        signal_id=cost.signal.signal_id,
-        excerpt=headline(cost.signal),
+        signal=signal_view(cost.signal),
         values=[cost.average_ms, cost.calls_per_day],
         working=contracts.ImpactWorking(
             expression=f"{cost.average_ms} ms × {cost.calls_per_day} calls",

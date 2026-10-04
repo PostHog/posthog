@@ -160,6 +160,7 @@ class RecordingTarget:
     session_id: str
     start_at: datetime | None
     offset: str | None
+    seek_seconds: int | None
 
 
 @dataclass(frozen=True)
@@ -191,8 +192,7 @@ class ImpactNumber:
     key: ImpactNumberKey
     value: str
     sentence: str
-    signal_id: str | None
-    excerpt: str
+    signal: SignalView | None
     values: list[str]
     working: ImpactWorking | None
 
@@ -204,8 +204,7 @@ class ReportPage:
     impact_sentence: str
     named_pull_request: PullRequestLink | None
     solution_names_pull_request: bool
-    signals: list[SignalView]
-    evidence_signal_ids: list[str]
+    evidence: list[SignalView]
     source_count: int
     impact_numbers: list[ImpactNumber]
     last_seen: datetime | None

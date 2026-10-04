@@ -74,8 +74,7 @@ def report_page(page: signals.ReportPageSource) -> contracts.ReportPage:
         named_pull_request=_only_pull_request(solution, page.repo_slug)
         or _only_pull_request(page.summary, page.repo_slug),
         solution_names_pull_request=bool(_pull_requests_in(solution, page.repo_slug)),
-        signals=[evidence.signal_view(signal) for signal in inputs],
-        evidence_signal_ids=[signal.signal_id for signal in evidence.pick_evidence(inputs)],
+        evidence=[evidence.signal_view(signal) for signal in evidence.pick_evidence(inputs)],
         source_count=evidence.distinct_evidence_count(inputs),
         impact_numbers=impact.impact_numbers(inputs),
         last_seen=impact.last_occurrence(inputs),

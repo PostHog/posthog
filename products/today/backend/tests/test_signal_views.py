@@ -238,21 +238,26 @@ class TestSignalViews(SimpleTestCase):
             (
                 "replay vision seconds",
                 {"session_id": "s1", "start_time": 108, "recording_start_time": "2026-10-02T12:15:23+00:00"},
-                ("2026-10-02T12:17:06+00:00", "01:48"),
+                ("2026-10-02T12:17:06+00:00", "01:48", 103),
             ),
             (
                 "session replay offset text",
                 {"session_id": "s1", "start_time": "02:05", "session_start_time": "2026-10-02T12:00:00+00:00"},
-                ("2026-10-02T12:02:00+00:00", "02:05"),
+                ("2026-10-02T12:02:00+00:00", "02:05", 120),
             ),
+            ("a recording without a start time", {"session_id": "s1", "start_time": 108}, (None, "01:48", 103)),
         ]
     )
     def test_opens_a_recording_just_before_the_finding(
-        self, _name: str, extra: dict[str, Any], expected: tuple[str, str]
+        self, _name: str, extra: dict[str, Any], expected: tuple[str | None, str, int]
     ) -> None:
         recording = signal_view(signal(source_product="replay_vision", extra=extra)).recording
+        start_at, offset, seek_seconds = expected
         assert recording == contracts.RecordingTarget(
-            session_id="s1", start_at=datetime.fromisoformat(expected[0]), offset=expected[1]
+            session_id="s1",
+            start_at=datetime.fromisoformat(start_at) if start_at else None,
+            offset=offset,
+            seek_seconds=seek_seconds,
         )
 
     @parameterized.expand(
