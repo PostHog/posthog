@@ -25,6 +25,7 @@ from posthog.api.file_system.access_levels import (
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
+    RETIRED_FILE_SYSTEM_TYPES,
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
@@ -860,6 +861,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             descendants = self._filter_by_access_control(descendants)
             for child in descendants.order_by("depth", "path"):
                 deleted_objects.extend(self._delete_file_system_entry(child, reaches_backing_object))
+            entry.delete()
+            return deleted_objects
+
+        if entry.type in RETIRED_FILE_SYSTEM_TYPES:
             entry.delete()
             return deleted_objects
 

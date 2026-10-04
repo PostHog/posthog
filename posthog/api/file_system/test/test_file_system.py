@@ -292,6 +292,25 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
 
+    @parameterized.expand([("file", False), ("parent_folder", True)])
+    def test_delete_row_of_retired_type(self, _name: str, delete_parent: bool) -> None:
+        folder = FileSystem.objects.create(team=self.team, path="Unfiled/Links", type="folder", created_by=self.user)
+        retired = FileSystem.objects.create(
+            team=self.team,
+            path="Unfiled/Links/abc123",
+            type="link",
+            ref="0190a1b2-0000-7000-8000-000000000001",
+            href="/link/abc123",
+            created_by=self.user,
+        )
+
+        target = folder if delete_parent else retired
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(FileSystem.objects.filter(pk=retired.pk).exists())
+        self.assertEqual(FileSystem.objects.filter(pk=folder.pk).exists(), not delete_parent)
+
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
         folder = FileSystem.objects.create(team=self.team, path="Empty", type="folder", created_by=self.user)

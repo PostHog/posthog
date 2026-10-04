@@ -25,6 +25,11 @@ LEGACY_HOG_FUNCTION_TYPES = [
 ]
 HOG_FUNCTION_TYPES = sorted(set(LEGACY_HOG_FUNCTION_TYPES + list(HogFunctionType.values)))
 
+# Types of retired products. Their rows stay in project trees but have no backing model to delete, so
+# a delete removes only the row. Unregistered types of live products keep refusing the delete, because
+# removing only their row would leave the object without its tree entry.
+RETIRED_FILE_SYSTEM_TYPES: frozenset[str] = frozenset({"link"})
+
 
 @dataclass(frozen=True)
 class ModelRegistration:
