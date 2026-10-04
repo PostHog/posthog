@@ -899,7 +899,9 @@ class TestFindScannerCandidatesActivity:
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
-        scanner.query = {"kind": "TrendsQuery"}
+        # A payload RecordingsQuery validation rejects; a real (non-recordings) query kind would
+        # read as this test driving that product's query runner.
+        scanner.query = {"kind": "RecordingsQuery", "date_from": 123}
         scanner.save(update_fields=["query"])
 
         with pytest.raises(ApplicationError) as exc_info:

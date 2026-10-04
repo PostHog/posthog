@@ -319,8 +319,8 @@ def build_agent_description(
 
         When the run completes, the framework fits `train.py` ONCE on the labeled training
         population and stores the fitted `model.pkl`. Every scoring cadence after that runs the
-        SAME `features.sql` with cutoff_ts = the scoring date's cutoff and applies the stored
-        model with `predict.py`; it never re-fits. Train and inference run byte-identical feature
+        SAME `features.sql` with cutoff_ts = the start of the prediction date in UTC and applies the
+        stored model with `predict.py`; it never re-fits. Train and inference run byte-identical feature
         SQL on different anchor tables — that is the only way the holdout AUC means anything. Leakage vigilance is YOUR job: if a feature looks
         too predictive, suspect it reads the label window and fix it.
 
@@ -360,7 +360,10 @@ def build_agent_description(
         **Hard rules:**
 
         1. Select `FROM {{anchors}} a` — the framework supplies columns `(person_id, cutoff_ts)`.
-           At training cutoff_ts is per-user T0; at inference cutoff_ts = now(). Same SQL, two tables.
+           At training cutoff_ts is per-user T0. At inference cutoff_ts is the start of the prediction
+           date in UTC (midnight) for every person. Same SQL, two tables. A feature derived from the
+           cutoff's time of day or hour varies in training but is constant at scoring. It teaches the
+           model nothing it can use, so it is not worth building.
         2. Join events with `e.timestamp < fromUnixTimestamp(a.cutoff_ts)` — strict `<`. The leakage guard.
         3. Window the lookback: `e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})`.
         4. Output `a.person_id AS distinct_id` as the FIRST column, always. Then list the feature
@@ -376,8 +379,8 @@ def build_agent_description(
         8. Exclude autoresearch's own output events from every feature. Predictions are written
            back as `autoresearch_prediction` events on the same persons, so counting them (or any
            `autoresearch_`-prefixed event) would feed the model its own output once scoring starts.
-           Filter with `NOT startsWith(e.event, 'autoresearch_')` in every events join, as in the
-           worked example. Do not use `LIKE` here: `_` is a wildcard in a `LIKE` pattern.
+           Filter with `NOT startsWith(e.event, 'autoresearch_')` (`event` inside an events subquery)
+           on every events read, as in the worked example. Do not use `LIKE` here: `_` is a wildcard in a `LIKE` pattern.
         9. No top-level `LIMIT`, `OFFSET`, `LIMIT BY` or `SETTINGS`. The framework bounds the
            result itself and needs one row for every anchor, so the upload refuses such a query.
 
@@ -386,19 +389,49 @@ def build_agent_description(
         ```sql
         SELECT
             a.person_id AS distinct_id,
-            count(e.uuid) AS events_total,
-            uniqIf(e.event, e.event NOT LIKE '$%') AS unique_user_events,
-            countIf(e.event = '$pageview') AS pageviews,
+            -- direct use of the feature the target depends on
             countIf(e.event = 'uploaded_file') AS uploads,
+            -- days with activity: a habit predicts more than one busy day (the filter drops the empty row of a person with no events)
+            uniqIf(toDate(e.timestamp), e.event != '') AS active_days,
+            -- browsing volume over the lookback: heavy browsers convert more
+            countIf(e.event = '$pageview') AS pageviews,
             dateDiff('day', max(e.timestamp), fromUnixTimestamp(a.cutoff_ts)) AS days_since_last_event
         FROM {{anchors}} a
-        LEFT JOIN events e
+        LEFT JOIN (
+            -- read only the events the features use, for the anchor persons, in the widest window any anchor needs
+            SELECT person_id, event, timestamp
+            FROM events
+            WHERE event IN ('uploaded_file', '$pageview')
+                AND NOT startsWith(event, 'autoresearch_') -- never count the model's own output events
+                AND person_id IN (SELECT person_id FROM {{anchors}})
+                AND timestamp >= (SELECT fromUnixTimestamp(min(cutoff_ts)) FROM {{anchors}}) - toIntervalDay({{lookback_days}})
+                AND timestamp <  (SELECT fromUnixTimestamp(max(cutoff_ts)) FROM {{anchors}})
+        ) e
             ON e.person_id = a.person_id
             AND e.timestamp <  fromUnixTimestamp(a.cutoff_ts)
             AND e.timestamp >= fromUnixTimestamp(a.cutoff_ts) - toIntervalDay({{lookback_days}})
-            AND NOT startsWith(e.event, 'autoresearch_') -- never count the model's own output events
         GROUP BY a.person_id, a.cutoff_ts
         ```
+
+        Keep this shape: filter events in a subquery first, then join. ClickHouse builds the hash
+        table from the right side of a join, so a direct join to the `events` table reads all of
+        the team's events into memory before the anchor filter applies, and runs out of memory on
+        a large team.
+
+        **What the query costs.** The bundle's `features.sql` runs on every scoring cadence over the
+        whole inference population, under a query time limit. A query that passes training can fail
+        at scoring, so a feature must earn its cost in AUC.
+        - For long windows, aggregate to daily (or hourly) counts per person in a subquery before
+          you join. A training cutoff falls at any time of day, so the bucket that holds it also holds
+          events after it: join only whole buckets (`day < toStartOfDay(fromUnixTimestamp(a.cutoff_ts))`),
+          and read the part of the cutoff's day before the cutoff from raw events, with the strict `<`
+          of rule 2.
+        - Keep windows short on high-volume events such as `$pageview`, and filter on event names early.
+        - Read person properties from the snapshot stored on each event, `poe.properties.*`, and take
+          the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
+          events). `person.properties.*` and `LEFT JOIN persons` both join the persons table, which is
+          slow on large teams, and return current values, which leak the label window at training.
+        - Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
 
@@ -416,7 +449,9 @@ def build_agent_description(
         label or fold columns.
 
         Call materialize ONCE per `features_sql` and run many model iterations in Python on the same
-        parquet; re-call it only after you edit `features_sql`. Each call rebuilds the population, T0s
+        parquet; re-call it only after you edit `features_sql`. The backend promotes the kept iteration with the
+        highest holdout AUC, whatever it costs, and your uploaded `features.sql` must be that iteration's
+        query, so never upload a cheaper query that scored lower. Each call rebuilds the population, T0s
         and labels from current data, so compare model changes on one materialization, and treat a small
         AUC shift across two materializations as possible data drift, not proof the new SQL is better. `execute-sql` is for lightweight schema exploration only — never for
         pulling feature rows (it caps at 500 rows and would force the data through your context).

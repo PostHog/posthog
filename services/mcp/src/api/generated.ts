@@ -44377,6 +44377,349 @@ export namespace Schemas {
       prompt_version?: string | null;
     }
 
+    export interface VariantsExperiment {
+      /** The experiment's id. */
+      id: number;
+      /** The experiment's name. */
+      name: string;
+      /** draft, running, paused, exposure_frozen, or stopped. */
+      status: string;
+      /**
+         * When the experiment launched.
+         * @nullable
+         */
+      start_date: string | null;
+      /**
+         * When the experiment ended; null while it runs.
+         * @nullable
+         */
+      end_date: string | null;
+      /**
+         * The experiment's recommended running time in days, when one was set.
+         * @nullable
+         */
+      planned_duration_days: number | null;
+      /**
+         * The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.
+         * @nullable
+         */
+      current_day: number | null;
+    }
+
+    export interface VariantsWindow {
+      /** Succeeded observations of this scanner, attributed to a variant or not. */
+      total_observations: number;
+      /**
+         * When the earliest of those observations completed.
+         * @nullable
+         */
+      first_observation_at: string | null;
+      /**
+         * When the latest of those observations completed.
+         * @nullable
+         */
+      last_observation_at: string | null;
+    }
+
+    /**
+     * * `configured` - Configured
+     * * `inline` - Inline
+     */
+    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
+
+
+    export const ScannerOriginEnum = {
+      Configured: 'configured',
+      Inline: 'inline',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     */
+    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
+
+
+    export const ObservationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+    } as const;
+
+    /**
+     * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+     * @nullable
+     */
+    export type ScannerSnapshotVariantSamplingRates = {[key: string]: number} | null;
+
+    /**
+     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
+     */
+    export interface ScannerSnapshot {
+      /** Scanner name at run time. */
+      name: string;
+      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
+      scanner_type: ScannerTypeEnum;
+      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+      scanner_version: number;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      scanner_config: unknown;
+      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
+      verify_positives: string;
+      /**
+         * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+         * @nullable
+         */
+      variant_sampling_rates?: ScannerSnapshotVariantSamplingRates;
+    }
+
+    /**
+     * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
+     */
+    export interface VerificationRecord {
+      /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
+      mode: string;
+      /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
+      draws: string[];
+      /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
+      resolved_verdict: string;
+      /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
+      served_verdict: string;
+      /**
+         * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
+         * @nullable
+         */
+      skipped_reason: string | null;
+    }
+
+    /**
+     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+     */
+    export interface ScannerResult {
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+      /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
+      verification: VerificationRecord | null;
+      /**
+         * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+         * @nullable
+         */
+      experiment_variant?: string | null;
+      /**
+         * Experiment scanners only: the scanned session's duration in seconds.
+         * @nullable
+         */
+      session_duration_s?: number | null;
+    }
+
+    /**
+     * * `schedule` - Schedule
+     * * `on_demand` - On demand
+     * * `retry` - Retry
+     * * `backfill` - Backfill
+     */
+    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
+
+
+    export const ObservationTriggerEnum = {
+      Schedule: 'schedule',
+      OnDemand: 'on_demand',
+      Retry: 'retry',
+      Backfill: 'backfill',
+    } as const;
+
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
+    /**
+     * * `thumbnail` - Thumbnail
+     * * `clip` - Clip
+     * * `chapter` - Chapter
+     */
+    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
+
+
+    export const ReplayObservationMediaKindEnum = {
+      Thumbnail: 'thumbnail',
+      Clip: 'clip',
+      Chapter: 'chapter',
+    } as const;
+
+    /**
+     * One thumbnail or clip illustrating an observation.
+     */
+    export interface ReplayObservationMedia {
+      /** Id of this media entry. */
+      readonly id: string;
+      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
+       *
+       * * `thumbnail` - Thumbnail
+       * * `clip` - Clip
+       * * `chapter` - Chapter */
+      readonly kind: ReplayObservationMediaKindEnum;
+      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
+      readonly position: number;
+      /** Export asset holding the bytes; fetch it from the export content endpoint. */
+      readonly asset_id: number;
+      /**
+         * One sentence saying what the clip shows. Null for thumbnails.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** Where this media starts in the analysis video, in milliseconds. */
+      readonly video_start_ms: number;
+      /**
+         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
+         * @nullable
+         */
+      readonly video_end_ms: number | null;
+    }
+
+    export interface ReplayObservation {
+      readonly id: string;
+      /** The scanner that produced this observation. */
+      readonly scanner_id: string;
+      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+       *
+       * * `configured` - Configured
+       * * `inline` - Inline */
+      readonly scanner_origin: ScannerOriginEnum;
+      /** Session recording id this scanner was applied to. */
+      readonly session_id: string;
+      /** Observation status (pending, running, succeeded, failed, ineligible).
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `ineligible` - Ineligible */
+      readonly status: ObservationStatusEnum;
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      readonly error_reason: string;
+      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
+      readonly workflow_id: string;
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+      readonly scanner_snapshot: ScannerSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly scanner_result: ScannerResult | null;
+      /**
+         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
+         * @nullable
+         */
+      readonly prompt_question: string | null;
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
+       *
+       * * `schedule` - Schedule
+       * * `on_demand` - On demand
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
+      readonly triggered_by: ObservationTriggerEnum;
+      /** User who triggered an on-demand observation; null for scheduled observations. */
+      readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
+      /**
+         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
+         * @nullable
+         */
+      readonly previous_observation_id: string | null;
+      /**
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
+         * @nullable
+         */
+      readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
+      /** Whether the calling user has opened this observation. */
+      readonly viewed: boolean;
+      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+      readonly media: readonly ReplayObservationMedia[];
+      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
+      readonly summary_line: string;
+      /** @nullable */
+      started_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+      readonly created_at: string;
+    }
+
+    export interface VariantReadout {
+      /** The variant key. */
+      key: string;
+      /** Succeeded observations attributed to this variant. */
+      observations: number;
+      /** Distinct people (by distinct id) behind those observations. */
+      distinct_people: number;
+      /**
+         * Median scanned session length in seconds; null with no observations.
+         * @nullable
+         */
+      median_session_duration_s: number | null;
+      /**
+         * The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /** This variant's most recent observations, newest first. */
+      latest_observations: ReplayObservation[];
+    }
+
+    export interface ExperimentVariantsReadout {
+      /** The watched experiment; null if it was deleted. */
+      experiment: VariantsExperiment | null;
+      /** The span of observations the counts cover. */
+      window: VariantsWindow;
+      /** One entry per watched variant, plus any variant still holding observations. */
+      variants: VariantReadout[];
+      /** Succeeded observations with no attributed variant. */
+      unattributed_count: number;
+    }
+
     /**
      * The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.
      * @nullable
@@ -64458,262 +64801,6 @@ export namespace Schemas {
       by_rating_day: ObservationLabelDayCount[];
       /** Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history. */
       version_markers: ObservationVersionMarker[];
-    }
-
-    /**
-     * * `configured` - Configured
-     * * `inline` - Inline
-     */
-    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
-
-
-    export const ScannerOriginEnum = {
-      Configured: 'configured',
-      Inline: 'inline',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     * * `ineligible` - Ineligible
-     */
-    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
-
-
-    export const ObservationStatusEnum = {
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-    } as const;
-
-    /**
-     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
-     */
-    export interface ScannerSnapshot {
-      /** Scanner name at run time. */
-      name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
-       *
-       * * `monitor` - Monitor
-       * * `classifier` - Classifier
-       * * `scorer` - Scorer
-       * * `summarizer` - Summarizer
-       * * `experiment` - Experiment */
-      scanner_type: ScannerTypeEnum;
-      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
-      scanner_version: number;
-      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
-      model: string;
-      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
-      provider: string;
-      /** Whether the observation was run with Signal emission enabled. */
-      emits_signals: boolean;
-      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
-      scanner_config: unknown;
-      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
-      verify_positives: string;
-    }
-
-    /**
-     * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
-     */
-    export interface VerificationRecord {
-      /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
-      mode: string;
-      /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
-      draws: string[];
-      /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
-      resolved_verdict: string;
-      /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
-      served_verdict: string;
-      /**
-         * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
-         * @nullable
-         */
-      skipped_reason: string | null;
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
-     */
-    export interface ScannerResult {
-      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
-      model_output: unknown;
-      /**
-         * Number of PostHog Signals emitted from this observation.
-         * @minimum 0
-         */
-      signals_count: number;
-      /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
-      verification: VerificationRecord | null;
-      /**
-         * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
-         * @nullable
-         */
-      experiment_variant?: string | null;
-      /**
-         * Experiment scanners only: the scanned session's duration in seconds.
-         * @nullable
-         */
-      session_duration_s?: number | null;
-    }
-
-    /**
-     * * `schedule` - Schedule
-     * * `on_demand` - On demand
-     * * `retry` - Retry
-     * * `backfill` - Backfill
-     */
-    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
-
-
-    export const ObservationTriggerEnum = {
-      Schedule: 'schedule',
-      OnDemand: 'on_demand',
-      Retry: 'retry',
-      Backfill: 'backfill',
-    } as const;
-
-    /**
-     * The team's shared judgement on whether the scanner scored this session correctly.
-     */
-    export interface ReplayObservationLabel {
-      /** True if the scanner scored this session correctly, false if not. */
-      is_correct: boolean;
-      /**
-         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
-         * @maxLength 5000
-         */
-      feedback?: string;
-    }
-
-    /**
-     * * `thumbnail` - Thumbnail
-     * * `clip` - Clip
-     * * `chapter` - Chapter
-     */
-    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
-
-
-    export const ReplayObservationMediaKindEnum = {
-      Thumbnail: 'thumbnail',
-      Clip: 'clip',
-      Chapter: 'chapter',
-    } as const;
-
-    /**
-     * One thumbnail or clip illustrating an observation.
-     */
-    export interface ReplayObservationMedia {
-      /** Id of this media entry. */
-      readonly id: string;
-      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
-       *
-       * * `thumbnail` - Thumbnail
-       * * `clip` - Clip
-       * * `chapter` - Chapter */
-      readonly kind: ReplayObservationMediaKindEnum;
-      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
-      readonly position: number;
-      /** Export asset holding the bytes; fetch it from the export content endpoint. */
-      readonly asset_id: number;
-      /**
-         * One sentence saying what the clip shows. Null for thumbnails.
-         * @nullable
-         */
-      readonly description: string | null;
-      /** Where this media starts in the analysis video, in milliseconds. */
-      readonly video_start_ms: number;
-      /**
-         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
-         * @nullable
-         */
-      readonly video_end_ms: number | null;
-    }
-
-    export interface ReplayObservation {
-      readonly id: string;
-      /** The scanner that produced this observation. */
-      readonly scanner_id: string;
-      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
-       *
-       * * `configured` - Configured
-       * * `inline` - Inline */
-      readonly scanner_origin: ScannerOriginEnum;
-      /** Session recording id this scanner was applied to. */
-      readonly session_id: string;
-      /** Observation status (pending, running, succeeded, failed, ineligible).
-       *
-       * * `pending` - Pending
-       * * `running` - Running
-       * * `succeeded` - Succeeded
-       * * `failed` - Failed
-       * * `ineligible` - Ineligible */
-      readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
-      readonly error_reason: string;
-      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
-      readonly workflow_id: string;
-      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
-      readonly scanner_snapshot: ScannerSnapshot | null;
-      /** Result data persisted on success; null until the observation succeeds. */
-      readonly scanner_result: ScannerResult | null;
-      /**
-         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
-         * @nullable
-         */
-      readonly prompt_question: string | null;
-      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
-       *
-       * * `schedule` - Schedule
-       * * `on_demand` - On demand
-       * * `retry` - Retry
-       * * `backfill` - Backfill */
-      readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation; null for scheduled observations. */
-      readonly triggered_by_user: UserBasic | null;
-      /**
-         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
-         * @nullable
-         */
-      readonly backfill_id: string | null;
-      /**
-         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
-         * @nullable
-         */
-      readonly previous_observation_id: string | null;
-      /**
-         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
-         * @nullable
-         */
-      readonly next_observation_id: string | null;
-      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-      readonly label: ReplayObservationLabel | null;
-      /** Whether the calling user has opened this observation. */
-      readonly viewed: boolean;
-      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
-      readonly media: readonly ReplayObservationMedia[];
-      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
-      readonly summary_line: string;
-      /** @nullable */
-      started_at?: string | null;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
     }
 
     export interface ObservationSearchResult {
@@ -104133,19 +104220,25 @@ export namespace Schemas {
      * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
      */
     export interface TasksTaskDefaults {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
-      start_in_plan_mode: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
-      auto_publish_cloud_runs: boolean;
+      /**
+         * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+         * @nullable
+         */
+      start_in_plan_mode: boolean | null;
+      /**
+         * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+         * @nullable
+         */
+      auto_publish_cloud_runs: boolean | null;
     }
 
     /**
      * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
      */
     export interface TasksTaskDefaultsUpdate {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
       start_in_plan_mode?: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
+      /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
       auto_publish_cloud_runs?: boolean;
     }
 
@@ -123372,6 +123465,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123594,6 +123691,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123649,6 +123750,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123703,6 +123808,10 @@ export namespace Schemas {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -123766,6 +123875,10 @@ export namespace Schemas {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
