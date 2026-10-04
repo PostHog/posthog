@@ -304,10 +304,20 @@ function EmailTemplateField({
     liveChanges?: boolean
     saveIndicator?: ReactNode
 }): JSX.Element {
+    const person = sampleGlobalsWithInputs?.person
+    // Preview the merge tags against the sample person the rest of the editor already works from,
+    // so an author sees what the send resolves to instead of the raw template. The memo holds as
+    // long as callers keep the person reference stable across renders.
+    const previewPerson = useMemo(
+        () => (person?.id ? { id: person.id, properties: person.properties ?? {} } : null),
+        [person]
+    )
+
     return (
         <EmailTemplater
             type={schema.type as 'email' | 'native_email'}
             variables={sampleGlobalsWithInputs ?? {}}
+            previewPerson={previewPerson}
             defaultValue={schema.default}
             value={value}
             onChange={onChange}
