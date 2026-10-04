@@ -4,13 +4,14 @@ import socket
 import ipaddress
 import dataclasses
 from collections.abc import Callable, Generator, Sequence
-from contextlib import _GeneratorContextManager, contextmanager
+from contextlib import ExitStack, _GeneratorContextManager, contextmanager
 from typing import Any, Generic, TypeVar
 
 from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import structlog
+from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
@@ -580,6 +581,58 @@ def _check_direct_host(config, team_id: int | None) -> None:
     _checked_connect_host(config.host, team_id, DATABASE_HOST_NOT_ALLOWED_ERROR)
 
 
+# sshtunnel reports every failure to reach the gateway with the same wording. `_create_tunnels`
+# swallows the DNS error, the refused socket and the rejected credentials alike, and then `start`
+# raises a fixed "Could not establish session to SSH gateway". `Any_Source_Errors` classifies that
+# message as non-retryable, so a single failed connect disables every table under the source, and a
+# bastion that was restarting costs a customer their whole sync. Retry the connect before giving up.
+# The budget is bounded, so a wrong credential or a host that is really gone reaches the same
+# classification it reaches today, about 14 seconds later.
+_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS: tuple[float, ...] = (2.0, 4.0, 8.0)
+
+
+def _release_failed_forwarder(forwarder: SSHTunnelForwarder) -> None:
+    """Release the sockets and threads a failed `start` left behind.
+
+    `start` raises after `_create_tunnels` has already built the local forward servers, and a
+    forwarder cannot be started a second time, so every attempt needs a new forwarder and the
+    failed one has to let go of its resources first.
+    """
+    try:
+        forwarder.stop(force=True)
+    except Exception as e:
+        logger.debug("data_imports.ssh_tunnel_cleanup_failed", error=str(e)[:200])
+
+
+@contextmanager
+def _connected_ssh_tunnel(ssh_tunnel: SSHTunnel, config, *, ssh_host: str) -> Generator[SSHTunnelForwarder]:
+    """Yield a started forwarder, retrying a failed connect to the gateway.
+
+    The retry covers the connect only. Once the tunnel is up, the caller's body runs inside the
+    forwarder's own context, so a tunnel that drops part way through a sync still propagates on its
+    first occurrence instead of restarting the sync.
+    """
+    attempts = len(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS) + 1
+    with ExitStack() as stack:
+        for attempt in range(attempts):
+            forwarder = ssh_tunnel.get_tunnel(config.host, config.port, ssh_host=ssh_host)
+            try:
+                tunnel = stack.enter_context(forwarder)
+            except BaseSSHTunnelForwarderError:
+                _release_failed_forwarder(forwarder)
+                if attempt == attempts - 1:
+                    raise
+                logger.warning(
+                    "data_imports.ssh_tunnel_connect_retry",
+                    attempt=attempt + 1,
+                    attempts=attempts,
+                )
+                time.sleep(_SSH_TUNNEL_CONNECT_BACKOFF_SECONDS[attempt])
+                continue
+            yield tunnel
+            return
+
+
 @contextmanager
 def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
@@ -588,9 +641,7 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
         if ssh_config is not None:
             ssh_tunnel = SSHTunnel.from_config(ssh_config)
 
-            with ssh_tunnel.get_tunnel(
-                config.host, config.port, ssh_host=_pinned_ssh_host(ssh_config, team_id)
-            ) as tunnel:
+            with _connected_ssh_tunnel(ssh_tunnel, config, ssh_host=_pinned_ssh_host(ssh_config, team_id)) as tunnel:
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
@@ -617,8 +668,8 @@ def make_ssh_tunnel_factory(
             with _logged_connection(config, team_id):
                 # Resolved per reopen, not once when the factory is built, so a long-running
                 # sync that reopens the tunnel re-checks the host each time.
-                with ssh_tunnel.get_tunnel(
-                    config.host, config.port, ssh_host=_pinned_ssh_host(ssh_config, team_id)
+                with _connected_ssh_tunnel(
+                    ssh_tunnel, config, ssh_host=_pinned_ssh_host(ssh_config, team_id)
                 ) as tunnel:
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
