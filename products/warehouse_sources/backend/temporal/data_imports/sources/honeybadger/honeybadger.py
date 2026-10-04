@@ -282,9 +282,8 @@ def _get_project_child_rows(
             if config.time_series:
                 yield _time_series_rows(project_id, results)
             else:
-                # Inject the parent project id: sites don't carry it, and it's part of the
-                # composite primary key. Faults/deploys already include it (theirs wins).
-                yield [{"project_id": project_id, **item} for item in results]
+                # The traversal determines the parent, so API rows cannot change their project attribution.
+                yield [{**item, "project_id": project_id} for item in results]
             if next_url:
                 resumable_source_manager.save_state(HoneybadgerResumeConfig(next_url=next_url, project_id=project_id))
 
@@ -352,7 +351,7 @@ def _get_nested_rows(
                 if not results:
                     continue
                 yield [
-                    {"project_id": project_id, parent_key: parent_id, **parent_columns[parent_id], **item}
+                    {**item, "project_id": project_id, parent_key: parent_id, **parent_columns[parent_id]}
                     for item in results
                 ]
                 if next_url:

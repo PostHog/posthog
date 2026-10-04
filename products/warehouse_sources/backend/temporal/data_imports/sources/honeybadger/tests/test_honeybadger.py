@@ -293,7 +293,7 @@ class TestHoneybadger:
         routes = {
             f"{HONEYBADGER_BASE_URL}/projects?limit=25": {"results": [{"id": 7}], "links": {}},
             f"{HONEYBADGER_BASE_URL}/projects/7/sites?limit=25": {
-                "results": [{"id": "site-uuid", "name": "Main site"}],
+                "results": [{"id": "site-uuid", "project_id": 999, "name": "Main site"}],
                 "links": {},
             },
         }
@@ -463,7 +463,15 @@ class TestHoneybadger:
                 "links": {},
             },
             # Bare arrays with no paging, and the endpoint takes no time filter.
-            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/affected_users": [{"user": "bob@example.com", "count": 4}],
+            f"{HONEYBADGER_BASE_URL}/projects/1/faults/10/affected_users": [
+                {
+                    "project_id": 999,
+                    "fault_id": 999,
+                    "fault_last_notice_at": "2020-01-01T00:00:00Z",
+                    "user": "bob@example.com",
+                    "count": 4,
+                }
+            ],
             f"{HONEYBADGER_BASE_URL}/projects/1/faults/11/affected_users": [],
         }
 
