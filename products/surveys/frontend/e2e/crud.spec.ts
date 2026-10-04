@@ -96,7 +96,6 @@ test.describe('CRUD Survey', () => {
 
         await expect(page.locator('[data-attr=success-toast]')).toContainText('created')
 
-        await page.getByRole('button', { name: 'See survey details' }).click()
         await expect(page.getByText('1 audience rule · 50% shown', { exact: true })).toBeVisible()
     })
 })
