@@ -331,6 +331,22 @@ class TestFileSystemAPI(APIBaseTest):
 
         self.assertEqual([listed["results"], searched["results"], counted["count"]], [[], [], 0])
 
+    def test_recents_skip_views_of_retired_types(self) -> None:
+        _folder, retired = self._create_retired_row_in_folder()
+        dashboard = Dashboard.objects.create(team=self.team, name="Viewed earlier", created_by=self.user)
+        entry = FileSystem.objects.create(
+            team=self.team, path="Viewed earlier", type="dashboard", ref=str(dashboard.id), created_by=self.user
+        )
+        base = f"/api/projects/{self.team.id}/file_system"
+        self.client.post(
+            f"{base}/log_view/", {"type": "dashboard", "ref": entry.ref, "viewed_at": "2026-09-01T00:00:00Z"}
+        )
+        self.client.post(f"{base}/log_view/", {"type": "link", "ref": retired.ref, "viewed_at": "2026-09-02T00:00:00Z"})
+
+        recents = self.client.get(f"{base}/?order_by=-last_viewed_at&limit=1").json()
+
+        self.assertEqual([item["id"] for item in recents["results"]], [str(entry.id)])
+
     @parameterized.expand([("empty", False), ("child_added_before_delete", True)])
     def test_delete_empty_folder_without_cascading(self, _name: str, add_child: bool) -> None:
         folder = FileSystem.objects.create(team=self.team, path="Empty", type="folder", created_by=self.user)
@@ -1931,6 +1947,27 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_404_NOT_FOUND, delete_response.content)
         dashboard.refresh_from_db()
         self.assertFalse(dashboard.deleted)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_folder_delete_keeps_retired_rows_in_a_denied_environment(self, mock_flag):
+        team2 = self._create_sibling_team()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        self._create_access_control(
+            resource="project",
+            resource_id=str(team2.id),
+            access_level="none",
+            organization_member=membership,
+            team=team2,
+        )
+        folder = FileSystem.objects.create(team=self.team, path="Shared", type="folder", created_by=self.user)
+        denied_link = FileSystem.objects.create(
+            team=team2, path="Shared/abc123", type="link", ref="0190a1b2-0000-7000-8000-000000000002"
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{folder.pk}/?recursive=false")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertTrue(FileSystem.objects.filter(pk=denied_link.pk).exists())
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):

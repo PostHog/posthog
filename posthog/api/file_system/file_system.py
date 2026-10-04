@@ -709,7 +709,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         limit = max(1, min(limit, 1000))
 
         not_type_param = request.query_params.get("not_type")
-        exclude_types = [not_type_param] if not_type_param else None
+        # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
+        exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
@@ -776,6 +777,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 descendants = self._scope_by_project_and_environment(descendants)
                 descendants = self._filter_by_access_control(descendants)
                 stack.extend(descendants)
+                continue
+
+            # A retired row has no backing object to authorize or lock.
+            if current.type in RETIRED_FILE_SYSTEM_TYPES:
                 continue
 
             entries_to_check.append(current)
@@ -920,7 +925,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 descendants = self._scope_by_project_and_environment(
                     FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 )
-                hidden_descendants = descendants.filter(type__in=RETIRED_FILE_SYSTEM_TYPES)
+                hidden_descendants = self._filter_by_access_control(
+                    descendants.filter(type__in=RETIRED_FILE_SYSTEM_TYPES)
+                )
                 empty_folder = FileSystem.objects.filter(
                     pk=instance.pk, team_id=instance.team_id, path=instance.path, type="folder"
                 ).filter(~Exists(descendants.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)))
