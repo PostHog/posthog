@@ -16,6 +16,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { dayjs } from 'lib/dayjs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
@@ -229,7 +230,16 @@ export function AccountMeetingsExpansion({
             title: 'When',
             key: 'start_time',
             width: 140,
-            render: (_, meeting) => <TZLabel time={meeting.start_time} />,
+            render: (_, meeting) => (
+                <div className="flex flex-col items-start gap-0.5">
+                    <TZLabel time={meeting.start_time} />
+                    {meeting.is_recurring && dayjs(meeting.start_time).isAfter(dayjs()) && (
+                        <LemonTag type="muted" size="small" title="Later occurrences of this series are hidden">
+                            Recurring · next
+                        </LemonTag>
+                    )}
+                </div>
+            ),
             sorter: (a, b) => a.start_time.localeCompare(b.start_time),
         },
         {

@@ -30,6 +30,7 @@ class ResizeObserverMock {
 const meeting: MeetingApi = {
     id: 'meeting-1',
     title: 'Quarterly review',
+    is_recurring: false,
     gong_url: 'https://app.gong.io/call?id=123',
     start_time: '2026-08-03T15:00:00Z',
     end_time: '2026-08-03T15:30:00Z',
