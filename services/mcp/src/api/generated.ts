@@ -13263,6 +13263,8 @@ export namespace Schemas {
       archived_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
+      /** True if this model is in the pipeline's shadow set: the champion, the previous champion, and up to 3 recent fitted challengers with distinct recipes. */
+      readonly in_shadow_set: boolean;
     }
 
     /**
