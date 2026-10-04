@@ -337,12 +337,32 @@ export function parseAddressList(value?: string): string[] | undefined {
 }
 
 function sandboxAddressList(value?: string): string[] {
-    return (value?.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/) ?? [])
+    const addresses: string[] = []
+    let address = ''
+    let quoted = false
+    let escaped = false
+    for (const character of value ?? '') {
+        if (character === ',' && !quoted) {
+            addresses.push(address)
+            address = ''
+        } else {
+            address += character
+            if (escaped) {
+                escaped = false
+            } else if (character === '\\' && quoted) {
+                escaped = true
+            } else if (character === '"') {
+                quoted = !quoted
+            }
+        }
+    }
+    addresses.push(address)
+    return addresses
         .map((address) => address.trim())
         .filter(Boolean)
         .map(
             (address) =>
-                address.match(/^(?:"(?:[^"\\\r\n]|\\[^\r\n])*"|[^<>"@;\r\n]*)\s*<([^<>]+)>$/)?.[1].trim() ?? address
+                address.match(/^(?:"(?:[^"\\\r\n]|\\[^\r\n])*"[ \t]*|[^<>"@;\r\n]*)<([^<>]+)>$/)?.[1].trim() ?? address
         )
 }
 
@@ -409,6 +429,7 @@ export class EmailService {
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
         let deliveryParams = params
+        let sandboxRecipients: string[] | undefined
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -509,35 +530,8 @@ export class EmailService {
             if (isSandbox) {
                 const cc = sandboxAddressList(params.cc)
                 const bcc = sandboxAddressList(params.bcc)
-                const recipients = [params.to.email, ...cc, ...bcc]
-                let blockedRecipients: string[]
-                let reason: 'recipient_not_member' | 'check_failed' = 'recipient_not_member'
-                try {
-                    if (!this.organizationMembers) {
-                        throw new Error('Organization member checks are not configured')
-                    }
-                    blockedRecipients = await this.organizationMembers.getBlockedRecipients(
-                        invocation.teamId,
-                        recipients
-                    )
-                } catch {
-                    blockedRecipients = recipients
-                    reason = 'check_failed'
-                }
-                if (blockedRecipients.length) {
-                    addLog(
-                        'info',
-                        reason === 'check_failed'
-                            ? `Skipping send: could not check organization members for these addresses: ${blockedRecipients.join(', ')}. Try again, or verify your own domain to send to anyone.`
-                            : `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${blockedRecipients.join(', ')}. Verify your own domain to send to anyone.`
-                    )
-                    result.skipped = true
-                    result.invocation.state.vmState?.stack.push({ success: false })
-                    await this.sandboxSender!.capture(invocation.teamId, isTest, {
-                        type: 'blocked',
-                        reason,
-                        blockedRecipientCount: blockedRecipients.length,
-                    })
+                sandboxRecipients = [params.to.email, ...cc, ...bcc]
+                if (!(await this.checkSandboxRecipients(result, sandboxRecipients, isTest))) {
                     return result
                 }
                 deliveryParams = {
@@ -563,7 +557,11 @@ export class EmailService {
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
-            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, deliveryParams)
+            const skipReason = await this.buildSuppressionSkipReason(
+                invocation.teamId,
+                deliveryParams,
+                sandboxRecipients
+            )
             if (skipReason) {
                 addLog('info', skipReason)
                 if (!isTest) {
@@ -632,9 +630,10 @@ export class EmailService {
             // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
             // own quota, so a send with many copies must spend that many tokens.
             const capRecipients =
+                sandboxRecipients?.length ??
                 1 +
-                extractEmailsFromAddressList(deliveryParams.cc).length +
-                extractEmailsFromAddressList(deliveryParams.bcc).length
+                    extractEmailsFromAddressList(deliveryParams.cc).length +
+                    extractEmailsFromAddressList(deliveryParams.bcc).length
             const capDelay = isSandbox ? null : await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
@@ -666,7 +665,18 @@ export class EmailService {
                         from.name,
                         invocation.teamId
                     )
-                    await this.sendEmailWithSES(result, deliveryParams, from, trackingEnabled, integration, isTest)
+                    if (
+                        !(await this.sendEmailWithSES(
+                            result,
+                            deliveryParams,
+                            from,
+                            trackingEnabled,
+                            integration,
+                            isTest
+                        ))
+                    ) {
+                        return result
+                    }
                     await this.sandboxSender!.capture(invocation.teamId, isTest, {
                         type: 'sent',
                         recipientCount: capRecipients,
@@ -897,6 +907,47 @@ export class EmailService {
         return null
     }
 
+    private async checkSandboxRecipients(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        recipients: string[],
+        isTest: boolean
+    ): Promise<boolean> {
+        const invocation = result.invocation
+        let blockedRecipients: string[]
+        let reason: 'recipient_not_member' | 'check_failed' = 'recipient_not_member'
+        try {
+            if (!this.organizationMembers) {
+                throw new Error('Organization member checks are not configured')
+            }
+            blockedRecipients = await this.organizationMembers.getBlockedRecipients(invocation.teamId, recipients)
+        } catch (error) {
+            blockedRecipients = recipients
+            reason = 'check_failed'
+            logger.warn('Could not check sandbox email recipients', {
+                teamId: invocation.teamId,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            })
+        }
+        if (!blockedRecipients.length) {
+            return true
+        }
+        const addresses = blockedRecipients.map((address) => address.trim() || '(empty address)').join(', ')
+        createAddLogFunction(result.logs)(
+            'info',
+            reason === 'check_failed'
+                ? `Skipping send: could not check organization members for these addresses: ${addresses}. Try again, or verify your own domain to send to anyone.`
+                : `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${addresses}. Verify your own domain to send to anyone.`
+        )
+        result.skipped = true
+        result.invocation.state.vmState?.stack.push({ success: false })
+        await this.sandboxSender!.capture(invocation.teamId, isTest, {
+            type: 'blocked',
+            reason,
+            blockedRecipientCount: blockedRecipients.length,
+        })
+        return false
+    }
+
     // Returns a human-readable log string when any destination address is suppressed for the team,
     // or null when the send should proceed. Scans to + cc + bcc — SES delivers to every list, so a
     // suppressed address anywhere blocks the whole send. `cc` and `bcc` can be comma-separated
@@ -904,14 +955,14 @@ export class EmailService {
     // matching against the normalized suppression identifier.
     private async buildSuppressionSkipReason(
         teamId: number,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        recipientEmails?: string[]
     ): Promise<string | null> {
-        const recipients: string[] = []
-        if (params.to?.email && params.to.email.trim()) {
-            recipients.push(params.to.email.trim())
-        }
-        recipients.push(...extractEmailsFromAddressList(params.cc))
-        recipients.push(...extractEmailsFromAddressList(params.bcc))
+        const recipients = recipientEmails ?? [
+            ...(params.to?.email?.trim() ? [params.to.email.trim()] : []),
+            ...extractEmailsFromAddressList(params.cc),
+            ...extractEmailsFromAddressList(params.bcc),
+        ]
         if (recipients.length === 0) {
             return null
         }
@@ -1144,7 +1195,7 @@ export class EmailService {
         trackingEnabled: boolean,
         integration: IntegrationType,
         isTest = false
-    ): Promise<void> {
+    ): Promise<boolean> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
@@ -1235,19 +1286,30 @@ export class EmailService {
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)
-        const ccAddresses = parseAddressList(params.cc)
-        const bccAddresses = parseAddressList(params.bcc)
+        const parseRecipients = integration.config.provider === 'sandbox' ? sandboxAddressList : parseAddressList
+        const ccAddresses = parseRecipients(params.cc)
+        const bccAddresses = parseRecipients(params.bcc)
 
         if (replyToAddresses) {
             sendEmailParams.ReplyToAddresses = replyToAddresses
         }
-        if (ccAddresses) {
+        if (ccAddresses?.length) {
             sendEmailParams.Destination!.CcAddresses = ccAddresses
         }
-        if (bccAddresses) {
+        if (bccAddresses?.length) {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        if (
+            integration.config.provider === 'sandbox' &&
+            !(await this.checkSandboxRecipients(
+                result,
+                [params.to.email, ...(ccAddresses ?? []), ...(bccAddresses ?? [])],
+                isTest
+            ))
+        ) {
+            return false
+        }
         try {
             const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
             if (!response.MessageId) {
@@ -1261,6 +1323,7 @@ export class EmailService {
             const message = error instanceof Error ? error.message : String(error)
             throw new Error(`Failed to send email via SES: ${message}`)
         }
+        return true
     }
 
     private generateUnsubscribeHeaders(

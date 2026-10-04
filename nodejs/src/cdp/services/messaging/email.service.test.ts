@@ -326,6 +326,12 @@ describe('EmailService', () => {
             afterEach(async () => {
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
+                    'DELETE FROM posthog_messagesuppression WHERE team_id = $1',
+                    [team.id],
+                    'test:delete-sandbox-suppressions'
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
                     'DELETE FROM posthog_organizationmembership WHERE user_id = ANY($1::integer[])',
                     [memberIds],
                     'test:delete-sandbox-memberships'
@@ -460,6 +466,176 @@ describe('EmailService', () => {
                 )
             })
 
+            it.each([false, true].flatMap((isTest) => ['cc', 'bcc'].map((field) => [isTest, field] as const)))(
+                'accepts escaped quoted display names in %s / %s',
+                async (isTest, field) => {
+                    service = createSandboxService(true)
+                    invocation.queueParameters = createSandboxParams({
+                        from: { integrationId: 4 },
+                        [field]: `"Example \\"colleague, teammate\\"" <${memberEmail(field)}>`,
+                    })
+                    const result = await service.executeSendEmail(invocation, isTest)
+                    expect(result.error).toBeUndefined()
+                    expect(result.skipped).not.toBe(true)
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    const destination = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination
+                    expect(field === 'cc' ? destination?.CcAddresses : destination?.BccAddresses).toEqual([
+                        memberEmail(field),
+                    ])
+                }
+            )
+
+            it.each(
+                [false, true].flatMap((isTest) =>
+                    ['cc', 'bcc'].flatMap((field) =>
+                        [false, true].map((suppressed) => [isTest, field, suppressed] as const)
+                    )
+                )
+            )(
+                'keeps a quoted mailbox intact (isTest=%s, field=%s, suppressed=%s)',
+                async (isTest, field, suppressed) => {
+                    const email = `"example,${team.id}"@example.com`
+                    await createMember(email)
+                    if (suppressed) {
+                        await new EmailSuppressionService(
+                            hub.postgres,
+                            emailSuppressionConfigFromEnv()
+                        ).recordHardBounces(team.id, [email])
+                    }
+                    service = createSandboxService(true)
+                    invocation.queueParameters = createSandboxParams({ from: { integrationId: 4 }, [field]: email })
+                    const result = await service.executeSendEmail(invocation, isTest)
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: !suppressed }])
+                    if (suppressed) {
+                        expect(sendEmailSpy).not.toHaveBeenCalled()
+                        expect(result.logs).toContainEqual(
+                            expect.objectContaining({ message: expect.stringContaining(email) })
+                        )
+                        expect(capture).not.toHaveBeenCalled()
+                    } else {
+                        expect(result.skipped).not.toBe(true)
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                        const destination = (sendEmailSpy.mock.calls[0][0] as SendEmailCommand).input.Destination
+                        expect(field === 'cc' ? destination?.CcAddresses : destination?.BccAddresses).toEqual([email])
+                        expect(capture).toHaveBeenCalledWith(
+                            expect.objectContaining({ id: team.id }),
+                            'workflows sandbox email sent',
+                            { recipient_count: 2, source: isTest ? 'test' : 'workflow', is_test: isTest }
+                        )
+                    }
+                }
+            )
+
+            it.each([false, true])('rechecks membership after slow send preparation (isTest=%s)', async (isTest) => {
+                const now = Date.now()
+                const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                const queries = jest.spyOn(hub.postgres, 'query')
+                try {
+                    service = createSandboxService(true)
+                    const first = await service.executeSendEmail(invocation, isTest)
+                    expect(first.error).toBeUndefined()
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'DELETE FROM posthog_organizationmembership WHERE user_id = $1',
+                        [memberId],
+                        'test:revoke-sandbox-member-before-preparation'
+                    )
+                    queries.mockClear()
+                    clock.mockImplementation(
+                        () =>
+                            now +
+                            (queries.mock.calls.some(
+                                ([, sql]) => typeof sql === 'string' && sql.includes('posthog_messagesuppression')
+                            )
+                                ? 63_000
+                                : 58_000)
+                    )
+                    invocation.queueParameters = createSandboxParams({
+                        from: { integrationId: 4 },
+                        cc: memberEmail('cc'),
+                    })
+                    const result = await service.executeSendEmail(invocation, isTest)
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack.at(-1)).toEqual({ success: false })
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                    expect(capture).toHaveBeenLastCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        { reason: 'recipient_not_member', is_test: isTest, blocked_recipient_count: 1 }
+                    )
+                } finally {
+                    clock.mockRestore()
+                    queries.mockRestore()
+                }
+            })
+
+            it.each([false, true].flatMap((isTest) => [false, true].map((warm) => [isTest, warm] as const)))(
+                'fails closed when member SQL fails (isTest=%s, warm=%s)',
+                async (isTest, warm) => {
+                    const membersPostgres = new PostgresRouter({
+                        DATABASE_URL: hub.DATABASE_URL,
+                        POSTGRES_CONNECTION_POOL_SIZE: 1,
+                    })
+                    const now = Date.now()
+                    const clock = jest.spyOn(Date, 'now').mockReturnValue(now)
+                    try {
+                        await membersPostgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'CREATE TEMP TABLE posthog_team AS SELECT id, organization_id FROM public.posthog_team WHERE id = $1',
+                            [team.id],
+                            'test:own-sandbox-team-lookup'
+                        )
+                        service = createSandboxService(true, null, undefined, membersPostgres)
+                        if (warm) {
+                            const first = await service.executeSendEmail(invocation, isTest)
+                            expect(first.error).toBeUndefined()
+                            expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                            clock.mockReturnValue(now + 61_000)
+                        }
+                        await membersPostgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            'SET search_path = pg_temp',
+                            [],
+                            'test:fail-sandbox-member-lookup'
+                        )
+                        const { rows } = await membersPostgres.query<{ organization_id: string }>(
+                            PostgresUse.COMMON_WRITE,
+                            'SELECT organization_id FROM posthog_team WHERE id = $1',
+                            [team.id],
+                            'test:confirm-sandbox-team-lookup'
+                        )
+                        expect(rows).toEqual([{ organization_id: team.organization_id }])
+                        invocation.queueParameters = createSandboxParams({
+                            from: { integrationId: 4 },
+                            cc: memberEmail('cc'),
+                            bcc: memberEmail('bcc'),
+                        })
+                        const result = await service.executeSendEmail(invocation, isTest)
+                        expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
+                        expect(result.error).toBeUndefined()
+                        expect(result.invocation.state.vmState?.stack.at(-1)).toEqual({ success: false })
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(warm ? 1 : 0)
+                        expect(result.logs).toContainEqual(
+                            expect.objectContaining({
+                                message: `Skipping send: could not check organization members for these addresses: ${memberEmail()}, ${memberEmail('cc')}, ${memberEmail('bcc')}. Try again, or verify your own domain to send to anyone.`,
+                            })
+                        )
+                        expect(capture).toHaveBeenLastCalledWith(
+                            expect.objectContaining({ id: team.id }),
+                            'workflows sandbox email blocked',
+                            { reason: 'check_failed', is_test: isTest, blocked_recipient_count: 3 }
+                        )
+                    } finally {
+                        clock.mockRestore()
+                        await membersPostgres.end()
+                    }
+                }
+            )
+
             it.each([false, true])(
                 'blocks previous organization members after a project transfer (isTest=%s)',
                 async (isTest) => {
@@ -547,7 +723,7 @@ describe('EmailService', () => {
                         expect.objectContaining({ id: team.id }),
                         'workflows sandbox email blocked',
                         {
-                            reason: expect.stringMatching(/^(check_failed|recipient_not_member)$/),
+                            reason: 'recipient_not_member',
                             is_test: false,
                             blocked_recipient_count: 1,
                         }

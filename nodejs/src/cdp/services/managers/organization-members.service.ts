@@ -51,7 +51,11 @@ export class OrganizationMembersService {
         if (!team) {
             throw new Error('Could not identify the organization for this team')
         }
-        const members = await this.members.get(team.organization_id)
+        let members = await this.members.get(team.organization_id)
+        if (members && Date.now() >= members.expiresAt && Date.now() < expiresAt) {
+            this.members.markForRefresh(team.organization_id)
+            members = await this.members.get(team.organization_id)
+        }
         if (!members) {
             throw new Error('Could not check organization members')
         }
