@@ -3157,6 +3157,21 @@ class TestPrinter(BaseTest):
             )
         self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
 
+    @parameterized.expand(
+        [
+            ("parseDateTimeBestEffort", "parseDateTimeBestEffort('2026-10-02T14:19:12Z', 6)"),
+            ("toDateTime", "toDateTime('2026-10-02', 6)"),
+            ("toDateTime64", "toDateTime64(timestamp, 6, 6)"),
+            ("toTimeZone", "toTimeZone(timestamp, NULL)"),
+        ]
+    )
+    def test_non_string_timezone_override_raises(self, function_name: str, expr: str):
+        with self.assertRaises(QueryError) as error_context:
+            self._select(f"SELECT {expr} FROM events")
+        assert str(error_context.exception) == (
+            f"The last argument of '{function_name}' must be a time zone string, such as 'UTC'"
+        )
+
     def test_to_datetime_does_not_double_parse_datetime_property(self):
         PropertyDefinition.objects.create(
             team=self.team, name="dt_prop", property_type="DateTime", type=PropertyDefinition.Type.EVENT
