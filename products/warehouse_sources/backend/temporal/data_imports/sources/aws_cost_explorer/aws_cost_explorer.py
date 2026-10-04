@@ -30,14 +30,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 120
-MAX_THROTTLE_ATTEMPTS = 6
+MAX_RETRY_ATTEMPTS = 6
 
 # The Cost Explorer API is a POST-only JSON RPC, and the tracked session's default policy only
 # retries idempotent verbs — so opt POST in explicitly for the transport-level statuses.
+TRANSPORT_RETRY_STATUSES = (429, 500, 502, 503, 504)
 TRANSPORT_RETRY = Retry(
     total=3,
     backoff_factor=1,
-    status_forcelist=(429, 500, 502, 503, 504),
+    status_forcelist=TRANSPORT_RETRY_STATUSES,
     allowed_methods=frozenset(["POST"]),
     raise_on_status=False,
 )
@@ -52,6 +53,18 @@ THROTTLING_ERROR_CODES = frozenset(
     }
 )
 
+# AWS server-side faults. They also arrive as HTTP 400 with the code in the body, and they clear
+# on their own, so the sync must not give up on them either.
+SERVER_ERROR_CODES = frozenset(
+    {
+        "InternalFailure",
+        "InternalServerException",
+        "ServiceUnavailable",
+    }
+)
+
+RETRYABLE_ERROR_CODES = THROTTLING_ERROR_CODES | SERVER_ERROR_CODES
+
 _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 
@@ -61,7 +74,7 @@ class AwsCostExplorerError(Exception):
         self.code = code
 
 
-class AwsCostExplorerThrottledError(AwsCostExplorerError):
+class AwsCostExplorerRetryableError(AwsCostExplorerError):
     pass
 
 
@@ -261,11 +274,16 @@ def _error_message(response: requests.Response) -> str:
 
 def error_for_response(response: requests.Response) -> AwsCostExplorerError:
     code = _error_code(response)
-    text = f"AWS Cost Explorer request failed: {code} - {_error_message(response)}"
-    # 429/5xx are already retried by the tracked transport; only the app-level throttling codes
-    # (returned as HTTP 400) need a second, bounded retry here.
-    if code in THROTTLING_ERROR_CODES:
-        return AwsCostExplorerThrottledError(text, code)
+    detail = _error_message(response)
+    text = f"AWS Cost Explorer request failed: {code}"
+    if detail:
+        text = f"{text} - {detail}"
+    # The transport has already spent its own budget on the statuses it covers, so retrying
+    # those again here would multiply the billed request count. AWS sends the throttling and
+    # server-fault codes as HTTP 400, which the transport cannot see, and those need this
+    # second, bounded retry.
+    if code in RETRYABLE_ERROR_CODES and response.status_code not in TRANSPORT_RETRY_STATUSES:
+        return AwsCostExplorerRetryableError(text, code)
     return AwsCostExplorerError(text, code)
 
 
@@ -275,8 +293,8 @@ def make_session(secret_access_key: str, session_token: Optional[str]) -> reques
 
 
 @retry(
-    retry=retry_if_exception_type(AwsCostExplorerThrottledError),
-    stop=stop_after_attempt(MAX_THROTTLE_ATTEMPTS),
+    retry=retry_if_exception_type(AwsCostExplorerRetryableError),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential_jitter(initial=5, max=120),
     reraise=True,
 )
@@ -362,7 +380,7 @@ def validate_credentials(
         code = error.code or ""
         if code in VALIDATION_ERROR_MESSAGES:
             return False, VALIDATION_ERROR_MESSAGES[code]
-        if code in THROTTLING_ERROR_CODES or code.startswith("HTTP 5"):
+        if code in RETRYABLE_ERROR_CODES or code.startswith("HTTP 5"):
             return False, TRANSIENT_VALIDATION_ERROR
         # An AWS code we don't have copy for: keep the detail where we can still debug from it.
         capture_exception(error)
