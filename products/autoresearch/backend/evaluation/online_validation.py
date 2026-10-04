@@ -709,7 +709,7 @@ def _quantile_calibration_bins(y_true: np.ndarray, y_score: np.ndarray, n_bins: 
     edges = np.unique(np.quantile(y_score, np.linspace(0.0, 1.0, n_bins + 1)))
     bin_index = np.searchsorted(edges[1:-1], y_score, side="right")
     bins: list[dict[str, Any]] = []
-    for i in range(len(edges) - 1 if len(edges) > 1 else 1):
+    for i in range(max(len(edges) - 1, 1)):
         mask = bin_index == i
         if not mask.any():
             continue
