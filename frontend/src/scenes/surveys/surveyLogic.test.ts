@@ -11,6 +11,7 @@ import {
     surveyLogic,
 } from 'scenes/surveys/surveyLogic'
 import { OpenEndedColumnMap } from 'scenes/surveys/utils'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -1867,6 +1868,42 @@ describe('URL parameter synchronization', () => {
         })
 
         expect(logic.values.urlSearchParams).not.toHaveProperty('answerFilters')
+    })
+
+    it('does not restore answer filters from an earlier visit', async () => {
+        const surveyWithQuestionIds: Survey = {
+            ...MULTIPLE_CHOICE_SURVEY,
+            id: 'survey-with-question-ids',
+            questions: MULTIPLE_CHOICE_SURVEY.questions.map((question) => ({ ...question, id: 'question-1' })),
+        }
+        useMocks({
+            get: {
+                [`/api/projects/:team/surveys/${surveyWithQuestionIds.id}/`]: () => [200, surveyWithQuestionIds],
+                [`/api/projects/:team/surveys/${surveyWithQuestionIds.id}/archived-response-uuids/`]: () => [200, []],
+            },
+        })
+        const mountSurveyLogic = async (): Promise<ReturnType<typeof surveyLogic.build>> => {
+            const surveyLogicInstance = surveyLogic({ id: surveyWithQuestionIds.id })
+            surveyLogicInstance.mount()
+            await expectLogic(surveyLogicInstance).toFinishAllListeners()
+            return surveyLogicInstance
+        }
+
+        const firstVisit = await mountSurveyLogic()
+        firstVisit.actions.setAnswerFilters([
+            {
+                key: '$survey_response_question-1',
+                value: ['stale choice'],
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ])
+        firstVisit.unmount()
+        router.actions.push(urls.survey(surveyWithQuestionIds.id))
+
+        const secondVisit = await mountSurveyLogic()
+
+        expect(secondVisit.values.activeAnswerFiltersCount).toBe(0)
     })
 
     it('excludes default date range from URL', async () => {
