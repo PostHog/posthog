@@ -122,7 +122,9 @@ class CanonicalSkill:
     ships the scout under. `deprecation` is the optional retirement marker from `scout-status` /
     `scout-deprecation`, set only on a scout PostHog is retiring.
     `structured_output_schema` is the record contract a measurement scout ships, read from the
-    bundled file `scout-structured-output-schema` names.
+    bundled file `scout-structured-output-schema` names. `source_product` is the optional
+    `scout-source-product` frontmatter value, set only on a scout that runs where that product
+    enrolled it and nowhere else.
     """
 
     name: str
@@ -136,6 +138,7 @@ class CanonicalSkill:
     display_name: str = ""
     deprecation: ScoutDeprecation | None = None
     structured_output_schema: dict | None = None
+    source_product: str = ""
 
 
 @dataclass(frozen=True)
@@ -252,6 +255,32 @@ def _parse_scout_role(frontmatter: dict, skill_file: Path, *, is_scout: bool) ->
     raise CanonicalSkillParseError(
         f"SKILL.md frontmatter 'scout-role' must be one of {', '.join(SCOUT_ROLES)}: got {raw_role!r} in {skill_file}"
     )
+
+
+_SOURCE_PRODUCT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _parse_source_product(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> str:
+    """Read the optional `scout-source-product` frontmatter value, the product that enrolls the scout.
+
+    A scout that declares one runs only on a config that product created for it through
+    `enroll_scout_for_source`. The harness never seeds it a config of its own, and refuses to run a
+    config that product did not create. The product decides which projects are worth the scout's
+    runs, for example a rotating trial of the projects most likely to adopt it.
+
+    An unreadable value fails the parse rather than falling back to "no owner": an owner lost to a
+    typo would let the scout seed onto every enrolled project.
+    """
+    if "scout-source-product" not in frontmatter:
+        return ""
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-source-product': {skill_file}")
+    raw = frontmatter["scout-source-product"]
+    if not isinstance(raw, str) or not _SOURCE_PRODUCT_RE.match(raw):
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-source-product' must be a lowercase product key: got {raw!r} in {skill_file}"
+        )
+    return raw
 
 
 def _parse_display_name(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> str:
@@ -412,6 +441,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
     config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
     role = _parse_scout_role(frontmatter, skill_file, is_scout=is_scout)
     display_name = _parse_display_name(frontmatter, skill_file, is_scout=is_scout)
+    source_product = _parse_source_product(frontmatter, skill_file, is_scout=is_scout)
     # A malformed marker is raised as a parse error like every other frontmatter fault, so the
     # callers that degrade to an empty fleet keep one failure mode rather than two.
     try:
@@ -470,6 +500,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         display_name=display_name,
         deprecation=deprecation,
         structured_output_schema=structured_output_schema,
+        source_product=source_product,
     )
 
 
@@ -676,6 +707,34 @@ def is_operational_scout(skill_name: str) -> bool:
     return skill_name in _canonical_operational_scouts()
 
 
+@lru_cache(maxsize=1)
+def _canonical_source_products() -> dict[str, str]:
+    """The enrolling product per canonical scout name, for the scouts that declare one.
+
+    Cached for the process like `canonical_skill_names`. A malformed canonical degrades to empty,
+    so every caller treats the fleet as unowned while the parse error surfaces through sync.
+    """
+    try:
+        return {skill.name: skill.source_product for skill in discover_canonical_skills() if skill.source_product}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_source_products: malformed canonical skill on disk; reading no owners")
+        return {}
+
+
+def canonical_source_product_for(skill_name: str) -> str:
+    """The product that enrolls the canonical scout of this name, or `""` for a scout the harness seeds.
+
+    Callers must confirm the name is canonical first. A team's own `signals-scout-*` skill can share
+    a canonical name, and it inherits nothing from disk.
+    """
+    return _canonical_source_products().get(skill_name, "")
+
+
+def canonical_source_only_scout_names() -> frozenset[str]:
+    """Names of every canonical scout that runs only where its source product enrolled it."""
+    return frozenset(_canonical_source_products())
+
+
 def reset_canonical_caches() -> None:
     """Drop every process cache over the canonical fleet on disk.
 
@@ -691,6 +750,7 @@ def reset_canonical_caches() -> None:
         _canonical_operational_scouts,
         _canonical_deprecations,
         _canonical_structured_output_schemas,
+        _canonical_source_products,
     ):
         cache.cache_clear()
 
@@ -955,6 +1015,13 @@ def sync_canonical_skills(
         return SyncResult(skipped_reason="no canonical signals-scout-* skills on disk")
 
     withheld = withheld_skill_names or frozenset()
+    # A scout its source product enrolls reaches only the projects that product enrolled, so every
+    # other project's skill store stays free of a scout that could never run there.
+    enrolled_by_source = set(
+        SignalScoutConfig.all_teams.filter(
+            team_id=team.parent_team_id or team.id, source_product__isnull=False
+        ).values_list("skill_name", "source_product")
+    )
     now = timezone.now()
     created: list[str] = []
     updated: list[str] = []
@@ -968,6 +1035,8 @@ def sync_canonical_skills(
 
     for canonical in canonicals:
         if canonical.name in withheld:
+            continue
+        if canonical.source_product and (canonical.name, canonical.source_product) not in enrolled_by_source:
             continue
         canonical_hash = _compute_canonical_hash(canonical)
 
