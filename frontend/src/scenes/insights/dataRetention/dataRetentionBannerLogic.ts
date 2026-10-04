@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -101,8 +102,18 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                     if (values.currentTeamId === null || isSharedView()) {
                         return null
                     }
-                    const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
-                    return retention.retention_months ?? null
+                    try {
+                        const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
+                        return retention.retention_months ?? null
+                    } catch (error) {
+                        // An older self-hosted backend does not serve this route, and during a deploy
+                        // the bundle can reach a browser before the backend has it. No retention window
+                        // applies then, so hide the banner instead of reporting a failure.
+                        if (isUnavailableEndpointError(error)) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
