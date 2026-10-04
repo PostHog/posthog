@@ -61,7 +61,7 @@ def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Opt
 
 
 def get_partitions(
-    context: dagster.AssetExecutionContext,
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext,
     cluster: ClickhouseCluster,
     table_name: str,
     filter_by_partition_window: bool = False,
@@ -103,7 +103,7 @@ def drop_partitions_for_date_range(
 
 
 def sync_partitions_on_replicas(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
 ) -> None:
     context.log.info(f"Syncing replicas for {target_table} on all hosts")
     cluster.map_hosts_by_roles(
@@ -113,7 +113,10 @@ def sync_partitions_on_replicas(
 
 
 def swap_partitions_from_staging(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    target_table: str,
+    staging_table: str,
 ) -> None:
     staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
     context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
@@ -148,7 +151,7 @@ def clear_all_staging_partitions(
 
 
 def recreate_staging_table(
-    context: dagster.AssetExecutionContext,
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext,
     cluster: ClickhouseCluster,
     staging_table: str,
     replace_sql_func: Callable[[], str],
