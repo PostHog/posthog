@@ -4229,17 +4229,17 @@ Note: docs.imagga.com is a JS SPA that ships no server-rendered resource list, n
 
 ## IncidentIo — gaps
 
-Today (12): `alerts`, `custom_fields`, `escalations`, `follow_ups`, `incident_roles`, `incident_statuses`, `incident_types`, `incident_updates`, `incidents`, `schedules`, `severities`, `users`
+Today (17): `alerts`, `catalog_entries`, `catalog_types`, `custom_field_options`, `custom_fields`, `escalations`, `follow_ups`, `incident_alerts`, `incident_roles`, `incident_statuses`, `incident_timestamps`, `incident_types`, `incident_updates`, `incidents`, `schedules`, `severities`, `users`
 
 Diffed against: <https://api-docs.incident.io/>
 
-- [ ] `/v2/incident_alerts` — join table linking alerts to the incidents they triggered - without it the synced `alerts` and `incidents` tables cannot be related at all (high)
-- [ ] `/v1/custom_field_options` — lookup resolving the option IDs stored inside the custom field values on every incident; `custom\_fields` alone only gives definitions (high)
-- [ ] `/v2/incident_timestamps` — lookup naming the timestamp IDs carried in incident timestamp_values - required to compute MTTA/MTTR from the incidents table (high)
+- [x] `/v2/incident_alerts` — join table linking alerts to the incidents they triggered - without it the synced `alerts` and `incidents` tables cannot be related at all (high)
+- [x] `/v1/custom_field_options` — lookup resolving the option IDs stored inside the custom field values on every incident; `custom\_fields` alone only gives definitions (high). Added as `custom_field_options` (fan-out over `custom_fields`, since `custom_field_id` is a required query param).
+- [x] `/v2/incident_timestamps` — lookup naming the timestamp IDs carried in incident timestamp_values - required to compute MTTA/MTTR from the incidents table (high)
 - [ ] `/v2/escalation_paths` — lookup resolving the escalation path IDs referenced by the already-synced `escalations` rows (high)
 - [ ] `/v2/alert_sources` — lookup resolving alert_source_config IDs on `alerts`, so alert volume can be attributed to Datadog/Sentry/etc (high)
 - [ ] `/v2/schedule_entries` — the actual on-call shifts; `schedules` today is only the rota config, so no one can query who was on call when (high)
-- [ ] `/v3/catalog_types and /v3/catalog_entries` — the service/team catalog that custom fields, alert routes and escalation paths all reference by ID - the master lookup for the whole account (high)
+- [x] `/v3/catalog_types and /v3/catalog_entries` — the service/team catalog that custom fields, alert routes and escalation paths all reference by ID - the master lookup for the whole account (high). Added as `catalog_types` and `catalog_entries` (fan-out over `catalog_types`, since `catalog_type_id` is a required query param).
 - [ ] `/v3/teams` — team lookup for attributing incidents, escalations and follow-ups to owning teams (medium)
 - [ ] `/v2/actions` — per-incident action items during the response, complementing the already-synced follow_ups (medium)
 - [ ] `/v2/incident_participants and /v2/incident_participant_workloads` — membership table of who participated in each incident plus incident.io's on-call workload metric (medium)
