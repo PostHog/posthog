@@ -1214,6 +1214,12 @@ class ScoutStructuredRecord:
 
 # The structured output channel writes this event (see `scout_harness/tools/structured_output.py`).
 _STRUCTURED_OUTPUT_EVENT = "$scout_structured_output"
+# How many of the scouts' latest runs to look through, so a run that recorded nothing falls back
+# to an earlier one.
+_STRUCTURED_OUTPUT_RUN_LOOKBACK = 50
+_STRUCTURED_OUTPUT_READ_LIMIT = 500
+# Covers the precision the timestamp loses on its way through the events table.
+_RUN_START_TOLERANCE = timedelta(seconds=1)
 
 
 def scouts_for_source(
@@ -1236,49 +1242,68 @@ def latest_structured_output_for_source(
 ) -> ScoutStructuredRecord | None:
     """The newest structured record any of a source object's scouts with `tag` submitted, or None.
 
-    Records exist only as events, so this reads them back with one bounded events query. It is
-    bounded below by the oldest matching scout's creation, since no record can predate its scout.
+    Records exist only as events, and anyone with the project's capture token can send an event
+    with any name and properties. So a record counts only when its `run_id` is a run of one of
+    those scouts and its timestamp is that run's start, which is how the structured output channel
+    stamps every record. Run ids come from Postgres and are not public.
     """
-    configs = list(
+    config_ids = list(
         SignalScoutConfig.objects.for_team(team_id)
         .filter(source_product=source_product, source_id=source_id, tags__contains=[tag])
-        .values_list("team_id", "skill_name", "created_at")
+        .values_list("id", flat=True)
     )
-    if not configs:
+    if not config_ids:
+        return None
+    runs = {
+        str(run_id): (run_team_id, skill_name, created_at)
+        for run_id, run_team_id, skill_name, created_at in SignalScoutRun.objects.for_team(team_id)
+        .filter(scout_config_id__in=config_ids)
+        .order_by("-created_at")
+        .values_list("id", "team_id", "skill_name", "created_at")[:_STRUCTURED_OUTPUT_RUN_LOOKBACK]
+    }
+    if not runs:
         return None
     # Scout configs and their runs live on the canonical team, so the events do too.
-    team = Team.objects.get(pk=configs[0][0])
-    since = min(created_at for _, _, created_at in configs)
+    team = Team.objects.get(pk=next(iter(runs.values()))[0])
+    starts = [created_at for _, _, created_at in runs.values()]
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsLatestStructuredOutputForSource",
         query="""
-            SELECT properties.output, timestamp, properties.skill_name, properties.run_id
+            SELECT properties.output, timestamp, properties.run_id
             FROM events
             WHERE event = {event}
-              AND properties.skill_name IN {skill_names}
+              AND properties.run_id IN {run_ids}
               AND timestamp >= {since}
-              AND timestamp <= now() + INTERVAL 1 DAY
+              AND timestamp <= {until}
             ORDER BY timestamp DESC
-            LIMIT 1
+            LIMIT {limit}
         """,
         team=team,
         placeholders={
             "event": ast.Constant(value=_STRUCTURED_OUTPUT_EVENT),
-            "skill_names": ast.Tuple(exprs=[ast.Constant(value=skill_name) for _, skill_name, _ in configs]),
-            "since": ast.Constant(value=since),
+            "run_ids": ast.Tuple(exprs=[ast.Constant(value=run_id) for run_id in runs]),
+            "since": ast.Constant(value=min(starts) - _RUN_START_TOLERANCE),
+            "until": ast.Constant(value=max(starts) + _RUN_START_TOLERANCE),
+            "limit": ast.Constant(value=_STRUCTURED_OUTPUT_READ_LIMIT),
         },
     )
-    if not result.results:
-        return None
-    output, recorded_at, skill_name, run_id = result.results[0]
-    payload = json.loads(output) if isinstance(output, str) else output
-    if not isinstance(payload, dict):
-        return None
-    return ScoutStructuredRecord(
-        payload=payload, recorded_at=recorded_at, skill_name=str(skill_name or ""), run_id=str(run_id or "")
-    )
+    for output, timestamp, run_id in result.results:
+        _, skill_name, run_start = runs[str(run_id)]
+        if not isinstance(timestamp, datetime) or abs(_as_utc(timestamp) - _as_utc(run_start)) > _RUN_START_TOLERANCE:
+            # A real run id with a timestamp the channel never writes was sent by something else.
+            continue
+        payload = json.loads(output) if isinstance(output, str) else output
+        if isinstance(payload, dict):
+            return ScoutStructuredRecord(
+                payload=payload, recorded_at=run_start, skill_name=skill_name, run_id=str(run_id)
+            )
+    return None
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def repair_report_actionability_cache(
