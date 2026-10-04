@@ -508,46 +508,6 @@ async fn a_merge_folds_repoints_tombstones_and_records_the_outcome() {
     h.ctx.cleanup().await.expect("cleanup");
 }
 
-#[tokio::test]
-async fn a_flip_that_fails_in_the_folds_commit_leaves_the_fold_for_the_flip_step() {
-    let h = MergeHarness::new().await;
-    let team = h.ctx.team_id;
-    let target = h.ctx.insert_person_with_distinct_id("split-target").await;
-    let source = h.ctx.insert_person_with_distinct_id("split-source").await;
-    let op_id = Uuid::now_v7();
-    h.create(op_id, &merge_request("split-target", &["split-source"]))
-        .await;
-    h.step(op_id).await.expect("claim step");
-    h.step(op_id).await.expect("seal step");
-
-    let fail = format!("fail_repoint_{team}");
-    for sql in [
-        format!("CREATE FUNCTION {fail}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected'; END $$"),
-        format!("CREATE TRIGGER {fail} BEFORE UPDATE ON posthog_persondistinctid FOR EACH ROW WHEN (NEW.team_id = {team}) EXECUTE FUNCTION {fail}()"),
-    ] {
-        sqlx::query(&sql).execute(&h.ctx.pool).await.expect("inject");
-    }
-    let folded = h.step(op_id).await;
-    for sql in [
-        format!("DROP TRIGGER {fail} ON posthog_persondistinctid"),
-        format!("DROP FUNCTION {fail}()"),
-    ] {
-        sqlx::query(&sql).execute(&h.ctx.pool).await.expect("clear");
-    }
-
-    let row = folded.expect("the fold commits alone");
-    assert_eq!(row.step, "document_folded");
-    assert!(h.op_person_sealed(op_id, target).await.is_some());
-    assert!(!h.person_state(source).await.0, "the flip rolled back");
-    let err = h.leader.admit_write(team, source).await.unwrap_err();
-    h.assert_write_fenced(err, op_id);
-    let row = h.step(op_id).await.expect("flip step");
-    assert_eq!(row.step, "flipped");
-    assert!(h.person_state(source).await.0);
-
-    h.ctx.cleanup().await.expect("cleanup");
-}
-
 /// The state-machine walkthrough: one `step_once` per transition, with
 /// the full invariant set asserted in every state — what is persisted,
 /// which fences and marks are held, and what other actors (ordinary
@@ -629,12 +589,11 @@ async fn a_walkthrough_asserts_every_state_and_shields_it_from_other_actors() {
     assert_eq!(sealed["is_identified"], json!(false));
     assert_eq!(sealed["properties"], json!({"a": "source", "b": "source"}));
 
-    // sources_sealed → flipped: the survivor document persists on the
-    // target row and Postgres is destroyed and repointed in one commit, but
-    // the fence is STILL held — the half-dead source is never exposed as
-    // writable, and no death document exists yet.
+    // sources_sealed → document_folded: the survivor document persists on
+    // the target row; nothing in Postgres has been destroyed yet, and the
+    // source stays shielded.
     let row = h.step(op_id).await.expect("fold step");
-    assert_eq!(row.step, "flipped");
+    assert_eq!(row.step, "document_folded");
     let survivor = h
         .op_person_sealed(op_id, target)
         .await
@@ -644,6 +603,18 @@ async fn a_walkthrough_asserts_every_state_and_shields_it_from_other_actors() {
         json!({"a": "target", "b": "source"})
     );
     assert_eq!(survivor["version"], json!(8), "max(target 3, sealed 7) + 1");
+    let (source_deleted, source_version, _) = h.person_state(source).await;
+    assert!(!source_deleted, "the flip has not run yet");
+    assert_eq!(source_version, 7);
+    assert!(h.leader.fence_for(source).is_some());
+    let err = h.leader.admit_write(team, source).await.unwrap_err();
+    h.assert_write_fenced(err, op_id);
+
+    // document_folded → flipped: Postgres is destroyed and repointed, but
+    // the fence is STILL held — the half-dead source is never exposed as
+    // writable, and no death document exists yet.
+    let row = h.step(op_id).await.expect("flip step");
+    assert_eq!(row.step, "flipped");
     for did in ["walk-source", "walk-source-alias"] {
         let (person_id, is_deleted, version) = h.pdi_state(did).await;
         assert_eq!(person_id, target, "{did} repointed");
