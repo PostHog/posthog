@@ -28,6 +28,12 @@ impl FailingStorage {
             error: storage::StorageError::Query("syntax error at position 42".to_string()),
         }
     }
+
+    pub fn with_failed_precondition() -> Self {
+        Self {
+            error: storage::StorageError::FailedPrecondition("rows changed; retry".to_string()),
+        }
+    }
 }
 
 #[async_trait]
@@ -182,6 +188,14 @@ impl storage::PersonLookup for FailingStorage {
         _team_id: i64,
         _distinct_ids: &[String],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Err(self.error.clone())
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Err(self.error.clone())
     }
 }
@@ -612,6 +626,14 @@ impl storage::PersonLookup for SuccessStorage {
         _team_id: i64,
         _distinct_ids: &[String],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
 }
@@ -1103,6 +1125,14 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
         Ok(Vec::new())
     }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
+        Ok(Vec::new())
+    }
 }
 
 #[async_trait]
@@ -1566,6 +1596,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _team_id: i64,
         _distinct_ids: &[String],
     ) -> storage::StorageResult<Vec<storage::DistinctIdVersionHead>> {
+        Ok(Vec::new())
+    }
+
+    async fn ensure_person_version_floors(
+        &self,
+        _team_id: i64,
+        _floors: &[(Uuid, i64)],
+    ) -> storage::StorageResult<Vec<storage::PersonVersionFloorResult>> {
         Ok(Vec::new())
     }
 }

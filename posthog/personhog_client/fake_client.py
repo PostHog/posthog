@@ -49,7 +49,7 @@ def _order_identified_first(
 # The replica's row budget when a request leaves max_rows at 0.
 DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
 
-# The replica's cap on keys per version head request.
+# The replica's cap on keys per version head or version floor request.
 VERSION_RPC_MAX_KEYS = 250
 
 
@@ -95,7 +95,7 @@ class FakePersonHogClient:
         # keyed by (cohort_id, person_id) -> True
         self._cohort_members: dict[tuple[int, int], bool] = {}
 
-        # synthetic ids for persons created by split_person
+        # synthetic ids for persons created by split_person and the version floor RPCs
         self._next_split_person_id = 1_000_000_000
 
         # monotonic counter for distinct ID row IDs
@@ -913,7 +913,7 @@ class FakePersonHogClient:
         person.version = request.min_version
         return person_pb2.SetPersonVersionFloorResponse(updated=True)
 
-    # ── Version heads ─────
+    # ── Version heads and version floors ─────
 
     @staticmethod
     def _check_version_rpc_batch(keys: list[str], *, reject_duplicates: bool = True) -> None:
@@ -937,6 +937,25 @@ class FakePersonHogClient:
             if mapping.distinct_id == distinct_id:
                 return mapping, person
         return None
+
+    def _insert_person_tombstone(self, team_id: int, uuid: str, version: int) -> person_pb2.Person:
+        self._next_split_person_id += 1
+        return self.add_person(
+            team_id=team_id,
+            person_id=self._next_split_person_id,
+            uuid=uuid,
+            version=version,
+            is_deleted=True,
+            created_at=int(time.time() * 1000),
+        )
+
+    @staticmethod
+    def _floor_outcome(is_deleted: bool, version: int, min_version: int) -> person_pb2.VersionFloorOutcome:
+        if not is_deleted:
+            return person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        if version < min_version:
+            return person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        return person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
 
     def get_person_version_heads(
         self, request: person_pb2.GetPersonVersionHeadsRequest
@@ -968,6 +987,30 @@ class FakePersonHogClient:
             )
             if person is not None:
                 head.person_uuid = person.uuid
+        return response
+
+    def ensure_person_version_floors(
+        self, request: person_pb2.EnsurePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> person_pb2.EnsurePersonVersionFloorsResponse:
+        self.calls.append(_Call("ensure_person_version_floors", request))
+        self._check_version_rpc_batch([f.person_uuid for f in request.floors])
+        if any(f.min_version < 0 for f in request.floors):
+            raise ValueError("min_version must not be negative")
+        response = person_pb2.EnsurePersonVersionFloorsResponse()
+        for floor in request.floors:
+            person = self._persons_by_uuid.get((request.team_id, floor.person_uuid))
+            if person is None:
+                self._insert_person_tombstone(request.team_id, floor.person_uuid, floor.min_version)
+                response.results.add(
+                    person_uuid=floor.person_uuid,
+                    outcome=person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED,
+                    version=floor.min_version,
+                )
+                continue
+            outcome = self._floor_outcome(person.is_deleted, person.version, floor.min_version)
+            if person.is_deleted:
+                person.version = max(person.version, floor.min_version)
+            response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=person.version)
         return response
 
     # ── Assertion helpers ────────────────────────────────────────────
