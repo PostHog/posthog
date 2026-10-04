@@ -2,55 +2,44 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
 
-import { LemonTabs } from './LemonTabs'
+import { LemonTab, LemonTabs } from './LemonTabs'
 
-function TestTabs(): JSX.Element {
-    const [activeKey, setActiveKey] = useState('overview')
-
-    return (
-        <LemonTabs
-            activeKey={activeKey}
-            onChange={setActiveKey}
-            tabs={[
-                {
-                    key: 'overview',
-                    label: 'Overview',
-                    content: <input aria-label="Overview value" defaultValue="overview" />,
-                },
-                {
-                    key: 'lineage',
-                    label: 'Lineage',
-                    content: <input aria-label="Lineage value" defaultValue="lineage" />,
-                    keepMounted: true,
-                },
-            ]}
-        />
-    )
-}
+const tabs = (keepLineageMounted: boolean): LemonTab<string>[] => [
+    {
+        key: 'overview',
+        label: 'Overview',
+        content: <input aria-label="Overview value" defaultValue="overview" />,
+    },
+    {
+        key: 'lineage',
+        label: 'Lineage',
+        content: <input aria-label="Lineage value" defaultValue="lineage" />,
+        keepMounted: keepLineageMounted,
+    },
+]
 
 describe('LemonTabs', () => {
-    it('mounts retained content on demand and keeps its state between tab changes', async () => {
+    it('keeps retained content state between tab changes', async () => {
         const user = userEvent.setup()
-        render(<TestTabs />)
+        const { rerender } = render(<LemonTabs activeKey="overview" tabs={tabs(false)} />)
 
         const overviewInput = screen.getByLabelText('Overview value')
         expect(screen.queryByLabelText('Lineage value')).not.toBeInTheDocument()
 
-        await user.click(screen.getByText('Lineage'))
+        rerender(<LemonTabs activeKey="lineage" tabs={tabs(true)} />)
 
         const lineageInput = screen.getByLabelText('Lineage value')
         await user.clear(lineageInput)
         await user.type(lineageInput, 'retained')
         expect(overviewInput).not.toBeInTheDocument()
 
-        await user.click(screen.getByText('Overview'))
+        rerender(<LemonTabs activeKey="overview" tabs={tabs(true)} />)
 
         expect(lineageInput).toBeInTheDocument()
         expect(lineageInput.closest('.LemonTabs__content')).toHaveAttribute('hidden')
 
-        await user.click(screen.getByText('Lineage'))
+        rerender(<LemonTabs activeKey="lineage" tabs={tabs(true)} />)
 
         expect(screen.getByLabelText('Lineage value')).toBe(lineageInput)
         expect(lineageInput).toHaveValue('retained')

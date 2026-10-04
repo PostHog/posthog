@@ -1,7 +1,5 @@
 import './LemonTabs.scss'
 
-import { useEffect, useState } from 'react'
-
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
@@ -73,27 +71,6 @@ export function LemonTabs<T extends string | number>({
 
     /** Tabs with falsy entries filtered out. */
     const realTabs = tabs.filter(Boolean) as LemonTab<T>[]
-    const activeTab = realTabs.find((tab) => tab.key === activeKey)
-    const [mountedTabKeys, setMountedTabKeys] = useState<Set<T>>(() => new Set())
-
-    useEffect(() => {
-        setMountedTabKeys((previousKeys) => {
-            const keepMountedKeys = new Set(
-                realTabs.filter((tab) => 'content' in tab && tab.keepMounted).map((tab) => tab.key)
-            )
-            const nextKeys = new Set([...previousKeys].filter((key) => keepMountedKeys.has(key)))
-
-            if (activeTab && 'content' in activeTab && activeTab.keepMounted) {
-                nextKeys.add(activeKey)
-            }
-
-            if (nextKeys.size === previousKeys.size && [...nextKeys].every((key) => previousKeys.has(key))) {
-                return previousKeys
-            }
-
-            return nextKeys
-        })
-    })
 
     return (
         <div
@@ -189,7 +166,7 @@ export function LemonTabs<T extends string | number>({
             </ul>
             {realTabs.map((tab) => {
                 const isActive = tab.key === activeKey
-                const shouldRender = 'content' in tab && (isActive || (tab.keepMounted && mountedTabKeys.has(tab.key)))
+                const shouldRender = 'content' in tab && (isActive || tab.keepMounted)
 
                 return shouldRender ? (
                     <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={tab.key} hidden={!isActive}>
