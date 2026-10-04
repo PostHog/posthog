@@ -171,10 +171,14 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
         coreMemory: {
             __default: null as CoreMemory | null,
             loadCoreMemory: async (): Promise<CoreMemory | null> => {
-                // Let HTTP errors (403, timeout) reach loadCoreMemoryFailure so the UI can show a real
-                // error with a retry, rather than an empty textarea that reads as "my memory is gone".
+                // Let HTTP errors (403, timeout), and a 2xx with no body which parses to null, reach
+                // loadCoreMemoryFailure so the UI can show a real error with a retry, rather than an
+                // empty textarea that reads as "my memory is gone" and that a save would write over.
                 // An empty result list is a genuine "no memory yet" state and still resolves to null.
                 const response = await api.coreMemory.list()
+                if (!Array.isArray(response?.results)) {
+                    throw new ApiError('The server sent an empty response.')
+                }
                 return response.results[0] || null
             },
             updateCoreMemory: async (data: CoreMemoryForm) => {
