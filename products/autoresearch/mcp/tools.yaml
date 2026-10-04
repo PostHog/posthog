@@ -242,7 +242,8 @@ tools:
         title: List inference runs
         description: >
             List inference and validation runs for a pipeline, ordered most recent first. Check rows_scored and status
-            to understand scoring history. run_type is 'inference' for daily scoring runs.
+            to understand scoring history. run_type is 'inference' for daily scoring runs. An inference run whose
+            metrics.rows_eligible is above rows_scored scored a rolling part of a population larger than one run allows.
         feature_flag: autoresearch
         response:
             include:
@@ -644,8 +645,10 @@ tools:
             autoresearch-create: if false, resolve errors first. 'requires_acknowledgement' means there are non-blocking
             warnings worth noting. Errors (can_proceed is false): low_volume (fewer than 100 users), low_positives or
             low_negatives (fewer than 20 examples), horizon_exceeds_lookback (raise training_lookback_days above
-            horizon_days), and population_too_large (narrow the training or inference population). Non-blocking warnings
-            include extreme_imbalance (base rate below 1%) and near_universal (above 95%). An action target needs the
+            horizon_days), and population_too_large with severity error (narrow the training population). Non-blocking
+            warnings include extreme_imbalance (base rate below 1%) and near_universal (above 95%). population_too_large
+            with severity info means the inference population is above the cap, so each scoring run scores users never
+            scored first, then those scored longest ago, and the whole population is rescored over a few days. An action target needs the
             action:read scope. Always validate before creating.
         feature_flag: autoresearch
     autoresearch-validate-online-create:
