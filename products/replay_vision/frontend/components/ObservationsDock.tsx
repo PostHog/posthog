@@ -63,8 +63,8 @@ export function ObservationsDock({
  * and each menu row rather than spending a scan that comes back ineligible. Pass a scanner for the
  * object-level check, so one this user cannot edit is refused here rather than by a 403.
  *
- * A disabled button explains itself on hover only, which is why people kept clicking one that could
- * never run. So each block also carries a short label that replaces the button label.
+ * A disabled button explains itself only on hover, so each block also carries a short label that
+ * replaces the button label.
  */
 interface SummarizeBlock {
     /** Short enough to replace the button label. */
