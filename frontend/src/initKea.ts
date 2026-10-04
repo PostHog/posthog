@@ -95,6 +95,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'loadPersonalBriefing', // The Today page keeps the report list when the briefing does not load
 ]
 
 /*
@@ -113,6 +114,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
     'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
+    'loadPersonalBriefing', // The briefing endpoint returns 404 when the person gets no briefing; todayLogic keeps the report list
 ])
 
 /*
