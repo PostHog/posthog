@@ -12239,7 +12239,7 @@
         }
     },
     "surveys-get-all": {
-        "description": "List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nCompanion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)",
+        "description": "List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nCompanion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)\nRows omit the full linked, targeting, and internal targeting flag objects. Each row keeps linked_flag_id and feature_flag_keys. Use survey-get for the full flag definitions.",
         "category": "Surveys",
         "feature": "surveys",
         "summary": "List surveys in the project (server-side search + filters).",

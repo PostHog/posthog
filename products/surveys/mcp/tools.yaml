@@ -315,7 +315,15 @@ tools:
 
             Companion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list -
             For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)
+
+            Rows omit the full linked, targeting, and internal targeting flag objects. Each row keeps linked_flag_id and
+            feature_flag_keys. Use survey-get for the full flag definitions.
         ui_app: survey-list
+        response:
+            exclude:
+                - linked_flag
+                - targeting_flag
+                - internal_targeting_flag
     surveys-global-stats:
         operation: surveys_global_stats_retrieve
         enabled: true
