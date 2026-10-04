@@ -4115,6 +4115,18 @@ class ExperimentService:
                 "type": "event",
             }
         ]
+        # Users outside the rollout also fire $feature_flag_called (served `false`), so require a
+        # variant, like the freeze exposure snapshot does.
+        variant_keys = [variant["key"] for variant in flag.variants]
+        if variant_keys:
+            target_filters.append(
+                {
+                    "key": "$feature_flag_response",
+                    "value": variant_keys,
+                    "operator": "exact",
+                    "type": "event",
+                }
+            )
 
         if exposure_filter:
             entity = exposure_filter.entities[0]
