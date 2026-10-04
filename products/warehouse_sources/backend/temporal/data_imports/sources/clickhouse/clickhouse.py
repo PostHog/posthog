@@ -36,6 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
     is_transient_egress_proxy_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _require_loopback
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.primary_keys import (
+    resolve_merge_keys,
+    should_probe_for_duplicates,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
@@ -1096,15 +1100,15 @@ def _has_duplicate_primary_keys(
     table_name: str,
     primary_keys: list[str] | None,
     logger: FilteringBoundLogger,
-) -> bool:
-    """Check whether the sorting key has obvious duplicate combinations.
+) -> bool | None:
+    """Check whether the merge key has obvious duplicate combinations.
 
-    ClickHouse sorting keys are *not* enforced unique. For incremental syncs
-    we need a unique-ish key to do safe merges into Delta. We probe a
+    ClickHouse enforces uniqueness on nothing, so the key an incremental merge
+    matches rows on is unproven until this probes it. We probe a
     bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows) rather
     than scanning the whole thing, because:
 
-    1. A user who chose a non-unique sort key will virtually always show
+    1. A user who chose a non-unique key will virtually always show
        duplicates inside any reasonably sized prefix.
     2. A full-table GROUP BY every incremental sync is prohibitively
        expensive on the tables this source is designed for.
@@ -1113,7 +1117,8 @@ def _has_duplicate_primary_keys(
     Returns:
         True if duplicates are detected in the probed prefix, or if the
         probe failed in an unexpected way. False when the probe completed
-        within budget without finding duplicates.
+        within budget without finding duplicates. None when the probe never
+        got to compare any rows, so it proves nothing either way.
     """
     if not primary_keys:
         return False
@@ -1125,20 +1130,21 @@ def _has_duplicate_primary_keys(
         result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
-        # Any server error is treated as "assume duplicates" — safer to force
-        # append mode than to merge against a key we couldn't verify. (We don't
-        # hit max_rows_to_read here because read_overflow_mode='break' turns
-        # that into a silent truncation.)
+        # Exhausting the probe's own memory/time budget, or a server that rejects our tuning
+        # settings, says nothing about the key: no two rows were ever compared. Reporting that
+        # as a duplicate stops a table the customer can still merge, so the key stays unverified
+        # and the next run probes it again. (We don't hit max_rows_to_read here because
+        # read_overflow_mode='break' turns that into a silent truncation.)
+        if _is_expected_probe_failure(str(e)):
+            logger.warning(
+                f"_has_duplicate_primary_keys: probe did not complete for {database}.{table_name}, "
+                f"leaving the key unverified: {e}"
+            )
+            return None
         logger.warning(
             f"_has_duplicate_primary_keys: assuming duplicates exist (probe failed for {database}.{table_name}): {e}"
         )
-        # Only report genuinely unexpected probe failures. Exhausting the
-        # probe's own memory/time budget is the designed fallback on large
-        # source tables, and managed/readonly ClickHouse servers routinely
-        # reject our tuning settings — expected outcomes the append-mode
-        # fallback already handles, so capturing them only adds noise.
-        if not _is_expected_probe_failure(str(e)):
-            capture_exception(e)
+        capture_exception(e)
         return True
 
 
@@ -1619,6 +1625,7 @@ def clickhouse_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
+    stored_primary_keys: Optional[list[str]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
     server_hostname: str | None = None,
 ) -> SourceResponse:
@@ -1708,11 +1715,20 @@ def clickhouse_source(
                 _get_partition_settings(client, database, table_name, logger) if should_use_incremental_field else None
             )
 
+            # The sorting key is not what the merge matches rows on — the schema's stored key wins
+            # there (`resolve_primary_keys`) — and a sorting key read from `system.columns` drops the
+            # expression parts of `ORDER BY`, so grouping by what is left neither describes the merge
+            # key nor streams in sort order. Probe the key the merge will actually use.
+            merge_keys = resolve_merge_keys(
+                stored_primary_keys, primary_keys, [column.name for column in table.columns]
+            )
             has_duplicate_primary_keys = False
-            if should_use_incremental_field and primary_keys:
-                has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                    client, database, table_name, primary_keys, logger
-                )
+            if should_use_incremental_field and should_probe_for_duplicates(
+                merge_keys, primary_keys, constraints_enforced=False
+            ):
+                probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)
+                # Only a probe that ran proves anything.
+                has_duplicate_primary_keys = probed is True
         finally:
             client.close()
 
