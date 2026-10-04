@@ -103,13 +103,16 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
- * How each browser engine words a `fetch` that never reached the server. Chromium says "Failed to
- * fetch", WebKit "Load failed", and Gecko "NetworkError when attempting to fetch resource.".
+ * How each browser engine words a `fetch` the transport did not deliver. Chromium says "Failed to
+ * fetch", WebKit "Load failed", and Gecko "NetworkError when attempting to fetch resource.". Gecko
+ * has a second wording for a response that arrives short of the length its own header promised,
+ * which is the same dropped connection seen one layer later.
  */
 export const BROWSER_FETCH_FAILURE_MESSAGES: readonly string[] = [
     'Failed to fetch',
     'Load failed',
     'NetworkError when attempting to fetch resource',
+    'Content-Length header of network response exceeds response Body',
 ]
 
 /**
@@ -128,9 +131,8 @@ const MODULE_LOAD_FAILURE_MESSAGES: readonly string[] = [
 
 /**
  * A `fetch` the browser refused to complete, recognized by the message the engine produced. The
- * request never reached the server, so there is no status to react to and no code path of ours to
- * fix: the cause is an ad blocker, tracking protection, DNS, a captive portal, or a connection that
- * dropped mid-request.
+ * transport failed, so there is no status to react to and no code path of ours to fix: the cause is
+ * an ad blocker, tracking protection, DNS, a captive portal, or a connection that dropped mid-flight.
  *
  * The match is on the message and not on the `TypeError` class on purpose. Application bugs raise
  * status-less `TypeError`s too, such as "x is not a function", and dropping those would hide real
