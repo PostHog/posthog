@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-/** Bounded text preview; full output opens as plain text without another scroll container in the chat. */
+/** Bounded text preview; the full output opens as plain text without another scroll container in the chat. */
 export function ToolOutput({ children }: { children: ReactNode }): JSX.Element {
     const urls = useRef<string[]>([])
     useEffect(
