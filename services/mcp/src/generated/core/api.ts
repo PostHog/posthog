@@ -198,7 +198,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
-        survey_config: zod.unknown().optional(),
+        survey_config: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Project-wide survey settings. `appearance` sets the default look of new surveys. `seenSurveyWaitPeriodInDays` (0-365) is the minimum number of days between surveys for one user; a survey's own wait period applies only when it is longer."
+            ),
         access_control: zod.boolean().optional(),
         week_start_day: zod
             .union([
@@ -2905,7 +2910,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 'How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan).\n\n\* `30d` - 30 Days\n\* `90d` - 90 Days\n\* `1y` - 1 Year\n\* `5y` - 5 Years'
             ),
         session_replay_config: zod.unknown().optional(),
-        survey_config: zod.unknown().optional(),
+        survey_config: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Project-wide survey settings. `appearance` sets the default look of new surveys. `seenSurveyWaitPeriodInDays` (0-365) is the minimum number of days between surveys for one user; a survey's own wait period applies only when it is longer."
+            ),
         access_control: zod.boolean().optional(),
         week_start_day: zod
             .union([
