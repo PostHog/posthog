@@ -1215,7 +1215,6 @@ tools:
     scout-trial-create:
         operation: signals_scout_config_trial
         enabled: true
-        feature_flag: scout-trials
         scopes:
             - signal_scout:write
             - llm_skill:write
@@ -1230,10 +1229,10 @@ tools:
             for private trial capture and skill editor access. Reuse launch_id only to retry the exact same request.
             Reuse the returned context_id for other variants and repetitions so their initial memory, notes, and source
             settings match. Poll scout-trial-get for results. Unsupported write actions invalidate the comparison.
+        feature_flag: scout-trials
     scout-trial-get:
         operation: signals_scout_config_trial_result
         enabled: true
-        feature_flag: scout-trials
         scopes:
             - signal_scout:write
             - llm_skill:write
@@ -1247,6 +1246,7 @@ tools:
             changes. These combine saved context with protected execution state and are available only through this API,
             not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned
             task and run IDs with ordinary log tools.
+        feature_flag: scout-trials
     signals-config-create:
         operation: signals_config_create
         enabled: false
