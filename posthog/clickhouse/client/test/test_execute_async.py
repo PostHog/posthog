@@ -29,7 +29,7 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import INTERNAL_CH_ERROR_USER_MESSAGES, ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -423,6 +423,26 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    @parameterized.expand(
+        [
+            ("known_code", 252, INTERNAL_CH_ERROR_USER_MESSAGES["TOO_MANY_PARTS"]),
+            ("unknown_code", 999_999, None),
+        ]
+    )
+    def test_async_query_internal_ch_error_message(self, _name, code, expected_message):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+        error = InternalCHQueryError("DB::Exception: raw server detail", code=code)
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=error):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_message, expected_message)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
