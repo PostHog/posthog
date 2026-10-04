@@ -54,6 +54,7 @@ export interface todayReportLogicValues {
     draft: string
     evidenceCount: number
     expandedEvidence: Record<string, boolean>
+    feedbackNoteFocused: boolean
     fullReport: SignalReport | null
     fullReportLoading: boolean
     impactNumbers: TodayImpactNumber[]
@@ -105,6 +106,9 @@ export interface todayReportLogicActions {
     }
     expandEvidence: (signalId: string) => {
         signalId: string
+    }
+    focusFeedbackNote: () => {
+        value: true
     }
     loadFullReport: () => any
     loadFullReportFailure: (
@@ -209,6 +213,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
         collapseEvidence: (signalId: string) => ({ signalId }),
         openComposer: (text: string | null) => ({ text }),
         setDraft: (draft: string) => ({ draft }),
+        focusFeedbackNote: true,
     }),
     loaders(({ props, values }) => ({
         fullReport: [
@@ -257,6 +262,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
             },
         ],
         composerOpen: [false, { openComposer: () => true }],
+        feedbackNoteFocused: [false, { focusFeedbackNote: () => true }],
         draft: [
             '',
             {
