@@ -41,6 +41,7 @@ from posthog.event_usage import AnalyticsProps, get_request_analytics_properties
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.user import User
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.scopes import APIScopeObject
@@ -80,6 +81,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 
+from ee.api.subscription_query_access import tables_blocking_subscription_write, write_needs_query_access_check
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
@@ -989,7 +991,29 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
+        self._check_query_access(attrs, resource_type)
+
         return attrs
+
+    def _check_query_access(self, attrs: dict, resource_type: str) -> None:
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            return
+        if not write_needs_query_access_check(self.instance, attrs):
+            return
+        user = self.context["request"].user
+        # Compiling the queries as the requester needs a real user.
+        if not isinstance(user, User):
+            return
+        blocked_names = tables_blocking_subscription_write(
+            user=user,
+            team=self.context["get_team"](),
+            user_access_control=self.context["view"].user_access_control,
+            instance=self.instance,
+            attrs=attrs,
+        )
+        if blocked_names:
+            blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            raise ValidationError(f"Can't save this subscription: you don't have access to {blocked}.")
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
         pre_summary_enabled = self.instance.summary_enabled if self.instance else False
