@@ -350,6 +350,7 @@ class TestEnrichViewSemanticsSync:
 
     @parameterized.expand(
         [
+            ("team_not_found", "team_not_found"),
             ("ai_data_processing_not_approved", "ai_data_processing_not_approved"),
             ("deleted", "deleted"),
             ("is_test", "is_test"),
@@ -381,7 +382,8 @@ class TestEnrichViewSemanticsSync:
             columns = {}
 
         sq = _saved_query(team, columns=columns, query=query, **extra)
-        result, mock_llm = _run(team, sq, generated={"view_description": "x", "columns": {}})
+        run_team = Team(id=team.pk + 1_000_000) if condition == "team_not_found" else team
+        result, mock_llm = _run(run_team, sq, generated={"view_description": "x", "columns": {}})
 
         mock_llm.assert_not_called()
         assert result["status"] == "skipped"
