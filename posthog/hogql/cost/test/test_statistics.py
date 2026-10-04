@@ -16,12 +16,7 @@ from posthog.hogql.cost.statistics import (
 )
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.usage_report_events_preagg.sql import (
-    DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
-    SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
-    WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE,
-    WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL,
-)
+from posthog.models.usage_report_events_preagg.sql import WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE
 
 # Seeded rows must sit inside the rollup's 14-day TTL or ClickHouse drops the part on its next merge, so the
 # fixtures are relative to the real clock and the provider is handed the same day.
@@ -50,13 +45,6 @@ class TestEventVolume(SimpleTestCase):
 
 
 class TestClickHouseStatisticsProvider(ClickhouseTestMixin, SimpleTestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        super().setUpClass()
-        sync_execute(SHARDED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
-        sync_execute(DISTRIBUTED_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
-        sync_execute(WRITABLE_USAGE_REPORT_EVENTS_PREAGG_TABLE_SQL())
-
     def setUp(self) -> None:
         super().setUp()
         # A fresh team per test instead of a DELETE: a lightweight delete is a mutation on `team_id`, and it

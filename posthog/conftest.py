@@ -27,9 +27,8 @@ from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
 from django.test import TransactionTestCase
 
-from infi.clickhouse_orm import Database
-
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.managed_schema import ClickHouseDatabase
 from posthog.cloud_utils import is_ci
 from posthog.test import flush_lock_guard
 
@@ -39,184 +38,38 @@ logger = logging.getLogger(__name__)
 @pytest.fixture(scope="package")
 def clickhouse_database() -> None:
     # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
-    Database(
-        settings.CLICKHOUSE_DATABASE,
-        db_url=settings.CLICKHOUSE_HTTP_URL,
-        username=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
-        trust_env=False,
-    ).create_database()
+    ClickHouseDatabase().create()
 
 
 def create_clickhouse_tables():
-    # Create clickhouse tables to default before running test
-    # Mostly so that test runs locally work correctly
-    from posthog.clickhouse.schema import (
-        CREATE_DICTIONARY_QUERIES,
-        CREATE_DISTRIBUTED_TABLE_QUERIES,
-        CREATE_KAFKA_TABLE_QUERIES,
-        CREATE_MERGETREE_TABLE_QUERIES,
-        CREATE_MV_TABLE_QUERIES,
-        CREATE_VIEW_QUERIES,
-        SEED_DATA_TABLES,
-        build_query,
-        get_table_name,
-    )
-
-    existing_tables = {
-        row[0]
-        for row in sync_execute(
-            "SELECT name FROM system.tables WHERE database = %(database)s",
-            {"database": settings.CLICKHOUSE_DATABASE},
-        )
-    }
-
-    def missing(queries):
-        return [q for q in queries if get_table_name(q) not in existing_tables]
-
-    mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
-    if mergetree_queries:
-        run_clickhouse_statement_in_parallel(mergetree_queries)
-
-    distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
-    if distributed_queries:
-        run_clickhouse_statement_in_parallel(distributed_queries)
-
-    if settings.IN_EVAL_TESTING:
-        kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
-        if kafka_table_queries:
-            run_clickhouse_statement_in_parallel(kafka_table_queries)
-
-    mv_queries = list(map(build_query, missing(CREATE_MV_TABLE_QUERIES)))
-    if mv_queries:
-        run_clickhouse_statement_in_parallel(mv_queries)
-
-    view_queries = list(map(build_query, missing(CREATE_VIEW_QUERIES)))
-    if view_queries:
-        run_clickhouse_statement_in_parallel(view_queries)
-
-    dictionary_queries = list(map(build_query, missing(CREATE_DICTIONARY_QUERIES)))
-    if dictionary_queries:
-        run_clickhouse_statement_in_parallel(dictionary_queries)
-
-    # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
-    # string on every pytest invocation. With a reused database the seed data is already
-    # there, so skip the reload per-table (mirroring the `missing()` check above for tables).
-    # Derived from SEED_DATA_TABLES in schema.py, which also drives CREATE_DATA_QUERIES,
-    # so a new seed table added there is automatically picked up here.
-    # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
-    for table_name, query_fn in SEED_DATA_TABLES:
-        count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
-        if not count:
-            run_clickhouse_statement_in_parallel([build_query(query_fn)])
+    # Kafka tables are left out: nothing consumes in tests, and some tests do not expect them.
+    database = ClickHouseDatabase()
+    database.create_test_tables(kafka=settings.IN_EVAL_TESTING)
 
 
 def reset_clickhouse_tables():
     # Truncate clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
-    from posthog.clickhouse.cleanup_snapshots import TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL
-    from posthog.clickhouse.dead_letter_queue import TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL
-    from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-    from posthog.heatmaps.sql import TRUNCATE_HEATMAPS_TABLE_SQL
-    from posthog.models.ai.pg_embeddings import TRUNCATE_PG_EMBEDDINGS_TABLE_SQL
-    from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
-    from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
-    from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.event.sql import (
-        TRUNCATE_EVENTS_JSON_TABLE_SQL,
-        TRUNCATE_EVENTS_RECENT_TABLE_SQL,
-        TRUNCATE_EVENTS_TABLE_SQL,
-    )
-    from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
-    from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
-    from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
-    from posthog.models.person.sql import (
-        TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-        TRUNCATE_PERSON_TABLE_SQL,
-    )
-    from posthog.models.raw_sessions.sessions_v2 import TRUNCATE_RAW_SESSIONS_TABLE_SQL
-    from posthog.models.raw_sessions.sessions_v3 import TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3
-    from posthog.models.sessions.sql import TRUNCATE_SESSIONS_TABLE_SQL
-
-    from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
-    from products.error_tracking.backend.embedding import TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL
-    from products.error_tracking.backend.sql import (
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
-        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
-    )
-
-    # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
-    TABLES_TO_CREATE_DROP: list[str] = [
-        TRUNCATE_EVENTS_TABLE_SQL(),
-        TRUNCATE_EVENTS_JSON_TABLE_SQL(),
-        TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
-        TRUNCATE_PERSON_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-        TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
-        TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
-        TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
-        TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
-        TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
-        TRUNCATE_COHORTPEOPLE_TABLE_SQL,
-        TRUNCATE_DEAD_LETTER_QUEUE_TABLE_SQL,
-        TRUNCATE_GROUPS_TABLE_SQL,
-        TRUNCATE_APP_METRICS_TABLE_SQL,
-        TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL,
-        TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL,
-        TRUNCATE_EXCHANGE_RATE_TABLE_SQL(),
-        TRUNCATE_SESSIONS_TABLE_SQL(),
-        TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3(),
-        TRUNCATE_RAW_SESSIONS_TABLE_SQL(),
-        TRUNCATE_HEATMAPS_TABLE_SQL(),
-        TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(),
-        TRUNCATE_AI_EVENTS_TABLE_SQL(),
-        *TRUNCATE_CLEANUP_SNAPSHOT_TABLES_SQL(),
-    ]
 
     # Drop created Kafka tables because some tests don't expect it.
-    if settings.IN_EVAL_TESTING:
-        kafka_tables = sync_execute(
-            f"""
-            SELECT name
+    # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
+    statements = [
+        f"DROP TABLE `{name}`" if engine == "Kafka" else f"TRUNCATE TABLE `{name}`"
+        for name, engine in sync_execute(
+            # Skip tables ClickHouse reports as empty: each truncate costs a keeper round-trip on
+            # replicated engines, and pure-Postgres sessions never write to these tables at all.
+            """
+            SELECT name, engine
             FROM system.tables
-            WHERE database = '{settings.CLICKHOUSE_DATABASE}' AND name LIKE 'kafka_%'
+            WHERE database = %(database)s
+              AND ((engine LIKE '%%MergeTree' AND total_rows > 0) OR (engine = 'Kafka' AND %(drop_kafka)s))
             """,
+            {"database": settings.CLICKHOUSE_DATABASE, "drop_kafka": settings.IN_EVAL_TESTING},
         )
-        # Using `ON CLUSTER` takes x20 more time to drop the tables: https://github.com/ClickHouse/ClickHouse/issues/15473.
-        TABLES_TO_CREATE_DROP += [f"DROP TABLE {table[0]}" for table in kafka_tables]
+    ]
+    run_clickhouse_statement_in_parallel(statements)
 
-    # Skip truncating tables ClickHouse reports as empty: each truncate costs a keeper
-    # round-trip on replicated engines, and pure-Postgres sessions never write to these
-    # tables at all. Rather than parsing table names out of the statements, construct the
-    # expected statement from each empty table's name (the two forms our TRUNCATE_*_SQL
-    # constants produce) and exact-match. Fail-safe: any statement that doesn't match —
-    # ON CLUSTER clause, unexpected quoting, unknown total_rows (NULL for non-MergeTree
-    # engines) — is kept and truncated as before.
-    empty_table_truncates = {
-        form
-        for (name,) in sync_execute(
-            "SELECT name FROM system.tables WHERE database = %(database)s AND total_rows = 0",
-            {"database": settings.CLICKHOUSE_DATABASE},
-        )
-        for form in (
-            f"TRUNCATE TABLE IF EXISTS {name}",
-            f"TRUNCATE TABLE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`.`{name}`",
-        )
-    }
-    TABLES_TO_CREATE_DROP = [q for q in TABLES_TO_CREATE_DROP if q.strip() not in empty_table_truncates]
-
-    run_clickhouse_statement_in_parallel(TABLES_TO_CREATE_DROP)
-
-    from posthog.clickhouse.schema import CREATE_DATA_QUERIES
-
-    run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
+    ClickHouseDatabase().seed()
 
 
 def _sqlx_error_output(error: subprocess.CalledProcessError) -> str:
@@ -390,25 +243,12 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     # Run sqlx migrations to create posthog_person_new and related tables
     run_persons_sqlx_migrations(keepdb=django_db_keepdb)
 
-    database = Database(
-        settings.CLICKHOUSE_DATABASE,
-        db_url=settings.CLICKHOUSE_HTTP_URL,
-        username=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        cluster=settings.CLICKHOUSE_CLUSTER,
-        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
-        randomize_replica_paths=True,
-        # don't use the egress proxy, clickhouse is internal
-        trust_env=False,
-    )
+    database = ClickHouseDatabase()
 
     if not django_db_keepdb:
-        try:
-            database.drop_database()
-        except:
-            pass
+        database.drop()
 
-    database.create_database()  # Create database if it doesn't exist
+    database.create()  # Create database if it doesn't exist
 
     create_clickhouse_tables()
 
@@ -438,7 +278,7 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         if not settings.IN_EVAL_TESTING and not skip_ch_reset:
             reset_clickhouse_tables()
     else:
-        database.drop_database()
+        database.drop()
 
 
 @pytest.fixture(scope="package")
