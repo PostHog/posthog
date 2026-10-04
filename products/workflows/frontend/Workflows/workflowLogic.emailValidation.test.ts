@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -304,13 +305,27 @@ describe('workflowLogic email step "from" validation', () => {
                 },
             })
             initKeaTests()
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
             await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+            logic.actions.setWorkflowValue('name', 'Renamed')
 
             expect(logic.values.unverifiedEmailSenders.map(({ id }) => id)).toEqual(expectedIds)
             expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.valid).toBe(expectedIds.length === 0)
+            expect(
+                capture.mock.calls.filter(([event]) => event === 'workflows unverified sender warning shown')
+            ).toEqual(
+                expectedIds.length > 0
+                    ? [
+                          [
+                              'workflows unverified sender warning shown',
+                              { workflow_id: WORKFLOW_ID, sender_count: expectedIds.length },
+                          ],
+                      ]
+                    : []
+            )
         }
     )
 

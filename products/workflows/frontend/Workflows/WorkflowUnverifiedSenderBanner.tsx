@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -11,7 +12,7 @@ import { EmailSetupModal } from '../Channels/EmailSetup/EmailSetupModal'
 import { workflowLogic } from './workflowLogic'
 
 export function WorkflowUnverifiedSenderBanner(): JSX.Element | null {
-    const { unverifiedEmailSenders } = useValues(workflowLogic)
+    const { unverifiedEmailSenders, originalWorkflow } = useValues(workflowLogic)
     const [senderToVerify, setSenderToVerify] = useState<IntegrationType | null>(null)
     const [firstSender] = unverifiedEmailSenders
 
@@ -24,7 +25,13 @@ export function WorkflowUnverifiedSenderBanner(): JSX.Element | null {
                     action={{
                         children: 'Verify sender',
                         type: 'primary',
-                        onClick: () => setSenderToVerify(firstSender),
+                        onClick: () => {
+                            posthog.capture('workflows verify sender clicked', {
+                                source: 'workflow_banner',
+                                workflow_id: originalWorkflow?.id,
+                            })
+                            setSenderToVerify(firstSender)
+                        },
                         'data-attr': 'workflow-verify-sender',
                     }}
                 >

@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
@@ -421,7 +422,10 @@ export function NativeEmailIntegrationChoice({
                     action={{
                         children: 'Verify sender',
                         type: 'primary',
-                        onClick: () => setSenderToVerify(integration),
+                        onClick: () => {
+                            posthog.capture('workflows verify sender clicked', { source: 'sender_field' })
+                            setSenderToVerify(integration)
+                        },
                         'data-attr': 'email-from-verify-sender',
                     }}
                 >

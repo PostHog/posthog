@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { NativeEmailIntegrationChoice } from './EmailTemplater'
 
@@ -14,6 +15,10 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
+}))
+
+jest.mock('products/workflows/frontend/Channels/EmailSetup/EmailSetupModal', () => ({
+    EmailSetupModal: () => <div>Configure email sender</div>,
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -65,5 +70,15 @@ describe('NativeEmailIntegrationChoice', () => {
 
         expect(!!screen.queryByText("bob@example.dev can't send until its domain is verified.")).toBe(expectsNotice)
         expect(screen.queryAllByRole('button', { name: 'Verify sender' }).length > 0).toBe(expectsNotice)
+    })
+
+    it('opens the sender setup and records where verification started', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockClear()
+        render(<NativeEmailIntegrationChoice label="From" value={{ integrationId: 2 }} onChange={jest.fn()} />)
+
+        fireEvent.click(screen.getAllByRole('button', { name: 'Verify sender' })[0])
+
+        expect(screen.getByText('Configure email sender')).toBeInTheDocument()
+        expect(capture).toHaveBeenCalledWith('workflows verify sender clicked', { source: 'sender_field' })
     })
 })

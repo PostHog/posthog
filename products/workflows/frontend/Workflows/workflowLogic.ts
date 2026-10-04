@@ -3,6 +3,7 @@ import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -4442,6 +4443,20 @@ export const workflowLogic = kea<workflowLogicType>([
         actions.loadWorkflow()
         actions.loadHogFunctionTemplatesById()
     }),
+    subscriptions(({ props, cache }) => ({
+        unverifiedEmailSenders: (unverifiedEmailSenders: IntegrationType[]) => {
+            if (!props.id || props.id === 'new' || cache.reportedUnverifiedSenderWarning) {
+                return
+            }
+            if (unverifiedEmailSenders.length > 0) {
+                cache.reportedUnverifiedSenderWarning = true
+                posthog.capture('workflows unverified sender warning shown', {
+                    workflow_id: props.id,
+                    sender_count: unverifiedEmailSenders.length,
+                })
+            }
+        },
+    })),
     beforeUnload((logic) => ({
         enabled: (newLocation) => {
             if (!logic.props.id || logic.props.id === 'new') {

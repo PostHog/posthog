@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
@@ -120,6 +121,7 @@ describe('WorkflowUnverifiedSenderBanner', () => {
         expect(enableButton()).toHaveAttribute('aria-disabled', 'true')
         expect(screen.getByText(/hello@example.dev can't send until its domain is verified/)).toBeInTheDocument()
 
+        const capture = jest.spyOn(posthog, 'capture').mockClear()
         domainVerified = true
         act(() => {
             screen.getAllByRole('button', { name: 'Verify sender' })[0].click()
@@ -128,5 +130,9 @@ describe('WorkflowUnverifiedSenderBanner', () => {
         await waitFor(() => expect(enableButton()).not.toHaveAttribute('aria-disabled', 'true'))
         expect(screen.queryByText(/can't send until its domain is verified/)).not.toBeInTheDocument()
         expect(screen.getByText('Configure email sender')).toBeInTheDocument()
+        expect(capture).toHaveBeenCalledWith('workflows verify sender clicked', {
+            source: 'workflow_banner',
+            workflow_id: WORKFLOW_ID,
+        })
     })
 })
