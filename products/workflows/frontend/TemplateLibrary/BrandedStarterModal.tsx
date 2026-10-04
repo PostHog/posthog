@@ -81,9 +81,28 @@ export function BrandedStarterModal(props: MessageTemplateLogicProps): JSX.Eleme
                         value={brand.logo ? [brand.logo] : []}
                         onChange={(files) => setBrandValue('logo', files[0] ?? null)}
                         disabledReason={busyReason}
-                        callToAction="Choose a logo"
+                        callToAction={
+                            <LemonButton
+                                data-attr="email-branded-starter-logo-choose"
+                                type="secondary"
+                                disabledReason={busyReason}
+                            >
+                                Choose a logo
+                            </LemonButton>
+                        }
                     />
                 </LemonField>
+                {brand.logo && (
+                    <LemonButton
+                        data-attr="email-branded-starter-logo-remove"
+                        type="tertiary"
+                        size="small"
+                        disabledReason={busyReason}
+                        onClick={() => setBrandValue('logo', null)}
+                    >
+                        Remove logo
+                    </LemonButton>
+                )}
             </Form>
         </LemonModal>
     )
