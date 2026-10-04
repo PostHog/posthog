@@ -2730,6 +2730,12 @@ class ProjectProfileSerializer(serializers.Serializer):
             "`payload.inventory`. Declared first so it survives a truncated response."
         ),
     )
+    as_of = serializers.CharField(
+        help_text=(
+            "ISO-8601 UTC timestamp from the API server clock when it handled this request. Use it as the current "
+            "date and time. Unlike `computed_at`, it is not the build time of a cached profile."
+        ),
+    )
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")
     computed_at = serializers.CharField(help_text="ISO-8601 timestamp the profile was built.")
     expires_at = serializers.CharField(help_text="ISO-8601 timestamp after which the profile is considered stale.")
