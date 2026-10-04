@@ -809,16 +809,26 @@ async fn test_get_distinct_ids_for_person_limit_keeps_identified() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::identified_only(1, &["user@example.com"])]
+#[case::anonymous_fill(3, &["user@example.com", "another_identified", "0190f8e1-1234-7abc-89de-f0123456789a"])]
 #[tokio::test]
-async fn test_get_distinct_ids_for_persons_limit_keeps_identified() {
+async fn test_get_distinct_ids_for_persons_limit_keeps_identified(
+    #[case] limit: i64,
+    #[case] expected: &[&str],
+) {
     let ctx = ServiceTestContext::new().await;
     let person = ctx
         .insert_person("0190f8e1-1234-7abc-89de-f0123456789a", None)
         .await
         .unwrap();
-    ctx.add_distinct_id_to_person(person.id, "user@example.com")
-        .await
-        .unwrap();
+    for did in [
+        "user@example.com",
+        "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "another_identified",
+    ] {
+        ctx.add_distinct_id_to_person(person.id, did).await.unwrap();
+    }
 
     let response = ctx
         .service
@@ -826,15 +836,19 @@ async fn test_get_distinct_ids_for_persons_limit_keeps_identified() {
             team_id: ctx.team_id,
             person_ids: vec![person.id],
             read_options: None,
-            limit_per_person: Some(1),
+            limit_per_person: Some(limit),
         }))
         .await
         .expect("RPC failed");
 
     let results = response.into_inner().person_distinct_ids;
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].distinct_ids.len(), 1);
-    assert_eq!(results[0].distinct_ids[0].distinct_id, "user@example.com");
+    let dids: Vec<&str> = results[0]
+        .distinct_ids
+        .iter()
+        .map(|d| d.distinct_id.as_str())
+        .collect();
+    assert_eq!(dids, expected);
 
     ctx.cleanup().await.ok();
 }

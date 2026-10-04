@@ -40,7 +40,9 @@ impl DistinctIdLookup for PostgresStorage {
         // When only a limit is provided (no cursor), identified (non-anonymous)
         // distinct_ids must survive the LIMIT, so consumers that read the first id
         // get the user-defined one. The regex mirrors ANONYMOUS_REGEX in
-        // posthog/utils.py (keep in sync).
+        // posthog/utils.py (keep in sync). The identified branch runs first and stops
+        // at the limit, so a person with an early identified id does not read all
+        // capped rows. The anonymous branch runs only to fill the rest.
         let rows = match (cursor_id, limit) {
             // No composite index on (person_id, id) — cursor branches scan all rows for the
             // person per page instead of seeking. Fine for bulk-delete; add the index if needed.
@@ -84,15 +86,34 @@ impl DistinctIdLookup for PostgresStorage {
                 sqlx::query_as!(
                     DistinctIdWithVersion,
                     r#"
-                    SELECT capped.distinct_id, capped.version, capped.id
+                    SELECT picked.distinct_id AS "distinct_id!", picked.version AS "version?", picked.id AS "id!"
                     FROM (
-                        SELECT distinct_id, version, id
-                        FROM posthog_persondistinctid
-                        WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
-                        LIMIT 2500
-                    ) capped
-                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
-                    LIMIT $3
+                        (
+                            SELECT capped.distinct_id, capped.version, capped.id, false AS anonymous
+                            FROM (
+                                SELECT distinct_id, version, id
+                                FROM posthog_persondistinctid
+                                WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
+                                LIMIT 2500
+                            ) capped
+                            WHERE capped.distinct_id !~ '^([a-z0-9]+-){4}[a-z0-9]+$'
+                            LIMIT $3
+                        )
+                        UNION ALL
+                        (
+                            SELECT capped.distinct_id, capped.version, capped.id, true AS anonymous
+                            FROM (
+                                SELECT distinct_id, version, id
+                                FROM posthog_persondistinctid
+                                WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
+                                LIMIT 2500
+                            ) capped
+                            WHERE capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'
+                            LIMIT $3
+                        )
+                        LIMIT $3
+                    ) picked
+                    ORDER BY picked.anonymous, picked.id
                     "#,
                     team_id as i32,
                     person_id,
@@ -177,24 +198,44 @@ impl DistinctIdLookup for PostgresStorage {
                 let mut conn = PostgresStorage::acquire_timed(&pool, pool_label).await?;
                 // Same ordering contract as get_distinct_ids_for_person: identified ids
                 // survive the per-person LIMIT (regex mirrors ANONYMOUS_REGEX in
-                // posthog/utils.py), with the scan capped for pathological persons.
+                // posthog/utils.py), with the scan capped for pathological persons and
+                // each branch stopping at the limit.
                 let rows = match limit_per_person {
                     Some(l) => {
                         sqlx::query_as!(
                             DistinctIdMapping,
                             r#"
-                                SELECT l.person_id, l.distinct_id, l.version
+                                SELECT l.person_id AS "person_id!", l.distinct_id AS "distinct_id!", l.version AS "version?"
                                 FROM UNNEST($2::bigint[]) AS pid(id)
                                 CROSS JOIN LATERAL (
-                                    SELECT capped.person_id, capped.distinct_id, capped.version
+                                    SELECT picked.person_id, picked.distinct_id, picked.version
                                     FROM (
-                                        SELECT person_id, distinct_id, version, id
-                                        FROM posthog_persondistinctid
-                                        WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false
-                                        LIMIT 2500
-                                    ) capped
-                                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
-                                    LIMIT $3
+                                        (
+                                            SELECT capped.person_id, capped.distinct_id, capped.version, capped.id, false AS anonymous
+                                            FROM (
+                                                SELECT person_id, distinct_id, version, id
+                                                FROM posthog_persondistinctid
+                                                WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false
+                                                LIMIT 2500
+                                            ) capped
+                                            WHERE capped.distinct_id !~ '^([a-z0-9]+-){4}[a-z0-9]+$'
+                                            LIMIT $3
+                                        )
+                                        UNION ALL
+                                        (
+                                            SELECT capped.person_id, capped.distinct_id, capped.version, capped.id, true AS anonymous
+                                            FROM (
+                                                SELECT person_id, distinct_id, version, id
+                                                FROM posthog_persondistinctid
+                                                WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false
+                                                LIMIT 2500
+                                            ) capped
+                                            WHERE capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'
+                                            LIMIT $3
+                                        )
+                                        LIMIT $3
+                                    ) picked
+                                    ORDER BY picked.anonymous, picked.id
                                 ) l
                                 "#,
                             team_id as i32,
