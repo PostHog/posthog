@@ -61,9 +61,14 @@ export function readReasoning(obs: ReplayObservationApi): string | null {
     return typeof raw === 'string' && raw ? raw : null
 }
 
-/** Summarizer output, which is the dock's primary content. */
+/** The experiment type stores the summarizer's output shape, so both read as summaries. */
+export function isSummaryScannerType(scannerType: string | null | undefined): boolean {
+    return scannerType === 'summarizer' || scannerType === 'experiment'
+}
+
+/** Summary output, which is the dock's primary content. */
 export function isSummaryObservation(obs: ReplayObservationApi): boolean {
-    return obs.scanner_snapshot?.scanner_type === 'summarizer'
+    return isSummaryScannerType(obs.scanner_snapshot?.scanner_type)
 }
 
 /** A scan that settled without a result: the scanner failed, or the recording did not qualify. */

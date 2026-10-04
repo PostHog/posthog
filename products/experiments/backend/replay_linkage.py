@@ -86,6 +86,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import get_
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 
@@ -317,28 +318,14 @@ def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list
     return targetable
 
 
-def resolve_exposure_linkage(
+def _validated_scope(
     team: Team,
     *,
     experiment_id: int,
-    variant: str | None = None,
-    variants: list[str] | None = None,
-    in_session: bool = False,
-) -> ExperimentExposureLinkage:
-    """Validate the experiment and resolve how its exposed population will be read.
-
-    ``variants`` narrows the population to any subset of the experiment's variants; ``variant``
-    is the single-variant form that predates it, kept for existing callers. Pass at most one of
-    the two. With neither, the population covers every requestable variant.
-
-    Raises ValidationError for experiments the linkage can't answer for: unknown or draft
-    experiments, group-aggregated ones (whose exposed entities are groups rather than
-    persons and so never match a recording's distinct id), unknown variants, and
-    experiments whose exposures can be resolved neither from the preaggregated table nor
-    with a live scan the team can afford. An `in_session` request is refused when the
-    exposure event was never captured with a session id and nothing stands in for it
-    (custom criteria get no stand-in), because every session would then read as unexposed.
-    """
+    variant: str | None,
+    variants: list[str] | None,
+    require_launched: bool,
+) -> tuple[Experiment, FeatureFlag, list[str], list[str]]:
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
     except Experiment.DoesNotExist:
@@ -347,7 +334,7 @@ def resolve_exposure_linkage(
     flag = getattr(experiment, "feature_flag", None)
     if flag is None:
         raise ValidationError(EXPERIMENT_HAS_NO_FLAG_MESSAGE)
-    if experiment.start_date is None:
+    if require_launched and experiment.start_date is None:
         raise ValidationError("This experiment hasn't launched, so it has no exposed sessions yet.")
     if (flag.filters or {}).get("aggregation_group_type_index") is not None:
         raise ValidationError(
@@ -370,6 +357,43 @@ def resolve_exposure_linkage(
                 raise ValidationError(f"'{requested_key}' is not a variant of this experiment.")
         # Keep the caller's order, drop duplicates, so the query's IN list stays minimal.
         requested_variants = list(dict.fromkeys(requested))
+    return experiment, flag, variant_keys, requested_variants
+
+
+def validate_draft_experiment_scope(team: Team, *, experiment_id: int, variants: list[str] | None = None) -> None:
+    """Apply every `resolve_exposure_linkage` refusal that a draft experiment can already answer.
+
+    A draft has no exposures to read, so this skips the launch check and the exposure read. A
+    surface that waits for launch uses it to refuse a scope that would still fail after launch.
+    """
+    _validated_scope(team, experiment_id=experiment_id, variant=None, variants=variants, require_launched=False)
+
+
+def resolve_exposure_linkage(
+    team: Team,
+    *,
+    experiment_id: int,
+    variant: str | None = None,
+    variants: list[str] | None = None,
+    in_session: bool = False,
+) -> ExperimentExposureLinkage:
+    """Validate the experiment and resolve how its exposed population will be read.
+
+    ``variants`` narrows the population to any subset of the experiment's variants; ``variant``
+    is the single-variant form that predates it, kept for existing callers. Pass at most one of
+    the two. With neither, the population covers every requestable variant.
+
+    Raises ValidationError for experiments the linkage can't answer for: unknown or draft
+    experiments, group-aggregated ones (whose exposed entities are groups rather than
+    persons and so never match a recording's distinct id), unknown variants, and
+    experiments whose exposures can be resolved neither from the preaggregated table nor
+    with a live scan the team can afford. An `in_session` request is refused when the
+    exposure event was never captured with a session id and nothing stands in for it
+    (custom criteria get no stand-in), because every session would then read as unexposed.
+    """
+    experiment, flag, variant_keys, requested_variants = _validated_scope(
+        team, experiment_id=experiment_id, variant=variant, variants=variants, require_launched=True
+    )
 
     session_exposure: SessionExposure | None = None
     if in_session:

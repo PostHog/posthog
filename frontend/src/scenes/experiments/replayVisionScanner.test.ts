@@ -2,10 +2,13 @@ import { type ExperimentExposureCriteria, NodeKind } from '~/queries/schema/sche
 import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
-import { prefillScannerForExperiment } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
+import {
+    experimentScannerPrompt,
+    prefillScannerForExperiment,
+} from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import type { ReplayScanner } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { experimentScannerBody, experimentScannerPrompt } from './replayVisionScanner'
+import { experimentScannerBody } from './replayVisionScanner'
 
 describe('replayVisionScanner', () => {
     describe('experimentScannerPrompt', () => {
@@ -32,9 +35,8 @@ describe('replayVisionScanner', () => {
     })
 
     describe('experimentScannerBody', () => {
-        // Every experiment shape must produce the same population, because the API resolves the
-        // exposed sessions from the targeting. A query that carries an exposure filter is the old
-        // client-built shape, and the API rejects it.
+        // The experiment is a draft at this point, so a scanner saved on, or without
+        // start_on_launch, is refused by the API or never starts.
         it.each([
             {
                 name: 'a default exposure event',
@@ -58,7 +60,7 @@ describe('replayVisionScanner', () => {
                 expectedFilterTestAccounts: true,
             },
         ])(
-            'targets all variants of the experiment and keeps the query free of filters: $name',
+            'saves an experiment scanner that waits for launch, with no filters: $name',
             ({ exposure_criteria, expectedFilterTestAccounts }) => {
                 const experiment: Experiment = {
                     ...NEW_EXPERIMENT,
@@ -67,9 +69,14 @@ describe('replayVisionScanner', () => {
                     exposure_criteria,
                 }
 
-                const body = experimentScannerBody(experiment)
+                const body = experimentScannerBody(experiment, true)
 
-                expect(body.experiment_targeting).toEqual({ experiment_id: 123, variant: null })
+                expect(body).toMatchObject({
+                    scanner_type: 'experiment',
+                    scanner_config: { experiment_id: 123, variants: null, start_on_launch: true },
+                    enabled: false,
+                })
+                expect(body.experiment_targeting).toBeUndefined()
                 expect(body.query).toEqual({
                     kind: NodeKind.RecordingsQuery,
                     filter_test_accounts: expectedFilterTestAccounts,
@@ -77,20 +84,34 @@ describe('replayVisionScanner', () => {
             }
         )
 
-        // The two entry points build different scanners on purpose: this one is a fixed classifier,
-        // and the Recordings tab hands the person the scanner wizard. The population is the part
-        // that must stay identical, because both feed the same server-derived exposure filter.
+        // Both entry points feed the same server-derived exposure filter, so the population they
+        // build must stay identical.
         it('builds the same population as the scanner wizard prefill', () => {
             const experiment: Experiment = { ...NEW_EXPERIMENT, id: 123, name: 'Checkout redesign' }
-            const prefilled = prefillScannerForExperiment({ name: 'Frustration score' } as ReplayScanner, {
-                experiment,
-                variantKey: null,
-            })
+            const prefilled = prefillScannerForExperiment(
+                { name: 'Frustration score' } as ReplayScanner,
+                { experiment, variantKey: null },
+                true
+            )
 
-            const body = experimentScannerBody(experiment)
+            const body = experimentScannerBody(experiment, true)
 
-            expect(body.experiment_targeting).toEqual(prefilled.experiment_targeting)
+            expect(prefilled.scanner_type).toEqual(body.scanner_type)
+            expect(prefilled.scanner_config).toMatchObject({ experiment_id: 123, variants: null })
             expect(body.query).toEqual(prefilled.query)
+        })
+
+        // Until the flag is on for a team, the checkbox keeps creating what it always has.
+        it('without the experiment type, saves an off classifier with legacy targeting', () => {
+            const experiment: Experiment = { ...NEW_EXPERIMENT, id: 123, name: 'Checkout redesign' }
+
+            const body = experimentScannerBody(experiment, false)
+
+            expect(body).toMatchObject({
+                scanner_type: 'classifier',
+                experiment_targeting: { experiment_id: 123, variant: null },
+                enabled: false,
+            })
         })
     })
 })

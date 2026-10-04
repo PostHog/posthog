@@ -21,6 +21,7 @@ from products.experiments.backend.replay_linkage import (
     resolve_exposure_linkage,
     resolve_in_session_exposure_semantics,
     targetable_experiments,
+    validate_draft_experiment_scope,
     validate_experiment_exposure_access,
 )
 
@@ -42,6 +43,7 @@ __all__ = [
     "session_attribution",
     "session_variant",
     "targetable_experiments",
+    "validate_draft_experiment_scope",
     "validate_experiment_exposure_access",
     "variant_rollout_shares",
 ]

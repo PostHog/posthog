@@ -1547,8 +1547,8 @@ export const visionScannersVariantsList = async (
     projectId: string,
     scannerId: string,
     options?: RequestInit
-): Promise<ExperimentVariantsReadoutApi[]> => {
-    return apiMutator<ExperimentVariantsReadoutApi[]>(getVisionScannersVariantsListUrl(projectId, scannerId), {
+): Promise<ExperimentVariantsReadoutApi> => {
+    return apiMutator<ExperimentVariantsReadoutApi>(getVisionScannersVariantsListUrl(projectId, scannerId), {
         ...options,
         method: 'GET',
     })

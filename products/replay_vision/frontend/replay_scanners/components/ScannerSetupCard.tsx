@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { LabeledRow } from '../../components/LabeledRow'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
+import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SCANNER_TYPE_OPTIONS, modelName, modelNamingVariant, scannerTypeLabel } from '../types'
 import { PromptPreview } from './PromptPreview'
@@ -29,7 +30,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
     }
     const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const config = scanner.scanner_config
-    const targeting = scanner.experiment_targeting
+    const scope = scannerExperimentScope(scanner)
 
     return (
         <div
@@ -114,26 +115,35 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                     {scanner.scanner_config.scale.label ? ` (${scanner.scanner_config.scale.label})` : ''}
                 </LabeledRow>
             )}
-            {scanner.scanner_type === 'summarizer' && scanner.scanner_config.length && (
-                <LabeledRow label="Summary length">
-                    <span className="capitalize">{scanner.scanner_config.length}</span>
+            {scanner.scanner_type === 'experiment' && (
+                <LabeledRow
+                    label="Sample variants evenly"
+                    tooltip="When enabled, each variant gets enough sessions even with an uneven split, so counts follow sampling, not traffic."
+                >
+                    <EnabledText enabled={scanner.scanner_config.balance_variants !== false} />
                 </LabeledRow>
             )}
+            {(scanner.scanner_type === 'summarizer' || scanner.scanner_type === 'experiment') &&
+                scanner.scanner_config.length && (
+                    <LabeledRow label="Summary length">
+                        <span className="capitalize">{scanner.scanner_config.length}</span>
+                    </LabeledRow>
+                )}
 
             <LabeledRow label="Recordings">
                 Scans {percentage(scanner.sampling_rate ?? 0, 1)} of matching recordings
             </LabeledRow>
-            {targeting && (
+            {scope && (
                 <LabeledRow label="Experiment">
                     {/* The name loads with the scanner; until then, or for an experiment the viewer can't open, the ID stands in. */}
-                    <Link to={urls.experiment(targeting.experiment_id)}>
-                        {experimentContext?.experiment.id === targeting.experiment_id
+                    <Link to={urls.experiment(scope.experimentId)}>
+                        {experimentContext?.experiment.id === scope.experimentId
                             ? experimentContext.experiment.name
-                            : `Experiment ${targeting.experiment_id}`}
+                            : `Experiment ${scope.experimentId}`}
                     </Link>
                     <span className="text-muted">
                         {' · '}
-                        {targeting.variant ? `${targeting.variant} variant` : 'every variant'}
+                        {scopeVariantsLabel(scope, 'every variant')}
                     </span>
                 </LabeledRow>
             )}
