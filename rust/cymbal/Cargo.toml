@@ -56,6 +56,7 @@ tokio-stream = "0.1"
 personhog-common = { path = "../personhog-common" }
 async-stream = { workspace = true }
 subtle = "2.6"
+zstd = { workspace = true }
 common-temporal = { path = "../common/temporal" }
 
 
@@ -67,8 +68,6 @@ httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
 tower.workspace = true
-# For decompressing the committed native ELF test fixture
-zstd = "0.13"
 testcontainers = { workspace = true }
 metrics-util = { workspace = true }
 

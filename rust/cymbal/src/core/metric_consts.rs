@@ -185,3 +185,11 @@ pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_
 // or `error`. Kept off the `outcomes` counter, because a refund is not a
 // judgment on a notification and would break that counter's two-series sum.
 pub const ISSUE_CREATED_RATE_LIMIT_REFUNDS: &str = "cymbal_issue_created_rate_limit_refunds";
+
+// Path resolution service. `list_state`, `outcome` and `result` labels are fixed enums.
+pub const PATH_RESOLUTION_REQUESTS: &str = "cymbal_path_resolution_requests_total";
+pub const PATH_RESOLUTION_PATHS: &str = "cymbal_path_resolution_paths_total";
+pub const PATH_RESOLUTION_LIST_CACHE: &str = "cymbal_path_resolution_list_cache_total";
+pub const PATH_RESOLUTION_LIST_LOAD_SECONDS: &str = "cymbal_path_resolution_list_load_seconds";
+pub const PATH_RESOLUTION_CACHE_BYTES: &str = "cymbal_path_resolution_cache_bytes";
+pub const PATH_RESOLUTION_REQUEST_SECONDS: &str = "cymbal_path_resolution_request_seconds";

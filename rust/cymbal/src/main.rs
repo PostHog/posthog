@@ -1,4 +1,5 @@
 use cymbal::modes::notifications::NotificationsConfig;
+use cymbal::modes::path_resolution::PathResolutionConfig;
 use cymbal::modes::processing::ProcessingConfig;
 use cymbal::modes::resolution::ResolutionConfig;
 use cymbal::modes::{self, CymbalMode};
@@ -68,6 +69,20 @@ async fn main() {
             )
             .await;
             modes::notifications::run(config).await;
+        }
+        CymbalMode::PathResolution => {
+            let config = PathResolutionConfig::init_with_defaults().unwrap();
+            let _profiling_agent = start_profiling(&config.continuous_profiling);
+            init_posthog(
+                "cymbal-path-resolution",
+                &config.posthog_api_key,
+                &config.posthog_endpoint,
+            )
+            .await;
+            if let Err(e) = modes::path_resolution::serve(&config).await {
+                error!("cymbal-path-resolution server error: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }

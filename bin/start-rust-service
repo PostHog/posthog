@@ -196,6 +196,21 @@ case "$RS_SVC" in
     export SUBSCRIBE_TICK_INTERVAL_MS="${SUBSCRIBE_TICK_INTERVAL_MS:-500}"
     ;;
 
+  cymbal-path-resolution)
+    # The cymbal binary in path resolution mode (gRPC service that maps stack
+    # frame paths to repository paths). It reads file lists from object storage
+    # and needs nothing else.
+    export CYMBAL_MODE=path_resolution
+    export DEV_RUST_SVC_OVERRIDE=cymbal
+    export RUST_LOG=info,cymbal=debug,cymbal_proto=debug
+    export RUST_BACKTRACE=1
+    export OBJECT_STORAGE_BUCKET=posthog
+    export GRPC_ADDRESS="${GRPC_ADDRESS:-127.0.0.1:50062}"
+    export METRICS_PORT="${METRICS_PORT:-9109}"
+    export CYMBAL_PATH_RESOLUTION_SECRETS="${CYMBAL_PATH_RESOLUTION_SECRETS:-posthog123}"
+    export CYMBAL_PATH_RESOLUTION_DRAIN_SECS=0
+    ;;
+
   cymbal-notifications)
     # The notifications mode starts Temporal lifecycle workflows for notifications from processing mode.
     export CYMBAL_MODE=notifications

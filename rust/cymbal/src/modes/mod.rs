@@ -7,6 +7,7 @@
 use std::str::FromStr;
 
 pub mod notifications;
+pub mod path_resolution;
 pub mod processing;
 pub mod resolution;
 
@@ -20,6 +21,8 @@ pub enum CymbalMode {
     Resolution,
     /// Consumes the error-tracking ingestion notifications topic and logs it.
     Notifications,
+    /// `cymbal.path_resolution.v1` gRPC service that maps frame paths to repository paths.
+    PathResolution,
 }
 
 impl FromStr for CymbalMode {
@@ -30,8 +33,9 @@ impl FromStr for CymbalMode {
             "processing" => Ok(Self::Processing),
             "resolution" => Ok(Self::Resolution),
             "notifications" => Ok(Self::Notifications),
+            "path_resolution" => Ok(Self::PathResolution),
             other => Err(format!(
-                "unknown CYMBAL_MODE '{other}', expected 'processing', 'resolution', or 'notifications'"
+                "unknown CYMBAL_MODE '{other}', expected 'processing', 'resolution', 'notifications', or 'path_resolution'"
             )),
         }
     }
