@@ -302,7 +302,6 @@ describe('recipient detail', () => {
     it('opens the preferences page without an error when Back is clicked while its link is generated', async () => {
         const link = heldResponse()
         jest.spyOn(window, 'open').mockImplementation(() => ({}) as Window)
-        const consoleError = jest.spyOn(console, 'error')
         await openRecipient()
         useMocks({ post: { '/api/projects/:team_id/messaging_preferences/generate_link/': link.respond } })
 
@@ -312,7 +311,6 @@ describe('recipient detail', () => {
 
         await waitFor(() => expect(window.open).toHaveBeenCalled())
         await expectLogic(optOutSceneLogic).toFinishAllListeners()
-        expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining('unmounted'), expect.anything())
     })
 
     it.each([

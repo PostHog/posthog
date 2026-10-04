@@ -31,8 +31,8 @@ export function recipientTimelineQuery(email: string): HogQLQueryString {
         WHERE timestamp >= now() - toIntervalDay(${RECIPIENT_TIMELINE_DAYS})
             AND startsWith(event, '$workflows_email_')
             AND (
-                lower(properties.$email_to) = ${address}
-                OR (event = '$workflows_email_unsubscribed' AND lower(properties.$email) = ${address})
+                lowerUTF8(properties.$email_to) = ${address}
+                OR (event = '$workflows_email_unsubscribed' AND lowerUTF8(properties.$email) = ${address})
             )
         ORDER BY timestamp DESC
         LIMIT ${RECIPIENT_TIMELINE_LIMIT}`

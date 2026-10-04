@@ -170,11 +170,12 @@ export const recipientDetailLogic: LogicWrapper<recipientDetailLogicType> = kea<
         ],
     }),
     listeners(({ actions, props, values }) => ({
-        openPreferencesPage: async () => {
+        openPreferencesPage: async (_, breakpoint) => {
             if (!values.recipient) {
                 return
             }
             await optOutSceneLogic.asyncActions.openPreferencesPage(values.recipient.email)
+            breakpoint()
             if (values.preferencesUrl) {
                 // pinned: event name and `surface` value are wire strings
                 posthog.capture('messaging preferences page previewed', { surface: 'recipient' })
