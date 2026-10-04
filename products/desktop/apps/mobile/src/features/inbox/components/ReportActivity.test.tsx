@@ -64,6 +64,49 @@ describe("ReportActivity", () => {
     expect(output).not.toContain("Corroborated");
   });
 
+  it("shows each ranking head's lift beside its probability", () => {
+    const output = visibleText(
+      render({
+        artefacts: [
+          {
+            id: "r1",
+            type: "ranking_score",
+            created_at: "2026-01-01T00:00:00Z",
+            content: {
+              scored_at: null,
+              manifest_version: null,
+              served: {
+                key: "report_embeddings@1",
+                roles: ["served"],
+                status: "scored",
+                skip_reason: null,
+                heads: [
+                  {
+                    name: "pr_merged",
+                    probability: 0.52,
+                    lift: 2.6,
+                    readable: true,
+                  },
+                  {
+                    name: "refund",
+                    probability: 0.04,
+                    lift: null,
+                    readable: false,
+                  },
+                ],
+              },
+              challengers: [],
+            },
+          },
+        ],
+      }),
+    );
+    expect(output).toContain("Ranking scored");
+    expect(output).toContain("Pr merged2.6x52%");
+    expect(output).toContain("Refund4.0%");
+    expect(output).toContain("Dimmed heads have no holdout read yet.");
+  });
+
   it.each([
     [1, "1 confirmation", "Corroborated 1 more time by a scout"],
     [3, "3 confirmations", "Corroborated 3 more times by a scout"],
