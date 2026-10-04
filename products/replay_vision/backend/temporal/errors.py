@@ -2,16 +2,20 @@ from enum import StrEnum
 
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.common.errors import NonReportableApplicationError
+
 from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 
 __all__ = [
     "INELIGIBLE_SESSION_ERROR_TYPE",
+    "OBSERVATION_DELETED_ERROR_TYPE",
     "SCANNER_ADMISSION_BUSY_ERROR_TYPE",
     "SCANNER_FAILURE_ERROR_TYPE",
     "ConsentWithdrawnError",
     "FailureKind",
     "IneligibleSessionError",
     "IneligibleSessionKind",
+    "ObservationDeletedError",
     "ScannerFailureError",
 ]
 
@@ -21,6 +25,7 @@ INELIGIBLE_SESSION_ERROR_TYPE = "IneligibleSession"
 SCANNER_FAILURE_ERROR_TYPE = "ScannerFailure"
 # Always retryable: the create activity's backoff spreads contenders that Postgres would otherwise queue.
 SCANNER_ADMISSION_BUSY_ERROR_TYPE = "ScannerAdmissionBusy"
+OBSERVATION_DELETED_ERROR_TYPE = "ObservationDeleted"
 
 
 class _KindedApplicationError(ApplicationError):
@@ -60,3 +65,13 @@ class ConsentWithdrawnError(_KindedApplicationError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message, kind=_ConsentKind.NO_AI_CONSENT, type=INELIGIBLE_SESSION_ERROR_TYPE)
+
+
+class ObservationDeletedError(NonReportableApplicationError):
+    """The observation row is gone mid-scan, because deleting a scanner cascades to its observations.
+
+    The user asked for that deletion, so the workflow stops quietly and error tracking never sees it.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, type=OBSERVATION_DELETED_ERROR_TYPE, non_retryable=True)

@@ -57,6 +57,7 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
+    OBSERVATION_DELETED_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
     FailureKind,
     IneligibleSessionError,
@@ -448,6 +449,12 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             await self._render_media(inputs, observation_id, asset_result.asset_id, call_output)
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
         except Exception as e:
+            if _failure_type(e) == OBSERVATION_DELETED_ERROR_TYPE:
+                # The scanner was deleted mid-scan and took this row with it, so there is nothing left to mark.
+                wf.logger.info(
+                    "replay_vision.observation_deleted_mid_scan", extra={"observation_id": str(observation_id)}
+                )
+                return
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
             if ineligible_kind is not None:
                 await self._mark_ineligible(observation_id, scanner_type, ineligible_kind, _root_cause_message(e))
