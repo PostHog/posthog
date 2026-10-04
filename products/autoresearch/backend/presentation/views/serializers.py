@@ -834,6 +834,13 @@ class AutoresearchModelSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    in_shadow_set = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True if this model is in the pipeline's shadow set: the champion, the previous champion, "
+            "and up to 3 recent fitted challengers with distinct recipes."
+        ),
+    )
 
     class Meta:
         dataclass = Model
@@ -857,6 +864,7 @@ class AutoresearchModelSerializer(DataclassSerializer):
             "archived_at",
             "created_at",
             "updated_at",
+            "in_shadow_set",
         ]
 
 
@@ -1148,7 +1156,13 @@ class AutoresearchRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Number of users scored in this inference run.",
     )
-    metrics = MetricsBundleField(help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc.")
+    metrics = MetricsBundleField(
+        help_text=(
+            "Run metrics: score distribution summary, validation AUC, etc. An inference run records "
+            "'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run "
+            "scored a rolling part of the population: users never scored first, then users whose last score was oldest."
+        )
+    )
     error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
     started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
     completed_at = serializers.DateTimeField(
@@ -1182,7 +1196,9 @@ class ValidationWarningSerializer(serializers.Serializer):
         help_text=(
             "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
             "'error', mean a run would fail: fix the definition before creating. 'population_too_large' with "
-            "severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and "
+            "severity 'info' means training uses a sample of the population, or each scoring run scores a rolling "
+            "part of it: users never scored first, then users whose last score was oldest. 'low_volume', "
+            "'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."
@@ -1245,7 +1261,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
         help_text=(
             "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
-            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score."
+            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train."
         )
     )
     requires_acknowledgement = serializers.BooleanField(

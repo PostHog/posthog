@@ -11,6 +11,7 @@ import {
     ReactFlow,
     ReactFlowProvider,
     useReactFlow,
+    useStore,
     type XYPosition,
 } from '@xyflow/react'
 import clsx from 'clsx'
@@ -135,6 +136,15 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         ]
     )
 
+    const resetPositionsApplied = useStore(
+        (state) =>
+            !resetRequested.current ||
+            decoratedNodes.every((node) => {
+                const renderedNode = state.nodeLookup.get(node.id)
+                return renderedNode?.position.x === node.position.x && renderedNode.position.y === node.position.y
+            })
+    )
+
     useEffect(() => {
         setNodes((currentNodes) => {
             if (currentNodes === decoratedNodes) {
@@ -157,12 +167,12 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     }
 
     useEffect(() => {
-        if (!resetRequested.current || Object.keys(props.nodePositions ?? {}).length > 0) {
+        if (!resetRequested.current || Object.keys(props.nodePositions ?? {}).length > 0 || !resetPositionsApplied) {
             return
         }
         resetRequested.current = false
         void fitView({ nodes: decoratedNodes, padding: props.fitViewOptions?.padding ?? 0.2, duration: 400 })
-    }, [decoratedNodes, fitView, props.fitViewOptions?.padding, props.nodePositions])
+    }, [decoratedNodes, fitView, props.fitViewOptions?.padding, props.nodePositions, resetPositionsApplied])
 
     useEffect(() => {
         if (!viewportInitialized || !nodesMeasured || !layout || props.loading || fittedLayout.current === layout) {

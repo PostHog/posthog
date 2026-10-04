@@ -137,6 +137,8 @@ class CleanupRequestSummary(TypedDict):
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
 ExperimentCreationMode = Literal["new", "duplicate", "copy_to_project"]
+# The launch action is not the only way to launch. A create call or an update that sets the start date launches too.
+ExperimentLaunchPath = Literal["launch_endpoint", "create_request", "update_start_date"]
 
 
 def _parse_tag_names(value: Any) -> list[str]:
@@ -1266,6 +1268,13 @@ class ExperimentService:
                 creation_mode=creation_mode,
                 analytics_properties=analytics_properties,
             )
+            if experiment.start_date is not None:
+                self._report_experiment_launched(
+                    experiment,
+                    launch_path="create_request",
+                    request=serializer_context.get("request") if serializer_context else None,
+                    event_source=event_source,
+                )
         except Exception:
             logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
@@ -1280,17 +1289,21 @@ class ExperimentService:
         *,
         request: Any | None,
         extra_metadata: dict[str, Any] | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
         """Emit a lifecycle analytics event with the experiment's standard metadata.
 
-        No-ops for non-HTTP callers (``request`` is None). ``report_user_action`` is referenced as a
-        module-level name so tests can patch it at this module's path.
+        No-ops for a caller that has neither a ``request`` nor an ``event_source``.
+        ``report_user_action`` is referenced as a module-level name so tests can patch it at this
+        module's path.
         """
-        if request is None:
+        if request is None and event_source is None:
             return
         metadata = experiment.get_analytics_metadata()
         if extra_metadata:
             metadata.update(extra_metadata)
+        if event_source is not None:
+            metadata["source"] = event_source
         report_user_action(self.user, event_name, metadata, team=experiment.team, request=request)
 
     def _report_experiment_created(
@@ -1330,14 +1343,26 @@ class ExperimentService:
         self,
         experiment: Experiment,
         *,
+        launch_path: ExperimentLaunchPath,
         request: Any | None = None,
+        event_source: EventSource | None = None,
     ) -> None:
-        self._report_lifecycle_event(
-            experiment,
-            "experiment launched",
-            request=request,
-            extra_metadata={"launch_date": experiment.start_date.isoformat() if experiment.start_date else None},
-        )
+        # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
+        try:
+            flag_age = timezone.now() - experiment.feature_flag.created_at
+            self._report_lifecycle_event(
+                experiment,
+                "experiment launched",
+                request=request,
+                event_source=event_source,
+                extra_metadata={
+                    "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
+                    "launch_path": launch_path,
+                    "flag_age_seconds": int(flag_age.total_seconds()),
+                },
+            )
+        except Exception:
+            logger.exception("experiment_launched_analytics_failed", experiment_id=experiment.id)
 
     def _ensure_feature_flag(
         self,
@@ -1749,7 +1774,7 @@ class ExperimentService:
                 ]
             )
 
-        self._report_experiment_launched(experiment, request=request)
+        self._report_experiment_launched(experiment, launch_path="launch_endpoint", request=request)
 
         return experiment
 
@@ -3632,6 +3657,14 @@ class ExperimentService:
                     event_source=event_source,
                     deprecated_config_changed=deprecated_flag_config_changed,
                 )
+
+        if launching:
+            self._report_experiment_launched(
+                experiment,
+                launch_path="update_start_date",
+                request=report_request,
+                event_source=event_source,
+            )
 
         return experiment
 

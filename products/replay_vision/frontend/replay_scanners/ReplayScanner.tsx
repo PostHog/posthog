@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -20,7 +19,6 @@ import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { formatCreditsRange } from '../utils/credits'
 import { quotaBannerState } from '../utils/quotaProjection'
-import { calibrationActivationLogic } from './calibrationActivationLogic'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -28,9 +26,6 @@ import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneL
 
 const ScannerAlertsTab = lazyWithRetry(() =>
     import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
-)
-const ScannerCalibrationTab = lazyWithRetry(() =>
-    import('./components/ScannerCalibrationTab').then((module) => ({ default: module.ScannerCalibrationTab }))
 )
 const ScannerScanTab = lazyWithRetry(() =>
     import('./components/ScannerScanTab').then((module) => ({ default: module.ScannerScanTab }))
@@ -53,10 +48,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
-    const { variant: activationVariant, neverRated } = useValues(calibrationActivationLogic({ scannerId }))
-    // `neverRated` already requires results to rate. A viewer who cannot rate is not nudged either,
-    // because rating needs editor access, so nudging without it is a dead end.
-    const shouldNudgeCalibration = neverRated && !getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
     if (scannerLoading || !scanner) {
         return (
@@ -74,18 +65,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        {activeTab !== ReplayScannerTab.Calibration && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconSparkles />}
-                                tooltip="Rate scanner results and apply PostHog AI config recommendations in the Calibration tab"
-                                onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
-                                data-attr="replay-vision-open-calibration-tab"
-                            >
-                                Improve scanner
-                            </LemonButton>
-                        )}
                         <LemonButton
                             type="primary"
                             size="small"
@@ -112,31 +91,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     {
                         key: ReplayScannerTab.Overview,
                         label: 'Overview',
-                        content: (
-                            <div className="flex flex-col gap-6">
-                                {activationVariant === 'prompt' && shouldNudgeCalibration && (
-                                    <div className="border rounded p-4 bg-surface-primary flex flex-wrap items-center justify-between gap-3">
-                                        <div>
-                                            <h3 className="font-semibold text-base m-0">Teach this scanner</h3>
-                                            <p className="text-muted text-sm m-0 mt-0.5">
-                                                None of its results are rated yet. Mark a few right or wrong, and
-                                                PostHog AI turns what you flag into config changes you can review.
-                                            </p>
-                                        </div>
-                                        <LemonButton
-                                            type="primary"
-                                            size="small"
-                                            icon={<IconSparkles />}
-                                            onClick={() => setActiveTab(ReplayScannerTab.Calibration)}
-                                            data-attr="vision-calibration-activation-prompt"
-                                        >
-                                            Rate results
-                                        </LemonButton>
-                                    </div>
-                                )}
-                                <ScannerOverview scannerId={scannerId} />
-                            </div>
-                        ),
+                        content: <ScannerOverview scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.Observations,
@@ -147,21 +102,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Run,
                         label: 'Run',
                         content: <ScannerScanTab scannerId={scannerId} />,
-                    },
-                    {
-                        key: ReplayScannerTab.Calibration,
-                        label:
-                            activationVariant === 'badge' && shouldNudgeCalibration ? (
-                                <>
-                                    Calibration{' '}
-                                    <LemonTag type="highlight" size="small" className="ml-1">
-                                        Not rated
-                                    </LemonTag>
-                                </>
-                            ) : (
-                                'Calibration'
-                            ),
-                        content: <ScannerCalibrationTab scannerId={scannerId} />,
                     },
                     {
                         key: ReplayScannerTab.Scouts,

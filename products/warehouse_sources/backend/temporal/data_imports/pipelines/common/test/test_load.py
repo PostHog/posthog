@@ -57,10 +57,11 @@ def _make_schema(
     return schema
 
 
-def _make_helper(*, file_uris: list[str] | None = None) -> MagicMock:
+def _make_helper(*, file_uris: list[str] | None = None, live_row_count: int | None = None) -> MagicMock:
     return MagicMock(
         get_delta_table=AsyncMock(return_value=MagicMock()),
         get_file_uris=AsyncMock(return_value=file_uris or []),
+        get_live_row_count=AsyncMock(return_value=live_row_count),
     )
 
 
@@ -71,6 +72,8 @@ async def _run_post_load(
     cdc_write_mode: str | None = None,
     resource: Optional[MagicMock] = None,
     stored_sync_type_config: dict | None = None,
+    validate: AsyncMock | None = None,
+    row_count: int = 10,
 ) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
     job.id = uuid.uuid4()
@@ -89,7 +92,7 @@ async def _run_post_load(
         patch(f"{_LOAD_MODULE}.set_initial_sync_complete", AsyncMock()),
         patch.object(DeltaMaintenance, "run_scheduled", run_scheduled),
         patch(f"{_PIPELINE_SYNC_MODULE}.update_last_synced_at", AsyncMock()),
-        patch(f"{_PIPELINE_SYNC_MODULE}.validate_schema_and_update_table", AsyncMock()),
+        patch(f"{_PIPELINE_SYNC_MODULE}.validate_schema_and_update_table", validate or AsyncMock()),
         patch(f"{_PIPELINE_SYNC_MODULE}.register_cdc_companion_table", AsyncMock()),
         patch(f"{_REPARTITION_MODULE}.maybe_flag_for_repartition", AsyncMock()),
     ):
@@ -98,7 +101,7 @@ async def _run_post_load(
             schema=schema,
             source=MagicMock(),
             delta_table_ref=helper,
-            row_count=10,
+            row_count=row_count,
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
@@ -170,6 +173,31 @@ class TestRunPostLoadDeltaMaintenance:
         prepare_s3.assert_awaited_once()
         assert prepare_s3.await_args is not None
         assert prepare_s3.await_args.args[2] == post_maintenance_uris
+
+
+class TestRegisterTableRowCount:
+    @parameterized.expand(
+        [
+            ("cumulative", True, 10, 40_000_000),
+            ("full_refresh_with_rows", False, 10, None),
+            ("full_refresh_reporting_zero", False, 0, 40_000_000),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_passes_the_delta_log_count_when_the_run_count_is_not_the_table_size(
+        self, _name: str, cumulative: bool, row_count: int, expected: int | None
+    ) -> None:
+        # Without the log count, registration counts every published file through chdb or the
+        # ClickHouse cluster on each sync of an incremental table.
+        schema = _make_schema(is_cdc=False)
+        schema.table_row_count_is_cumulative = cumulative
+        validate = AsyncMock()
+
+        await _run_post_load(schema, _make_helper(live_row_count=40_000_000), validate=validate, row_count=row_count)
+
+        validate.assert_awaited_once()
+        assert validate.await_args is not None
+        assert validate.await_args.kwargs["live_row_count"] == expected
 
 
 class TestPublishQueryableFilesDoubleBuffer:

@@ -850,6 +850,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["count"] == 1
         assert resp.json()["results"][0]["role"] == "champion"
+        assert resp.json()["results"][0]["in_shadow_set"] is True
         # The agent brief tells agents to look up a champion's bundle via source_training_run.
         assert resp.json()["results"][0]["source_training_run"] == str(training_run.id)
 
