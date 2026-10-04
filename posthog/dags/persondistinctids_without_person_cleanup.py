@@ -1,7 +1,12 @@
-"""Dagster job for deleting posthog_persondistinctid rows that have no associated posthog_person_new rows."""
+"""Dagster job for tombstoning live posthog_persondistinctid rows that have no associated posthog_person_new row.
+
+It publishes ClickHouse tombstones at the Postgres versions, so a re-created distinct id revives above both.
+The tombstones stay as version floors, because the drain deletes mappings only together with their person.
+"""
 
 import os
 import time
+from collections import defaultdict
 from typing import Any
 
 import dagster
@@ -12,20 +17,30 @@ from dagster_k8s import k8s_job_executor
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags.common import JobOwners
+from posthog.models.person.util import DistinctIdTombstoneOutcome, tombstone_distinct_ids_and_publish
 
 MAX_RETRY_ATTEMPTS = 5
+
+_TOMBSTONED = frozenset({DistinctIdTombstoneOutcome.TOMBSTONED, DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED})
 
 
 class PersonsDistinctIdsNoPersonCleanupConfig(dagster.Config):
     """Configuration for the persondistinctids without person cleanup job."""
 
     chunk_size: int = 10_000_000  # persondistinctid rows per chunk worker to scan across
-    batch_size: int = (
-        5000  # persondistinctid rows to scan for missing parent person row & delete in a single transaction
-    )
+    batch_size: int = 5000  # persondistinctid rows to scan for a missing parent person row per batch
     persons_table: str = "posthog_person_new"  # set safe default we can override after name swap!
     max_id: int | None = None  # Optional override for max ID to resume from partial state
     min_id: int | None = None  # Optional override for min ID to resume from partial state
+
+
+def tombstone_orphan_distinct_ids(team_id: int, distinct_ids: list[str]) -> int:
+    """Tombstone and publish the scanned distinct ids whose person row is still missing, and return how many.
+
+    The RPC re-checks under its row locks and skips a distinct id that now points at an existing person, or is gone.
+    """
+    results = tombstone_distinct_ids_and_publish(team_id, distinct_ids)
+    return sum(1 for result in results if result.outcome in _TOMBSTONED)
 
 
 @dagster.op
@@ -142,8 +157,7 @@ def scan_delete_chunk_for_pdwp(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> dict[str, Any]:
     """
-    Scan posthog_person_new table for records that have no associated posthog_persondistinctid row,
-    and deletes the corresponding posthog_person_new row.
+    Tombstone live posthog_persondistinctid rows in the chunk that have no associated person row.
     Processes in batches of batch_size records.
     """
     chunk_min, chunk_max = chunk
@@ -154,7 +168,7 @@ def scan_delete_chunk_for_pdwp(
     # Initialize metrics client
     metrics_client = MetricsClient(cluster)
 
-    context.log.info(f"Starting chunk scan and delete for ID range: {chunk_min} to {chunk_max}")
+    context.log.info(f"Starting chunk scan and tombstone for ID range: {chunk_min} to {chunk_max}")
 
     total_records_deleted = 0
     batch_start_id = chunk_min
@@ -198,26 +212,29 @@ def scan_delete_chunk_for_pdwp(
                     # Begin transaction (settings already applied at session level)
                     cursor.execute("BEGIN")
 
-                    # Delete orphaned posthog_persondistinctid rows and return their IDs
-                    # Using DELETE...RETURNING for efficiency (single query instead of scan + delete)
-                    delete_query = f"""
-DELETE FROM posthog_persondistinctid pd
+                    scan_query = f"""
+SELECT pd.team_id, pd.distinct_id FROM posthog_persondistinctid pd
 WHERE pd.id >= %s AND pd.id <= %s
+  AND NOT pd.is_deleted
   AND NOT EXISTS (
     SELECT 1
     FROM {config.persons_table} AS p
     WHERE p.team_id = pd.team_id
       AND p.id = pd.person_id
   )
-RETURNING pd.id
 """
-                    cursor.execute(delete_query, (batch_start_id, batch_end_id))
-                    deleted_rows = cursor.fetchall()
-                    records_deleted = len(deleted_rows)
-                    records_found = records_deleted  # With DELETE...RETURNING, found == deleted
+                    cursor.execute(scan_query, (batch_start_id, batch_end_id))
+                    distinct_ids_by_team: dict[int, list[str]] = defaultdict(list)
+                    for row in cursor.fetchall():
+                        distinct_ids_by_team[int(row["team_id"])].append(str(row["distinct_id"]))
+                    records_found = sum(len(ids) for ids in distinct_ids_by_team.values())
 
-                    # Commit the transaction
+                    # Commit before the tombstone RPCs so no transaction stays open across them
                     cursor.execute("COMMIT")
+
+                    records_deleted = 0
+                    for team_id, distinct_ids in distinct_ids_by_team.items():
+                        records_deleted += tombstone_orphan_distinct_ids(team_id, distinct_ids)
 
                     # Track batch duration
                     batch_duration_seconds = time.time() - batch_start_time
@@ -287,7 +304,7 @@ RETURNING pd.id
                         batch_counter = 0
 
                     context.log.info(
-                        f"Deleted batch: {records_deleted} of {records_found} records "
+                        f"Tombstoned batch: {records_deleted} of {records_found} live orphan mappings "
                         f"(chunk {chunk_min}-{chunk_max}, batch ID range {batch_start_id} to {batch_end_id})"
                     )
 
@@ -345,7 +362,7 @@ RETURNING pd.id
                     # Handle unexpected errors by bubbling up to dagster.Failure
                     failed_batch_start_id = batch_start_id
                     error_msg = (
-                        f"Failed to scan and delete rows in batch starting at ID {batch_start_id} "
+                        f"Failed to scan and tombstone rows in batch starting at ID {batch_start_id} "
                         f"in chunk {chunk_min}-{chunk_max}: {str(batch_error)}"
                     )
                     context.log.exception(error_msg)
@@ -432,7 +449,7 @@ RETURNING pd.id
             },
         ) from e
 
-    context.log.info(f"Completed chunk {chunk_min}-{chunk_max}: deleted {total_records_deleted} records")
+    context.log.info(f"Completed chunk {chunk_min}-{chunk_max}: tombstoned {total_records_deleted} records")
 
     # Flush any remaining accumulated metrics at end of chunk
     if batch_counter > 0:
@@ -516,8 +533,8 @@ def postgres_env_check(context: dagster.AssetExecutionContext) -> None:
 )
 def persondistinctids_without_person_cleanup_job():
     """
-    Scan posthog_persondistinctid table for records that have no associated posthog_person_new row,
-    and deletes the corresponding posthog_persondistinctid rows that carry the missing person_id.
+    Scan posthog_persondistinctid table for live records that have no associated posthog_person_new row,
+    and tombstone them in Postgres and ClickHouse.
     Divides the ID space into chunks and processes them in parallel.
     """
     id_range = get_id_range_for_pdwp()

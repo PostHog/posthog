@@ -1,9 +1,10 @@
 """Tests for the posthog_persons without distinct_ids in posthog_persondistinctid cleanup job."""
 
-from unittest.mock import MagicMock, patch
+import pytest
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import psycopg2
-from dagster import build_op_context
+from dagster import Failure, build_op_context
 
 from posthog.dags.persondistinctids_without_person_cleanup import (
     PersonsDistinctIdsNoPersonCleanupConfig,
@@ -11,6 +12,7 @@ from posthog.dags.persondistinctids_without_person_cleanup import (
     get_id_range_for_pdwp,
     scan_delete_chunk_for_pdwp,
 )
+from posthog.models.person.util import DistinctIdTombstoneOutcome, DistinctIdTombstoneResult
 
 
 class MockPsycopg2Error(psycopg2.Error):
@@ -177,54 +179,20 @@ class TestCreateChunksForPdwp:
         assert chunks[0].value[0] == min_id and chunks[0].value[1] == max_id
 
 
-def create_mock_database_resource(rowcount_values=None, fetchall_results=None):
-    """
-    Create a mock database resource that mimics psycopg2.extensions.connection.
+SCAN_MARKER = "SELECT pd.team_id, pd.distinct_id FROM posthog_persondistinctid pd"
 
-    Args:
-        rowcount_values: List of rowcount values to return per DELETE call.
-                        If None, defaults to 0. If a single int, uses that for all calls.
-        fetchall_results: List of results to return from fetchall() calls (for SELECT queries).
-                         Each result should be a list of dict-like objects with "id" key.
-                         If None, defaults to empty list.
-    """
+
+def _scan_rows(team_id: int, count: int, prefix: str = "did") -> list[dict]:
+    return [{"team_id": team_id, "distinct_id": f"{prefix}-{team_id}-{i}"} for i in range(count)]
+
+
+def create_mock_database_resource(scan_results=None):
+    """Mock a psycopg2 connection whose scans return the scan_results row lists in order, or no rows when None."""
     mock_cursor = MagicMock()
-    if rowcount_values is None:
-        mock_cursor.rowcount = 0
-    elif isinstance(rowcount_values, int):
-        mock_cursor.rowcount = rowcount_values
-    else:
-        # Use side_effect to return different rowcounts per call
-        call_count = [0]
-
-        def get_rowcount():
-            if call_count[0] < len(rowcount_values):
-                result = rowcount_values[call_count[0]]
-                call_count[0] += 1
-                return result
-            return rowcount_values[-1] if rowcount_values else 0
-
-        mock_cursor.rowcount = property(lambda self: get_rowcount())
-
     mock_cursor.execute = MagicMock()
-    mock_cursor.fetchone = MagicMock()
 
-    # Setup fetchall to return scan results
-    if fetchall_results is None:
-        mock_cursor.fetchall = MagicMock(return_value=[])
-    elif isinstance(fetchall_results, list):
-        fetchall_call_count = [0]
-
-        def get_fetchall_result():
-            if fetchall_call_count[0] < len(fetchall_results):
-                result = fetchall_results[fetchall_call_count[0]]
-                fetchall_call_count[0] += 1
-                return result
-            return fetchall_results[-1] if fetchall_results else []
-
-        mock_cursor.fetchall = MagicMock(side_effect=get_fetchall_result)
-    else:
-        mock_cursor.fetchall = MagicMock(return_value=fetchall_results)
+    results = list(scan_results or [])
+    mock_cursor.fetchall = MagicMock(side_effect=lambda: results.pop(0) if results else [])
 
     # Make cursor() return a context manager
     mock_conn = MagicMock()
@@ -239,42 +207,69 @@ def create_mock_cluster_resource():
     return MagicMock()
 
 
+@pytest.fixture
+def stub_tombstone():
+    # Stands in for personhog and the ClickHouse publish; distinct ids default to TOMBSTONED.
+    outcomes: dict[str, DistinctIdTombstoneOutcome] = {}
+
+    def tombstone(team_id: int, distinct_ids: list[str]) -> list[DistinctIdTombstoneResult]:
+        return [
+            DistinctIdTombstoneResult(
+                distinct_id=distinct_id,
+                outcome=outcomes.get(distinct_id, DistinctIdTombstoneOutcome.TOMBSTONED),
+                version=1,
+                person_uuid=None,
+            )
+            for distinct_id in distinct_ids
+        ]
+
+    with patch(
+        "posthog.dags.persondistinctids_without_person_cleanup.tombstone_distinct_ids_and_publish",
+        side_effect=tombstone,
+    ) as stub:
+        stub.outcomes = outcomes
+        yield stub
+
+
+def _run_chunk(config, chunk, mock_db, mock_cluster):
+    context = build_op_context(resources={"database": mock_db, "cluster": mock_cluster})
+    mock_run = MagicMock(job_name="test_job", run_id="test_run_id")
+    with (
+        patch("posthog.dags.persondistinctids_without_person_cleanup.time.sleep"),
+        patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
+    ):
+        return scan_delete_chunk_for_pdwp(context, config, chunk)
+
+
+def _executed(mock_db) -> list[str]:
+    cursor = mock_db.cursor.return_value.__enter__.return_value
+    return [call[0][0] for call in cursor.execute.call_args_list]
+
+
 class TestScanDeleteChunkForPdwp:
     """Test the scan_delete_chunk_for_pdwp function."""
 
-    def test_scan_delete_chunk_single_batch_success(self):
-        """Test successful scan and delete of a single batch within a chunk."""
-        config = PersonsDistinctIdsNoPersonCleanupConfig(
-            chunk_size=1000,
-            batch_size=100,
+    def test_scan_delete_chunk_single_batch_success(self, stub_tombstone):
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000, batch_size=100)
+        team_1_rows = _scan_rows(1, 30)
+        team_2_rows = _scan_rows(2, 5, "repointed") + _scan_rows(2, 5, "gone") + _scan_rows(2, 10, "raced")
+        stub_tombstone.outcomes.update(
+            {row["distinct_id"]: DistinctIdTombstoneOutcome.NOT_ORPHANED for row in team_2_rows[:5]}
+            | {row["distinct_id"]: DistinctIdTombstoneOutcome.ABSENT for row in team_2_rows[5:10]}
+            | {row["distinct_id"]: DistinctIdTombstoneOutcome.ALREADY_TOMBSTONED for row in team_2_rows[10:]}
         )
-        chunk = (1, 100)  # Single batch covers entire chunk
+        mock_db = create_mock_database_resource(scan_results=[team_1_rows + team_2_rows])
 
-        # Create 50 IDs to delete (returned from DELETE...RETURNING)
-        ids_deleted = [{"id": i} for i in range(1, 51)]
+        result = _run_chunk(config, (1, 100), mock_db, create_mock_cluster_resource())
 
-        # Mock: fetchall returns the deleted IDs from DELETE...RETURNING
-        mock_db = create_mock_database_resource(
-            fetchall_results=[ids_deleted],
-        )
-        mock_cluster = create_mock_cluster_resource()
+        assert result == {"chunk_min": 1, "chunk_max": 100, "records_deleted": 40}
+        assert sorted(c.args for c in stub_tombstone.call_args_list) == [
+            (1, [r["distinct_id"] for r in team_1_rows]),
+            (2, [r["distinct_id"] for r in team_2_rows]),
+        ]
 
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
-        from unittest.mock import PropertyMock
-
-        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            result = scan_delete_chunk_for_pdwp(context, config, chunk)
-
-        # Verify result
-        assert result["chunk_min"] == 1
-        assert result["chunk_max"] == 100
-        assert result["records_deleted"] == 50
-
-        # Verify SET statements called once (session-level, before loop)
-        set_statements = [
+        execute_calls = _executed(mock_db)
+        for stmt in [
             "SET application_name = 'delete_personsdistinctids_with_no_person'",
             "SET lock_timeout = '5s'",
             "SET statement_timeout = '30min'",
@@ -283,262 +278,79 @@ class TestScanDeleteChunkForPdwp:
             "SET max_parallel_workers_per_gather = 2",
             "SET max_parallel_maintenance_workers = 2",
             "SET synchronous_commit = off",
-        ]
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-
-        # Check SET statements were called
-        for stmt in set_statements:
+        ]:
             assert any(stmt in call for call in execute_calls), f"SET statement not found: {stmt}"
+        assert execute_calls.count("BEGIN") == 1
+        assert execute_calls.count("COMMIT") == 1
+        assert not any("DELETE" in call for call in execute_calls)
 
-        # Verify BEGIN and COMMIT called (single transaction with DELETE...RETURNING)
-        assert execute_calls.count("BEGIN") >= 1
-        assert execute_calls.count("COMMIT") >= 1
-
-        # Verify DELETE...RETURNING query format
-        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
-        assert len(delete_calls) == 1
-        delete_query = delete_calls[0]
-        assert "DELETE FROM posthog_persondistinctid" in delete_query
-        assert "WHERE pd.id >=" in delete_query
-        assert "AND pd.id <=" in delete_query
-        assert "NOT EXISTS" in delete_query
-        assert "RETURNING pd.id" in delete_query
-
-    def test_scan_delete_chunk_multiple_batches(self):
-        """Test scan and delete with multiple batches in a chunk."""
-        config = PersonsDistinctIdsNoPersonCleanupConfig(
-            chunk_size=1000,
-            batch_size=100,
-        )
-        chunk = (1, 250)  # 3 batches: (1,100), (101,200), (201,250)
-
-        # Create IDs deleted for each batch (returned from DELETE...RETURNING)
-        # Batch 1: 50 IDs, Batch 2: 75 IDs, Batch 3: 25 IDs
-        fetchall_results = [
-            [{"id": i} for i in range(1, 51)],  # 50 IDs from first batch
-            [{"id": i} for i in range(101, 176)],  # 75 IDs from second batch
-            [{"id": i} for i in range(201, 226)],  # 25 IDs from third batch
-        ]
-
+    def test_scan_delete_chunk_multiple_batches(self, stub_tombstone):
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000, batch_size=100)
         mock_db = create_mock_database_resource(
-            fetchall_results=fetchall_results,
+            scan_results=[_scan_rows(1, 50, "a"), _scan_rows(1, 75, "b"), _scan_rows(1, 25, "c")]
         )
-        mock_cluster = create_mock_cluster_resource()
 
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
-        from unittest.mock import PropertyMock
+        result = _run_chunk(config, (1, 250), mock_db, create_mock_cluster_resource())
 
-        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            result = scan_delete_chunk_for_pdwp(context, config, chunk)
+        assert result["records_deleted"] == 150
+        assert len([call for call in _executed(mock_db) if SCAN_MARKER in call]) == 3
 
-        # Verify result
-        assert result["chunk_min"] == 1
-        assert result["chunk_max"] == 250
-        assert result["records_deleted"] == 150  # 50 + 75 + 25 = 150
-
-        # Verify SET statements called once (before loop)
+    @pytest.mark.parametrize(
+        "message,pgcode",
+        [
+            pytest.param("could not serialize access due to concurrent update", "40001", id="serialization_failure"),
+            pytest.param("deadlock detected", "40P01", id="deadlock"),
+        ],
+    )
+    def test_scan_delete_chunk_retries_a_conflicted_scan(self, stub_tombstone, message, pgcode):
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000, batch_size=100)
+        mock_db = create_mock_database_resource(scan_results=[_scan_rows(1, 50)])
         cursor = mock_db.cursor.return_value.__enter__.return_value
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        scans = [0]
 
-        # Verify BEGIN/COMMIT called 3 times (one per batch with DELETE...RETURNING)
-        assert execute_calls.count("BEGIN") >= 3
-        assert execute_calls.count("COMMIT") >= 3
-
-        # Verify DELETE...RETURNING called 3 times (one per batch)
-        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
-        assert len(delete_calls) == 3
-
-    def test_scan_delete_chunk_serialization_failure_retry(self):
-        """Test that serialization failure triggers retry."""
-        config = PersonsDistinctIdsNoPersonCleanupConfig(
-            chunk_size=1000,
-            batch_size=100,
-        )
-        chunk = (1, 100)
-
-        # Create IDs to delete
-        ids_deleted = [{"id": i} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
-        mock_cluster = create_mock_cluster_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-
-        # Track DELETE query attempts
-        delete_attempts = [0]
-
-        # First DELETE query raises SerializationFailure, second succeeds
         def execute_side_effect(query, *args):
-            if "DELETE FROM posthog_persondistinctid" in query:
-                delete_attempts[0] += 1
-                if delete_attempts[0] == 1:
-                    # First attempt raises error
-                    error = create_mock_psycopg2_error("could not serialize access due to concurrent update", "40001")
-                    raise error
-                # Second attempt succeeds - fetchall will return the IDs
+            if SCAN_MARKER in query:
+                scans[0] += 1
+                if scans[0] == 1:
+                    raise create_mock_psycopg2_error(message, pgcode)
 
         cursor.execute.side_effect = execute_side_effect
 
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Need to patch time.sleep and run.job_name
-        from unittest.mock import PropertyMock
+        result = _run_chunk(config, (1, 100), mock_db, create_mock_cluster_resource())
 
-        mock_run = MagicMock(job_name="test_job")
-        with (
-            patch("posthog.dags.persondistinctids_without_person_cleanup.time.sleep"),
-            patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
-        ):
-            scan_delete_chunk_for_pdwp(context, config, chunk)
+        assert "ROLLBACK" in _executed(mock_db)
+        assert scans[0] == 2
+        assert result["records_deleted"] == 50
 
-        # Verify ROLLBACK was called on error
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        assert "ROLLBACK" in execute_calls
-
-        # Verify retry succeeded (should have DELETE called twice - once failed, once succeeded)
-        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
-        assert len(delete_calls) >= 2  # At least one failed attempt and one successful
-
-    def test_scan_delete_chunk_deadlock_retry(self):
-        """Test that deadlock triggers retry."""
-        config = PersonsDistinctIdsNoPersonCleanupConfig(
-            chunk_size=1000,
-            batch_size=100,
-        )
-        chunk = (1, 100)
-
-        # Create IDs to delete
-        ids_deleted = [{"id": i} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
-        mock_cluster = create_mock_cluster_resource()
-
+    def test_scan_delete_chunk_error_handling_and_rollback(self, stub_tombstone):
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000, batch_size=100)
+        mock_db = create_mock_database_resource(scan_results=[_scan_rows(1, 50)])
         cursor = mock_db.cursor.return_value.__enter__.return_value
 
-        # Track DELETE query attempts
-        delete_attempts = [0]
-
-        # First DELETE query raises deadlock, second succeeds
         def execute_side_effect(query, *args):
-            if "DELETE FROM posthog_persondistinctid" in query:
-                delete_attempts[0] += 1
-                if delete_attempts[0] == 1:
-                    # First attempt raises error
-                    error = create_mock_psycopg2_error("deadlock detected", "40P01")
-                    raise error
-                # Second attempt succeeds - fetchall will return the IDs
-
-        cursor.execute.side_effect = execute_side_effect
-
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Need to patch time.sleep and run.job_name
-        from unittest.mock import PropertyMock
-
-        mock_run = MagicMock(job_name="test_job")
-        with (
-            patch("posthog.dags.persondistinctids_without_person_cleanup.time.sleep"),
-            patch.object(type(context), "run", PropertyMock(return_value=mock_run)),
-        ):
-            scan_delete_chunk_for_pdwp(context, config, chunk)
-
-        # Verify ROLLBACK was called on error
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-        assert "ROLLBACK" in execute_calls
-
-        # Verify retry succeeded (should have DELETE called twice - once failed, once succeeded)
-        delete_calls = [call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call]
-        assert len(delete_calls) >= 2  # At least one failed attempt and one successful
-
-    def test_scan_delete_chunk_error_handling_and_rollback(self):
-        """Test error handling and rollback on non-retryable errors."""
-        config = PersonsDistinctIdsNoPersonCleanupConfig(
-            chunk_size=1000,
-            batch_size=100,
-        )
-        chunk = (1, 100)
-
-        # Create IDs to delete
-        ids_deleted = [{"id": i} for i in range(1, 51)]
-        mock_db = create_mock_database_resource(fetchall_results=[ids_deleted])
-        mock_cluster = create_mock_cluster_resource()
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-
-        # Raise generic error on DELETE query (non-retryable error)
-        def execute_side_effect(query, *args):
-            if "DELETE FROM posthog_persondistinctid" in query:
+            if SCAN_MARKER in query:
                 raise Exception("Connection lost")
 
         cursor.execute.side_effect = execute_side_effect
 
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk
-        from unittest.mock import PropertyMock
+        with pytest.raises(Failure, match="Failed to scan and tombstone rows in batch"):
+            _run_chunk(config, (1, 100), mock_db, create_mock_cluster_resource())
+        assert "ROLLBACK" in _executed(mock_db)
+        stub_tombstone.assert_not_called()
 
-        mock_run = MagicMock(job_name="test_job")
-        with patch.object(type(context), "run", PropertyMock(return_value=mock_run)):
-            # Should raise Dagster.Failure
-            from dagster import Failure
+    def test_scan_delete_chunk_query_format(self, stub_tombstone):
+        config = PersonsDistinctIdsNoPersonCleanupConfig(chunk_size=1000, batch_size=100)
+        mock_db = create_mock_database_resource(scan_results=[_scan_rows(1, 10)])
 
-            try:
-                scan_delete_chunk_for_pdwp(context, config, chunk)
-                raise AssertionError("Expected Dagster.Failure to be raised")
-            except Failure as e:
-                # Verify error metadata
-                assert e.description is not None
-                assert "Failed to scan and delete rows in batch" in e.description
+        _run_chunk(config, (1, 100), mock_db, create_mock_cluster_resource())
 
-                # Verify ROLLBACK was called
-                execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-                assert "ROLLBACK" in execute_calls
+        scan_query = next(call for call in _executed(mock_db) if SCAN_MARKER in call)
+        assert "WHERE pd.id >=" in scan_query
+        assert "AND pd.id <=" in scan_query
+        assert "AND NOT pd.is_deleted" in scan_query
+        assert "NOT EXISTS" in scan_query
 
-    def test_scan_delete_chunk_query_format(self):
-        """Test that DELETE...RETURNING query has correct format."""
-        config = PersonsDistinctIdsNoPersonCleanupConfig(
-            chunk_size=1000,
-            batch_size=100,
-        )
-        chunk = (1, 100)
-
-        # Create IDs deleted (returned from DELETE...RETURNING)
-        ids_deleted = [{"id": i} for i in range(1, 11)]  # 10 IDs
-        mock_db = create_mock_database_resource(
-            fetchall_results=[ids_deleted],
-        )
-        mock_cluster = create_mock_cluster_resource()
-
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
-        from unittest.mock import PropertyMock
-
-        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            scan_delete_chunk_for_pdwp(context, config, chunk)
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
-
-        # Find DELETE...RETURNING query
-        delete_query = next((call for call in execute_calls if "DELETE FROM posthog_persondistinctid" in call), None)
-        assert delete_query is not None
-
-        # Verify DELETE...RETURNING query components
-        assert "DELETE FROM posthog_persondistinctid pd" in delete_query
-        assert "WHERE pd.id >=" in delete_query
-        assert "AND pd.id <=" in delete_query
-        assert "NOT EXISTS" in delete_query
-        assert "RETURNING pd.id" in delete_query
-
-    def test_scan_delete_chunk_session_settings_applied_once(self):
+    def test_scan_delete_chunk_session_settings_applied_once(self, stub_tombstone):
         """Test that SET statements are applied once at session level before batch loop."""
         config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=1000,
@@ -546,29 +358,13 @@ class TestScanDeleteChunkForPdwp:
         )
         chunk = (1, 150)  # 3 scan batches
 
-        # Create IDs to delete for each scan batch
-        fetchall_results = [
-            [{"id": i} for i in range(1, 26)],  # 25 IDs from first scan batch
-            [{"id": i} for i in range(51, 76)],  # 25 IDs from second scan batch
-            [{"id": i} for i in range(101, 126)],  # 25 IDs from third scan batch
-        ]
         mock_db = create_mock_database_resource(
-            rowcount_values=25,
-            fetchall_results=fetchall_results,
+            scan_results=[_scan_rows(1, 25, "a"), _scan_rows(1, 25, "b"), _scan_rows(1, 25, "c")]
         )
-        mock_cluster = create_mock_cluster_resource()
 
-        context = build_op_context(
-            resources={"database": mock_db, "cluster": mock_cluster},
-        )
-        # Patch context.run.job_name where it's accessed in scan_delete_chunk_for_pdwp
-        from unittest.mock import PropertyMock
+        _run_chunk(config, chunk, mock_db, create_mock_cluster_resource())
 
-        with patch.object(type(context), "run", PropertyMock(return_value=MagicMock(job_name="test_job"))):
-            scan_delete_chunk_for_pdwp(context, config, chunk)
-
-        cursor = mock_db.cursor.return_value.__enter__.return_value
-        execute_calls = [call[0][0] for call in cursor.execute.call_args_list]
+        execute_calls = _executed(mock_db)
 
         # Count SET statements (should be called once each, before loop)
         set_statements = [
@@ -703,7 +499,7 @@ class TestGetIdRangeForPdwp:
 class TestMetricsPublishing:
     """Test metrics publishing batching behavior."""
 
-    def test_metrics_published_every_100_batches(self):
+    def test_metrics_published_every_100_batches(self, stub_tombstone):
         """Test that metrics are only published every 100 batches to reduce ClickHouse writes."""
         config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=50000,
@@ -712,18 +508,13 @@ class TestMetricsPublishing:
         # Create a chunk with 250 batches (25000 records)
         chunk = (1, 25000)
 
-        # Create fetchall results for all 250 batches
-        # Each batch deletes 10 records
-        fetchall_results = [[{"id": i} for i in range(batch_num * 10, batch_num * 10 + 10)] for batch_num in range(250)]
-
-        mock_db = create_mock_database_resource(fetchall_results=fetchall_results)
+        # Each of the 250 batches tombstones 10 records
+        mock_db = create_mock_database_resource(scan_results=[_scan_rows(1, 10, f"b{n}") for n in range(250)])
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-
-        from unittest.mock import PropertyMock
 
         mock_run = MagicMock(job_name="test_job", run_id="test_run_id")
         with patch.object(type(context), "run", PropertyMock(return_value=mock_run)):
@@ -741,7 +532,7 @@ class TestMetricsPublishing:
             f"Expected metrics to be batched (~16 calls), but got {len(increment_calls)} increment calls"
         )
 
-    def test_metrics_flushed_at_chunk_end(self):
+    def test_metrics_flushed_at_chunk_end(self, stub_tombstone):
         """Test that remaining accumulated metrics are flushed at the end of a chunk."""
         config = PersonsDistinctIdsNoPersonCleanupConfig(
             chunk_size=10000,
@@ -750,17 +541,12 @@ class TestMetricsPublishing:
         # Create a chunk with 50 batches (not a multiple of 100)
         chunk = (1, 5000)
 
-        # Create fetchall results for all 50 batches
-        fetchall_results = [[{"id": i} for i in range(batch_num * 10, batch_num * 10 + 10)] for batch_num in range(50)]
-
-        mock_db = create_mock_database_resource(fetchall_results=fetchall_results)
+        mock_db = create_mock_database_resource(scan_results=[_scan_rows(1, 10, f"b{n}") for n in range(50)])
         mock_cluster = create_mock_cluster_resource()
 
         context = build_op_context(
             resources={"database": mock_db, "cluster": mock_cluster},
         )
-
-        from unittest.mock import PropertyMock
 
         mock_run = MagicMock(job_name="test_job", run_id="test_run_id")
         with patch.object(type(context), "run", PropertyMock(return_value=mock_run)):
