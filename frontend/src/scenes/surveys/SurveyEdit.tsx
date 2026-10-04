@@ -19,10 +19,11 @@ import {
     LemonSwitch,
     LemonTag,
     Link,
+    lemonToast,
     Popover,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { ANY_VARIANT, variantOptions } from 'lib/components/IngestionControls/triggers/FlagTrigger/VariantSelector'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -63,6 +64,8 @@ import {
     SurveySchedule,
     SurveyType,
 } from '~/types'
+
+import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
@@ -296,6 +299,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         clearAiGeneratedTranslationField,
     } = useActions(surveyLogic)
     const { setPreferredEditor } = useActions(surveysLogic)
+    const mountedSurveyLogic = useMountedLogic(surveyLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
     const hostedEditorEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_HOSTED_EDITOR]
@@ -1458,6 +1462,41 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                                           'linked_flag',
                                                                                           flag
                                                                                       )
+                                                                                      // Recent picks carry no filters, so fetch the full flag for the variant picker.
+                                                                                      if (!flag.filters) {
+                                                                                          // Drop the result if the user picked another flag meanwhile.
+                                                                                          const isStillSelected =
+                                                                                              (): boolean =>
+                                                                                                  mountedSurveyLogic
+                                                                                                      .values.survey
+                                                                                                      .linked_flag_id ===
+                                                                                                  id
+                                                                                          featureFlagsRetrieve(
+                                                                                              String(
+                                                                                                  ApiConfig.getCurrentProjectId()
+                                                                                              ),
+                                                                                              id
+                                                                                          )
+                                                                                              .then((fullFlag) => {
+                                                                                                  if (
+                                                                                                      isStillSelected()
+                                                                                                  ) {
+                                                                                                      setSurveyValue(
+                                                                                                          'linked_flag',
+                                                                                                          fullFlag
+                                                                                                      )
+                                                                                                  }
+                                                                                              })
+                                                                                              .catch(() => {
+                                                                                                  if (
+                                                                                                      isStillSelected()
+                                                                                                  ) {
+                                                                                                      lemonToast.error(
+                                                                                                          "Couldn't load this flag's variants. Select the flag again to retry."
+                                                                                                      )
+                                                                                                  }
+                                                                                              })
+                                                                                      }
                                                                                       // Reset variant selection when flag changes
                                                                                       const {
                                                                                           linkedFlagVariant,
@@ -1495,7 +1534,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                       </div>
                                                                   )}
                                                               </LemonField>
-                                                              {survey.linked_flag?.filters.multivariate && (
+                                                              {survey.linked_flag?.filters?.multivariate && (
                                                                   <LemonField.Pure
                                                                       label="Link to a specific flag variant"
                                                                       info="Choose which variant of the feature flag to link to this survey.
@@ -1510,7 +1549,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               }
                                                                               options={variantOptions(
                                                                                   survey.linked_flag?.filters
-                                                                                      .multivariate || undefined
+                                                                                      ?.multivariate || undefined
                                                                               )}
                                                                               onChange={(variant) => {
                                                                                   setSurveyValue('conditions', {
