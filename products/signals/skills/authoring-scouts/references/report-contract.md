@@ -541,8 +541,9 @@ Set it only when the fix itself changed: a different root cause, a different fil
 More evidence for the same fix is not a reason — the open PR already implements it, and replacing it throws away review someone may already have done.
 An `append_note` is the right move there instead.
 
-Two things bound it, and the response tells you which one applied:
+Three things bound it, and the response tells you which one applied:
 
+- A report with no open PR has nothing to replace. The field is a no-op there, your rewrite still lands, and `supersedes_implementation` in the response is `false`.
 - It is only honored alongside a rewrite that actually changed the title or summary. Restating the text the report already holds is not a revision, and neither is a note or a reviewer change. `is_content_revision` in the response says whether yours counted.
 - Only the first four content revisions can request replacements. `content_revision_count` counts every title or summary rewrite, including ones that did not request replacement. Past four your rewrite still lands, but it cannot request a replacement. `supersedes_implementation` in the response is `true` only when the decision was recorded.
 
@@ -552,7 +553,7 @@ Appending a note that says the finding still holds is worth doing, and it is not
 Free-form `append_note` text always remains in the work log, including recovery details and observations beyond the evidence cap. Set `corroboration_only: true` only for a confirmation with no new information. A report keeps its first four confirmations as separate entries and counts later confirmations; the web and desktop inboxes show the collapsed count.
 The call still succeeds, and `corroboration_collapsed` in the response tells you it happened.
 
-A replacement request that cannot bind verified predecessor PRs, or whose report changes during verification, fails without saving the edit. Retry the same edit to resolve the context again.
+A replacement request whose report has an open PR the lookup cannot verify, or whose report changes during verification, fails without saving the edit. Retry the same edit to resolve the context again.
 
 ## Finding "the report I made last time"
 

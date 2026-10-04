@@ -24,6 +24,7 @@ describe('ArtefactLogList', () => {
         ['a replacement recommendation', true, undefined, 'Replacement recommended'],
         ['a kept PR', false, undefined, 'Still the right fix'],
         ['a capped request', false, 'revision_limit', 'Replacement limit reached'],
+        ['a request on a report with no PR', false, 'no_implementation', 'No pull request to replace'],
     ])('shows the decision and its reason for %s', (_name, supersede, blocked_reason, expectedTag) => {
         render(
             <ArtefactLogList

@@ -47,6 +47,10 @@ class ImplementationResearchContext:
     run_count: int | None = None
     started_at: datetime | None = None
     content_revision_count: int = 0
+    # How many open automated pull requests the report had before verification, or None when the
+    # lookup did not complete. Empty `candidates` alone cannot tell "the report has no pull request"
+    # apart from "the lookup failed", and only the first of those is a settled answer.
+    target_count: int | None = None
 
 
 NO_IMPLEMENTATION_CONTEXT = ImplementationResearchContext()
@@ -261,8 +265,9 @@ def research_implementation_context(team_id: int, report_id: str) -> Implementat
         report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
         if report is None:
             return ImplementationResearchContext()
+        targets = automated_targets(team_id, report_id)
         candidates = []
-        for target in automated_targets(team_id, report_id):
+        for target in targets:
             sha = verify_target(team_id, target, check_sha=False)
             if sha:
                 candidates.append(target.model_copy(update={"head_sha": sha}))
@@ -271,6 +276,7 @@ def research_implementation_context(team_id: int, report_id: str) -> Implementat
             run_count=report.run_count,
             started_at=report.last_run_at,
             content_revision_count=report.content_revision_count or 0,
+            target_count=len(targets),
         )
     except Exception:
         logger.exception("signals_automated_pr_lookup_failed", report_id=report_id)
