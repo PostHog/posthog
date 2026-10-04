@@ -145,7 +145,7 @@ service, symbol, or router — do not clone `linear.ts`/`linear-integration.rout
 
 ### Verify
 
-- `pnpm --filter @posthog/shared... build` after touching `inbox-types.ts` (it's a published type).
+- `pnpm --dir packages/agent --filter @posthog/agent-contracts build` after touching `inbox-types.ts` (it's a published type).
 - `pnpm typecheck` (whole repo — the unions are consumed across packages).
 - `biome lint packages/core packages/ui` — zero `noRestrictedImports`, imports ordered.
 
