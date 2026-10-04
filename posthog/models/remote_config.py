@@ -303,6 +303,7 @@ class RemoteConfig(UUIDTModel):
                 or "Please provide your details so we can help you better.",
                 "placeholderText": conv_settings.get("widget_placeholder_text") or "Type your message...",
                 "widgetPosition": conv_settings.get("widget_position") or "bottom_right",
+                "restoreEnabled": conv_settings.get("widget_restore_enabled", True),
             }
         else:
             config["conversations"] = False
