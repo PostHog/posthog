@@ -33,7 +33,7 @@ from products.replay_vision.backend.quota import (
     current_period_bounds,
     quota_state,
 )
-from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL
+from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL, CREATE_OBSERVATION_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.metrics import (
@@ -42,6 +42,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_scanner_admission_busy,
     record_scanner_limit_reached,
 )
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
 from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
@@ -324,7 +325,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # observation will actually charge, not the scanner's current model.
     cost = observation_credits_for_model(priced_model)
     try:
-        with transaction.atomic():
+        with transaction.atomic(), bounded_queries(CREATE_OBSERVATION_TIMEOUT):
             # Capped scanners admit against the cached admission budget so concurrent applies cannot
             # overshoot the cap; uncapped scanners keep the lock-free path.
             if scanner.credit_limit is not None:
