@@ -13,7 +13,8 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectBackwardCompatSerializer, ProjectViewSet
 from posthog.api.project_tags import MAX_TAGS_PER_FILTER
-from posthog.api.team import TeamCustomerAnalyticsConfigSerializer, TeamSerializer
+from posthog.api.team.team_config import TeamCustomerAnalyticsConfigSerializer
+from posthog.api.team.team_serializer import TeamSerializer
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -992,7 +993,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         with (
             capture_db_queries() as queries,
-            patch("posthog.api.team.report_user_action") as mock_report,
+            patch("posthog.api.team.conversations_settings.report_user_action") as mock_report,
         ):
             with (
                 patch.object(Team.objects, "select_for_update", simulate_integration_update),

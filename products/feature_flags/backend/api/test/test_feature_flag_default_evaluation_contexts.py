@@ -7,7 +7,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.team import handle_evaluation_context_suggestions
+from posthog.api.team.integration_config import handle_evaluation_context_suggestions
 from posthog.models import Team
 from posthog.models.organization import OrganizationMembership
 
