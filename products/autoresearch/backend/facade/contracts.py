@@ -388,3 +388,7 @@ class MaterializedFeatures:
     n_holdout: int
     n_features: int
     feature_cols: list[str]
+    elapsed_s: float
+    rows_read: int
+    bytes_read: int
+    hints: list[str]

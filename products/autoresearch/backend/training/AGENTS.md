@@ -17,6 +17,8 @@ The other half is `../inference/`, which consumes what this package produces and
   The brief's worked `features.sql` reads events through a pre-filtered subquery (the event names the features use, the anchor persons, and the anchors' widest window) before it joins, because ClickHouse builds the hash table from the right side of a join and a direct events join reads the whole team's events.
   The brief also states the inference cutoff: the start of the prediction date in UTC (`ScoringWindow` in `../inference/scoring.py`), not `now()`.
   The brief's cost guidance is advice only. Cost does not enter champion selection, so the brief does not tell the agent to trade AUC for a cheaper query.
+  For a person column that events do not carry, the brief recommends `raw_persons` in a subquery filtered with `id IN (SELECT person_id FROM {anchors})`, never `LEFT JOIN persons`, because the persons table dedupes every person of the team before any filter applies.
+  `feature_sql_hints()` in `recipe_validation.py` returns a non-blocking hint when a query reads `persons` or `raw_persons` in a SELECT whose `WHERE` does not refer to `{anchors}`. The `materialize-features` response carries the hints, with the `elapsed_s`, `rows_read` and `bytes_read` of the materialization.
   The agent drives the rest _itself_ through the `autoresearch-*` MCP tools: it records each iteration, uploads the bundle, and calls complete. Nothing polls it.
 - `stub.py`
   `run_stub_training()` — a hand-authored champion recipe with universal engagement features (event counts, distinct event types, days since first seen) that apply to any team and any target.
@@ -33,6 +35,10 @@ The other half is `../inference/`, which consumes what this package produces and
   `complete_training_run()` reads the bundle and enters the run's `team_scope()` before it opens the transaction, because the `TaskRun` safety net calls it from a worker thread with no request scope, and object-storage calls must not run under the row lock.
   The agent's `report_notebook_short_id` goes into the run summary only if that notebook exists in the run's team. A bad id or a failed check stores an empty value and never fails completion.
   Only a promoted model is fitted. A challenger's `model.pkl` would never be read, because inference serves the champion and no path promotes a challenger row later.
+  After the fit, `check_scorability()` runs the bundle's `features.sql` against today's inference anchors under `BATCH_QUERY` and records `scorability_elapsed_s`, `scorability_rows_read` and `scorability_bytes_read` in the model metrics.
+  A failed fit, a failed check, or a check above `SCORABILITY_TIME_BUDGET_S` (half the batch query limit) rolls the promotion back under the pipeline lock: the candidate becomes a challenger with `not_promoted_reason` in its metrics, and the champion it archived comes back. A first champion that rolls back puts the pipeline back in the status it had before promotion.
+  The rollback changes nothing when the candidate is no longer the champion. A scoring run that started with the candidate fails in `_require_still_champion()` before it emits.
+  A champion that is already unscorable is not repaired here, and a recipe-only champion is not checked.
 - `artifacts.py`
   Object storage for the bundle: `features.sql`, `train.py`, `predict.py`, plus the fitted `model.pkl` written at completion.
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.

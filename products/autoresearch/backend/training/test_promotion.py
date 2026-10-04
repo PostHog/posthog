@@ -14,15 +14,21 @@ from posthog.models.scoping import unscoped
 from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.query import QueryCost
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, InvalidArtifactContent, PartialBundle
-from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
+from products.autoresearch.backend.training.promotion import (
+    SCORABILITY_TIME_BUDGET_S,
+    PromotionError,
+    complete_training_run,
+)
 from products.autoresearch.backend.training.stub import run_stub_training
 from products.notebooks.backend.facade import api as notebooks_facade
 
@@ -386,32 +392,88 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         self._iteration(run, number=0, holdout=0.8)
 
         bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
-        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
-            with patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit:
-                with self.captureOnCommitCallbacks(execute=True):
-                    complete_training_run(run)
+        cost = QueryCost(elapsed_s=12.5, rows_read=1000, bytes_read=64000)
+        with (
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
+            patch("products.autoresearch.backend.training.promotion.fit_champion_model") as fit,
+            patch("products.autoresearch.backend.training.promotion.check_scorability", return_value=cost),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            complete_training_run(run)
 
         assert run.started_at is not None
         assert fit.call_args.kwargs["anchor_ts"] == int(run.started_at.timestamp())
+        metrics = self._champion().metrics
+        assert (
+            metrics["scorability_elapsed_s"],
+            metrics["scorability_rows_read"],
+            metrics["scorability_bytes_read"],
+        ) == (12.5, 1000, 64000)
 
-    def test_a_failed_champion_fit_does_not_fail_a_committed_completion(self):
+    @parameterized.expand(
+        [
+            # write_model raises this, and it is not a SandboxInferenceError.
+            ("fit_fails", ObjectStorageError("object storage unavailable"), None, "fit failed"),
+            ("check_fails", None, SandboxInferenceError("Feature query failed: timeout"), "failed against"),
+            (
+                "check_over_budget",
+                None,
+                QueryCost(elapsed_s=SCORABILITY_TIME_BUDGET_S + 1, rows_read=1, bytes_read=1),
+                "budget",
+            ),
+        ]
+    )
+    def test_an_unscorable_champion_rolls_back_to_the_previous_one(self, _name, fit_error, check_result, reason):
+        first = self._run()
+        self._iteration(first, number=0, holdout=0.7)
+        complete_training_run(first)
+        previous = self._champion()
+
+        second = self._run()
+        self._iteration(second, number=0, holdout=0.9)
+        bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
+        check = {"side_effect": check_result} if isinstance(check_result, Exception) else {"return_value": check_result}
+        with (
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
+            patch("products.autoresearch.backend.training.promotion.fit_champion_model", side_effect=fit_error),
+            patch("products.autoresearch.backend.training.promotion.check_scorability", **check),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = complete_training_run(second)
+
+        # The run is already committed, so the rollback must not reach the caller as a failed completion.
+        assert result["promoted"] is True
+        second.refresh_from_db()
+        assert second.status == AutoresearchTrainingRun.Status.COMPLETED
+        assert second.summary["champion_promoted"] is False
+        assert self._champion().pk == previous.pk
+        candidate = AutoresearchModel.objects.get(pk=result["model_id"])
+        assert candidate.role == AutoresearchModel.Role.CHALLENGER
+        assert reason in candidate.metrics["not_promoted_reason"]
+
+    def test_an_unscorable_first_champion_returns_the_pipeline_to_bootstrapping(self):
+        self.pipeline.status = AutoresearchPipeline.Status.BOOTSTRAPPING
+        self.pipeline.save(update_fields=["status"])
         run = self._run()
         self._iteration(run, number=0, holdout=0.8)
-
         bundle = ArtifactBundle(train_py="pass", predict_py="pass", features_sql=ANCHORED_FEATURE_SQL)
-        with patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle):
-            with patch(
-                "products.autoresearch.backend.training.promotion.fit_champion_model",
-                # write_model raises this, and it is not a SandboxInferenceError. The run is
-                # already committed, so it must not reach the caller as a failed completion.
-                side_effect=ObjectStorageError("object storage unavailable"),
-            ):
-                with self.captureOnCommitCallbacks(execute=True):
-                    result = complete_training_run(run)
+        with (
+            patch("products.autoresearch.backend.training.artifacts.read_bundle", return_value=bundle),
+            patch("products.autoresearch.backend.training.promotion.fit_champion_model"),
+            patch(
+                "products.autoresearch.backend.training.promotion.check_scorability",
+                side_effect=SandboxInferenceError("Feature query failed"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            complete_training_run(run)
 
-        assert result["promoted"] is True
-        run.refresh_from_db()
-        assert run.status == AutoresearchTrainingRun.Status.COMPLETED
+        # A live pipeline with no champion would fail every daily sweep.
+        self.pipeline.refresh_from_db()
+        assert self.pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING
+        assert not AutoresearchModel.objects.filter(
+            pipeline=self.pipeline, role=AutoresearchModel.Role.CHAMPION
+        ).exists()
 
     def test_model_recipe_hash_identifies_the_stored_recipe(self):
         run = self._run()

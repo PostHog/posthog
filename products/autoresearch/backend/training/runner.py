@@ -431,6 +431,16 @@ def build_agent_description(
           the latest value before the cutoff (for example `argMax(e.plan, e.timestamp)` over the joined
           events). `person.properties.*` and `LEFT JOIN persons` both join the persons table, which is
           slow on large teams, and return current values, which leak the label window at training.
+        - If you need a column that events do not carry, such as `created_at`, never `LEFT JOIN persons`.
+          The persons table dedupes every person of the team before any filter applies. Read
+          `raw_persons` in a subquery filtered to the anchor persons, and take each person's latest version:
+          `LEFT JOIN (SELECT id, argMax(created_at, version) AS created_at FROM raw_persons
+          WHERE id IN (SELECT person_id FROM {{anchors}}) GROUP BY id) p ON p.id = a.person_id`.
+          The materialize response returns a hint when a query reads a person table without that filter.
+        - The materialize response also returns `elapsed_s`, `rows_read` and `bytes_read`. After
+          promotion the backend runs your `features.sql` against today's inference population under
+          the scoring limits. If it fails, or takes more than half of the scoring time limit, the model
+          is not promoted and the previous champion keeps serving.
         - Cost does not change which iteration wins, so keep each hypothesis cheap from the start.
 
         ### Step 3 — Materialize features, then fit and evaluate (in your sandbox)
