@@ -45,7 +45,6 @@ import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkil
 import { subscriptionsEmptyState } from 'products/subscriptions/frontend/emptyState/subscriptionsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
-import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 import { webVitalsEmptyState } from 'products/web_analytics/frontend/emptyState/webVitalsEmptyState'
 import { heatmapsEmptyState } from 'products/web_analytics/frontend/heatmaps/emptyState/heatmapsEmptyState'
 import { workflowsEmptyState } from 'products/workflows/frontend/emptyState/workflowsEmptyState'
@@ -188,12 +187,6 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyS
 export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
 })
-
-export const UserInterviewsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
-    userInterviewsEmptyState,
-    'needs-setup',
-    { mocks: { get: { '/api/projects/:team_id/user_interview_topics/': [200, emptyEntityList] } } }
-)
 
 export const LinksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(linksEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/links/': [200, emptyEntityList] } },
