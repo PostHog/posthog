@@ -70,6 +70,17 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             ),
         },
         {
+            title: 'Ensure flags are loaded before usage',
+            badge: 'optional',
+            content: (
+                <Markdown>
+                    {dedent`
+                        The SDK fetches flags in the background and caches them, so flags are not available the first time a user opens the app. To wait for flags to load, observe the \`PostHogSDK.didReceiveFeatureFlags\` notification. See [ensuring flags are loaded before usage](https://posthog.com/docs/libraries/ios/usage#ensuring-flags-are-loaded-before-usage) for the full setup.
+                    `}
+                </Markdown>
+            ),
+        },
+        {
             title: 'Running experiments',
             badge: 'optional',
             content: (
