@@ -39,9 +39,10 @@ _INTERNAL_IP_ERROR = (
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 # A name with no dot, such as a Docker Compose service name, only resolves inside the network that
-# defines it, so "check the spelling" sends the customer the wrong way.
+# defines it, so "check the spelling" sends the customer the wrong way. Sources match the "Couldn't
+# resolve the host" prefix to stop retrying a broken sync, so keep it.
 _SHORT_HOST_NAME_ERROR = (
-    "This host is a short name that only works inside your own network, so PostHog can't look it up. "
+    "Couldn't resolve the host because it's a short name that only works inside your own network. "
     "Enter the full public hostname or IP address instead."
 )
 _MALFORMED_HOST_ERROR = (

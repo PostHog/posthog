@@ -248,6 +248,7 @@ class TestIsHostSafe(SimpleTestCase):
             valid, error = _is_host_safe(host, team_id=999)
             assert not valid
             assert error is not None
+            assert error.startswith("Couldn't resolve the host")
             assert "short name" in error
             assert host not in error
 
