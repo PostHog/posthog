@@ -10,6 +10,7 @@ import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
+import { EmailBrandEntryPoint } from '../EmailBrand/EmailBrandEntryPoint'
 import { ChannelSetupModal } from './ChannelSetupModal'
 
 const HedgehogReporter = pngHoggie(reporterPng)
@@ -58,6 +59,7 @@ export function MessageChannels(): JSX.Element {
                         isEmpty
                     />
                 )}
+                <EmailBrandEntryPoint entryPoint="channels" />
                 <EmailIntegrationsList />
                 <IntegrationsList titleText="" onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')} />
             </div>

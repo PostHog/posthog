@@ -53,6 +53,12 @@ def _response(status_code: int = 200, payload: dict | None = None) -> MagicMock:
     return response
 
 
+def _non_json_response() -> MagicMock:
+    response = _response(200)
+    response.json.side_effect = requests.JSONDecodeError("Expecting value", "<html>", 0)
+    return response
+
+
 class TestRenderDesignHtml:
     @override_settings(UNLAYER_API_KEY="test-key", UNLAYER_API_BASE_URL="https://api.unlayer.com")
     @patch("products.messaging.backend.unlayer.requests.post")
@@ -75,6 +81,8 @@ class TestRenderDesignHtml:
         [
             ("http_error", _response(500, {"error": "boom"}), None),
             ("missing_html", _response(200, {"success": True, "data": {}}), None),
+            ("unexpected_shape", _response(200, {"success": True, "data": "<html>ok</html>"}), None),
+            ("non_json_body", _non_json_response(), None),
             ("network_error", None, requests.ConnectionError("refused")),
         ]
     )

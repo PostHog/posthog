@@ -18,9 +18,9 @@ from parameterized import parameterized
 from PIL import Image
 from rest_framework import status
 
-from posthog.api.uploaded_media import FOUR_MEGABYTES
 from posthog.models import Team, UploadedMedia
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.uploaded_media import MAX_IMAGE_BYTES
 from posthog.models.utils import UUIDT, generate_random_token_personal
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -616,7 +616,7 @@ class TestMediaLibraryAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("non_image", b"<html>not an image</html>"),
-            ("oversized", b"1" * (FOUR_MEGABYTES + 1)),
+            ("oversized", b"1" * (MAX_IMAGE_BYTES + 1)),
         ]
     )
     def test_complete_upload_rejects_bad_bytes_and_cleans_up(self, _name: str, uploaded_bytes: bytes) -> None:

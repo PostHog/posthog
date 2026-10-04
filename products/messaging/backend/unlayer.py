@@ -81,8 +81,14 @@ def render_design_html(design: dict[str, Any]) -> str:
     if response.status_code != 200:
         raise UnlayerRenderError(f"Unlayer export returned HTTP {response.status_code}")
 
-    data = response.json().get("data") or {}
-    html = data.get("html")
-    if not html:
+    html = _exported_html(response)
+    if not isinstance(html, str) or not html:
         raise UnlayerRenderError("Unlayer export returned no HTML")
     return html
+
+
+def _exported_html(response: requests.Response) -> Any:
+    try:
+        return response.json()["data"]["html"]
+    except (ValueError, KeyError, TypeError) as e:
+        raise UnlayerRenderError("Unlayer export returned an unexpected body") from e

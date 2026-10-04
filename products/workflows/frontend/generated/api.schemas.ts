@@ -7,6 +7,424 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface EmailBrandStarterTemplateApi {
+    /** Id of the email template created from the Email brand. */
+    template_id: string
+}
+
+export interface EmailBrandSourceApi {
+    /**
+     * Repository path of the file the value was read from.
+     * @maxLength 1000
+     */
+    path: string
+    /**
+     * 1-based line in that file, when known.
+     * @minimum 1
+     * @nullable
+     */
+    line?: number | null
+    /**
+     * The value detection proposed. The field reports edited while its value differs from this. For the logo it is the id of the imported media.
+     * @maxLength 1000
+     */
+    detected_value: string
+}
+
+/**
+ * Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family.
+ */
+export type EmailBrandApiSources = { [key: string]: EmailBrandSourceApi }
+
+export interface EmailBrandEditedApi {
+    /** Whether the name differs from its detected value. */
+    name: boolean
+    /** Whether the logo differs from its detected value. */
+    logo: boolean
+    /** Whether the primary color differs from its detected value. */
+    primary_color: boolean
+    /** Whether the accent color differs from its detected value. */
+    accent_color: boolean
+    /** Whether the text color differs from its detected value. */
+    text_color: boolean
+    /** Whether the background color differs from its detected value. */
+    background_color: boolean
+    /** Whether the font family differs from its detected value. */
+    font_family: boolean
+}
+
+export interface EmailBrandApi {
+    /** Unique id of the Email brand. */
+    readonly id: string
+    /**
+     * Brand name. Shown in the email header when there is no logo.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Id of an image in this project's email media library to show in the email header. Null shows the name instead.
+     * @nullable
+     */
+    logo?: string | null
+    /**
+     * Public URL of the logo image, or null without a logo.
+     * @nullable
+     */
+    readonly logo_url: string | null
+    /** Main brand color as #rrggbb, used for buttons. */
+    primary_color?: string
+    /** Secondary brand color as #rrggbb, used for highlights. */
+    accent_color?: string
+    /** Body text color as #rrggbb. */
+    text_color?: string
+    /** Email background color as #rrggbb. */
+    background_color?: string
+    /**
+     * Font family name, for example Inter.
+     * @maxLength 100
+     */
+    font_family?: string
+    /**
+     * CSS font-family stack used in emails. It ends in fonts every email client has, for example 'Inter, Arial, Helvetica, sans-serif'.
+     * @maxLength 500
+     */
+    font_stack?: string
+    /**
+     * Full name (owner/repo) of the GitHub repository the brand was detected from. Empty when entered by hand.
+     * @maxLength 255
+     */
+    source_repository?: string
+    /**
+     * Directory inside the repository that holds the app detection read.
+     * @maxLength 255
+     */
+    app_root?: string
+    /** Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family. */
+    sources?: EmailBrandApiSources
+    /** Per value, whether it differs from the value detection found. A value without a source is never edited. */
+    readonly edited: EmailBrandEditedApi
+    /** When the Email brand was first saved. */
+    readonly created_at: string
+    /** When the Email brand last changed. */
+    readonly updated_at: string
+}
+
+/**
+ * Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family.
+ */
+export type PatchedEmailBrandApiSources = { [key: string]: EmailBrandSourceApi }
+
+export interface PatchedEmailBrandApi {
+    /** Unique id of the Email brand. */
+    readonly id?: string
+    /**
+     * Brand name. Shown in the email header when there is no logo.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Id of an image in this project's email media library to show in the email header. Null shows the name instead.
+     * @nullable
+     */
+    logo?: string | null
+    /**
+     * Public URL of the logo image, or null without a logo.
+     * @nullable
+     */
+    readonly logo_url?: string | null
+    /** Main brand color as #rrggbb, used for buttons. */
+    primary_color?: string
+    /** Secondary brand color as #rrggbb, used for highlights. */
+    accent_color?: string
+    /** Body text color as #rrggbb. */
+    text_color?: string
+    /** Email background color as #rrggbb. */
+    background_color?: string
+    /**
+     * Font family name, for example Inter.
+     * @maxLength 100
+     */
+    font_family?: string
+    /**
+     * CSS font-family stack used in emails. It ends in fonts every email client has, for example 'Inter, Arial, Helvetica, sans-serif'.
+     * @maxLength 500
+     */
+    font_stack?: string
+    /**
+     * Full name (owner/repo) of the GitHub repository the brand was detected from. Empty when entered by hand.
+     * @maxLength 255
+     */
+    source_repository?: string
+    /**
+     * Directory inside the repository that holds the app detection read.
+     * @maxLength 255
+     */
+    app_root?: string
+    /** Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family. */
+    sources?: PatchedEmailBrandApiSources
+    /** Per value, whether it differs from the value detection found. A value without a source is never edited. */
+    readonly edited?: EmailBrandEditedApi
+    /** When the Email brand was first saved. */
+    readonly created_at?: string
+    /** When the Email brand last changed. */
+    readonly updated_at?: string
+}
+
+export interface EmailBrandDetectRequestApi {
+    /** Id of the project's GitHub integration to read with. */
+    integration_id: number
+    /**
+     * Full name of the repository to read, as owner/repo.
+     * @maxLength 255
+     * @pattern ^(?!\.+/)[\w.-]+/(?!\.+$)[\w.-]+$
+     */
+    repository: string
+    /**
+     * Directory of the app to read inside a monorepo, for example apps/web. Leave it out to use the likeliest app.
+     * @maxLength 255
+     */
+    app_root?: string
+    /** Read the repository again instead of reusing a detection from the last 10 minutes. */
+    refresh?: boolean
+}
+
+export interface EmailBrandCandidateApi {
+    /** The value: a name, a #rrggbb color or a font family. */
+    value: string
+    /**
+     * Repository path of the file the value came from. Null for a default value.
+     * @nullable
+     */
+    path: string | null
+    /**
+     * 1-based line in that file, or null.
+     * @nullable
+     */
+    line: number | null
+    /** Whether the color is the untouched default primary of a UI kit theme, rather than a brand choice. */
+    default_theme: boolean
+    /**
+     * For a font family: a CSS font stack for email that ends in safe fonts.
+     * @nullable
+     */
+    font_stack: string | null
+}
+
+export interface EmailBrandProposalApi {
+    /** Proposed brand name. */
+    name: EmailBrandCandidateApi | null
+    /** Proposed primary color, or null. */
+    primary_color: EmailBrandCandidateApi | null
+    /** Proposed accent color, or null. */
+    accent_color: EmailBrandCandidateApi | null
+    /** Proposed body text color. */
+    text_color: EmailBrandCandidateApi | null
+    /** Proposed background color. */
+    background_color: EmailBrandCandidateApi | null
+    /** Proposed font family, or null. */
+    font_family: EmailBrandCandidateApi | null
+}
+
+export interface EmailBrandCandidatesApi {
+    /** Name candidates, best first. */
+    name: EmailBrandCandidateApi[]
+    /** Primary color candidates, best first. */
+    primary_color: EmailBrandCandidateApi[]
+    /** Accent color candidates, best first. */
+    accent_color: EmailBrandCandidateApi[]
+    /** Text color candidates, best first. */
+    text_color: EmailBrandCandidateApi[]
+    /** Background color candidates, best first. */
+    background_color: EmailBrandCandidateApi[]
+    /** Font family candidates, best first. */
+    font_family: EmailBrandCandidateApi[]
+}
+
+export interface EmailBrandLogoCandidateApi {
+    /** Repository path of the image file. Pass it to import_logo. */
+    path: string
+    /** Image format from the file extension: png, jpeg, gif, webp, svg or ico. */
+    format: string
+    /** File size in bytes. */
+    size: number
+}
+
+export interface EmailBrandFoundValueApi {
+    /** Email brand field the value is a candidate for, for example primary_color. */
+    field: string
+    /** The value found in the file. */
+    value: string
+}
+
+export interface EmailBrandFileReadApi {
+    /** Repository path of a file detection read. */
+    path: string
+    /** The brand values that file gave. */
+    found: EmailBrandFoundValueApi[]
+}
+
+export interface EmailBrandDetectionApi {
+    /** Full name of the repository that was read. */
+    repository: string
+    /** Directory of the app that was read. Empty for the repository root. */
+    app_root: string
+    /** Other app directories of a monorepo, likeliest first. */
+    app_root_alternatives: string[]
+    /** The proposed Email brand. It is not saved. */
+    proposal: EmailBrandProposalApi
+    /** Every distinct value found per field, best first. */
+    candidates: EmailBrandCandidatesApi
+    /** The repository's own logo files, best first: raster images, then SVG, then ICO. Import one with import_logo. */
+    logo_candidates: EmailBrandLogoCandidateApi[]
+    /** The files detection read, in reading order. */
+    files_read: EmailBrandFileReadApi[]
+}
+
+export interface EmailBrandImportLogoRequestApi {
+    /** Id of the project's GitHub integration to read with. */
+    integration_id: number
+    /**
+     * Full name of the repository to read, as owner/repo.
+     * @maxLength 255
+     * @pattern ^(?!\.+/)[\w.-]+/(?!\.+$)[\w.-]+$
+     */
+    repository: string
+    /**
+     * Repository path of the image file, usually one of the logo_candidates from detect.
+     * @maxLength 1000
+     * @pattern ^(?!/)(?!.*\//)(?!.*(?:^|/)\.{1,2}(?:/|$))[^\u0000-\u001f\\]+(?<!/)$
+     */
+    path: string
+}
+
+/**
+ * * `imported` - Imported
+ * * `svg_needs_rasterizing` - SVG needs rasterizing
+ */
+export type LogoImportOutcomeEnumApi = (typeof LogoImportOutcomeEnumApi)[keyof typeof LogoImportOutcomeEnumApi]
+
+export const LogoImportOutcomeEnumApi = {
+    Imported: 'imported',
+    SvgNeedsRasterizing: 'svg_needs_rasterizing',
+} as const
+
+export interface EmailBrandLogoImportApi {
+    /** imported: the image is in the email media library. svg_needs_rasterizing: the logo is an SVG, so draw svg as a PNG in the browser and upload that instead. Nothing was stored.
+     *
+     * * `imported` - Imported
+     * * `svg_needs_rasterizing` - SVG needs rasterizing */
+    outcome: LogoImportOutcomeEnumApi
+    /**
+     * Id of the stored image in the email media library. Null for an SVG.
+     * @nullable
+     */
+    media_id: string | null
+    /**
+     * Public URL of the stored image. Null for an SVG.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * The SVG markup to rasterize. Null for a stored image.
+     * @nullable
+     */
+    svg: string | null
+}
+
+/**
+ * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
+ */
+export type EmailBrandStarterDesignApiDesignCounters = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBodyRowsItem = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBodyHeadersItem = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBodyFootersItem = { [key: string]: unknown }
+
+/**
+ * Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.
+ */
+export type EmailBrandStarterDesignApiDesignBodyValues = { [key: string]: unknown }
+
+export type EmailBrandStarterDesignApiDesignBody = {
+    /** Any unique string. */
+    id?: string
+    /** Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}. */
+    rows: EmailBrandStarterDesignApiDesignBodyRowsItem[]
+    headers?: EmailBrandStarterDesignApiDesignBodyHeadersItem[]
+    footers?: EmailBrandStarterDesignApiDesignBodyFootersItem[]
+    /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
+    values?: EmailBrandStarterDesignApiDesignBodyValues
+}
+
+/**
+ * Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer.
+ */
+export type EmailBrandStarterDesignApiDesign = {
+    /** Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}. */
+    counters?: EmailBrandStarterDesignApiDesignCounters
+    /** Design schema version, e.g. 16. */
+    schemaVersion: number
+    body: EmailBrandStarterDesignApiDesignBody
+}
+
+export interface EmailBrandStarterDesignApi {
+    /** Suggested name for the starter template. */
+    name: string
+    /** Description the starter template is saved with. */
+    description: string
+    /** Suggested email subject line. */
+    subject: string
+    /** Email editor design built from the Email brand: logo header, heading, body, button and unsubscribe footer. */
+    design: EmailBrandStarterDesignApiDesign
+}
+
+/**
+ * * `name_match` - Name match
+ * * `recent_push` - Recent push
+ * * `web_language` - Web language
+ */
+export type RepositorySuggestionReasonEnumApi =
+    (typeof RepositorySuggestionReasonEnumApi)[keyof typeof RepositorySuggestionReasonEnumApi]
+
+export const RepositorySuggestionReasonEnumApi = {
+    NameMatch: 'name_match',
+    RecentPush: 'recent_push',
+    WebLanguage: 'web_language',
+} as const
+
+export interface RepositorySuggestionApi {
+    /** GitHub repository numeric identifier. */
+    id: number
+    /** Repository short name (without the owner prefix). */
+    name: string
+    /** Fully-qualified repository name as 'owner/repo'. */
+    full_name: string
+    /**
+     * Primary programming language GitHub detected, or null when unknown.
+     * @nullable
+     */
+    language: string | null
+    /**
+     * ISO 8601 timestamp of the most recent push, or null when unknown.
+     * @nullable
+     */
+    pushed_at: string | null
+    /** Why the repository ranks where it does: its name matches the project's app URLs, project name or organization name; it had a push in the last 30 days; its primary language is a web language. */
+    reasons: RepositorySuggestionReasonEnumApi[]
+}
+
+export interface RepositorySuggestionsApi {
+    /**
+     * Id of the GitHub integration the repositories belong to. Null without one.
+     * @nullable
+     */
+    integration_id: number | null
+    /** Up to 5 non-archived repositories, likeliest first. Empty without a GitHub integration. */
+    repositories: RepositorySuggestionApi[]
+}
+
 /**
  * * `team` - Only team
  * * `organization` - Organization
@@ -2021,6 +2439,13 @@ export interface BlastRadiusApi {
     dedupe_key: DedupeKeyEnumApi | null
     /** Proof this audience was previewed: pass it to the batch dispatch (confirm_token) after echoing 'affected' to the user. Signs these exact filters; expires in 15 minutes. */
     confirm_token: string
+}
+
+export type EmailBrandSuggestRepositoryRetrieveParams = {
+    /**
+     * Id of the GitHub integration whose repositories to rank. Defaults to the oldest GitHub integration connected to this environment.
+     */
+    integration_id?: number
 }
 
 export type HogFlowTemplatesListParams = {

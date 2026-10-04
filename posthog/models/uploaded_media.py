@@ -74,7 +74,7 @@ def is_inline_safe_content_type(content_type: str | None) -> bool:
 
 # Guards against a decompression bomb: a small, highly-compressed file that decodes to an
 # enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
-_MAX_IMAGE_PIXELS = 50_000_000
+MAX_IMAGE_PIXELS = 50_000_000
 
 
 def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
@@ -90,13 +90,47 @@ def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
     try:
         with Image.open(BytesIO(data), formats=INLINE_SAFE_IMAGE_FORMATS) as image:
             width, height = image.size
-            if width * height > _MAX_IMAGE_PIXELS:
+            if width * height > MAX_IMAGE_PIXELS:
                 return None
             image.load()
             content_type = Image.MIME.get(image.format or "")
     except Exception:
         return None
     return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
+
+
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
+
+
+class RejectedImage(ValueError):
+    """Bytes the media library refuses to store. ``code`` and ``detail`` are ready for an API error."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+
+    @classmethod
+    def too_large(cls) -> "RejectedImage":
+        return cls("file_too_large", "Uploaded media must be less than 4MB")
+
+    @classmethod
+    def invalid(cls) -> "RejectedImage":
+        return cls("invalid_image", "Uploaded media must be a valid image")
+
+
+def check_image_size(size: int) -> None:
+    if size > MAX_IMAGE_BYTES:
+        raise RejectedImage.too_large()
+
+
+def verified_image_content_type(data: Optional[bytes]) -> str:
+    """Return the real content type of an image the media library accepts, or raise ``RejectedImage``."""
+    check_image_size(len(data or b""))
+    content_type = sniff_image_content_type(data)
+    if content_type is None:
+        raise RejectedImage.invalid()
+    return content_type
 
 
 class UploadedMedia(UUIDTModel, RootTeamMixin):

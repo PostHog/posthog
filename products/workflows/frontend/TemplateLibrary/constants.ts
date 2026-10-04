@@ -1,5 +1,12 @@
 import { MessageTemplate } from './types'
 
+export const STARTER_SOURCE_PARAM = 'from'
+export const EMAIL_BRAND_STARTER_SOURCE = 'email_brand'
+
+export function isEmailBrandStarter(searchParams: Record<string, any>): boolean {
+    return searchParams[STARTER_SOURCE_PARAM] === EMAIL_BRAND_STARTER_SOURCE
+}
+
 export const NEW_TEMPLATE: MessageTemplate = {
     id: 'new',
     name: '',

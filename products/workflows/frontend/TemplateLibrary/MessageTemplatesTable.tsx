@@ -16,6 +16,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
+import { EmailBrandEntryPoint } from '../EmailBrand/EmailBrandEntryPoint'
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -33,6 +34,7 @@ export function MessageTemplatesTable(): JSX.Element {
 
     return (
         <div className="templates-section" data-attr="message-templates-table">
+            <EmailBrandEntryPoint entryPoint="template_library" />
             {showProductIntroduction && (
                 <ProductIntroduction
                     thingName="message template"
