@@ -1914,6 +1914,14 @@ def list_recordings_from_query(
 
     with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+        # The match check is a separate query and can disagree with the list (e.g. the list skips the
+        # date window for supplied session_ids). If the list returned the recording, it matches.
+        if recordings and getattr(recordings[0], "matches_filters", None) is False:
+            listed_copy = next(
+                (r for r in recordings_from_clickhouse if r.session_id == session_recording_id_to_prepend), None
+            )
+            if listed_copy is not None:
+                recordings = [listed_copy]
         recordings = recordings + recordings_from_clickhouse
 
     # If we have specified session_ids we need to sort them by the order they were specified. This sits
