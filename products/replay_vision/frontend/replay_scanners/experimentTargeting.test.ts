@@ -83,7 +83,7 @@ describe('experimentTargeting', () => {
             query: { kind: 'RecordingsQuery' },
         } as unknown as ReplayScanner
 
-        const prefilled = prefillScannerForExperiment(scanner, { experiment, variantKey })
+        const prefilled = prefillScannerForExperiment(scanner, { experiment, variantKey }, true)
 
         expect(prefilled).toMatchObject({
             scanner_type: 'experiment',
@@ -93,6 +93,12 @@ describe('experimentTargeting', () => {
         expect(prefilled.query?.filter_test_accounts).toBe(true)
         // Exposure must never enter the query blob: the API rejects it there.
         expect(prefilled.query).not.toHaveProperty('experiment_exposure')
+
+        // Until the flag is on for a team, the template keeps its type and gets legacy targeting.
+        expect(prefillScannerForExperiment(scanner, { experiment, variantKey }, false)).toMatchObject({
+            scanner_type: 'monitor',
+            experiment_targeting: { experiment_id: 7, variant: variantKey },
+        })
     })
 
     it.each([

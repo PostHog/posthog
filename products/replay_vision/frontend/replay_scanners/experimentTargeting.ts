@@ -3,6 +3,8 @@ import { getExperimentVariants } from 'scenes/experiments/utils'
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
 
+import type { ScannerExperimentTargetingApi } from 'products/replay_vision/frontend/generated/api.schemas'
+
 import type { ExperimentScannerConfig, ReplayScanner } from './types'
 
 /**
@@ -153,16 +155,37 @@ export function experimentScannerConfig(
  * experiment type, a scoped name, and the experiment's test-account setting. A template's type and
  * prompt give way, because only the experiment type compares variants.
  */
-export function prefillScannerForExperiment(scanner: ReplayScanner, context: ExperimentScannerContext): ReplayScanner {
+/**
+ * Legacy experiment targeting on another scanner type, for teams without the experiment type yet. The
+ * backend derives the person-scoped exposure filter from it at scan time.
+ */
+export function buildExperimentTargeting(context: ExperimentScannerContext): ScannerExperimentTargetingApi {
+    return {
+        experiment_id: context.experiment.id as number,
+        variant: context.variantKey,
+    }
+}
+
+export function prefillScannerForExperiment(
+    scanner: ReplayScanner,
+    context: ExperimentScannerContext,
+    asExperimentScanner: boolean
+): ReplayScanner {
+    const query = { ...scanner.query, ...experimentScannerQuery(context.experiment) }
+    if (!asExperimentScanner) {
+        return {
+            ...scanner,
+            name: experimentScannerName(scanner.name, context.experiment.name),
+            experiment_targeting: buildExperimentTargeting(context),
+            query,
+        }
+    }
     return {
         ...scanner,
         name: experimentScannerName(scanner.name, context.experiment.name),
         scanner_type: 'experiment',
         scanner_config: experimentScannerConfig(context.experiment, context.variantKey ? [context.variantKey] : null),
         experiment_targeting: null,
-        query: {
-            ...scanner.query,
-            ...experimentScannerQuery(context.experiment),
-        },
+        query,
     }
 }
