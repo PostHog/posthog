@@ -186,10 +186,12 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
         dataProcessingApprovalDisabledReason: [
             (s) => [s.currentOrganization],
             (currentOrganization: OrganizationType | null): string | null =>
-                !currentOrganization?.membership_level ||
-                currentOrganization.membership_level < OrganizationMembershipLevel.Admin
-                    ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
-                    : null,
+                currentOrganization?.has_signed_baa
+                    ? `${currentOrganization.name} has a signed BAA, so PostHog AI stays turned off`
+                    : !currentOrganization?.membership_level ||
+                        currentOrganization.membership_level < OrganizationMembershipLevel.Admin
+                      ? `Ask an admin or owner of ${currentOrganization?.name} to approve this`
+                      : null,
         ],
         aiAccessRequested: [
             (s) => [s.aiAccessRequestedByOrg, s.currentOrganization],

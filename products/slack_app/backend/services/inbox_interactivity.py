@@ -159,10 +159,16 @@ def handle_inbox_ai_approval(payload: dict) -> HttpResponse:
     )
     ticked = any(o.get("value") == "approve" for o in (action or {}).get("selected_options", []))
     if integration and slack_user_id and ticked:
-        if not onboarding.approve_ai_data_processing(integration, slack_user_id):
+        result = onboarding.approve_ai_data_processing(integration, slack_user_id)
+        if result == onboarding.AIApprovalResult.NOT_ADMIN:
             _post_ephemeral_via_response_url(
                 payload.get("response_url", ""),
                 ":warning: Only an organization admin can approve AI data processing.",
+            )
+        elif result == onboarding.AIApprovalResult.BAA_SIGNED:
+            _post_ephemeral_via_response_url(
+                payload.get("response_url", ""),
+                ":warning: Your organization has a signed BAA, so PostHog AI stays turned off. Contact PostHog support if you need to change this.",
             )
     return HttpResponse(status=200)
 

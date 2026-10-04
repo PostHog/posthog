@@ -903,6 +903,7 @@ depends_on = [
     "products.alerts",
     "products.conversations",
     "products.dashboards",
+    "products.legal_documents",
     "products.product_analytics",
     "products.signals",
     "products.tasks", "products.access_control",
