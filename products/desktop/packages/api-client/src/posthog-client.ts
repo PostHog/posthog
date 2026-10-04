@@ -402,10 +402,17 @@ export const NO_TASK_RUN_PREFERENCES: TaskRunPreferences = {
   reasoning_effort: null,
 };
 
+/** The signed-in user's defaults for new tasks. Null means never set. */
+export interface TaskDefaults {
+  start_in_plan_mode: boolean | null;
+  auto_publish_cloud_runs: boolean | null;
+}
+
 /** What the signed-in user has stored for this project, and what it resolves to. */
 export interface MyTaskRunConfig {
   preferences: TaskRunPreferences;
   resolved: TaskRunDefaults;
+  taskDefaults: TaskDefaults;
 }
 
 export interface TaskSessionStorageAccess {
@@ -2613,6 +2620,7 @@ export class PostHogAPIClient {
     const payload = (await response.json()) as {
       ai_run_preferences?: Partial<TaskRunPreferences> | null;
       resolved_ai_run_defaults?: TaskRunDefaults | null;
+      task_defaults?: Partial<TaskDefaults> | null;
     };
     return {
       // The API stores a cleared preference as `{}`, so read each field rather than
@@ -2624,7 +2632,29 @@ export class PostHogAPIClient {
         reasoning_effort: payload.ai_run_preferences?.reasoning_effort ?? null,
       },
       resolved: payload.resolved_ai_run_defaults ?? NO_TASK_RUN_DEFAULTS,
+      taskDefaults: {
+        start_in_plan_mode: payload.task_defaults?.start_in_plan_mode ?? null,
+        auto_publish_cloud_runs:
+          payload.task_defaults?.auto_publish_cloud_runs ?? null,
+      },
     };
+  }
+
+  /** Save some of the signed-in user's task defaults. Fields left out keep their value. */
+  async setMyTaskDefaults(
+    projectId: number,
+    changes: Partial<Record<keyof TaskDefaults, boolean>>,
+  ): Promise<void> {
+    const urlPath = `/api/projects/${projectId}/tasks/@me/config/task_defaults/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(changes) },
+    });
+    if (!response.ok) {
+      throw new Error(`Task defaults update failed: ${response.status}`);
+    }
   }
 
   async listSignalSourceConfigs(

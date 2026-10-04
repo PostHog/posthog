@@ -138,7 +138,12 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     unseen_report_graded_events,
     unseen_score_events,
 )
-from products.signals.dags.inbox_ranking.training.train import _head_readable, booster_holdout_grade, train_head
+from products.signals.dags.inbox_ranking.training.train import (
+    HoldoutGrade,
+    _head_readable,
+    booster_holdout_grade,
+    train_head,
+)
 from products.signals.dags.inbox_ranking.training.unseen import (
     CANDIDATE_ROLE,
     CHAMPION_ROLE,
@@ -1500,6 +1505,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
                     birth_day_positives=1,
                     example_window_start=datetime.date(2026, 7, 1),
                     example_cap_bound=True,
+                    pairs_skipped_missing_label_columns=0,
                 )
             },
         ),
@@ -1507,7 +1513,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
             partition_key="2026-08-25",
             run_id="run-1",
             model_name=TABULAR_MODEL_NAME,
-            decision=PromotionDecision(promote=True, reason="no champion yet"),
+            decision=PromotionDecision(promote=True, reason="no champion yet", skipped_heads=("discuss",)),
             promoted=False,
             champion_version="none",
             incumbent_champion_version="none",
@@ -1588,6 +1594,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "would_promote": True,
         "promoted": False,
         "incumbent_champion_version": "none",
+        "skipped_heads": ["discuss"],
         "champion_open_auc_on_this_holdout": 0.6,
         "champion_open_ece_on_this_holdout": 0.05,
     }.items() <= promotion_props.items()
@@ -1728,8 +1735,69 @@ def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
     assert decide_promotion(candidate, champion, now=NOW, min_days_between=3).promote
     # Paired on this holdout the champion is stronger than its stored number said.
-    paired = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.75})
+    paired = decide_promotion(
+        candidate, champion, now=NOW, min_days_between=3, champion_grades={"open": _grade(auc=0.75, positives=50)}
+    )
     assert not paired.promote and "regressed" in paired.reason
+
+
+def _grade(*, auc: float | None, positives: int, ece: float | None = None) -> HoldoutGrade:
+    return HoldoutGrade(auc=auc, expected_calibration_error=ece, positives=positives)
+
+
+def _head(name: str, auc: float, *, readable: bool) -> dict:
+    return {"head": name, "holdout_auc": auc, "readable": readable}
+
+
+@pytest.mark.parametrize(
+    "candidate_heads,discuss_grade,expected_promote,reason_fragment,expected_skipped",
+    [
+        # The shared holdout is too thin to read discuss on either model: no evidence, not a regression.
+        (
+            [_head("open", 0.70, readable=True), _head("discuss", 0.77, readable=False)],
+            _grade(auc=0.70, positives=26),
+            True,
+            "skipped: discuss",
+            ("discuss",),
+        ),
+        # A thin holdout must not hide a head the candidate lost.
+        ([_head("open", 0.70, readable=True)], _grade(auc=0.70, positives=0), False, "discuss not trained", ()),
+        # Enough positives, the candidate sits inside its null and well under the champion: its numbers fail it.
+        (
+            [_head("open", 0.70, readable=True), _head("discuss", 0.55, readable=False)],
+            _grade(auc=0.70, positives=40),
+            False,
+            "discuss regressed",
+            (),
+        ),
+        (
+            [_head("open", 0.70, readable=True), _head("discuss", 0.71, readable=True)],
+            _grade(auc=0.70, positives=40),
+            True,
+            "every readable head",
+            (),
+        ),
+    ],
+    ids=["thin_holdout_skipped", "head_not_trained", "unreadable_regressed", "both_readable"],
+)
+def test_decide_promotion_skips_heads_the_shared_holdout_cannot_read(
+    candidate_heads, discuss_grade, expected_promote, reason_fragment, expected_skipped
+):
+    candidate = {"model_version": "d2", "heads": candidate_heads}
+    champion = {**_metadata("d1", open=0.70, discuss=0.70), "promoted_at": "2026-08-10T00:00:00+00:00"}
+
+    decision = decide_promotion(
+        candidate,
+        champion,
+        now=NOW,
+        min_days_between=3,
+        champion_grades={"open": _grade(auc=0.70, positives=60), "discuss": discuss_grade},
+        min_holdout_positives={"open": 50, "discuss": 30},
+    )
+
+    assert decision.promote is expected_promote
+    assert reason_fragment in decision.reason
+    assert decision.skipped_heads == expected_skipped
 
 
 @pytest.mark.parametrize(
@@ -1748,9 +1816,8 @@ def test_decide_promotion_refuses_a_worse_calibrated_candidate(candidate_ece, ch
     candidate["heads"][0]["holdout_expected_calibration_error"] = candidate_ece
     champion = {**_metadata("d1", open=0.66), "promoted_at": "2026-08-10T00:00:00+00:00"}
 
-    decision = decide_promotion(
-        candidate, champion, now=NOW, min_days_between=3, champion_aucs={"open": 0.66}, champion_eces=champion_eces
-    )
+    grade = _grade(auc=0.66, ece=(champion_eces or {}).get("open"), positives=50)
+    decision = decide_promotion(candidate, champion, now=NOW, min_days_between=3, champion_grades={"open": grade})
 
     assert decision.promote is expected_promote
     assert expected_promote or "open calibration regressed" in decision.reason
