@@ -36,20 +36,16 @@ tools:
             has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded
             automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote
             by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is
-            always a mistake), `note` (free-form: note). `impact_measurement_plan` stores one proposed outcome:
-            metric_id, title, kind, bounded InsightVizNode Trends query, goal_value, goal_direction, goal_grain
-            (whole_window or per_interval), and decision_window_days or minimum_data_points (which requires an
-            eligibility_query counting qualifying opportunities). Read existing plans first, then append a new version
-            with the same metric_id to revise one without changing the others. Leave activated=false; approval is a
-            separate action. This proposal never starts monitoring. Status types are latest-wins — appending a new
-            version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation,
-            priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment`
-            (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}). Status
-            judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents
-            pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON
-            object matching the chosen type and is validated against its schema. Writes are attributed to your task
-            automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are
-            rejected. Returns the created artefact including its id.
+            always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status
+            types are latest-wins — appending a new version supersedes the previous one as the report's canonical
+            status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation,
+            actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason),
+            `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the
+            canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses
+            them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is
+            validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate
+            the work with your current claim; stale or foreign claims are rejected. Returns the created artefact
+            including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
@@ -143,13 +139,13 @@ tools:
         list: true
         title: List a report's checks
         description: >
-            List the follow-up checks on one report, open checks first and newest first within each group. Each row
-            carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`,
-            `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`,
-            `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before
-            its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them
-            and does not create them. `query` and `baseline_value` read as null when you cannot read the data they
-            describe.
+            List the follow-up checks on one report: open checks first, then finished checks, newest first within each
+            group. Each row carries the expectation and why it was written, its schedule (`next_run_at`,
+            `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`,
+            `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its
+            report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so
+            this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot
+            read the data they describe.
     inbox-report-checks-replace:
         operation: signals_report_checks_replace_create
         enabled: true
@@ -1251,9 +1247,6 @@ tools:
         enabled: false
     signals-report-pr-review-comments-create:
         operation: signals_report_pr_review_comments_create
-        enabled: false
-    signals-reports-artefacts-activate-create:
-        operation: signals_reports_artefacts_activate_create
         enabled: false
     signals-reports-available-reviewers-retrieve:
         operation: signals_reports_available_reviewers_retrieve

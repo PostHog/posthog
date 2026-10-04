@@ -2599,6 +2599,8 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
@@ -12460,11 +12462,6 @@ export namespace Schemas {
       preset: MCPPolicyPresetEnum;
     }
 
-    export interface ApplyPromptSuggestionRequest {
-      /** The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged. */
-      config?: unknown;
-    }
-
     /**
      * * `setup_tab` - setup_tab
      * * `apply_all_safe` - apply_all_safe
@@ -14325,7 +14322,7 @@ export namespace Schemas {
     export interface BackfillCreate {
       /** Inclusive lower bound of the historical window to scan. */
       window_start: string;
-      /** Exclusive upper bound of the window; clamped server-side to now. */
+      /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
       window_end: string;
       /**
          * The most this backfill may cost, in credits (1 credit = $0.01): pass the `total_credits` from the estimate the person agreed to. The create is rejected if the window now costs more.
@@ -14348,7 +14345,7 @@ export namespace Schemas {
       credits_remaining: number | null;
       /** The window lower bound the estimate covered. */
       window_start: string;
-      /** The window upper bound after clamping to now. */
+      /** The window upper bound after clamping to now and, for an experiment scanner, to the experiment's end date. */
       window_end: string;
     }
 
@@ -14371,7 +14368,7 @@ export namespace Schemas {
     export interface BackfillWindow {
       /** Inclusive lower bound of the historical window to scan. */
       window_start: string;
-      /** Exclusive upper bound of the window; clamped server-side to now. */
+      /** Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date. */
       window_end: string;
     }
 
@@ -19186,6 +19183,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `day` - Day
+     * * `week` - Week
+     * * `month` - Month
+     */
+    export type CalendarUnitEnum = typeof CalendarUnitEnum[keyof typeof CalendarUnitEnum];
+
+
+    export const CalendarUnitEnum = {
+      Day: 'day',
+      Week: 'week',
+      Month: 'month',
+    } as const;
+
+    /**
      * * `needs_approval` - needs_approval
      * * `disabled` - disabled
      * * `removed` - removed
@@ -21737,20 +21748,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `day` - Day
-     * * `week` - Week
-     * * `month` - Month
-     */
-    export type SpaceGoalPeriodEnum = typeof SpaceGoalPeriodEnum[keyof typeof SpaceGoalPeriodEnum];
-
-
-    export const SpaceGoalPeriodEnum = {
-      Day: 'day',
-      Week: 'week',
-      Month: 'month',
-    } as const;
-
-    /**
      * * `at_least` - At least
      * * `at_most` - At most
      */
@@ -21776,7 +21773,7 @@ export namespace Schemas {
        * * `day` - Day
        * * `week` - Week
        * * `month` - Month */
-      period?: SpaceGoalPeriodEnum;
+      period?: CalendarUnitEnum;
       /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
        *
        * * `at_least` - At least
@@ -25667,133 +25664,6 @@ export namespace Schemas {
       target_display_name: string;
       /** canonical or team_custom */
       source: string;
-    }
-
-    /**
-     * * `pending` - Pending
-     * * `applied` - Applied
-     * * `dismissed` - Dismissed
-     * * `superseded` - Superseded
-     * * `no_change` - No change
-     */
-    export type PromptSuggestionStatusEnum = typeof PromptSuggestionStatusEnum[keyof typeof PromptSuggestionStatusEnum];
-
-
-    export const PromptSuggestionStatusEnum = {
-      Pending: 'pending',
-      Applied: 'applied',
-      Dismissed: 'dismissed',
-      Superseded: 'superseded',
-      NoChange: 'no_change',
-    } as const;
-
-    export interface PromptEvaluationResult {
-      /** The rated session that was re-run with the suggested prompt. */
-      session_id: string;
-      /** The original rated observation the comparison is against. */
-      observation_id: string;
-      /** The team's rating of the original output (thumbs up = true). */
-      rated_correct: boolean;
-      /**
-         * The original output's primary outcome.
-         * @nullable
-         */
-      before: string | null;
-      /**
-         * The suggested prompt's outcome for the same session. Null when the run errored or returned no discrete outcome (e.g. a classifier with no tags).
-         * @nullable
-         */
-      after: string | null;
-      /** kept (up, unchanged), regressed (up, changed), fixed (down, changed), still_wrong (down, unchanged), error, or preview (scorer/summarizer: raw before/after, no classification). */
-      outcome: string;
-      /**
-         * Why this session's re-run failed, when it did.
-         * @nullable
-         */
-      error: string | null;
-    }
-
-    export interface PromptEvaluationSummary {
-      /** Thumbs-up sessions whose output is unchanged. */
-      kept: number;
-      /** Thumbs-up sessions whose output changed. */
-      regressed: number;
-      /** Thumbs-down sessions whose output changed. */
-      fixed: number;
-      /** Thumbs-down sessions whose output is unchanged. */
-      still_wrong: number;
-      /** Sessions whose re-run failed. */
-      errors: number;
-    }
-
-    export interface PromptSuggestionEvaluation {
-      /** running, succeeded, or failed. */
-      status: string;
-      /** When the evaluation started. */
-      started_at: string;
-      /**
-         * When the evaluation finished, if it has.
-         * @nullable
-         */
-      finished_at: string | null;
-      /** How many rated sessions are being re-run. */
-      total: number;
-      /** The rated set the evaluation ran against. */
-      labels_fingerprint: string;
-      /** Per-session outcomes, in completion order. */
-      results: PromptEvaluationResult[];
-      /** Outcome counts. Null while the evaluation is running. */
-      summary: PromptEvaluationSummary | null;
-    }
-
-    export interface ReplayScannerPromptSuggestion {
-      readonly id: string;
-      /** pending (current), applied, dismissed, or superseded by a newer suggestion.
-       *
-       * * `pending` - Pending
-       * * `applied` - Applied
-       * * `dismissed` - Dismissed
-       * * `superseded` - Superseded
-       * * `no_change` - No change */
-      readonly status: PromptSuggestionStatusEnum;
-      /** The full rewritten prompt, ready to apply to the scanner. */
-      readonly suggested_prompt: string;
-      /** The scanner prompt this suggestion was generated against, for diffing. */
-      readonly base_prompt: string;
-      /** The scanner config this suggestion was generated against. */
-      readonly base_config: unknown;
-      /** The full proposed scanner config, ready to apply. */
-      readonly suggested_config: unknown;
-      /** Typed per-field diff entries driving the change cards. */
-      readonly changes: unknown;
-      /** What the rewrite changed and why, grounded in the ratings. */
-      readonly rationale: string;
-      /** Thumbs-up ratings the suggestion was based on. */
-      readonly based_on_up: number;
-      /** Thumbs-down ratings the suggestion was based on. */
-      readonly based_on_down: number;
-      /** The scanner version whose prompt this suggestion was generated against. */
-      readonly scanner_version: number;
-      readonly created_at: string;
-      /** User who requested this suggestion; null for automatic refreshes. */
-      readonly created_by: UserBasic | null;
-      /** @nullable */
-      readonly applied_at: string | null;
-      /** User who applied this suggestion to the scanner; null unless applied. */
-      readonly applied_by: UserBasic | null;
-      /** Test-before-apply results: the suggested prompt re-run against rated sessions. */
-      readonly evaluation: PromptSuggestionEvaluation | null;
-    }
-
-    export interface CurrentPromptSuggestion {
-      /** The newest suggestion for this scanner, or null when none has been generated yet. */
-      suggestion: ReplayScannerPromptSuggestion | null;
-      /** True when the team's ratings changed since the newest suggestion was generated. */
-      stale: boolean;
-      /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
-      rated_count: number;
-      /** Maximum rated sessions one suggestion test re-runs. Each successful re-run charges credits like a normal observation of the same model. */
-      evaluation_session_cap: number;
     }
 
     /**
@@ -40257,17 +40127,6 @@ export namespace Schemas {
       sampling_rate: number;
     }
 
-    export interface EvaluatePromptSuggestionRequest {
-      /**
-         * How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.
-         * @minimum 1
-         * @maximum 100
-         */
-      session_limit?: number;
-      /** The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config. */
-      config?: unknown;
-    }
-
     /**
      * Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}.
      */
@@ -44373,6 +44232,326 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version?: string | null;
+    }
+
+    export interface VariantsExperiment {
+      /** The experiment's id. */
+      id: number;
+      /** The experiment's name. */
+      name: string;
+      /** draft, running, paused, exposure_frozen, or stopped. */
+      status: string;
+      /**
+         * When the experiment launched.
+         * @nullable
+         */
+      start_date: string | null;
+      /**
+         * When the experiment ended; null while it runs.
+         * @nullable
+         */
+      end_date: string | null;
+      /**
+         * The experiment's recommended running time in days, when one was set.
+         * @nullable
+         */
+      planned_duration_days: number | null;
+      /**
+         * The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.
+         * @nullable
+         */
+      current_day: number | null;
+    }
+
+    export interface VariantsWindow {
+      /** Succeeded observations of this scanner, attributed to a variant or not. */
+      total_observations: number;
+      /**
+         * When the earliest of those observations completed.
+         * @nullable
+         */
+      first_observation_at: string | null;
+      /**
+         * When the latest of those observations completed.
+         * @nullable
+         */
+      last_observation_at: string | null;
+    }
+
+    /**
+     * * `configured` - Configured
+     * * `inline` - Inline
+     */
+    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
+
+
+    export const ScannerOriginEnum = {
+      Configured: 'configured',
+      Inline: 'inline',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     */
+    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
+
+
+    export const ObservationStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+      Ineligible: 'ineligible',
+    } as const;
+
+    /**
+     * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+     * @nullable
+     */
+    export type ScannerSnapshotVariantSamplingRates = {[key: string]: number} | null;
+
+    /**
+     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
+     */
+    export interface ScannerSnapshot {
+      /** Scanner name at run time. */
+      name: string;
+      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
+       *
+       * * `monitor` - Monitor
+       * * `classifier` - Classifier
+       * * `scorer` - Scorer
+       * * `summarizer` - Summarizer
+       * * `experiment` - Experiment */
+      scanner_type: ScannerTypeEnum;
+      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
+      scanner_version: number;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
+      /** Whether the observation was run with Signal emission enabled. */
+      emits_signals: boolean;
+      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
+      scanner_config: unknown;
+      /**
+         * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
+         * @nullable
+         */
+      variant_sampling_rates?: ScannerSnapshotVariantSamplingRates;
+    }
+
+    /**
+     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
+     */
+    export interface ScannerResult {
+      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
+      model_output: unknown;
+      /**
+         * Number of PostHog Signals emitted from this observation.
+         * @minimum 0
+         */
+      signals_count: number;
+      /**
+         * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
+         * @nullable
+         */
+      experiment_variant?: string | null;
+      /**
+         * Experiment scanners only: the scanned session's duration in seconds.
+         * @nullable
+         */
+      session_duration_s?: number | null;
+    }
+
+    /**
+     * * `schedule` - Schedule
+     * * `on_demand` - On demand
+     * * `retry` - Retry
+     * * `backfill` - Backfill
+     */
+    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
+
+
+    export const ObservationTriggerEnum = {
+      Schedule: 'schedule',
+      OnDemand: 'on_demand',
+      Retry: 'retry',
+      Backfill: 'backfill',
+    } as const;
+
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
+    /**
+     * * `thumbnail` - Thumbnail
+     * * `clip` - Clip
+     * * `chapter` - Chapter
+     */
+    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
+
+
+    export const ReplayObservationMediaKindEnum = {
+      Thumbnail: 'thumbnail',
+      Clip: 'clip',
+      Chapter: 'chapter',
+    } as const;
+
+    /**
+     * One thumbnail or clip illustrating an observation.
+     */
+    export interface ReplayObservationMedia {
+      /** Id of this media entry. */
+      readonly id: string;
+      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
+       *
+       * * `thumbnail` - Thumbnail
+       * * `clip` - Clip
+       * * `chapter` - Chapter */
+      readonly kind: ReplayObservationMediaKindEnum;
+      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
+      readonly position: number;
+      /** Export asset holding the bytes; fetch it from the export content endpoint. */
+      readonly asset_id: number;
+      /**
+         * One sentence saying what the clip shows. Null for thumbnails.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** Where this media starts in the analysis video, in milliseconds. */
+      readonly video_start_ms: number;
+      /**
+         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
+         * @nullable
+         */
+      readonly video_end_ms: number | null;
+    }
+
+    export interface ReplayObservation {
+      readonly id: string;
+      /** The scanner that produced this observation. */
+      readonly scanner_id: string;
+      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
+       *
+       * * `configured` - Configured
+       * * `inline` - Inline */
+      readonly scanner_origin: ScannerOriginEnum;
+      /** Session recording id this scanner was applied to. */
+      readonly session_id: string;
+      /** Observation status (pending, running, succeeded, failed, ineligible).
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `succeeded` - Succeeded
+       * * `failed` - Failed
+       * * `ineligible` - Ineligible */
+      readonly status: ObservationStatusEnum;
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      readonly error_reason: string;
+      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
+      readonly workflow_id: string;
+      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
+      readonly scanner_snapshot: ScannerSnapshot | null;
+      /** Result data persisted on success; null until the observation succeeds. */
+      readonly scanner_result: ScannerResult | null;
+      /**
+         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
+         * @nullable
+         */
+      readonly prompt_question: string | null;
+      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
+       *
+       * * `schedule` - Schedule
+       * * `on_demand` - On demand
+       * * `retry` - Retry
+       * * `backfill` - Backfill */
+      readonly triggered_by: ObservationTriggerEnum;
+      /** User who triggered an on-demand observation; null for scheduled observations. */
+      readonly triggered_by_user: UserBasic | null;
+      /**
+         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
+         * @nullable
+         */
+      readonly backfill_id: string | null;
+      /**
+         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
+         * @nullable
+         */
+      readonly previous_observation_id: string | null;
+      /**
+         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
+         * @nullable
+         */
+      readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
+      /** Whether the calling user has opened this observation. */
+      readonly viewed: boolean;
+      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
+      readonly media: readonly ReplayObservationMedia[];
+      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
+      readonly summary_line: string;
+      /** @nullable */
+      started_at?: string | null;
+      /** @nullable */
+      completed_at?: string | null;
+      readonly created_at: string;
+    }
+
+    export interface VariantReadout {
+      /** The variant key. */
+      key: string;
+      /** Succeeded observations attributed to this variant. */
+      observations: number;
+      /** Distinct people (by distinct id) behind those observations. */
+      distinct_people: number;
+      /**
+         * Median scanned session length in seconds; null with no observations.
+         * @nullable
+         */
+      median_session_duration_s: number | null;
+      /**
+         * The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /** This variant's most recent observations, newest first. */
+      latest_observations: ReplayObservation[];
+    }
+
+    export interface ExperimentVariantsReadout {
+      /** The watched experiment; null if it was deleted. */
+      experiment: VariantsExperiment | null;
+      /** The span of observations the counts cover. */
+      window: VariantsWindow;
+      /** One entry per watched variant, plus any variant still holding observations. */
+      variants: VariantReadout[];
+      /** Succeeded observations with no attributed variant. */
+      unattributed_count: number;
     }
 
     /**
@@ -49593,33 +49772,6 @@ export namespace Schemas {
       createdAt: string | null;
     }
 
-    export interface FeedbackThemeSession {
-      /** Observation whose feedback comment backs this theme. */
-      observation_id: string;
-      /** Session recording the feedback comment was about. */
-      session_id: string;
-    }
-
-    export interface FeedbackTheme {
-      /** Short failure mode in sentence case, for example "Review page mistaken for confirmation". */
-      theme: string;
-      /** How many feedback comments describe this failure mode. */
-      count: number;
-      /** Up to two short representative quotes from the feedback comments. */
-      examples: string[];
-      /** The rated sessions whose feedback comments back this theme. Empty for summaries generated before session tracking. */
-      sessions: FeedbackThemeSession[];
-    }
-
-    export interface FeedbackThemes {
-      /** Recurring failure modes, most frequent first. */
-      themes: FeedbackTheme[];
-      /** Number of thumbs-down feedback comments the summary was generated from. */
-      feedback_count: number;
-      /** When the summary was generated. */
-      generated_at: string;
-    }
-
     /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
@@ -52420,10 +52572,20 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
+      /**
+         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         * @nullable
+         */
+      readonly pending_suggestions: number | null;
+      /**
+         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * @nullable
+         */
+      readonly suggestions_enabled: boolean | null;
     }
 
     export interface HogFlowOptimization {
-      /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+      /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
     }
 
@@ -64448,252 +64610,6 @@ export namespace Schemas {
       version_markers: ObservationVersionMarker[];
     }
 
-    /**
-     * * `configured` - Configured
-     * * `inline` - Inline
-     */
-    export type ScannerOriginEnum = typeof ScannerOriginEnum[keyof typeof ScannerOriginEnum];
-
-
-    export const ScannerOriginEnum = {
-      Configured: 'configured',
-      Inline: 'inline',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-     * * `running` - Running
-     * * `succeeded` - Succeeded
-     * * `failed` - Failed
-     * * `ineligible` - Ineligible
-     */
-    export type ObservationStatusEnum = typeof ObservationStatusEnum[keyof typeof ObservationStatusEnum];
-
-
-    export const ObservationStatusEnum = {
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-    } as const;
-
-    /**
-     * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
-     */
-    export interface ScannerSnapshot {
-      /** Scanner name at run time. */
-      name: string;
-      /** Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.
-       *
-       * * `monitor` - Monitor
-       * * `classifier` - Classifier
-       * * `scorer` - Scorer
-       * * `summarizer` - Summarizer
-       * * `experiment` - Experiment */
-      scanner_type: ScannerTypeEnum;
-      /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
-      scanner_version: number;
-      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
-      model: string;
-      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
-      provider: string;
-      /** Whether the observation was run with Signal emission enabled. */
-      emits_signals: boolean;
-      /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
-      scanner_config: unknown;
-      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
-      verify_positives: string;
-    }
-
-    /**
-     * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
-     */
-    export interface VerificationRecord {
-      /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
-      mode: string;
-      /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
-      draws: string[];
-      /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
-      resolved_verdict: string;
-      /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
-      served_verdict: string;
-      /**
-         * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
-         * @nullable
-         */
-      skipped_reason: string | null;
-    }
-
-    /**
-     * Mirrors `temporal.types.ScannerResult` for OpenAPI generation.
-     */
-    export interface ScannerResult {
-      /** Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`. */
-      model_output: unknown;
-      /**
-         * Number of PostHog Signals emitted from this observation.
-         * @minimum 0
-         */
-      signals_count: number;
-      /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
-      verification: VerificationRecord | null;
-    }
-
-    /**
-     * * `schedule` - Schedule
-     * * `on_demand` - On demand
-     * * `retry` - Retry
-     * * `backfill` - Backfill
-     */
-    export type ObservationTriggerEnum = typeof ObservationTriggerEnum[keyof typeof ObservationTriggerEnum];
-
-
-    export const ObservationTriggerEnum = {
-      Schedule: 'schedule',
-      OnDemand: 'on_demand',
-      Retry: 'retry',
-      Backfill: 'backfill',
-    } as const;
-
-    /**
-     * The team's shared judgement on whether the scanner scored this session correctly.
-     */
-    export interface ReplayObservationLabel {
-      /** True if the scanner scored this session correctly, false if not. */
-      is_correct: boolean;
-      /**
-         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
-         * @maxLength 5000
-         */
-      feedback?: string;
-    }
-
-    /**
-     * * `thumbnail` - Thumbnail
-     * * `clip` - Clip
-     * * `chapter` - Chapter
-     */
-    export type ReplayObservationMediaKindEnum = typeof ReplayObservationMediaKindEnum[keyof typeof ReplayObservationMediaKindEnum];
-
-
-    export const ReplayObservationMediaKindEnum = {
-      Thumbnail: 'thumbnail',
-      Clip: 'clip',
-      Chapter: 'chapter',
-    } as const;
-
-    /**
-     * One thumbnail or clip illustrating an observation.
-     */
-    export interface ReplayObservationMedia {
-      /** Id of this media entry. */
-      readonly id: string;
-      /** `thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter, `clip` for a short video.
-       *
-       * * `thumbnail` - Thumbnail
-       * * `clip` - Clip
-       * * `chapter` - Chapter */
-      readonly kind: ReplayObservationMediaKindEnum;
-      /** Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`. */
-      readonly position: number;
-      /** Export asset holding the bytes; fetch it from the export content endpoint. */
-      readonly asset_id: number;
-      /**
-         * One sentence saying what the clip shows. Null for thumbnails.
-         * @nullable
-         */
-      readonly description: string | null;
-      /** Where this media starts in the analysis video, in milliseconds. */
-      readonly video_start_ms: number;
-      /**
-         * Where a clip ends in the analysis video, in milliseconds. Null for thumbnails.
-         * @nullable
-         */
-      readonly video_end_ms: number | null;
-    }
-
-    export interface ReplayObservation {
-      readonly id: string;
-      /** The scanner that produced this observation. */
-      readonly scanner_id: string;
-      /** Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.
-       *
-       * * `configured` - Configured
-       * * `inline` - Inline */
-      readonly scanner_origin: ScannerOriginEnum;
-      /** Session recording id this scanner was applied to. */
-      readonly session_id: string;
-      /** Observation status (pending, running, succeeded, failed, ineligible).
-       *
-       * * `pending` - Pending
-       * * `running` - Running
-       * * `succeeded` - Succeeded
-       * * `failed` - Failed
-       * * `ineligible` - Ineligible */
-      readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
-      readonly error_reason: string;
-      /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
-      readonly workflow_id: string;
-      /** Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation. */
-      readonly scanner_snapshot: ScannerSnapshot | null;
-      /** Result data persisted on success; null until the observation succeeds. */
-      readonly scanner_result: ScannerResult | null;
-      /**
-         * The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.
-         * @nullable
-         */
-      readonly prompt_question: string | null;
-      /** Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.
-       *
-       * * `schedule` - Schedule
-       * * `on_demand` - On demand
-       * * `retry` - Retry
-       * * `backfill` - Backfill */
-      readonly triggered_by: ObservationTriggerEnum;
-      /** User who triggered an on-demand observation; null for scheduled observations. */
-      readonly triggered_by_user: UserBasic | null;
-      /**
-         * Backfill that dispatched this observation; null for live, on-demand, and retry triggers.
-         * @nullable
-         */
-      readonly backfill_id: string | null;
-      /**
-         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
-         * @nullable
-         */
-      readonly distinct_id: string | null;
-      /**
-         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
-         * @nullable
-         */
-      readonly recording_subject_email: string | null;
-      /**
-         * Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.
-         * @nullable
-         */
-      readonly previous_observation_id: string | null;
-      /**
-         * Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.
-         * @nullable
-         */
-      readonly next_observation_id: string | null;
-      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
-      readonly label: ReplayObservationLabel | null;
-      /** Whether the calling user has opened this observation. */
-      readonly viewed: boolean;
-      /** Thumbnails and clips illustrating this observation, in order. Empty until the media render finishes. */
-      readonly media: readonly ReplayObservationMedia[];
-      /** One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations. */
-      readonly summary_line: string;
-      /** @nullable */
-      started_at?: string | null;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
-    }
-
     export interface ObservationSearchResult {
       /** The matching observation. */
       observation: ReplayObservation;
@@ -68106,8 +68022,19 @@ export namespace Schemas {
       readonly threshold_operator: string;
       /** Length of the evaluated time window, in minutes. */
       readonly window_minutes: number;
-      /** Minutes between scheduled checks. */
+      /** Minutes between scheduled checks. Applies when recurrence_unit is null. */
       readonly check_interval_minutes: number;
+      /** Calendar unit the alert recurs on. Null means it recurs on check_interval_minutes.
+       *
+       * * `day` - Day
+       * * `week` - Week
+       * * `month` - Month */
+      readonly recurrence_unit: CalendarUnitEnum | null;
+      /**
+         * Local time (HH:MM in the project timezone) a calendar recurrence lands on. Null means the default anchor for the unit.
+         * @nullable
+         */
+      readonly anchor_time: string | null;
       /** Number of recent checks considered when deciding to fire. */
       readonly evaluation_periods: number;
       /** Number of breaching checks within evaluation_periods required to fire. */
@@ -68746,7 +68673,7 @@ export namespace Schemas {
       readonly credits_this_month: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
       readonly credits_used_against_limit: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached: boolean;
@@ -68758,8 +68685,6 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by: UserBasic | null;
       readonly updated_at: string;
-      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-      readonly feedback_themes: FeedbackThemes | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -68774,15 +68699,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayScanner[];
-    }
-
-    export interface PaginatedReplayScannerPromptSuggestionList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ReplayScannerPromptSuggestion[];
     }
 
     export type RepoBaselineFilePaths = {[key: string]: string};
@@ -73892,7 +73808,7 @@ export namespace Schemas {
     export type WorkflowProposalContent = { [key: string]: unknown };
 
     /**
-     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
      */
     export type WorkflowProposalEvidence = { [key: string]: unknown };
 
@@ -73904,7 +73820,7 @@ export namespace Schemas {
       readonly rationale: string;
       /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
       readonly content: WorkflowProposalContent;
-      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
       readonly evidence: WorkflowProposalEvidence;
       /**
          * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -73913,7 +73829,7 @@ export namespace Schemas {
       readonly step_id: string | null;
       /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
       readonly base_version: number;
-      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
       readonly is_stale: boolean;
       readonly status: WorkflowProposalStatusEnum;
       /**
@@ -80287,7 +80203,7 @@ export namespace Schemas {
       readonly credits_this_month?: number;
       /** Succeeded observations this scanner produced in the current billing period. */
       readonly observations_this_month?: number;
-      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations and running prompt tests, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
+      /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. */
       readonly credits_used_against_limit?: number;
       /** Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set. */
       readonly limit_reached?: boolean;
@@ -80299,8 +80215,6 @@ export namespace Schemas {
       /** User who created the scanner. */
       readonly created_by?: UserBasic | null;
       readonly updated_at?: string;
-      /** AI summary of the team's written thumbs-down feedback into recurring failure modes. Refreshed with prompt recommendations; null until enough feedback accumulates. */
-      readonly feedback_themes?: FeedbackThemes | null;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -94494,7 +94408,7 @@ export namespace Schemas {
     export interface SignalReportArtefactLogCreate {
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
-      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, impact_measurement_plan, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
       artefact_type: string;
       /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
       content: unknown;
@@ -104100,19 +104014,25 @@ export namespace Schemas {
      * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
      */
     export interface TasksTaskDefaults {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
-      start_in_plan_mode: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
-      auto_publish_cloud_runs: boolean;
+      /**
+         * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+         * @nullable
+         */
+      start_in_plan_mode: boolean | null;
+      /**
+         * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+         * @nullable
+         */
+      auto_publish_cloud_runs: boolean | null;
     }
 
     /**
      * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
      */
     export interface TasksTaskDefaultsUpdate {
-      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. */
+      /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
       start_in_plan_mode?: boolean;
-      /** When true, a cloud run that changes code always opens a draft pull request. */
+      /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
       auto_publish_cloud_runs?: boolean;
     }
 
@@ -106145,7 +106065,7 @@ export namespace Schemas {
       readonly credits_used: number;
       /** Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these. */
       readonly credits_settled: number;
-      /** Credits held by in-flight observations and running prompt tests across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
+      /** Credits held by in-flight observations across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds. */
       readonly credits_reserved: number;
       /**
          * `credit_limit - credits_used`, floored at 0. Null when uncapped.
@@ -107696,8 +107616,11 @@ export namespace Schemas {
       content: WorkflowProposalCreateContent;
       /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
       evidence?: WorkflowProposalCreateEvidence;
-      /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-      base_version?: number;
+      /**
+         * Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.
+         * @minimum 1
+         */
+      base_version: number;
       /**
          * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
          * @maxLength 200
@@ -107726,11 +107649,54 @@ export namespace Schemas {
       below_minimum_sample: boolean;
     }
 
+    export interface WorkflowVersionChange {
+      /**
+         * Step the field belongs to, or null for a workflow field.
+         * @nullable
+         */
+      step_name: string | null;
+      /** What changed, as a person reads it, e.g. 'email > subject'. */
+      field: string;
+      /**
+         * Value in the version before this one.
+         * @nullable
+         */
+      before: string | null;
+      /**
+         * Value this version published.
+         * @nullable
+         */
+      after: string | null;
+      /** Whether the suggestion is what changed this field. */
+      from_suggestion: boolean;
+    }
+
     export interface WorkflowProposalVersionOutcome {
       /** Workflow version these numbers belong to. */
       version: number;
+      /** Whether the suggestion went live as this version. */
+      applied?: boolean;
+      /** Whether the suggestion was written against this version. */
+      proposed_against?: boolean;
+      /** Whether this version still holds what the suggestion changed. */
+      carries_change?: boolean;
+      /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+      other_changes?: boolean;
+      /** What this version changed against the version before it. */
+      changes?: WorkflowVersionChange[];
+      /**
+         * When this version went live.
+         * @nullable
+         */
+      published_at?: string | null;
+      /** Who published this version. */
+      published_by?: UserBasic | null;
+      /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+      versions?: number[];
       /** The metric the suggestion aimed at. */
       target: WorkflowProposalMetric;
+      /** The rate read beside the target, so a lift in one is visible against the other. */
+      secondary?: WorkflowProposalMetric;
       /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
       click_through: WorkflowProposalMetric;
       /** Counter-metrics over the same window, so a harmful win is visible. */
@@ -107738,12 +107704,17 @@ export namespace Schemas {
     }
 
     export interface WorkflowProposalOutcome {
-      /** Relative window both sides were measured over. */
-      window: string;
+      /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+      versions: WorkflowProposalVersionOutcome[];
       /** The version the change was proposed against. */
       before: WorkflowProposalVersionOutcome | null;
-      /** The version it went live as. Null until the proposal is applied. */
+      /** The versions that carried the change. Null until the proposal is applied. */
       after: WorkflowProposalVersionOutcome | null;
+      /**
+         * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+         * @nullable
+         */
+      change_ended_at_version: number | null;
       /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
       unavailable_guardrails: string[];
     }
@@ -113113,6 +113084,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering;
+    /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
     search?: string;
@@ -113125,6 +113100,14 @@ export namespace Schemas {
       Component: 'component',
       Freeform: 'freeform',
       Grid: 'grid',
+    } as const;
+
+    export type CanvasesListOrdering = typeof CanvasesListOrdering[keyof typeof CanvasesListOrdering];
+
+
+    export const CanvasesListOrdering = {
+      CreatedAt: '-created_at',
+      UpdatedAt: '-updated_at',
     } as const;
 
     export type CanvasesBuildsRetrieveParams = {
@@ -113941,6 +113924,10 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Optional. `-last_viewed_at` puts the dashboards you viewed most recently first. A dashboard you never viewed sorts by its creation time. This order replaces the search relevance order.
+     */
+    ordering?: DashboardsListOrdering;
+    /**
      * Optional. Return only pinned dashboards.
      */
     pinned?: boolean;
@@ -113956,6 +113943,13 @@ export namespace Schemas {
     export const DashboardsListFormat = {
       Json: 'json',
       Txt: 'txt',
+    } as const;
+
+    export type DashboardsListOrdering = typeof DashboardsListOrdering[keyof typeof DashboardsListOrdering];
+
+
+    export const DashboardsListOrdering = {
+      LastViewedAt: '-last_viewed_at',
     } as const;
 
     export type DashboardsCreateParams = {
@@ -117968,6 +117962,72 @@ export namespace Schemas {
       Week: 'week',
     } as const;
 
+    export type HogFlowsMetricsVersionRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsVersionRetrieveBreakdownBy;
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsVersionRetrieveInterval;
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string;
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string;
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version: number;
+    };
+
+    export type HogFlowsMetricsVersionRetrieveBreakdownBy = typeof HogFlowsMetricsVersionRetrieveBreakdownBy[keyof typeof HogFlowsMetricsVersionRetrieveBreakdownBy];
+
+
+    export const HogFlowsMetricsVersionRetrieveBreakdownBy = {
+      Name: 'name',
+      Kind: 'kind',
+    } as const;
+
+    export type HogFlowsMetricsVersionRetrieveInterval = typeof HogFlowsMetricsVersionRetrieveInterval[keyof typeof HogFlowsMetricsVersionRetrieveInterval];
+
+
+    export const HogFlowsMetricsVersionRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
+
     export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
@@ -117992,13 +118052,6 @@ export namespace Schemas {
       Rejected: 'rejected',
       Suggested: 'suggested',
     } as const;
-
-    export type HogFlowsProposalsOutcomeRetrieveParams = {
-    /**
-     * Relative window, e.g. -7d. Defaults to -7d.
-     */
-    window?: string;
-    };
 
     export type HogFlowsRevisionsListParams = {
     /**
@@ -122758,6 +122811,13 @@ export namespace Schemas {
     resync?: boolean;
     };
 
+    export type TasksRunsLivingArtifactsVersionContentParams = {
+    /**
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
+     */
+    download?: boolean;
+    };
+
     export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
@@ -123199,6 +123259,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123421,6 +123485,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123476,6 +123544,10 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
@@ -123530,6 +123602,10 @@ export namespace Schemas {
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string;
+    /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
     /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
@@ -123594,20 +123670,13 @@ export namespace Schemas {
      */
     triggered_by?: string;
     /**
+     * Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.
+     */
+    variant?: string;
+    /**
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
-    };
-
-    export type VisionScannersPromptSuggestionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {
@@ -124120,6 +124189,10 @@ export namespace Schemas {
     };
 
     export type WizardRunsListParams = {
+    /**
+     * Only return runs created after this timestamp.
+     */
+    created_after?: string;
     /**
      * Number of results to return per page.
      */

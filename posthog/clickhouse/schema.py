@@ -389,7 +389,7 @@ from posthog.session_recordings.sql.session_replay_feature_sql import (
     WRITABLE_SESSION_REPLAY_FEATURES_TABLE_SQL,
 )
 
-from products.alerts.backend.models.platform_alert_events_sql import (
+from products.alerts_platform.backend.facade.clickhouse import (
     DISTRIBUTED_PLATFORM_ALERT_EVENTS_TABLE_SQL,
     SHARDED_PLATFORM_ALERT_EVENTS_TABLE_SQL,
 )

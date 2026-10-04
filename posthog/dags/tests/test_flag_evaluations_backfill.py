@@ -182,25 +182,30 @@ def seed_flag_evaluation(cluster: ClickhouseCluster, now: datetime, event: Sourc
 
 
 def seed_kafka_path_row(
-    cluster: ClickhouseCluster, now: datetime, age: timedelta = timedelta(0), partition: int = 0
+    cluster: ClickhouseCluster,
+    now: datetime,
+    age: timedelta = timedelta(0),
+    partition: int = 0,
+    consumer_delay: timedelta = timedelta(0),
 ) -> None:
     # The lag check skips rows whose inserted_at equals their timestamp, because the backfill copies
     # rows that way. A Kafka row arrives after its event, so its inserted_at is later.
-    inserted_at = now - age
+    kafka_time = now - age
     row = (
         KAFKA_PATH_ROW.team_id,
         KAFKA_PATH_ROW.distinct_id,
         uuid5(NAMESPACE_URL, KAFKA_PATH_ROW.distinct_id),
         KAFKA_PATH_ROW.uuid,
-        inserted_at - timedelta(seconds=1),
-        inserted_at,
+        kafka_time - timedelta(seconds=1),
+        kafka_time + consumer_delay,
+        kafka_time,
         partition,
     )
 
     def insert(client: Client) -> None:
         client.execute(
             """INSERT INTO writable_flag_evaluations
-            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _partition)
+            (team_id, distinct_id, person_id, uuid, timestamp, inserted_at, _timestamp, _partition)
             VALUES""",
             [row],
         )
@@ -553,23 +558,37 @@ def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, ste
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "overrides, kafka_path_row_ages",
+    "overrides, kafka_path_row_ages, consumer_delay",
     [
-        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], id="free_space_below_the_floor"),
+        pytest.param({"min_free_bytes": 1 << 60}, [timedelta(0)], timedelta(0), id="free_space_below_the_floor"),
         pytest.param(
-            {"max_consumer_lag_seconds": 3600}, [timedelta(hours=2)], id="kafka_path_behind_by_more_than_the_limit"
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(0),
+            id="kafka_path_behind_by_more_than_the_limit",
         ),
-        pytest.param({}, [timedelta(0), timedelta(days=2)], id="one_kafka_partition_silent_for_over_a_day"),
-        pytest.param({}, [timedelta(days=8)], id="kafka_path_silent_for_the_whole_lookback"),
+        pytest.param(
+            {"max_consumer_lag_seconds": 3600},
+            [timedelta(hours=2)],
+            timedelta(hours=2),
+            id="kafka_path_writing_a_backlog_older_than_the_limit",
+        ),
+        pytest.param(
+            {}, [timedelta(0), timedelta(days=2)], timedelta(0), id="one_kafka_partition_silent_for_over_a_day"
+        ),
+        pytest.param({}, [timedelta(days=8)], timedelta(0), id="kafka_path_silent_for_the_whole_lookback"),
     ],
 )
 def test_backfill_fails_without_copying_when_a_safety_check_fails(
-    cluster: ClickhouseCluster, overrides: dict[str, Any], kafka_path_row_ages: list[timedelta]
+    cluster: ClickhouseCluster,
+    overrides: dict[str, Any],
+    kafka_path_row_ages: list[timedelta],
+    consumer_delay: timedelta,
 ) -> None:
     now = datetime.now(UTC)
     seed_source_events(cluster, now, [INSIDE_RECENT])
     for partition, age in enumerate(kafka_path_row_ages):
-        seed_kafka_path_row(cluster, now, age=age, partition=partition)
+        seed_kafka_path_row(cluster, now, age=age, partition=partition, consumer_delay=consumer_delay)
 
     result = run_backfill(cluster, **overrides)
 
