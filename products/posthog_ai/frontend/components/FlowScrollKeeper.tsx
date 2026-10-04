@@ -41,12 +41,14 @@ function findFirstVisibleChild(parent: Element, viewportTop: number): Element | 
 
 interface FlowScrollKeeperProps {
     fillStep: number
-    generation: number
+    /** The fill step rendered the oldest rows for a reader who went to the top, so the view goes to the top. */
+    holdTop: boolean
     filling: boolean
 }
 
 interface FlowScrollSnapshot {
     scroller: HTMLElement
+    atTop: boolean
     atBottom: boolean
     anchor: Element | null
     anchorTop: number
@@ -57,19 +59,15 @@ interface FlowScrollSnapshot {
  * notes the first row in view, and after the commit it scrolls by the distance that row moved. Growth
  * below that row, such as a streamed reply, does not move it, so it does not move the view.
  *
- * A reader at the bottom stays at the bottom. Until the reader leaves the top of the thread, the view
- * stays at the top, so it ends on the oldest row.
+ * A reader at the bottom stays at the bottom. A fill step that renders the oldest rows for a reader who
+ * went to the top puts the view at the top, so the reader sees the start of the thread.
  */
 export class FlowScrollKeeper extends Component<FlowScrollKeeperProps> {
     private sentinel = createRef<HTMLSpanElement>()
-    private leftTop = false
     // The browser rounds `scrollTop`. Carrying the rounding into the next step stops a long fill from drifting.
     private remainder = 0
 
     override getSnapshotBeforeUpdate(previous: Readonly<FlowScrollKeeperProps>): FlowScrollSnapshot | null {
-        if (this.props.generation !== previous.generation) {
-            this.leftTop = false
-        }
         const sentinel = this.sentinel.current
         if (this.props.fillStep === previous.fillStep || !sentinel?.parentElement) {
             return null
@@ -78,18 +76,17 @@ export class FlowScrollKeeper extends Component<FlowScrollKeeperProps> {
         if (!scroller) {
             return null
         }
-        if (scroller.scrollTop > 0) {
-            this.leftTop = true
-        }
-        if (!this.leftTop) {
-            return null
+        if (this.props.holdTop) {
+            return { scroller, atTop: true, atBottom: false, anchor: null, anchorTop: 0 }
         }
         if (scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1) {
-            return { scroller, atBottom: true, anchor: null, anchorTop: 0 }
+            return { scroller, atTop: false, atBottom: true, anchor: null, anchorTop: 0 }
         }
         const viewportTop = scroller === document.scrollingElement ? 0 : scroller.getBoundingClientRect().top
         const anchor = findFirstVisibleChild(sentinel.parentElement, viewportTop)
-        return anchor ? { scroller, atBottom: false, anchor, anchorTop: anchor.getBoundingClientRect().top } : null
+        return anchor
+            ? { scroller, atTop: false, atBottom: false, anchor, anchorTop: anchor.getBoundingClientRect().top }
+            : null
     }
 
     override componentDidUpdate(
@@ -100,7 +97,11 @@ export class FlowScrollKeeper extends Component<FlowScrollKeeperProps> {
         if (!snapshot) {
             return
         }
-        const { scroller, atBottom, anchor, anchorTop } = snapshot
+        const { scroller, atTop, atBottom, anchor, anchorTop } = snapshot
+        if (atTop) {
+            scroller.scrollTop = 0
+            return
+        }
         if (atBottom) {
             scroller.scrollTop = scroller.scrollHeight
             return
@@ -112,6 +113,12 @@ export class FlowScrollKeeper extends Component<FlowScrollKeeperProps> {
         const target = scroller.scrollTop + anchor.getBoundingClientRect().top - anchorTop + this.remainder
         scroller.scrollTop = target
         this.remainder = Math.max(-1, Math.min(1, target - scroller.scrollTop))
+    }
+
+    readerScrollTop(): number | null {
+        const sentinel = this.sentinel.current
+        const scroller = sentinel ? findScrollParent(sentinel) : null
+        return scroller ? scroller.scrollTop : null
     }
 
     override render(): JSX.Element | null {

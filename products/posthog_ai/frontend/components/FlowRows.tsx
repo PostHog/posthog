@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, memo, useId, useLayoutEffect, useMemo } from 'react'
+import { type ReactNode, memo, useCallback, useId, useLayoutEffect, useMemo, useRef } from 'react'
 
 import { flowRowsLogic } from '../logics/flowRowsLogic'
 import { deriveFlowWindow, renderedFlowRanges } from '../utils/flowWindow'
@@ -37,7 +37,9 @@ export interface FlowRowsProps<T> {
  * rows fill in between frames (see `flowRowsLogic`), so opening a long thread never freezes the page.
  */
 export function FlowRows<T>({ items, getItemKey, header, footer, footerIndex, render }: FlowRowsProps<T>): JSX.Element {
-    const logic = flowRowsLogic({ flowKey: useId() })
+    const keeperRef = useRef<FlowScrollKeeper>(null)
+    const readerScrollTop = useCallback((): number | null => keeperRef.current?.readerScrollTop() ?? null, [])
+    const logic = flowRowsLogic({ flowKey: useId(), readerScrollTop })
     const { flowWindow } = useValues(logic)
     const { syncWindow, chunkCommitted } = useActions(logic)
     // Derived during render, so a long append never renders in full for one frame before the window catches up.
@@ -64,8 +66,9 @@ export function FlowRows<T>({ items, getItemKey, header, footer, footerIndex, re
     return (
         <>
             <FlowScrollKeeper
+                ref={keeperRef}
                 fillStep={current.fillStep}
-                generation={current.generation}
+                holdTop={current.fillAtStart}
                 filling={current.holes.length > 0}
             />
             {header != null && current.holes[0]?.[0] !== 0 && (

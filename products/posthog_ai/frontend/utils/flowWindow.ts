@@ -17,8 +17,8 @@ export interface FlowWindow {
     holes: readonly FlowRange[]
     /** Counts fill steps, so the scroll keeper can tell a fill commit from any other commit. */
     fillStep: number
-    /** Changes when a different thread replaces the rows. */
-    generation: number
+    /** The last fill step rendered the oldest rows, for a reader who went to the top of the thread. */
+    fillAtStart: boolean
 }
 
 function openWindow(length: number, firstKey: string | null, previous: FlowWindow | null): FlowWindow {
@@ -28,7 +28,7 @@ function openWindow(length: number, firstKey: string | null, previous: FlowWindo
         firstKey,
         holes: tailStart > 0 ? [[0, tailStart]] : [],
         fillStep: previous?.fillStep ?? 0,
-        generation: (previous?.generation ?? 0) + 1,
+        fillAtStart: false,
     }
 }
 
@@ -69,19 +69,25 @@ export function deriveFlowWindow<T>(
     return { ...previous, length, firstKey, holes }
 }
 
-/** Renders up to `rows` more rows from the end of the last hole. */
-export function fillFlowWindow(window: FlowWindow, rows: number): FlowWindow {
-    const last = window.holes.at(-1)
-    if (!last) {
+/**
+ * Renders up to `rows` more rows. A normal step takes them from the end of the last hole, next to the
+ * newest rows. A step `atStart` takes them from the start of the first hole, so the oldest rows render first.
+ */
+export function fillFlowWindow(window: FlowWindow, rows: number, atStart = false): FlowWindow {
+    if (window.holes.length === 0) {
         return window
     }
-    const [from, to] = last
-    const end = Math.max(from, to - rows)
-    const holes = window.holes.slice(0, -1)
-    if (from < end) {
-        holes.push([from, end])
+    const holes = [...window.holes]
+    if (atStart) {
+        const [from, to] = holes[0]
+        const start = Math.min(to, from + rows)
+        holes.splice(0, 1, ...(start < to ? [[start, to] as const] : []))
+    } else {
+        const [from, to] = holes[holes.length - 1]
+        const end = Math.max(from, to - rows)
+        holes.splice(-1, 1, ...(from < end ? [[from, end] as const] : []))
     }
-    return { ...window, holes, fillStep: window.fillStep + 1 }
+    return { ...window, holes, fillStep: window.fillStep + 1, fillAtStart: atStart }
 }
 
 /** The rendered ranges, in order: everything outside the holes. */
