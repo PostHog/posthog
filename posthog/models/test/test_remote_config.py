@@ -6,6 +6,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.db import ProgrammingError
 from django.test import override_settings
 from django.utils import timezone
 
@@ -197,6 +198,22 @@ class TestRemoteConfig(_RemoteConfigBase):
             "urlAllowlist": [],
             "urlAllowlistEnforced": False,
         }
+
+    def test_heatmaps_config_falls_back_when_table_is_missing(self):
+        self.team.heatmaps_opt_in = True
+        self.team.save()
+        with patch(
+            "products.web_analytics.backend.remote_config.TeamHeatmapConfig.objects.filter",
+            side_effect=ProgrammingError('relation "posthog_teamheatmapconfig" does not exist'),
+        ):
+            self.sync_remote_config()
+        assert self.remote_config.config["heatmaps"] == {
+            "captureMode": "all",
+            "urlAllowlist": [],
+            "urlAllowlistEnforced": False,
+        }
+        # Keys built after heatmaps show the whole config build continued.
+        assert self.remote_config.config["siteApps"] == []
 
     def test_subscription_change_rebuilds_heatmaps_enabled_teams(self):
         self.team.heatmaps_opt_in = True
