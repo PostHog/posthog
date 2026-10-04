@@ -100,6 +100,12 @@ export function BroadcastContentStep(): JSX.Element {
                 variables={buildSampleGlobals({ type: 'batch' }, null)}
                 fieldErrors={fieldErrors}
             />
+            {email.to?.email && !email.to.email.includes('{{') ? (
+                <span className="text-xs text-warning" data-attr="broadcast-fixed-recipient-hint">
+                    Every email in this broadcast goes to {email.to.email}, not to each person in the audience. Use{' '}
+                    <code>{'{{ person.properties.email }}'}</code> to send each person their own email.
+                </span>
+            ) : null}
             <LemonSwitch
                 label="Track opens and link clicks"
                 checked={emailSettings.trackingEnabled}
