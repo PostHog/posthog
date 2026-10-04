@@ -6,6 +6,8 @@ import { useCallback, useRef, useState } from 'react'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+// DataVisualization renders the .InsightCard__viz wrapper whose styles live in InsightCard.scss.
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -34,6 +36,7 @@ import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { DateRange } from '../DataNode/DateRange'
 import { ElapsedTime } from '../DataNode/ElapsedTime'
 import { Reload } from '../DataNode/Reload'
+import { RowLimitNotice } from '../DataNode/RowLimitNotice'
 import { QueryFeature } from '../DataTable/queryFeatures'
 import { PieChart } from './Components/Charts/PieChart'
 import { SqlBoxPlot } from './Components/Charts/SqlBoxPlot'
@@ -346,6 +349,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 )}
             >
                 {component}
+                <RowLimitNotice />
             </div>
         )
     }

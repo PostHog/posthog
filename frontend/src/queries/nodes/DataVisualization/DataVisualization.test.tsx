@@ -1,4 +1,4 @@
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -81,4 +81,31 @@ describe('DataTableVisualization', () => {
             expect(mockLatestLemonTableProps.allowContentScroll).toBe(expectedAllowContentScroll)
         }
     )
+
+    test.each([
+        { name: 'the backend cut the result', hasMore: true, limit: 100, expectNotice: true },
+        { name: 'the result fits under the default limit', hasMore: false, limit: 100, expectNotice: false },
+        { name: 'the query declares its own limit', hasMore: undefined, limit: undefined, expectNotice: false },
+    ])('embedded tile tells the reader when $name', async ({ name, hasMore, limit, expectNotice }) => {
+        render(
+            <DataTableVisualization
+                uniqueKey={`data-visualization-limit-${name}`}
+                query={query}
+                setQuery={jest.fn()}
+                cachedResults={{ ...cachedResults, hasMore, limit }}
+                readOnly
+                embedded
+            />
+        )
+
+        await waitFor(() => {
+            if (!mockLatestLemonTableProps) {
+                throw new Error('Expected LemonTable to render')
+            }
+        })
+
+        expect(screen.queryByText(/Try adding a LIMIT clause to adjust/)).toEqual(
+            expectNotice ? expect.anything() : null
+        )
+    })
 })
