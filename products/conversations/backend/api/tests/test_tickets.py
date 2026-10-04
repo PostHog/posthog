@@ -1217,6 +1217,37 @@ class TestTicketAssignment(APIBaseTest):
         self.assertIsNone(assignment.user_id)
         self.assertEqual(assignment.role_id, self.role.id)
 
+    @parameterized.expand([("queue_available", None), ("queue_unavailable", ConnectionError("broker down"))])
+    @patch("posthog.tasks.email.send_ticket_assigned_notification")
+    def test_assigning_a_ticket_queues_the_assignee_notification(self, _name, dispatch_error, mock_notification):
+        mock_notification.delay.side_effect = dispatch_error
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+                {"assignee": {"id": self.user.id, "type": "user"}},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notification.delay.assert_called_once()
+        call_kwargs = mock_notification.delay.call_args.kwargs
+        self.assertEqual(call_kwargs["ticket_id"], str(self.ticket.id))
+        self.assertEqual(call_kwargs["assignee_type"], "user")
+        self.assertEqual(call_kwargs["assignee_id"], str(self.user.id))
+        self.assertEqual(call_kwargs["assigner_id"], self.user.id)
+
+    @patch("posthog.tasks.email.send_ticket_assigned_notification")
+    def test_unassigning_a_ticket_queues_no_notification(self, mock_notification):
+        TicketAssignment.objects.create(ticket=self.ticket, user=self.user)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
+                {"assignee": None},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_notification.delay.assert_not_called()
+
     def test_remove_assignment(self):
         """Test removing assignment from ticket."""
         TicketAssignment.objects.create(ticket=self.ticket, user=self.user)

@@ -49,6 +49,7 @@ class Notifications(TypedDict, total=False):
     error_tracking_weekly_digest_project_enabled: dict[
         str, Any
     ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
+    conversations_ticket_assigned: bool  # One email each time a support ticket is assigned to the user
     discussions_mentioned: bool
     task_comments_slack_dm: bool  # Slack DM for task comment mentions, replies, and owned items
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
@@ -79,6 +80,7 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
+    "conversations_ticket_assigned": True,  # Support ticket assignment enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "task_comments_slack_dm": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled

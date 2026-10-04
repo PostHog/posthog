@@ -1,0 +1,38 @@
+{% extends "email/base.html" %}
+{% block heading %}A support ticket was assigned to you{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        {% if assigner_name %}<b>{{ assigner_name }}</b> assigned{% else %}You were assigned{% endif %}
+        ticket <b>#{{ ticket_number }}</b> in project <b>{{ team_name }}</b>{% if assigned_to_role %} through a role you belong to{% endif %}.
+    </p>
+    {% if customer_name or customer_email %}
+        <p>
+            <b>From:</b> {{ customer_name|default:customer_email }}{% if customer_name and customer_email %} ({{ customer_email }}){% endif %}
+        </p>
+    {% endif %}
+    {% if last_message %}
+        <p>
+            <b>Latest message:</b> {{ last_message }}
+        </p>
+    {% endif %}
+    <div class="mb mt text-center">
+        <a class="button" href="{{ ticket_url }}">View ticket</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ ticket_url }}">{{ ticket_url }}</a>
+        </p>
+    </div>
+{% endblock %}
+{% block footer %}
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Visit support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>Read our documentation</b></a>.
+    <br />
+    <br />
+    <a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+{% endblock %}

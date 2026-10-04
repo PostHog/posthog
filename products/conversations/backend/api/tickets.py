@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
+from django.utils import timezone
 
 import structlog
 import posthoganalytics
@@ -2187,3 +2188,26 @@ def _assign_ticket(
             capture_ticket_assigned(ticket, assignee_type, assignee_id, actor=user, actor_type="user")
         except Exception as e:
             capture_exception(e, {"ticket_id": str(ticket.id)})
+
+        if assignee_type and assignee_id:
+            assigned_at = timezone.now().isoformat()
+
+            def dispatch_assigned_notification() -> None:
+                # Runs after the assignment commits, so a queue outage must not fail the request.
+                try:
+                    # posthog.tasks.__init__ eagerly imports every task module, which imports this
+                    # product back, so the task is only reachable once the app registry is ready.
+                    from posthog.tasks.email import send_ticket_assigned_notification  # noqa: PLC0415
+
+                    send_ticket_assigned_notification.delay(
+                        ticket_id=str(ticket.id),
+                        team_id=team_id,
+                        assignee_type=assignee_type,
+                        assignee_id=assignee_id,
+                        assigned_at=assigned_at,
+                        assigner_id=user.id if user else None,
+                    )
+                except Exception as e:
+                    capture_exception(e, {"ticket_id": str(ticket.id)})
+
+            transaction.on_commit(dispatch_assigned_notification)
