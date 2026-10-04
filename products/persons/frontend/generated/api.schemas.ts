@@ -318,7 +318,7 @@ export interface PersonSplitRequestApi {
      */
     main_distinct_id?: string | null
     /**
-     * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`.
+     * List of distinct_ids to **move off** this person onto new single-id persons. The original person keeps every other distinct_id and its properties. New persons are created with deterministic UUIDs derived from `(team_id, distinct_id)`. Cannot be combined with `main_distinct_id`. The person must keep at least one distinct_id, so a list naming every distinct_id it holds is rejected.
      * @nullable
      */
     distinct_ids_to_split?: string[] | null
