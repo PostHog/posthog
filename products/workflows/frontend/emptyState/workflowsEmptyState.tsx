@@ -7,7 +7,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { urlForNewWorkflowComposer } from '../Workflows/newWorkflowLogic'
+import { NewWorkflowEmptyStateAction } from './NewWorkflowEmptyStateAction'
 import { WorkflowsPreview } from './WorkflowsPreview'
 import { workflowsSetupLogic } from './workflowsSetupLogic'
 
@@ -32,11 +32,7 @@ export const workflowsEmptyState: SceneProductEmptyState = {
                 lead: 'Build journeys on a canvas: trigger on any event or cohort, wait, branch on behavior, and send email, SMS, or push. Connect a channel and design your first message along the way.',
             },
         },
-        primaryAction: {
-            label: 'New workflow',
-            // The same "start from nothing" intent as the list page's button, so it reaches the same surface.
-            to: urlForNewWorkflowComposer(),
-        },
+        PrimaryAction: NewWorkflowEmptyStateAction,
         docsUrl: 'https://posthog.com/docs/workflows',
         previewLabel: 'Your journeys, once running',
         Preview: WorkflowsPreview,

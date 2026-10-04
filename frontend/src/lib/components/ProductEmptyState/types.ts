@@ -139,9 +139,10 @@ export interface ProductEmptyStateConfig {
      * Rendered in the primary-action slot instead of the `primaryAction` button, for
      * actions that need hooks - e.g. a create flow that opens PostHog AI via `useMaxTool`.
      * Takes precedence over `primaryAction`. With `wizard` also set, the terminal card
-     * stays the hero and this renders under the "or" divider.
+     * stays the hero and this renders under the "or" divider. Call `onClick` when the
+     * person clicks the action, so the setup funnel counts the click.
      */
-    PrimaryAction?: ComponentType
+    PrimaryAction?: ComponentType<{ onClick: () => void }>
     /** Product-specific installation options below the primary setup action. */
     SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     docsUrl?: string

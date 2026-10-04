@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -17,11 +17,6 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowTemplate } from './hogflows/types'
 import { TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
-
-/** The new-workflow URL for an entry that means "start from nothing", the only kind the composer answers. */
-export function urlForNewWorkflowComposer(): string {
-    return combineUrl(urls.workflowNew(), { [EDITOR_MODE_PARAM]: AI_COMPOSER_MODE_VALUE }).url
-}
 
 // The editor scene is `/workflows/:id/:tab`, and only the `new` id can show the composer.
 function isNewWorkflowRoute(pathname: string): boolean {
