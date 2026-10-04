@@ -38,9 +38,46 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
+## Evaluation-event source check
+
+Do this check first, before you use call volume as evidence.
+PostHog moves flag-evaluation data from `events` into the `flag_evaluations` table, one organization at a time.
+During the move, a source can hold only part of a window.
+`flag_evaluations` gets rows from the day ingestion starts to write to it, and it keeps 90 days.
+`events` stops getting `$feature_flag_called` rows when the organization moves to the new table only.
+A partial source shows a volume step that the code did not cause.
+Compare the two sources to tell that step from a real change in traffic.
+
+1. Probe the replacement table:
+
+   ```sql
+   SELECT toDate(timestamp) AS day, count() AS calls
+   FROM flag_evaluations
+   WHERE timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
+     AND timestamp < toStartOfDay(now())
+   GROUP BY day
+   ORDER BY day
+   ```
+
+   The window holds 14 complete days. It leaves out the current day, because a partial day looks like a step. The cliff read in [Get oriented](#get-oriented) checks the latest 24 hours separately.
+
+   If the query fails because the table is unknown, the project has no replacement source. `events` is authoritative, so continue with the rest of this skill.
+
+2. If the table exists, run the same daily count on `events` (`WHERE event = '$feature_flag_called'`). Compare the two series day by day:
+   - **Both series are empty** — there is no call stream. Follow the matching zero-calls branch in the quick close-out below.
+   - **The series agree on every day (within ~5%)** — both sources are complete. Use `events`.
+   - **Only one series has calls on every day where either series has calls** — that series is complete. For example, a complete `events` series next to an empty or late-starting `flag_evaluations` series, or a complete `flag_evaluations` series next to an `events` series that stops. Use it for every traffic query and chart in this run. A trends chart reads `events`, so chart `flag_evaluations` with a SQL series. On `flag_evaluations`, read the `flag_key` and `response` columns instead of `properties.$feature_flag` and `properties.$feature_flag_response`, drop the `event` filter, and keep every window inside 90 days.
+   - **Both series have calls on every day, but they differ by more than ~5% on some day** — a series can lose calls on a day and still have rows. Ingestion can drop a `flag_evaluations` row and still write the event, and events from the delayed ingestion lanes reach only `events`. If one series is higher on every day where they differ, it is complete: use it as the branch above says. If each series is higher on a different day, neither is complete: suspend traffic analysis as the branch below says, and in the close-out say that the two sources disagree.
+   - **Neither series has calls on every day where either series has calls** — the calls moved from one series to the other inside the window, so no complete source exists. Suspend all traffic-based conclusions: file no cliff, ghost, response-shift, or dead-check report, attach no traffic chart, and do not edit an open traffic report to say that it recovered or got worse. Run only the config-side checks ([Stale flags](#stale-flags--one-cleanup-report-each) and dependent-flag sanity). In the close-out, say that you suspended traffic analysis because the evaluation source is migrating.
+3. To find the cause of a step, compare the two series on the day of the step:
+   - One series falls, and the other series keeps a steady count above zero or gains about the same number of calls: the step is the migration. It is never an SDK or capture-path finding.
+   - Both series fall, or the only series with calls falls: the step is a real change in traffic, even when it falls to zero. Investigate it with the patterns below.
+4. Every `$feature_flag_called` query in this skill reads the source that this check chose. The stale-flag call count is the one exception: when both sources have rows, count on both, because a partial source can miss the call that expires a candidate.
+5. Save the result under `pattern:feature-flags:event-source`: the chosen source, the date of the check, and the first complete day. Do the probe again on each run, because an organization can move between runs.
+
 ## Quick close-out: are flags even in use?
 
-Read `recent_feature_flags` off `scout-project-profile-get`. Two caveats before shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50 by volume — so confirm the traffic side with one cheap count rather than trusting either alone:
+Run the [evaluation-event source check](#evaluation-event-source-check) first, and count on the source it chose. Read `recent_feature_flags` off `scout-project-profile-get`. Two caveats before shortcutting: `total_count` excludes deleted flags, and `top_events` is only the top 50 by volume — so confirm the traffic side with one cheap count rather than trusting either alone:
 
 ```sql
 SELECT count() AS calls
@@ -334,6 +371,7 @@ Harness-level:
 
 - No flags in use → `not-in-use:` entry, close out empty.
 - No `$feature_flag_called` stream → config-side hygiene pass only, then close out.
+- Evaluation source is migrating and no source covers the window → config-side hygiene pass only, then close out.
 - Traffic matches state everywhere (no cliffs, no ghosts, distributions stable or explained by edits) → close out empty; refresh `pattern:` baselines if stale.
 - Candidates all gated by `noise:` / `addressed:` / `dedupe:` entries, or an existing inbox report whose situation hasn't materially changed → skip (refresh `pattern:` memory) and close out; edit only the ones that moved.
 - You've filed (or edited) reports for what's solid → close out. One sharp contradiction report beats a laundry list of P3 debt nits, and a ranked stale queue left in memory beats racing the project's daily report allowance.
