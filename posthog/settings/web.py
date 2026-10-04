@@ -1107,6 +1107,13 @@ WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 50
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
+# Admission budgets for the workflow AI decision step, a token bucket per team and then one shared by
+# every team. They bound the AI gateway load a batch workflow can create, and the web workers that wait
+# on it. The gateway's own limits are not visible from here, so the values start low.
+WORKFLOWS_AI_DECISION_TEAM_BURST = int(get_from_env("WORKFLOWS_AI_DECISION_TEAM_BURST", 20))
+WORKFLOWS_AI_DECISION_TEAM_PER_HOUR = int(get_from_env("WORKFLOWS_AI_DECISION_TEAM_PER_HOUR", 18_000))
+WORKFLOWS_AI_DECISION_GLOBAL_BURST = int(get_from_env("WORKFLOWS_AI_DECISION_GLOBAL_BURST", 200))
+WORKFLOWS_AI_DECISION_GLOBAL_PER_HOUR = int(get_from_env("WORKFLOWS_AI_DECISION_GLOBAL_PER_HOUR", 360_000))
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.

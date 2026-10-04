@@ -41,3 +41,22 @@ class HogFlowBatchJobState(LabeledStrEnum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+class AIDecisionAnswerType(LabeledStrEnum):
+    YES_NO = "yes_no", "Yes or no"
+    PICK_ONE = "pick_one", "Pick one"
+
+
+class AIDecisionStatus(LabeledStrEnum):
+    SUCCEEDED = "succeeded", "Succeeded"
+    FAILED = "failed", "Failed"
+
+
+class AIDecisionErrorCode(LabeledStrEnum):
+    FEATURE_UNAVAILABLE = "feature_unavailable", "Feature unavailable"
+    AI_PROCESSING_NOT_APPROVED = "ai_processing_not_approved", "AI processing not approved"
+    QUOTA_EXCEEDED = "quota_exceeded", "Quota exceeded"
+    STATE_TOO_LARGE = "state_too_large", "State too large"
+    MODEL_REFUSED = "model_refused", "Model refused"
+    GATEWAY_UNAVAILABLE = "gateway_unavailable", "Gateway unavailable"
