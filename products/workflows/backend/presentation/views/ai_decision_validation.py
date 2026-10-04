@@ -30,7 +30,7 @@ class AIDecisionOptionSerializer(serializers.Serializer):
 
 class AIDecisionConfigSerializer(serializers.Serializer):
     """The question an AI decision step asks. A strict workflow save and the decide route validate it
-    alike, so a step that saves strictly never fails at run time on its own config."""
+    alike, so the route never rejects a config that saved strictly."""
 
     question = serializers.CharField(
         max_length=2000,
@@ -96,7 +96,7 @@ class AIDecisionConfigSerializer(serializers.Serializer):
         return attrs
 
 
-def ai_decision_context_error(inputs: Any) -> str | None:
+def ai_decision_context_error(inputs: object) -> str | None:
     context_input = inputs.get("context") if isinstance(inputs, dict) else None
     context = context_input.get("value") if isinstance(context_input, dict) else None
     if not isinstance(context, dict) or not context:

@@ -251,6 +251,7 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
     def test_a_lookup_that_raises_never_fails_the_decision_for_good(
         self, _name: str, lookup_failure: Any, expected_status: int, expected_outcome: str | None
     ) -> None:
+        self.ensure_url_patterns_loaded()
         with lookup_failure, patch(_DECIDE, return_value=_pick_one_result()):
             response = self._post()
 

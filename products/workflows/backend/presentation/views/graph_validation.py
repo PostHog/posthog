@@ -10,8 +10,8 @@ from products.workflows.backend.facade.enums import AIDecisionAnswerType
 # Mirrors the frontend branch-edge model (getBranchLabel / StepConditionalBranch / StepRandomCohortBranch
 # in products/workflows/frontend/Workflows/hogflows): conditional_branch has one branch per condition,
 # random_cohort_branch one per cohort, wait_until_condition exactly one (the condition-met path, index 0),
-# ai_decision one per answer then one for Unsure when it is on, each alongside a single `continue`
-# fall-through/timeout/failure edge.
+# each alongside a single `continue` fall-through/timeout edge. ai_decision is defined here first, and the
+# builder follows it: one per answer, then one for Unsure when it is on, plus the `continue` failure edge.
 
 
 def _branch_slot_count(action: dict) -> int:
