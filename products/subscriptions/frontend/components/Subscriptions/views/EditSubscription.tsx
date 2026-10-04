@@ -261,7 +261,13 @@ export function EditSubscription({
         storedTeamsWebhookHost,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
-    const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
+    const {
+        applyDefaultSelectedInsights,
+        generatePreview,
+        previewImageRenderFailed,
+        sendTestDelivery,
+        replaceTeamsWebhook,
+    } = useActions(logic)
     const { preflight, siteUrlMisconfigured } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { deleteSubscription } = useActions(subscriptionslogic)
@@ -920,6 +926,7 @@ export function EditSubscription({
                                                 src={previewImageUrl}
                                                 alt="Subscription export preview"
                                                 className="w-full"
+                                                onError={previewImageRenderFailed}
                                             />
                                         </div>
                                     )}

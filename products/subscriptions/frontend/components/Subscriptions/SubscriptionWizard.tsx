@@ -731,7 +731,7 @@ function SubscriptionReviewStep({
     insightShortId?: InsightShortId
 }): JSX.Element {
     const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
-    const { generatePreview } = useActions(subscriptionLogic(logicProps))
+    const { generatePreview, previewImageRenderFailed } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
     const nextDeliveryDate = getNextDeliveryDate(subscription)
@@ -816,7 +816,12 @@ function SubscriptionReviewStep({
                         ) : null}
                         {previewImageUrl ? (
                             <div className="mt-2 border rounded">
-                                <img src={previewImageUrl} alt="Subscription export preview" className="w-full" />
+                                <img
+                                    src={previewImageUrl}
+                                    alt="Subscription export preview"
+                                    className="w-full"
+                                    onError={previewImageRenderFailed}
+                                />
                             </div>
                         ) : null}
                     </div>

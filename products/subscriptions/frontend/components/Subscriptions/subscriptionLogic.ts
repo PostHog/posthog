@@ -1,4 +1,16 @@
-import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+} from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -49,6 +61,8 @@ import {
     targetTypeOptions,
     urlForSubscription,
 } from './utils'
+
+const PREVIEW_IMAGE_ERROR = "We couldn't load the preview image. Please try again."
 
 // Spelled out rather than interpolated, so the event a metric is configured against is greppable.
 const EXPORT_NUDGE_CLICKED_EVENTS = {
@@ -465,6 +479,9 @@ export interface subscriptionLogicActions {
         }
         payload?: any
     }
+    previewImageRenderFailed: () => {
+        value: true
+    }
     replaceTeamsWebhook: () => {
         value: true
     }
@@ -559,6 +576,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
     actions({
         generatePreview: true,
+        previewImageRenderFailed: true,
         sendTestDelivery: true,
         sendTestDeliveryFailure: true,
         sendTestDeliverySuccess: true,
@@ -1025,7 +1043,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 if (asset.has_content) {
                     actions.setPreviewAsset(asset)
-                    await fetchPreviewImage(asset, actions)
+                    await fetchPreviewImage(asset, actions, breakpoint)
                 } else if (asset.exception) {
                     actions.setPreviewError(asset.exception)
                 } else {
@@ -1037,7 +1055,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                         const updated = await api.exports.get(asset.id)
                         if (updated.has_content) {
                             actions.setPreviewAsset(updated)
-                            await fetchPreviewImage(updated, actions)
+                            await fetchPreviewImage(updated, actions, breakpoint)
                             return
                         }
                         if (updated.exception) {
@@ -1051,8 +1069,21 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 breakpoint()
                 actions.setPreviewError(e instanceof Error ? e.message : 'Failed to generate preview')
             } finally {
-                actions.setPreviewLoading(false)
+                try {
+                    breakpoint()
+                    actions.setPreviewLoading(false)
+                } catch {
+                    // A newer preview run owns the loading state.
+                }
             }
+        },
+
+        previewImageRenderFailed: () => {
+            if (values.previewImageUrl) {
+                URL.revokeObjectURL(values.previewImageUrl)
+            }
+            actions.setPreviewImageUrl(null)
+            reportPreviewImageFailure(actions, values.previewAsset, { reason: 'render_error' })
         },
     })),
 
@@ -1189,15 +1220,40 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
 async function fetchPreviewImage(
     asset: ExportedAssetType,
-    actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void }
+    actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void },
+    breakpoint: BreakPointFunction
 ): Promise<void> {
     const url = api.exports.determineExportFetchUrl(asset.id)
     const response = await fetch(url, { credentials: 'include' })
+    breakpoint()
     if (!response.ok) {
-        actions.setPreviewError('Failed to load preview image')
+        reportPreviewImageFailure(actions, asset, { reason: 'http_error', status: response.status })
         return
     }
     const blob = await response.blob()
+    breakpoint()
+    // An empty or non-image body still returns 200, and the <img> then shows only its alt text.
+    if (blob.size === 0 || !blob.type.startsWith('image/')) {
+        reportPreviewImageFailure(actions, asset, {
+            reason: 'invalid_content',
+            content_type: blob.type,
+            size: blob.size,
+        })
+        return
+    }
     const objectUrl = URL.createObjectURL(blob)
     actions.setPreviewImageUrl(objectUrl)
+}
+
+function reportPreviewImageFailure(
+    actions: { setPreviewError: (error: string | null) => void },
+    asset: ExportedAssetType | null,
+    properties: Record<string, string | number>
+): void {
+    actions.setPreviewError(PREVIEW_IMAGE_ERROR)
+    posthog.capture('subscription preview failed', {
+        export_id: asset?.id,
+        export_format: asset?.export_format,
+        ...properties,
+    })
 }
