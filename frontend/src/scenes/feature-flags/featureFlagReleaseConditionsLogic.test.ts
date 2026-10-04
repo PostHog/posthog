@@ -875,13 +875,16 @@ describe('the feature flag release conditions logic', () => {
     })
 
     describe('rollout percentage validation', () => {
-        it('validates rollout percentage is defined', () => {
+        it.each([
+            ['null', null],
+            ['undefined', undefined],
+        ])('accepts a missing rollout percentage (%s) as 100%%', (_label, rolloutPercentage) => {
             const filters = generateFeatureFlagFilters([
-                { properties: [], rollout_percentage: undefined, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: rolloutPercentage, variant: null, sort_key: 'A' },
             ])
             logic.actions.setFilters(filters)
 
-            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBe('You need to set a rollout % value')
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBeUndefined()
         })
 
         it('validates rollout percentage is a valid number', () => {
