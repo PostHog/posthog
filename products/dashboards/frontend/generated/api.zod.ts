@@ -561,6 +561,19 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request."
                         ),
+                    color: zod
+                        .union([
+                            zod
+                                .enum(['blue', 'purple', 'green', 'black', 'white'])
+                                .describe(
+                                    '\* `blue` - blue\n\* `purple` - purple\n\* `green` - green\n\* `black` - black\n\* `white` - white'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Accent ribbon color on the left edge of an insight tile. Null or `white` removes the ribbon. Other tile types store the value but do not show it.\n\n\* `blue` - blue\n\* `purple` - purple\n\* `green` - green\n\* `black` - black\n\* `white` - white'
+                        ),
                     widget: zod
                         .object({
                             id: zod
