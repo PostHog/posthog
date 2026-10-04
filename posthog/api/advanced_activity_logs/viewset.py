@@ -144,6 +144,42 @@ def apply_organization_scoped_filter(
         return queryset.filter(team_id=team_id)
 
 
+class OrganizationScopedActivityLogs:
+    """Pages an org-scoped activity log queryset as two ordered scans instead of one.
+
+    Postgres cannot walk an index in `created_at` order to satisfy the team OR org filter, so a
+    page sorts every matching row of the team. When the paginator slices this object, each branch
+    takes its own LIMITed index scan and a UNION ALL merges them. The branches are disjoint on
+    `team_id`, and each one only narrows the full queryset, so the tenant filter stays intact.
+    """
+
+    def __init__(self, queryset: QuerySet[ActivityLog], team_id: int, organization_id) -> None:
+        self.queryset = queryset
+        self.team_id = team_id
+        self.organization_id = organization_id
+
+    def _with(self, queryset: QuerySet[ActivityLog]) -> "OrganizationScopedActivityLogs":
+        return OrganizationScopedActivityLogs(queryset, self.team_id, self.organization_id)
+
+    def order_by(self, *fields: str) -> "OrganizationScopedActivityLogs":
+        return self._with(self.queryset.order_by(*fields))
+
+    def filter(self, *args, **kwargs) -> "OrganizationScopedActivityLogs":
+        return self._with(self.queryset.filter(*args, **kwargs))
+
+    @property
+    def ordered(self) -> bool:
+        return self.queryset.ordered
+
+    def count(self) -> int:
+        return self.queryset.count()
+
+    def __getitem__(self, key: slice) -> Any:
+        team_rows = self.queryset.filter(team_id=self.team_id)[: key.stop]
+        org_rows = self.queryset.filter(team_id__isnull=True, organization_id=self.organization_id)[: key.stop]
+        return team_rows.union(org_rows, all=True).order_by(*self.queryset.query.order_by)[key]
+
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
@@ -239,6 +275,9 @@ class ActivityLogPagination(BasePagination):
 
     def paginate_queryset(self, queryset, request, view=None):
         self.request = request
+        split_organization_scope = getattr(view, "split_organization_scope", None)
+        if split_organization_scope is not None:
+            queryset = split_organization_scope(queryset)
         if request.query_params.get("page"):
             return self.page_number_pagination.paginate_queryset(queryset, request, view)
         else:
@@ -329,6 +368,11 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         We'll apply custom org-scoped filtering in safely_get_queryset instead.
         """
         return bool(self.team.receive_org_level_activity_logs)
+
+    def split_organization_scope(self, queryset: QuerySet[ActivityLog]) -> Any:
+        if not self.team.receive_org_level_activity_logs:
+            return queryset
+        return OrganizationScopedActivityLogs(queryset, self.team_id, self.organization.id)
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
@@ -589,6 +633,11 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         """
         return bool(self.team.receive_org_level_activity_logs)
 
+    def split_organization_scope(self, queryset: QuerySet[ActivityLog]) -> Any:
+        if not self.team.receive_org_level_activity_logs:
+            return queryset
+        return OrganizationScopedActivityLogs(queryset, self.team_id, self.organization.id)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._filter_manager = None
@@ -809,6 +858,9 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         # parents_query_dict is {"organization_id": <uuid>} on this nested route, so let
         # TeamAndOrgViewSetMixin filter the queryset by organization_id automatically.
         return False
+
+    def split_organization_scope(self, queryset: QuerySet[ActivityLog]) -> Any:
+        return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         queryset = queryset.select_related("user")

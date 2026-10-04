@@ -133,3 +133,62 @@ class TestActivityLogCursorOrdering(APIBaseTest):
             url = body["next"]
 
         assert sorted(seen) == sorted(str(index) for index in range(25))
+
+    @parameterized.expand(
+        [
+            ("advanced_descending", "advanced_activity_logs", "", False),
+            ("advanced_ascending", "advanced_activity_logs", "&ordering=created_at", False),
+            ("advanced_page_number", "advanced_activity_logs", "", True),
+            ("activity_log_descending", "activity_log", "", False),
+            ("activity_log_page_number", "activity_log", "", True),
+        ]
+    )
+    def test_org_scoped_walk_merges_team_and_org_rows_in_order(
+        self, _name: str, endpoint: str, extra: str, page_number: bool
+    ):
+        self.team.receive_org_level_activity_logs = True
+        self.team.save()
+        other_team = self.create_team_with_organization(organization=self.organization)
+        other_org = self.create_organization_with_features([])
+        ActivityLog.objects.all().delete()
+
+        stamp = timezone.now()
+        expected: list[str] = []
+        for index in range(23):
+            if index % 3 == 0:
+                team_id, organization_id, visible = None, self.organization.id, True
+            elif index % 7 == 0:
+                team_id, organization_id, visible = other_team.id, self.organization.id, False
+            elif index % 11 == 0:
+                team_id, organization_id, visible = None, other_org.id, False
+            else:
+                team_id, organization_id, visible = self.team.id, self.organization.id, True
+            ActivityLog.objects.create(
+                team_id=team_id,
+                organization_id=organization_id,
+                scope="FeatureFlag",
+                activity="updated",
+                item_id=str(index),
+                created_at=stamp + timedelta(minutes=index // 2),
+            )
+            if visible:
+                expected.append(str(index))
+
+        ascending = "ordering=created_at" in extra
+        rows = ActivityLog.objects.filter(item_id__in=expected).order_by(
+            *(("created_at", "id") if ascending else ("-created_at", "-id"))
+        )
+        expected = [row.item_id for row in rows]
+
+        seen: list[str] = []
+        url: str | None = f"/api/projects/{self.team.id}/{endpoint}/?page_size=4{extra}"
+        if page_number:
+            url += "&page=1"
+        while url:
+            response = self.client.get(url)
+            assert response.status_code == 200, response.json()
+            body = response.json()
+            seen.extend(row["item_id"] for row in body["results"])
+            url = body["next"]
+
+        assert seen == expected
