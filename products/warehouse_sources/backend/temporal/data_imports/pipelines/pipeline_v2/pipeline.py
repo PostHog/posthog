@@ -445,6 +445,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._last_incremental_field_value,
             self._earliest_incremental_field_value,
             self._logger,
+            cursor_ceiling=self._job.created_at,
         )
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value

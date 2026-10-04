@@ -661,6 +661,7 @@ class PipelineV3(Generic[ResumableData]):
             self._logger,
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
+            cursor_ceiling=self._job.created_at,
         )
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value

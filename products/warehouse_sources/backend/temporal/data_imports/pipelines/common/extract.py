@@ -1,6 +1,6 @@
 import json
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from django.conf import settings
@@ -724,6 +724,34 @@ def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = No
     pa_memory_pool.release_unused()
 
 
+# A naive cursor can hold the source database's local time, which runs up to 14 hours ahead of UTC.
+FUTURE_INCREMENTAL_VALUE_TOLERANCE = timedelta(days=1)
+# Local time also runs up to 12 hours behind UTC. A naive cap this far behind the UTC ceiling is never
+# ahead of the source's own clock, so it cannot skip rows that the source writes after the sync.
+NAIVE_INCREMENTAL_CAP_OFFSET = timedelta(hours=12)
+
+
+def cap_future_incremental_value(value: Any, ceiling: datetime) -> Any:
+    """Cap a date or datetime cursor that is far ahead of `ceiling`.
+
+    The source query asks only for rows after the cursor, so one future-dated row would stop
+    every later sync. Other value types stay unchanged.
+    """
+    if isinstance(value, datetime):
+        aware = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        if aware <= ceiling + FUTURE_INCREMENTAL_VALUE_TOLERANCE:
+            return value
+        if value.tzinfo is not None:
+            return ceiling.astimezone(value.tzinfo)
+        return (ceiling - NAIVE_INCREMENTAL_CAP_OFFSET).astimezone(UTC).replace(tzinfo=None)
+    if isinstance(value, date):
+        ceiling_date = ceiling.astimezone(UTC).date()
+        if value <= ceiling_date + FUTURE_INCREMENTAL_VALUE_TOLERANCE:
+            return value
+        return (ceiling - NAIVE_INCREMENTAL_CAP_OFFSET).astimezone(UTC).date()
+    return value
+
+
 @frozen
 class IncrementalFieldValues:
     last_value: Any
@@ -739,10 +767,22 @@ async def update_incremental_field_values(
     logger: FilteringBoundLogger,
     log_prefix: str = "",
     staging_run_uuid: str | None = None,
+    *,
+    cursor_ceiling: datetime,
 ) -> IncrementalFieldValues:
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
+        capped_last_value = cap_future_incremental_value(last_value, cursor_ceiling)
+        if capped_last_value != last_value:
+            await logger.awarning(
+                f"{log_prefix}The incremental field '{schema.incremental_field}' has the value {last_value}, "
+                f"which is in the future. The sync saves {capped_last_value} as the last synced value instead, "
+                f"so later syncs continue to import new rows. Correct the future-dated rows in the source "
+                f"to stop this warning."
+            )
+            last_value = capped_last_value
+
         if (last_incremental_field_value is None) or (last_value > last_incremental_field_value):
             last_incremental_field_value = last_value
 
