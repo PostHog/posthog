@@ -2,11 +2,13 @@ from unittest.mock import MagicMock
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 
 class TestTaskCaptureEvent(TestCase):
@@ -16,11 +18,11 @@ class TestTaskCaptureEvent(TestCase):
         self.user = User.objects.create(email="ada@northwind.example", distinct_id="ada-distinct")
 
     def _task(self, **kwargs) -> Task:
+        kwargs.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
         return Task.objects.create(
             team=self.team,
             title="Getting set up",
             description="prompt",
-            origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.user,
             **kwargs,
         )
@@ -48,3 +50,40 @@ class TestTaskCaptureEvent(TestCase):
         task.capture_event("task_created", capture_fn=capture)
 
         self.assertEqual(capture.call_args.kwargs["properties"]["channel_id"], str(channel.id))
+
+    @parameterized.expand(
+        [
+            (Task.OriginProduct.USER_CREATED, False, False),
+            (Task.OriginProduct.WORKFLOW, False, False),
+            (Task.OriginProduct.SIGNALS_SCOUT, False, True),
+            (Task.OriginProduct.SIGNAL_REPORT, True, True),
+        ]
+    )
+    def test_origin_marks_fleet_traffic_in_analytics(self, origin_product, internal, is_platform_origin):
+        capture = MagicMock()
+
+        task = self._task(origin_product=origin_product, internal=internal)
+        task.capture_event("task_run_created", capture_fn=capture)
+
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["internal"], internal)
+        self.assertEqual(properties["is_platform_origin"], is_platform_origin)
+
+    def test_task_and_run_events_agree_on_every_origin(self):
+        capture = MagicMock()
+
+        for origin_product in Task.OriginProduct:
+            task = self._task(origin_product=origin_product)
+            run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+            task.capture_event("task_run_created", capture_fn=capture)
+
+            task_properties = capture.call_args.kwargs["properties"]
+            run_properties = run.analytics_properties()
+
+            for name in ("internal", "is_platform_origin"):
+                self.assertEqual(task_properties[name], run_properties[name], f"{origin_product}.{name}")
+            self.assertEqual(
+                run_properties["is_platform_origin"],
+                origin_product in Task.PLATFORM_ORIGIN_PRODUCTS,
+                origin_product,
+            )

@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
@@ -402,6 +402,22 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # these, and they stay internal so the normal task APIs never list them.
         BUSINESS_KNOWLEDGE = "business_knowledge", "Business Knowledge"
 
+    # Origins whose runs a PostHog-operated pipeline starts for itself, rather than a person or a
+    # customer-configured automation. Analytics carries the membership as `is_platform_origin`, so
+    # a query that wants customer traffic alone keeps no origin list of its own. `internal` does not
+    # answer this: a scout task stays non-internal because that posture also selects which MCP
+    # grants its sandbox mounts.
+    PLATFORM_ORIGIN_PRODUCTS: ClassVar[frozenset[str]] = frozenset(
+        {
+            OriginProduct.SIGNAL_REPORT,
+            OriginProduct.SIGNALS_SCOUT,
+            OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+            OriginProduct.SUPPORT_REPLY,
+            OriginProduct.REVIEW_HOG,
+            OriginProduct.TASK_ANALYSIS,
+        }
+    )
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -659,6 +675,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 "title": self.title,
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
+                "internal": self.internal,
+                "is_platform_origin": self.is_platform_origin,
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
@@ -693,6 +711,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if len(uppercase_letters) >= 3:
             return "".join(uppercase_letters[:3])
         return clean_name[:3].upper() if clean_name else "TSK"
+
+    @property
+    def is_platform_origin(self) -> bool:
+        return self.origin_product in Task.PLATFORM_ORIGIN_PRODUCTS
 
     @property
     def slug(self) -> str:
@@ -3108,6 +3130,8 @@ class TaskRun(models.Model):
             or self.task.repositories
             or ([self.task.repository] if self.task.repository else []),
             "origin_product": self.task.origin_product,
+            "internal": self.task.internal,
+            "is_platform_origin": self.task.is_platform_origin,
             "title": self.task.title,
             "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
             "loop_id": (self.state or {}).get("loop_id"),
