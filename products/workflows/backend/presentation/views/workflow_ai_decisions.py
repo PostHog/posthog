@@ -173,7 +173,10 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             )
         case AIDecisionUnavailable(reason=reason, status_code=status_code):
             AI_DECISION_OUTCOMES.labels("unavailable", reason).inc()
-            logger.warning("workflow_ai_decision_unavailable", team_id=team_id, reason=reason, status_code=status_code)
+            # Causes before admission (flag, Redis) repeat for every person a batch run sends, so the counter
+            # carries their rate. Gateway causes come after admission, so their rate is already bounded.
+            log = logger.warning if reason in ("gateway_error", "gateway_unreachable") else logger.debug
+            log("workflow_ai_decision_unavailable", team_id=team_id, reason=reason, status_code=status_code)
             return Response(
                 WorkflowAIDecisionRetrySerializer({"detail": "The AI decision service is unavailable."}).data,
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

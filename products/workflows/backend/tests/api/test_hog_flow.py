@@ -6860,6 +6860,14 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert added.status_code == status.HTTP_400_BAD_REQUEST, added.json()
         assert added.json()["attr"] == "actions__3__type", added.json()
 
+    def test_activating_an_unwired_builder_draft_needs_every_decision_edge(self) -> None:
+        flow_id = self._post({**_ai_decision_flow({}, answer_edges=0), "status": "draft"}).json()["id"]
+
+        activated = self._patch(flow_id, {"status": "active"}, flag_enabled=True)
+
+        assert activated.status_code == status.HTTP_400_BAD_REQUEST, activated.json()
+        assert "graph" in activated.json()["attr"], activated.json()
+
     def test_a_draft_does_not_grandfather_a_decision_past_the_flag(self) -> None:
         flow_id = self._post({**_ai_decision_flow({}), "status": "draft"}).json()["id"]
 
@@ -6868,7 +6876,7 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert activated.status_code == status.HTTP_400_BAD_REQUEST, activated.json()
         assert "AI decisions aren't available" in str(activated.json()), activated.json()
 
-    def test_a_programmatic_edit_that_sends_only_edges_still_needs_every_answer_edge(self) -> None:
+    def test_an_edit_of_an_active_flow_that_sends_only_edges_still_needs_every_answer_edge(self) -> None:
         flow = _ai_decision_flow({})
         flow_id = self._post(flow).json()["id"]
         without_last_answer = [edge for edge in flow["edges"] if not (edge["type"] == "branch" and edge["index"] == 1)]
