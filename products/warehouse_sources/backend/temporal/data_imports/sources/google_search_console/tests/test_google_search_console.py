@@ -1190,4 +1190,4 @@ def test_property_listing_separates_quota_from_permission_denial(
     )
 
     with pytest.raises(expected_error, match=expected_match):
-        list(response.items())
+        list(response.items())  # type: ignore[arg-type]
