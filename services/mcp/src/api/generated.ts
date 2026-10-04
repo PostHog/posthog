@@ -44338,32 +44338,11 @@ export namespace Schemas {
       emits_signals: boolean;
       /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
       scanner_config: unknown;
-      /** How a monitor `yes` was re-checked at run time: `off` (one pass, the default), `shadow` (second draw recorded only), or `enforce` (the `yes` stands only when the second draw agrees). */
-      verify_positives: string;
       /**
          * Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.
          * @nullable
          */
       variant_sampling_rates?: ScannerSnapshotVariantSamplingRates;
-    }
-
-    /**
-     * Mirrors `temporal.types.VerificationRecord` for OpenAPI generation.
-     */
-    export interface VerificationRecord {
-      /** Verify-positives mode the scan ran with: `shadow` records the second draw only, `enforce` serves the settled verdict. */
-      mode: string;
-      /** Monitor verdicts in draw order: the pass that triggered verification, then the second draw when it ran. */
-      draws: string[];
-      /** The verdict verification settled on: the first pass when the second draw agrees, else the dissent. */
-      resolved_verdict: string;
-      /** The verdict `model_output` carries: the resolved one under `enforce`, the first draw under `shadow`. */
-      served_verdict: string;
-      /**
-         * Why verification stopped early (`no_cache`, `no_budget`, `draw_failed`), leaving the first pass in place. Null when every draw ran.
-         * @nullable
-         */
-      skipped_reason: string | null;
     }
 
     /**
@@ -44377,8 +44356,6 @@ export namespace Schemas {
          * @minimum 0
          */
       signals_count: number;
-      /** Extra draws taken to verify a monitor `yes` verdict. Null when the scan did not verify one. */
-      verification: VerificationRecord | null;
       /**
          * Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.
          * @nullable
