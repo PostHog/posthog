@@ -2,7 +2,7 @@ import os
 import re
 import json
 import asyncio
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterable
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, cast
@@ -45,6 +45,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
@@ -474,6 +475,25 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskSerializer
 
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action == "retrieve":
+            scopes = get_authenticator_scopes(request.successful_authenticator) or []
+            task_id = _sandbox_bound_task_id(request)
+            if (
+                "scout_experiment_internal:read" in scopes
+                and task_id is not None
+                and str(task_id) == self.kwargs.get("pk")
+                and tasks_facade.is_scout_trial_judge_task_run(team_id=self.team_id, task_id=task_id)
+            ):
+                return ["scout_experiment_internal:read"]
+        return None
+
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        task_id = self.kwargs.get("pk")
+        if task_id is not None:
+            _ensure_scout_trial_visible(request, self.team_id, task_id)
+
     def get_throttles(self) -> list[BaseThrottle]:
         throttles = super().get_throttles()
         action = getattr(self, "action", None)
@@ -541,9 +561,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         bypass_visibility = all_team_tasks and _can_bypass_visibility(request, self.team_id)
         tasks = tasks_facade._list_tasks_queryset(
             self.team_id, self._user_id(), filters=filters, bypass_visibility=bypass_visibility
-        )
+        ).exclude(id__in=_hidden_scout_trial_task_ids(request, self.team_id))
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
+        if any(task.is_scout_experiment for task in page):
+            tag_queries(is_scout_experiment=True)
         # Description bodies dominate the list payload. A summary surface asks for basic=true
         # and gets the smaller rows without them.
         basic = getattr(request, "validated_query_data", {}).get("basic", False)
@@ -583,6 +605,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             query,
             limit=limit,
             bypass_visibility=_can_bypass_visibility(request, self.team_id),
+            exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id),
         )
         return Response(TaskSearchResultSerializer(results, many=True).data)
 
@@ -981,7 +1004,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filter_backends=[],
     )
     def repositories(self, request, **kwargs):
-        repositories = tasks_facade.list_task_repositories(self.team_id, self._user_id())
+        repositories = tasks_facade.list_task_repositories(
+            self.team_id, self._user_id(), exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+        )
         serializer = TaskRepositoriesResponseSerializer({"repositories": repositories})
         return Response(serializer.data)
 
@@ -995,7 +1020,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         user_id = self._user_id()
         if user_id is None:
             raise NotFound()
-        return Response({"task_ids": tasks_facade.list_pinned_task_ids(self.team_id, user_id)})
+        return Response(
+            PinnedTaskIdsResponseSerializer(
+                {
+                    "task_ids": tasks_facade.list_pinned_task_ids(
+                        self.team_id, user_id, exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id)
+                    )
+                }
+            ).data
+        )
 
     @extend_schema(
         responses={200: ModelCatalogueResponseSerializer},
@@ -1135,6 +1168,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ids=ids,
             limit=limit,
             offset=offset,
+            exclude_task_ids=_hidden_scout_trial_task_ids(request, self.team_id),
             analytics_context_reader=run_context.analytics_context_reader(request=request, team_id=self.team_id),
         )
         paginator.set_count(count)
@@ -1377,6 +1411,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
+        _reject_scout_trial_run_creation(str(pk), self.team_id)
         run_source = request.validated_data.get("run_source")
         if resume_id := request.validated_data.get("resume_from_run_id"):
             previous_source = tasks_facade.get_task_run_source(resume_id, pk, self.team_id)
@@ -1602,6 +1637,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"], url_path="warm", url_name="warm-resume", required_scopes=["task:write"])
     def warm_resume(self, request, pk=None, **kwargs):
+        _reject_scout_trial_run_creation(str(pk), self.team_id)
         if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         gate = tasks_facade.task_control_runtime_and_origin(pk, self.team_id, self._user_id())
@@ -1695,6 +1731,31 @@ def _sandbox_bound_task_id(request) -> UUID | None:
     return request.successful_authenticator.access_token.sandbox_task_id
 
 
+def _hidden_scout_trial_task_ids(request: Request, team_id: int) -> Iterable[UUID]:
+    if is_sandbox_oauth_request(request):
+        return tasks_facade.scout_trial_task_ids(team_id, visible_task_id=_sandbox_bound_task_id(request))
+    # Ordinary reads already apply creator-only trial visibility in the facade.
+    return ()
+
+
+def _ensure_scout_trial_visible(request: Request, team_id: int, task_id: str) -> None:
+    if not tasks_facade.is_scout_trial_task(task_id, team_id):
+        return
+    tag_queries(is_scout_experiment=True)
+    if is_sandbox_oauth_request(request):
+        if _sandbox_bound_task_id(request) != UUID(task_id):
+            raise NotFound("Task not found")
+    elif not tasks_facade.task_visible(task_id, team_id, request.user.pk):
+        raise NotFound("Task not found")
+
+
+def _reject_scout_trial_run_creation(task_id: str, team_id: int) -> None:
+    if tasks_facade.is_scout_trial_task(task_id, team_id):
+        raise ValidationError(
+            {"detail": "Scout comparison tasks cannot start another run. Start a new comparison instead."}
+        )
+
+
 def is_sandbox_agent_request(request, task_id: str) -> bool:
     """True only for the task-bound sandbox OAuth identity, never a human session or key."""
     return _sandbox_bound_task_id(request) == UUID(task_id)
@@ -1722,6 +1783,96 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
+    _authorized_task_id: str | None = None
+
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        self._authorized_task_id = self._ensure_task_accessible()
+
+    @staticmethod
+    def _is_trial_lifecycle_update(payload: object) -> bool:
+        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+            return False
+        if "status" in payload and (
+            not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "state" in payload:
+            state = payload["state"]
+            if not isinstance(state, dict) or set(state) - {
+                "token_usage",
+                "budget_guard",
+                "benjamin_version",
+                "agent_version",
+            }:
+                return False
+        return True
+
+    @staticmethod
+    def _is_judge_pending_prompt_cleanup(payload: object) -> bool:
+        if not isinstance(payload, dict) or set(payload) != {"state_remove_keys"}:
+            return False
+        keys = payload["state_remove_keys"]
+        return (
+            isinstance(keys, list)
+            and bool(keys)
+            and all(
+                isinstance(key, str)
+                and key
+                in {
+                    "pending_user_message",
+                    "pending_user_artifact_ids",
+                    "pending_user_message_id",
+                    "pending_user_message_ts",
+                }
+                for key in keys
+            )
+        )
+
+    def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str] | None:
+        if self.action not in {
+            "append_log",
+            "set_summary",
+            "update",
+            "partial_update",
+            "artifacts_download",
+            "retrieve",
+        }:
+            return None
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        judge_cleanup = self.action in {"update", "partial_update"} and self._is_judge_pending_prompt_cleanup(
+            request.data
+        )
+        if "scout_experiment_internal:read" in scopes and (
+            self.action in {"append_log", "set_summary", "artifacts_download", "retrieve"}
+            or self._is_trial_lifecycle_update(request.data)
+            or judge_cleanup
+        ):
+            task_id = self._task_id()
+            if _sandbox_bound_task_id(request) == UUID(task_id):
+                try:
+                    run_id = UUID(self.kwargs["pk"])
+                except (ValueError, TypeError, KeyError):
+                    raise NotFound("Task run not found")
+                if tasks_facade.is_scout_trial_judge_task_run(
+                    team_id=self.team_id, task_id=UUID(task_id), run_id=run_id
+                ):
+                    return ["scout_experiment_internal:read"]
+                if judge_cleanup:
+                    return ["task:write"]
+                from products.signals.backend.facade.api import (
+                    is_scout_trial_task_run,  # noqa: PLC0415 -- keeps the scout workflow graph off ordinary API startup
+                )
+
+                if "task:read" in scopes and is_scout_trial_task_run(
+                    team_id=self.team_id, task_id=UUID(task_id), task_run_id=run_id
+                ):
+                    return ["task:read", "scout_experiment_internal:read"]
+        if self.action == "artifacts_download":
+            return ["task:read"]
+        if self.action == "retrieve":
+            return None
+        return ["task:write"]
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "team": self.team, "team_id": self.team.id}
@@ -1757,6 +1908,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # teammates watch a run, never command it. connection_token is a GET but
     # mints a write-capable token, so it is deliberately absent.
     _READ_ONLY_ACTIONS = (
+        "metadata",
         "list",
         "retrieve",
         "logs",
@@ -1793,6 +1945,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, including exact task-bound sandbox access."""
+        if self._authorized_task_id is not None:
+            return self._authorized_task_id
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
         is_visibility_only = self.action in self._VISIBILITY_ONLY_ACTIONS
@@ -1805,6 +1959,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self._user_id(),
             bypass_visibility=bypass_visibility,
             for_control=not (is_read_only or is_visibility_only),
+            sandbox_task_id=_sandbox_bound_task_id(self.request),
+            sandbox_request=is_sandbox_oauth_request(self.request),
         ):
             raise NotFound("Task not found")
         run_id = self.kwargs.get("pk")
@@ -1919,6 +2075,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()
+        _reject_scout_trial_run_creation(task_id, self.team_id)
         environment = request.validated_data.get("environment", tasks_facade.TaskRunEnvironment.LOCAL)
 
         # Gate cloud runs before the run row is created; local runs aren't limited.
@@ -2187,7 +2344,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["patch"],
         url_path="set_summary",
-        required_scopes=["task:write"],
     )
     def set_summary(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2228,7 +2384,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="append_log",
-        required_scopes=["task:write"],
     )
     def append_log(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2757,7 +2912,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["post"],
         url_path="artifacts/download",
-        required_scopes=["task:read"],
     )
     def artifacts_download(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -3834,6 +3988,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if is_sandbox_origin_request(request):
             return _agent_run_disabled_response()
         task_id = self._ensure_task_accessible()
+        _reject_scout_trial_run_creation(task_id, self.team_id)
         if tasks_facade.get_task_run_detail(pk, task_id, self.team_id) is None:
             raise NotFound()
         if tasks_facade.get_task_run_source(pk, task_id, self.team_id) == RunSource.AGENT and not _agent_run_enabled(
@@ -4269,6 +4424,11 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request.
     serializer_class = TaskRunLivingArtifactResponseSerializer
+    _authorized_task_id: str | None = None
+
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        self._authorized_task_id = self._ensure_task_accessible()
 
     def _task_id(self) -> str:
         task_id = self.kwargs.get("parent_lookup_task_id")
@@ -4292,8 +4452,10 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
 
     def _ensure_task_accessible(self) -> str:
         """Gate access to the parent task, mirroring ``TaskRunViewSet._ensure_task_accessible``."""
+        if self._authorized_task_id is not None:
+            return self._authorized_task_id
         task_id = self._task_id()
-        is_read = self.action in ("list", "retrieve", "version_content")
+        is_read = self.action in ("metadata", "list", "retrieve", "version_content")
         bypass_visibility = is_read and _can_bypass_visibility(self.request, self.team_id)
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
@@ -4301,6 +4463,8 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             getattr(self.request.user, "id", None),
             bypass_visibility=bypass_visibility,
             for_control=not is_read,
+            sandbox_task_id=_sandbox_bound_task_id(self.request),
+            sandbox_request=is_sandbox_oauth_request(self.request),
         ):
             raise NotFound("Task not found")
         if not is_read and not tasks_facade.task_run_matches_current_ownership(self._run_id(), task_id, self.team_id):

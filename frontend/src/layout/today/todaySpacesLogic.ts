@@ -82,7 +82,7 @@ const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
-export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter'
+export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter' | 'chat'
 
 /** The space a path is in, like PostHog Desktop's scoped space. `/spaces/new` is in no space. */
 export function spaceIdForPath(pathname: string): string | null {

@@ -581,6 +581,15 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     // Same arguments, so the redirect only has to hand over the new name.
     'experiment-get-all': () =>
         'Tool "experiment-get-all" was removed. It was a deprecation alias for "experiment-list", which takes the same arguments. Call "experiment-list" instead.',
+    // Replay Vision prompt suggestions were removed. Ratings now steer scanners without a review step.
+    'vision-scanners-prompt-suggestions-apply': () =>
+        'Tool "vision-scanners-prompt-suggestions-apply" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-current': () =>
+        'Tool "vision-scanners-prompt-suggestions-current" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-dismiss': () =>
+        'Tool "vision-scanners-prompt-suggestions-dismiss" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
+    'vision-scanners-prompt-suggestions-generate': () =>
+        'Tool "vision-scanners-prompt-suggestions-generate" was removed. Replay Vision no longer proposes prompt rewrites to review. Rate observations with "vision-observations-label-create" instead: ratings improve the scanner automatically. To change the prompt yourself, use "vision-scanners-update".',
 }
 
 /** The form caller keys and field names are matched on, so `date_from` reaches a field

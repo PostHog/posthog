@@ -664,8 +664,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hibob/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hightouch/hightouch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hightouch/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/honeybadger/honeybadger.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/honeybadger/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/honeycomb/honeycomb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/honeycomb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hookdeck/hookdeck.py

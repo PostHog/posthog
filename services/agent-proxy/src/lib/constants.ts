@@ -1,8 +1,8 @@
 // Wire-protocol constants for the agent-proxy Redis stream plane.
 //
 // Every value here must stay byte-identical to the Python implementation in
-// products/tasks/backend/stream/redis_stream.py and
-// products/tasks/backend/services/sandbox_config.py — Django and this Node
+// products/tasks/backend/logic/stream/redis_stream.py and
+// products/tasks/backend/logic/services/sandbox_config.py — Django and this Node
 // service share the SAME Redis stream during the cutover window.
 
 // SANDBOX_TTL_SECONDS from sandbox_config.py (production value only; the TEST
