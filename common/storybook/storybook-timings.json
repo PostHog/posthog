@@ -3,10 +3,6 @@
         "chromium": 13.862,
         "webkit": 3.975
     },
-    "frontend/src/exporter/stories/ExporterInterview.stories.tsx": {
-        "chromium": 29.053,
-        "webkit": 1.908
-    },
     "frontend/src/exporter/stories/ExporterOther.stories.tsx": {
         "chromium": 25.232,
         "webkit": 4.504
@@ -1343,10 +1339,6 @@
         "chromium": 19.529,
         "webkit": 3.46
     },
-    "frontend/src/scenes/user-research/UserInterviews.stories.tsx": {
-        "chromium": 14.124,
-        "webkit": 3.767
-    },
     "frontend/src/scenes/web-analytics/CalendarHeatMap/CalendarHeatMap.stories.tsx": {
         "chromium": 21.706,
         "webkit": 2.758
@@ -1842,14 +1834,6 @@
     "products/surveys/mcp/apps/Surveys.stories.tsx": {
         "chromium": 11.993,
         "webkit": 2.61
-    },
-    "products/user_interviews/frontend/InvitePreviewModal.stories.tsx": {
-        "chromium": 36.53,
-        "webkit": 3.171
-    },
-    "products/user_interviews/frontend/TranscriptChat.stories.tsx": {
-        "chromium": 28.639,
-        "webkit": 3.381
     },
     "products/visual_review/frontend/scenes/VisualReviewRunScene.stories.tsx": {
         "chromium": 9.533,

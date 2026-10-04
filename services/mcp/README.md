@@ -273,7 +273,6 @@ Available features:
 | `surveys`                | [Surveys](https://posthog.com/docs/surveys)                                                     |
 | `tasks`                  | [Tasks](https://posthog.com/docs/posthog-desktop/tasks)                                         |
 | `tracing`                | Tracing                                                                                         |
-| `user_interviews`        | User interview topics                                                                           |
 | `visual_review`          | Visual review                                                                                   |
 | `warehouse_sources`      | Warehouse sources                                                                               |
 | `web_analytics`          | [Web analytics](https://posthog.com/docs/web-analytics)                                         |

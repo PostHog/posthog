@@ -76,7 +76,6 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Live Debugger',
     'Product tours',
     'Pulse',
-    'User research',
     'Visual review',
 ])
 
@@ -131,7 +130,6 @@ const examples: Record<string, string> = {
     Tasks: 'Ask an agent to investigate an issue and prepare a code change.',
     Toolbar: 'Inspect elements on your website while setting up tracking.',
     Tracing: 'Follow a slow request across services to find the bottleneck.',
-    'User research': 'Run a voice research campaign about a recent product experience.',
     'Visual review': 'Review visual changes before they reach users.',
     'Web scripts': 'Add a website tag without changing your application code.',
     Workflows: 'Send a follow-up when someone completes an onboarding step.',

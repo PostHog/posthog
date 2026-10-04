@@ -1506,6 +1506,7 @@ export type SessionRecordingSnapshotParams = {
 export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
+    replay_proxy_token?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
@@ -4996,15 +4997,6 @@ export interface Group {
     notebook: string | null
 }
 
-export interface UserInterviewType {
-    id: string
-    created_by: UserBasicType
-    created_at: string
-    transcript: string
-    summary: string
-    interviewee_emails: string[]
-}
-
 export enum ExperimentConclusion {
     Won = 'won',
     Lost = 'lost',
@@ -6107,7 +6099,6 @@ export enum ActivityScope {
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
     DATA_QUALITY_CHECK = 'DataQualityCheck',
-    USER_INTERVIEW = 'UserInterview',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
     EVALUATION = 'Evaluation',
