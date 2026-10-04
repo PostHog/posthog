@@ -222,17 +222,7 @@ Swap the property and the `HAVING` threshold per metric/band (INP > 500, CLS > 0
 FCP > 3000; use the needs-improvement floor when a top landing page sits stuck there).
 **Compare every threshold against the unrounded p75, and round only the displayed value.**
 CLS is a unitless score below 1, so `round(x, 0)` turns a poor 0.30 into 0 and the page drops out of the result.
-Show CLS to 3 decimals, never to 0:
-
-```sql
-    quantile(0.75)(toFloat(properties.$web_vitals_CLS_value)) AS cls_p75_raw,
-    round(cls_p75_raw, 3) AS cls_p75
-...
-  AND properties.$web_vitals_CLS_value IS NOT NULL
-...
-HAVING samples_7d >= 1000
-   AND cls_p75_raw > 0.25          -- CLS poor band; needs-improvement is > 0.1 AND <= 0.25
-```
+For CLS, filter on `cls_p75_raw > 0.25` and display `round(cls_p75_raw, 3) AS cls_p75`, never round to 0.
 
 Weight by reach: a `poor` p75 on a top-3 landing surface is P2; a deep, low-traffic route
 is P3 at most. Before filing, confirm it isn't a known-and-accepted slow page in
@@ -343,7 +333,7 @@ ORDER BY samples_24h DESC
 LIMIT 25
 ```
 
-For CLS, round both p75 columns to 3 decimals, not 0, or every page reads 0 on both sides and no band crossing shows.
+For CLS, classify both windows on the raw p75 values and round separate display columns to 3 decimals, not 0. Rounded values can hide a crossing: 0.2496 and 0.2504 both read 0.250.
 
 A candidate is one page whose p75 crossed a band boundary (good/needs → poor, or
 needs → poor) while sibling pages held. A page that fails `samples_prior13d` is **not** a
