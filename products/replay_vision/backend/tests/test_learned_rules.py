@@ -99,18 +99,20 @@ class TestMerge:
     @parameterized.expand(
         [
             # 5 ratings behind the rule: one dissent marks it contested, five retire it.
-            ("well_backed_survives_one_dissent", 5, ["r6"], ["a1"]),
-            ("well_backed_retires_on_equal_dissent", 5, ["r5", "r6", "r7", "r8", "r9"], []),
-            ("thinly_backed_retires_on_one_dissent", 2, ["r6"], []),
+            ("well_backed_survives_one_dissent", 5, ["r6"], False, ["a1"]),
+            ("well_backed_retires_on_equal_dissent", 5, ["r5", "r6", "r7", "r8", "r9"], False, []),
+            ("thinly_backed_retires_on_one_dissent", 2, ["r6"], False, []),
+            # A rule that only repeats the scan prompt's built-in guidance goes however well backed it is.
+            ("well_backed_restating_a_built_in_retires", 5, [], True, []),
         ]
     )
     def test_retiring_a_rule_needs_as_much_evidence_as_backs_it(
-        self, _name: str, support: int, against: list[str], expected_ids: list[str]
+        self, _name: str, support: int, against: list[str], built_in: bool, expected_ids: list[str]
     ) -> None:
         current = [_stored("a1", "Treat a declined card as normal.", [f"obs-{i}" for i in range(1, support + 1)])]
         ratings = {**_RATINGS, **{f"r{i}": f"obs-new-{i}" for i in range(5, 10)}}
 
-        kept = _merge(current, [], [_LlmRetired(id="a1", contradicted_by=against)], ratings, cap=12)
+        kept = _merge(current, [], [_LlmRetired(id="a1", contradicted_by=against, built_in=built_in)], ratings, cap=12)
 
         assert [r.id for r in kept] == expected_ids
         if kept:

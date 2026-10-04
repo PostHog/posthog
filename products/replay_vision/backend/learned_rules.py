@@ -126,6 +126,10 @@ class _LlmRetired(BaseModel):
     contradicted_by: list[str] = Field(
         default_factory=list, description="Rating numbers from the input that go against the rule."
     )
+    built_in: bool = Field(
+        default=False,
+        description="True when the rule only restates one of the built-in rules every scan already follows.",
+    )
 
 
 class _LlmScannerRules(BaseModel):
@@ -176,7 +180,7 @@ session it has never seen. Describe the situation, not a specific session.
 content (canvas, iframes, video) is a recording limit, not a bug; repeated clicks on a control that responds, \
 reading or idling, waits that resolve, and validation messages or paywalls are ordinary use; and an outcome is \
 unknown when the recording ends before it. Never write a rule that only restates one of them, and retire an \
-existing rule that does. A rule that adds something specific to this product, such as which page draws a map on a \
+existing rule that does, with `built_in` set. A rule that adds something specific to this product, such as which page draws a map on a \
 canvas, still belongs.
 - A rule refines how a scanner applies its question. It never changes the question.
 - At most {MAX_PROJECT_RULES} project rules and {MAX_SCANNER_RULES} rules per scanner. Merge before you drop.
@@ -479,6 +483,8 @@ def _merge(
     # A rule the response also keeps stays its own rule, so a contradictory merge of it is ignored.
     kept_by_response = {rule.id for rule in proposed if rule.id in by_id and _clean_text(rule.text) is not None}
     merged_into: dict[str, str] = {}
+    # A rule that only restates what the scan prompt now builds in goes however well rated it was.
+    built_in = {entry.id for entry in retired if entry.built_in and entry.id not in kept_by_response}
     for entry in retired:
         new_against[entry.id].update(rating_ids[key] for key in entry.contradicted_by if key in rating_ids)
         if entry.merged_into and entry.merged_into != entry.id and entry.id not in kept_by_response:
@@ -526,7 +532,7 @@ def _merge(
         )
 
     for previous in current:
-        if previous.id in kept_ids or merged_into.get(previous.id) in kept_ids:
+        if previous.id in kept_ids or merged_into.get(previous.id) in kept_ids or previous.id in built_in:
             continue
         against = new_against.get(previous.id, set())
         if _protected(previous, against):
