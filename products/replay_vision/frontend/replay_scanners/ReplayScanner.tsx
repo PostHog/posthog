@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Spinner } from '@posthog/lemon-ui'
@@ -35,6 +35,9 @@ const ScannerCalibrationTab = lazyWithRetry(() =>
 const ScannerScanTab = lazyWithRetry(() =>
     import('./components/ScannerScanTab').then((module) => ({ default: module.ScannerScanTab }))
 )
+const VariantsTab = lazyWithRetry(() =>
+    import('./components/variants/VariantsTab').then((module) => ({ default: module.VariantsTab }))
+)
 const ScannerScoutsTab = lazyWithRetry(() =>
     import('./components/ScannerScoutsTab').then((module) => ({ default: module.ScannerScoutsTab }))
 )
@@ -47,7 +50,7 @@ export const scene: SceneExport = {
 
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
-    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { setActiveTab, setDefaultTab } = useActions(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -57,6 +60,15 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     // `neverRated` already requires results to rate. A viewer who cannot rate is not nudged either,
     // because rating needs editor access, so nudging without it is a dead end.
     const shouldNudgeCalibration = neverRated && !getReplayVisionEditDisabledReason(scanner?.user_access_level)
+    const isExperimentScanner = scanner?.scanner_type === 'experiment'
+    const loadedScannerId = scanner?.id ?? null
+
+    // The scene logic can't see the scanner's type, so the page tells it which tab this scanner lands on.
+    useEffect(() => {
+        if (loadedScannerId) {
+            setDefaultTab(isExperimentScanner ? ReplayScannerTab.Variants : ReplayScannerTab.Overview)
+        }
+    }, [loadedScannerId, isExperimentScanner, setDefaultTab])
 
     if (scannerLoading || !scanner) {
         return (
@@ -105,7 +117,12 @@ export function ReplayScannerSceneComponent(): JSX.Element {
             <QuotaBanner />
 
             <LemonTabs
-                activeKey={activeTab}
+                // Only an experiment scanner has a Variants tab, so a stale ?tab=variants falls back.
+                activeKey={
+                    activeTab === ReplayScannerTab.Variants && !isExperimentScanner
+                        ? ReplayScannerTab.Overview
+                        : activeTab
+                }
                 onChange={setActiveTab}
                 data-attr="vision-scanner-tabs"
                 tabs={[
@@ -138,6 +155,15 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             </div>
                         ),
                     },
+                    ...(isExperimentScanner
+                        ? [
+                              {
+                                  key: ReplayScannerTab.Variants,
+                                  label: 'Variants',
+                                  content: <VariantsTab scannerId={scannerId} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: ReplayScannerTab.Observations,
                         label: 'Observations',
