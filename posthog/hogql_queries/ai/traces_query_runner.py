@@ -289,10 +289,16 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                             THEN sumIf(toFloat(properties.$ai_latency),
                                        event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
                                  )
-                            -- Otherwise sum the direct children of the trace
+                            -- Otherwise sum root-level latency: direct children of the
+                            -- trace, self-parents, and orphans whose parent id is not among
+                            -- this trace's span/generation keys (e.g. a missing edge-root
+                            -- span). Matches products/ai_observability build_tree.
                             ELSE sumIf(toFloat(properties.$ai_latency),
                                        properties.$ai_parent_id IS NULL
+                                       OR toString(properties.$ai_parent_id) = ''
                                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                       OR toString(properties.$ai_parent_id) = node_key
+                                       OR NOT has(known_span_ids, toString(properties.$ai_parent_id))
                                  )
                         END
                     ), 2
@@ -332,7 +338,17 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     arraySort(x -> x.3,
                         groupArrayIf(
                             tuple(uuid, event, timestamp, properties),
-                            event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                            event IN ('$ai_metric', '$ai_feedback')
+                            OR (
+                                event IN ('$ai_span', '$ai_generation', '$ai_embedding')
+                                AND (
+                                    properties.$ai_parent_id IS NULL
+                                    OR toString(properties.$ai_parent_id) = ''
+                                    OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
+                                    OR toString(properties.$ai_parent_id) = node_key
+                                    OR NOT has(known_span_ids, toString(properties.$ai_parent_id))
+                                )
+                            )
                         )
                     )
                 ) AS events,
@@ -373,11 +389,28 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         )
                     )
                 ) AS tools
-            FROM events
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-              AND {filter_conditions}
+            FROM (
+                SELECT
+                    *,
+                    coalesce(
+                        nullIf(toString(properties.$ai_generation_id), ''),
+                        nullIf(toString(properties.$ai_span_id), ''),
+                        toString(uuid)
+                    ) AS node_key,
+                    groupUniqArrayIf(
+                        coalesce(
+                            nullIf(toString(properties.$ai_generation_id), ''),
+                            nullIf(toString(properties.$ai_span_id), ''),
+                            toString(uuid)
+                        ),
+                        event IN ('$ai_span', '$ai_generation', '$ai_embedding')
+                    ) OVER (PARTITION BY properties.$ai_trace_id) AS known_span_ids
+                FROM events
+                WHERE event IN (
+                    '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                )
+                  AND {filter_conditions}
+            ) AS events
             GROUP BY properties.$ai_trace_id
             ORDER BY first_timestamp DESC
             """,
@@ -403,7 +436,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 11,
+            "schema_version": 12,
         }
 
     @cached_property

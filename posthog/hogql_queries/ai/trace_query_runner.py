@@ -165,10 +165,16 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                             THEN sumIf(deduped.latency,
                                        deduped.event = '$ai_generation' AND deduped.latency > 0
                                  )
-                            -- Otherwise sum the direct children of the trace
+                            -- Otherwise sum root-level latency: direct children of the
+                            -- trace, self-parents, and orphans whose parent id is not among
+                            -- this trace's span/generation keys (e.g. a missing edge-root
+                            -- span). Matches products/ai_observability build_tree.
                             ELSE sumIf(deduped.latency,
                                        deduped.parent_id IS NULL
+                                       OR deduped.parent_id = ''
                                        OR deduped.parent_id = deduped.trace_id
+                                       OR deduped.parent_id = deduped.node_key
+                                       OR NOT has(deduped.known_span_ids, deduped.parent_id)
                                  )
                         END
                     ), 2
@@ -240,17 +246,35 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 ) AS trace_name
             FROM (
                 SELECT
-                    uuid, event, timestamp, distinct_id, properties,
-                    trace_id, session_id, parent_id, span_name, trace_name,
-                    latency, input_tokens, output_tokens,
-                    input_cost_usd, output_cost_usd, total_cost_usd,
-                    input, output, output_choices, input_state, output_state, tools
-                FROM posthog.ai_events AS ai_events
-                WHERE event IN (
-                    '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                    *,
+                    coalesce(
+                        nullIf(generation_id, ''),
+                        nullIf(span_id, ''),
+                        toString(uuid)
+                    ) AS node_key,
+                    groupUniqArrayIf(
+                        coalesce(
+                            nullIf(generation_id, ''),
+                            nullIf(span_id, ''),
+                            toString(uuid)
+                        ),
+                        event IN ('$ai_span', '$ai_generation', '$ai_embedding')
+                    ) OVER (PARTITION BY trace_id) AS known_span_ids
+                FROM (
+                    SELECT
+                        uuid, event, timestamp, distinct_id, properties,
+                        trace_id, session_id, parent_id, span_id, generation_id,
+                        span_name, trace_name,
+                        latency, input_tokens, output_tokens,
+                        input_cost_usd, output_cost_usd, total_cost_usd,
+                        input, output, output_choices, input_state, output_state, tools
+                    FROM posthog.ai_events AS ai_events
+                    WHERE event IN (
+                        '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                    )
+                      AND {filter_conditions}
+                    LIMIT 1 BY uuid
                 )
-                  AND {filter_conditions}
-                LIMIT 1 BY uuid
             ) AS deduped
             GROUP BY deduped.trace_id
             LIMIT 1
@@ -262,7 +286,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 11,
+            "schema_version": 12,
             # Not part of the query schema, but it changes the rows the response is built from, so
             # a bounded and an unbounded read of the same trace must not share a cache entry.
             "bound_events_to_date_range": self._bound_events_to_date_range,

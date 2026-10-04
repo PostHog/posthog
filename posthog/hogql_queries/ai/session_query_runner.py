@@ -173,9 +173,16 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                             THEN sumIf(latency,
                                        event = '$ai_generation' AND latency > 0
                                  )
+                            -- Root-level latency: direct children of the trace, self-parents,
+                            -- and orphans whose parent id is not among this trace's
+                            -- span/generation keys (e.g. a missing edge-root span).
+                            -- Matches products/ai_observability build_tree.
                             ELSE sumIf(latency,
                                        parent_id IS NULL
+                                       OR parent_id = ''
                                        OR parent_id = trace_id
+                                       OR parent_id = node_key
+                                       OR NOT has(known_span_ids, parent_id)
                                  )
                         END
                     ), 2
@@ -260,16 +267,33 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                         )
                     )
                 ) AS tools
-            FROM posthog.ai_events AS ai_events
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-              AND {trace_filter_conditions}
-              AND trace_id IN (
-                  SELECT trace_id
-                  FROM posthog.ai_events AS ai_events
-                  WHERE {session_filter_conditions}
-              )
+            FROM (
+                SELECT
+                    *,
+                    coalesce(
+                        nullIf(generation_id, ''),
+                        nullIf(span_id, ''),
+                        toString(uuid)
+                    ) AS node_key,
+                    groupUniqArrayIf(
+                        coalesce(
+                            nullIf(generation_id, ''),
+                            nullIf(span_id, ''),
+                            toString(uuid)
+                        ),
+                        event IN ('$ai_span', '$ai_generation', '$ai_embedding')
+                    ) OVER (PARTITION BY trace_id) AS known_span_ids
+                FROM posthog.ai_events AS ai_events
+                WHERE event IN (
+                    '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                )
+                  AND {trace_filter_conditions}
+                  AND trace_id IN (
+                      SELECT trace_id
+                      FROM posthog.ai_events AS ai_events
+                      WHERE {session_filter_conditions}
+                  )
+            ) AS ai_events
             GROUP BY trace_id
             ORDER BY first_timestamp DESC
             """,
@@ -277,7 +301,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         return cast(ast.SelectQuery, query)
 
     def get_cache_payload(self) -> dict[str, Any]:
-        payload = {**super().get_cache_payload(), "schema_version": 2}
+        payload = {**super().get_cache_payload(), "schema_version": 3}
         # An evaluation read has a bounded window and no events fallback, so it must not share a result
         # with a plain read. Keyed only when on, so plain reads keep their cache entries.
         if self.for_evaluation:

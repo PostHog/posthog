@@ -84,7 +84,23 @@ class Trace:
         timed = [event for event in self.events if (event.row.latency or 0) > 0]
         if timed and all(event.kind == "generation" for event in timed):
             return round(sum(event.row.latency or 0 for event in timed), 2)
+        # Direct children of the root, self-parents, and orphans whose parent is
+        # not among this trace's span/generation keys (e.g. a missing edge-root
+        # span). Matches build_tree so list latency and the detail tree agree.
+        known_keys = {
+            event.node_key for event in self.events if not event.is_annotation and not event.is_trace_event
+        }
         return round(
-            sum(event.row.latency or 0 for event in self.events if event.row.parent_id in (None, self.id)),
+            sum(
+                event.row.latency or 0
+                for event in self.events
+                if not event.is_annotation
+                and not event.is_trace_event
+                and (
+                    event.parent_key == self.id
+                    or event.parent_key == event.node_key
+                    or event.parent_key not in known_keys
+                )
+            ),
             2,
         )
