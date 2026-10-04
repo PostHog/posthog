@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -8,7 +8,15 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, Survey, SurveyPosition, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
+import {
+    AccessControlLevel,
+    Survey,
+    SurveyAppearance,
+    SurveyPosition,
+    SurveyQuestionType,
+    SurveySchedule,
+    SurveyType,
+} from '~/types'
 
 import { SurveyWizardComponent } from './SurveyWizard'
 
@@ -45,6 +53,12 @@ const createGuidedSurvey = (): Survey => ({
     user_access_level: AccessControlLevel.Editor,
 })
 
+const createSurveyWithAppearance = (id: string, appearance: SurveyAppearance): Survey => ({
+    ...createGuidedSurvey(),
+    id,
+    appearance,
+})
+
 describe('SurveyWizard', () => {
     beforeEach(() => {
         localStorage.clear()
@@ -55,6 +69,10 @@ describe('SurveyWizard', () => {
             get: {
                 '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
                 '/api/projects/:team/surveys/test-survey/': () => [200, createGuidedSurvey()],
+                '/api/projects/:team/surveys/unset-confirmation-survey/': () => [
+                    200,
+                    createSurveyWithAppearance('unset-confirmation-survey', { position: SurveyPosition.Right }),
+                ],
                 '/api/projects/:team/surveys/responses_count': () => [200, {}],
             },
             patch: {
@@ -81,6 +99,18 @@ describe('SurveyWizard', () => {
         expect(await screen.findByText('Choose a survey template')).toBeInTheDocument()
 
         expect(replaceSpy).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['test-survey', 'true'],
+        ['unset-confirmation-survey', 'false'],
+    ])('reports the confirmation screen of %s as %s', async (surveyId, expectedChecked) => {
+        router.actions.push(`/surveys/guided/${surveyId}`)
+
+        render(<SurveyWizardComponent id={surveyId} />)
+
+        const toggleRow = (await screen.findByText('Confirmation screen')).parentElement as HTMLElement
+        expect(within(toggleRow).getByRole('switch')).toHaveAttribute('aria-checked', expectedChecked)
     })
 
     it('shows the translations section in the guided form when the feature flag is enabled', async () => {
