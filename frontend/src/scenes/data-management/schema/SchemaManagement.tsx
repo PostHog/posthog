@@ -161,7 +161,7 @@ export function SchemaManagement(): JSX.Element {
                             setPropertyGroupModalOpen(true)
                         }}
                     >
-                        New Property Group
+                        New property group
                     </LemonButton>
                 </div>
 

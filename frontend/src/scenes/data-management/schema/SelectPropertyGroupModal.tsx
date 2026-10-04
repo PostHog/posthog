@@ -47,7 +47,7 @@ export function SelectPropertyGroupModal({
 }: SelectPropertyGroupModalProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const logic = schemaManagementLogic({ key: 'select-property-group-modal' })
-    const { propertyGroups } = useValues(logic)
+    const { propertyGroups, propertyGroupsLoading } = useValues(logic)
     const { setPropertyGroupModalOpen, loadPropertyGroups } = useActions(logic)
 
     const filteredPropertyGroups = propertyGroups.filter(
@@ -128,13 +128,14 @@ export function SelectPropertyGroupModal({
                             autoFocus
                         />
                         <LemonButton type="primary" icon={<IconPlusSmall />} onClick={handleCreateNewGroup}>
-                            New Property Group
+                            New property group
                         </LemonButton>
                     </div>
 
                     <LemonTable
                         columns={columns}
                         dataSource={filteredPropertyGroups}
+                        loading={propertyGroupsLoading}
                         expandable={{
                             expandedRowRender: (propertyGroup) => (
                                 <div className="border rounded overflow-hidden mx-4 mb-2 mt-2">
@@ -158,9 +159,24 @@ export function SelectPropertyGroupModal({
                             rowExpandable: () => true,
                         }}
                         emptyState={
-                            searchTerm
-                                ? 'No property groups match your search'
-                                : 'No property groups available. Create one in Schema Management first.'
+                            searchTerm ? (
+                                'No property groups match your search'
+                            ) : propertyGroups.length > 0 ? (
+                                'Every property group is already added'
+                            ) : (
+                                <div className="flex flex-col items-center gap-2">
+                                    <span>No property groups yet.</span>
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        onClick={handleCreateNewGroup}
+                                        data-attr="select-property-group-empty-create"
+                                    >
+                                        New property group
+                                    </LemonButton>
+                                </div>
+                            )
                         }
                     />
                 </div>
