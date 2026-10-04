@@ -173,10 +173,12 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
+    # A native mobile recording or a touch web browser. Gates the gestures guidance; not shown as metadata.
+    touch: bool = False
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""
-        return self.model_dump(mode="json", exclude_none=True)
+        return self.model_dump(mode="json", exclude_none=True, exclude={"touch"})
 
 
 class SessionGroup(BaseModel, frozen=True):

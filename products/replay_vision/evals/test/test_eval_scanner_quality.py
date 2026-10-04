@@ -401,6 +401,7 @@ class _FakeApi:
                 [],
                 [],
                 [],
+                None,
             ],
             [
                 "$autocapture",
@@ -415,6 +416,7 @@ class _FakeApi:
                 [],
                 [],
                 [],
+                None,
             ],
             [
                 "file_uploaded",
@@ -429,6 +431,7 @@ class _FakeApi:
                 [],
                 [],
                 [],
+                None,
             ],
         ]
 
