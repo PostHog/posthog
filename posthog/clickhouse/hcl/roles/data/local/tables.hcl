@@ -3200,4 +3200,84 @@ SQL
       replica_name = "{replica}-{shard}"
     }
   }
+
+  table "saved_query_reads_daily_staging" {
+    partition_by = "toYYYYMMDD(day)"
+    order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "names_only_this_subject"]
+    ttl      = "day + toIntervalDay(60)"
+    settings = {
+      index_granularity = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "day" {
+      type = "Date"
+    }
+    column "read_kind" {
+      type = "Enum8('read'=1, 'refresh'=2)"
+    }
+    column "subject_kind" {
+      type = "Enum8('saved_query'=1, 'table'=2)"
+    }
+    column "subject_id" {
+      type = "String"
+    }
+    column "workflow_id" {
+      type = "String"
+    }
+    column "lc_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_product" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_feature" {
+      type = "LowCardinality(String)"
+    }
+    column "lc_access_method" {
+      type = "LowCardinality(String)"
+    }
+    column "source" {
+      type = "LowCardinality(String)"
+    }
+    column "scene" {
+      type = "LowCardinality(String)"
+    }
+    column "has_user_id" {
+      type = "Bool"
+    }
+    column "names_only_this_subject" {
+      type = "Bool"
+    }
+    column "requests" {
+      type = "AggregateFunction(uniq, String)"
+    }
+    column "users" {
+      type = "AggregateFunction(uniq, Int64)"
+    }
+    column "read_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "read_bytes_sum" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+    column "duration_ms_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "read_bytes_quantiles" {
+      type = "AggregateFunction(quantiles(0.5, 0.9), UInt64)"
+    }
+    column "max_event_time" {
+      type = "SimpleAggregateFunction(max, DateTime)"
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.saved_query_reads_daily_staging"
+      replica_name = "{replica}-{shard}"
+    }
+  }
 }
