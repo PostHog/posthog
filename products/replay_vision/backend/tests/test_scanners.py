@@ -185,7 +185,7 @@ class TestPreamble:
         # Canvas, iframe, and video content is often absent rather than masked, so a blank area there is no bug.
         assert "Unrecorded content" in rendered
         # Desktop sessions get no <gestures> block, so the repeated-click guidance has to render without it.
-        assert "<not_friction>" in rendered
+        assert "<normal_use>" in rendered
 
     @parameterized.expand([("touch", True), ("desktop", False)])
     def test_preamble_explains_gestures_only_for_touch_sessions(self, _name: str, touch: bool) -> None:
