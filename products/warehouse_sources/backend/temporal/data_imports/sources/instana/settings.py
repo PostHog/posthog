@@ -2,6 +2,7 @@ from dataclasses import field
 from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Instana's paginated application-monitoring catalogs accept a `pageSize` param; their analyze
