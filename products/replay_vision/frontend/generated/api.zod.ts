@@ -619,7 +619,7 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+                'Legacy experiment targeting from before the experiment scanner type. Read-only: setting or changing it is rejected, so create an `experiment` scanner instead. Set null to clear it.'
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
@@ -772,7 +772,7 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
+                'Legacy experiment targeting from before the experiment scanner type. Read-only: setting or changing it is rejected, so create an `experiment` scanner instead. Set null to clear it.'
             ),
     })
     .describe('A Replay Vision scanner: its type, targeting query, and AI configuration.')
