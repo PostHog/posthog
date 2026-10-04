@@ -124,6 +124,10 @@ budgets): `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB), `DELTALITE_MAX_SOURCE_BYTES`,
 `DELTALITE_MULTIPART_THRESHOLD_BYTES`, `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
 
+`DeltaLiteTable.compact` takes the same budget knobs plus its own (see
+`python/README.md`, "Compaction"); it shares the process-global limits with
+every upsert in the process.
+
 For a rough starting point on a given pod, `python/deltalite_planner.py`
 suggests knob values from concurrency + pod memory, e.g.
 `python deltalite_planner.py 15 8000 --source-mb 250`.
