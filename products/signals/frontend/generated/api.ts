@@ -960,7 +960,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -973,46 +973,6 @@ export const signalsReportArtefactsDestroy = async (
         ...options,
         method: 'DELETE',
     })
-}
-
-export const getSignalsReportsArtefactsActivateCreateUrl = (projectId: string, reportId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/activate/`
-}
-
-/**
- * Artefacts attached to a signal report.
- *
- * Two write surfaces, both gated by the `task:write` scope (already held by the agent tokens):
- *
- * - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
- *   artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
- *   merging commits/names forward from the current reviewers. Other types return 400.
- * - POST / PATCH / DELETE manage artefacts, except for the types the pipeline owns
- *   (`NON_WRITABLE_ARTEFACT_TYPES`) and, for DELETE, the append-only `task_run` log; all of
- *   those return 400 naming the type.
- *   Log entries accumulate; status types (judgments, repo selection, suggested reviewers, channel assignments)
- *   are latest-wins, so appending a new version supersedes the previous one as the report's
- *   canonical status. Content is validated against the type's schema. Team scoping is
- *   enforced by `safely_get_queryset`, so an artefact id from another team / a deleted
- *   report 404s.
- *
- * Writes are attributed: to the task named by the `X-PostHog-Task-Id` header (set automatically
- * for sandbox agents) when present, else to the requesting user.
- * @summary Activate a proposed impact measurement
- */
-export const signalsReportsArtefactsActivateCreate = async (
-    projectId: string,
-    reportId: string,
-    id: string,
-    options?: RequestInit
-): Promise<SignalReportArtefactWriteResponseApi> => {
-    return apiMutator<SignalReportArtefactWriteResponseApi>(
-        getSignalsReportsArtefactsActivateCreateUrl(projectId, reportId, id),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
 }
 
 export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {

@@ -114,4 +114,48 @@ describe('todayShellLogic', () => {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
     })
+
+    it('on phone widths, drops the rail width and opens More without leaving the page', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            const logic = todayShellLogic()
+            logic.mount()
+            expect(logic.values.leftNavWidth).toBe(0)
+
+            router.actions.push('/project/1/airplane')
+            logic.actions.pickPane('more')
+            expect(router.values.location.pathname).toBe('/project/1/airplane')
+            expect(logic.values.activePane).toBe('more')
+            expect(logic.values.sidebarVisible).toBe(true)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
+
+    it('on phone widths, goes back through pages and then to the pane', () => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            const logic = todayShellLogic()
+            logic.mount()
+
+            logic.actions.pickPane('tools')
+            router.actions.push('/project/1/sql')
+            router.actions.push('/project/1/sql?open_query=abc')
+            router.actions.push('/project/1/insights/abc')
+            expect(logic.values.sidebarVisible).toBe(false)
+
+            logic.actions.goBackOnPhone()
+            expect(router.values.location.pathname).toBe('/project/1/sql')
+            expect(router.values.location.search).toBe('?open_query=abc')
+            expect(logic.values.sidebarVisible).toBe(false)
+
+            logic.actions.goBackOnPhone()
+            expect(logic.values.sidebarVisible).toBe(true)
+            expect(logic.values.activePane).toBe('tools')
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
 })

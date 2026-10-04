@@ -1544,18 +1544,26 @@ class TestCreateTaskAndTriggerForwardsContext:
         ("runtime", "expected_pending_message", "workflow_id_prefix"),
         [("acp", None, None), ("pi", "prompt", "eval")],
     )
+    @pytest.mark.parametrize("queries", [[{"kind": "InsightVizNode"}], [None], [None, {"kind": "invalid"}]])
     async def test_public_run_preserves_runtime_and_can_poll(
-        self, runtime: str, expected_pending_message: str | None, workflow_id_prefix: str | None
+        self,
+        runtime: str,
+        expected_pending_message: str | None,
+        workflow_id_prefix: str | None,
+        queries: list[dict[str, object]],
     ) -> None:
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, runtime=runtime)
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
             task_run = await agents_facade.create_task_and_trigger(
-                "prompt", context, workflow_id_prefix=workflow_id_prefix
+                "prompt", context, workflow_id_prefix=workflow_id_prefix, analytics_query_context=queries
             )
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+        assert persisted.state.get("analytics_query_context") == (
+            [query for query in queries if query is not None] or None
+        )
         assert persisted.state.get("pending_user_message") == expected_pending_message
         assert task_run.workflow_id == TaskRun.get_workflow_id(persisted.task_id, persisted.id, workflow_id_prefix)
 

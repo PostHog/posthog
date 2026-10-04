@@ -92,6 +92,7 @@ class MultiTurnSession:
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
+        analytics_query_context: list[dict[str, object]] | None = None,
     ) -> tuple[MultiTurnSession, _ModelT]:
         """Start a multi-turn sandbox session and wait for the first structured response.
 
@@ -135,6 +136,7 @@ class MultiTurnSession:
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             output_schema=output_schema,
+            analytics_query_context=analytics_query_context,
         )
         # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
         salvageable = True
@@ -213,6 +215,7 @@ class MultiTurnSession:
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
+        analytics_query_context: list[dict[str, object]] | None = None,
     ) -> tuple[MultiTurnSession, str]:
         """Start a multi-turn sandbox session and return the first raw agent response.
 
@@ -246,6 +249,7 @@ class MultiTurnSession:
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
             output_schema=output_schema,
+            analytics_query_context=analytics_query_context,
         )
         logger.info("multi_turn: started task=%s run=%s step=%s", task.id, task_run.id, step_name or "unknown")
         # Get session's parent workflow to send heartbeats to keep the agent alive while waiting for turns.
@@ -307,10 +311,13 @@ class MultiTurnSession:
         model: type[_ModelT],
         *,
         label: str = "",
+        validation_context: dict[str, object] | None = None,
     ) -> _ModelT:
         """Send a follow-up message and wait for the agent's next structured response."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(last_message, model, label=label or "followup")
+        parsed = self._parse_and_validate(
+            last_message, model, label=label or "followup", validation_context=validation_context
+        )
         return parsed
 
     async def send_followup_raw(
@@ -392,10 +399,12 @@ class MultiTurnSession:
         return self._workflow_handle
 
     @staticmethod
-    def _parse_and_validate(text: str, model: type[_ModelT], label: str) -> _ModelT:
+    def _parse_and_validate(
+        text: str, model: type[_ModelT], label: str, validation_context: dict[str, object] | None = None
+    ) -> _ModelT:
         """Extract JSON from agent text and validate against a Pydantic model."""
         json_data = extract_json_from_text(text=text, label=label, required_keys=_required_model_keys(model))
-        return model.model_validate(json_data)
+        return model.model_validate(json_data, context=validation_context)
 
     async def end(self, *, status: str = "completed", error: str | None = None) -> None:
         """Signal the workflow to shut down, recording `status` as the terminal TaskRun state.

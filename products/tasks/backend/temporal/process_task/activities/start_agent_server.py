@@ -457,7 +457,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
         actor_user = get_task_run_credential_user(task, ctx.state)
-        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
+        access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes, run_id=ctx.run_id)
     except OAuthTokenError:
         raise
     except Exception as e:
