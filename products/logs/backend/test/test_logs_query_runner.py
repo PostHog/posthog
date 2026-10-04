@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 from uuid import uuid4
 
 import time_machine
@@ -577,6 +578,43 @@ class TestAttributeFilters(APIBaseTest):
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         self.assertNotIn("ilike(body", query_str.lower())
+
+
+def _encoded_cursor(payload: bytes) -> str:
+    return base64.b64encode(payload).decode()
+
+
+class TestPaginationCursorValidation(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("bad_padding", {"after": "eyJ0aW1lc3RhbXAiOiA"}),
+            ("not_utf8", {"after": _encoded_cursor(b"\xff\xfe")}),
+            ("not_json", {"after": _encoded_cursor(b"not json")}),
+            ("missing_uuid", {"after": _encoded_cursor(json.dumps({"timestamp": "2024-01-10T00:00:00Z"}).encode())}),
+            (
+                "bad_timestamp",
+                {"after": _encoded_cursor(json.dumps({"timestamp": "not a date", "uuid": str(uuid4())}).encode())},
+            ),
+            ("bad_checkpoint", {"liveLogsCheckpoint": "not a timestamp"}),
+        ]
+    )
+    def test_malformed_cursor_is_a_user_error(self, _name, pagination):
+        # These must fail as a 400, not a 500. A bare ValueError here is unclassified, so it also
+        # charges the logs query SLO for bad client input.
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2024-01-10T00:00:00Z", date_to="2024-01-15T23:59:59Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            kind="LogsQuery",
+            **pagination,
+        )
+
+        with self.assertRaises(QueryError):
+            LogsQueryRunner(query=query, team=self.team).to_query()
 
 
 class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
