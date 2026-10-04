@@ -4,7 +4,10 @@ from unittest import TestCase
 from parameterized import parameterized
 from rest_framework import serializers
 
-from products.workflows.backend.presentation.views.graph_operations import apply_graph_operations
+from products.workflows.backend.presentation.views.graph_operations import (
+    apply_graph_operations,
+    summarize_graph_change,
+)
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 
 TRIGGER = {"id": "t", "name": "trigger", "type": "trigger", "config": {"type": "event"}}
@@ -232,3 +235,47 @@ class TestApplyGraphOperations(TestCase):
         edges = [_edge("t", "a")]
         apply_graph_operations(actions, edges, [{"op": "update_action", "id": "a", "patch": {"name": "x"}}])
         assert actions[1]["name"] == "a"  # original untouched
+
+
+class TestSummarizeGraphChange(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "update_one_action",
+                [{"op": "update_action", "id": "b", "patch": {"config": {"subject": "new"}}}],
+                ["b"],
+                [],
+                [],
+                [],
+            ),
+            (
+                "remove_action_rewires_edges",
+                [{"op": "remove_action", "id": "a"}],
+                [],
+                ["a"],
+                [_edge("t", "b")],
+                [_edge("t", "a"), _edge("a", "b")],
+            ),
+            (
+                "add_action_with_edges",
+                [{"op": "add_action", "action": _fn("c"), "edges": [_edge("b", "c")]}],
+                ["c"],
+                [],
+                [_edge("b", "c")],
+                [],
+            ),
+        ]
+    )
+    def test_reports_only_what_the_operations_changed(
+        self, _name, ops, changed_ids, removed_ids, added_edges, removed_edges
+    ):
+        actions = [TRIGGER, _fn("a"), _fn("b")]
+        edges = [_edge("t", "a"), _edge("a", "b")]
+        new_actions, new_edges = apply_graph_operations(actions, edges, ops)
+
+        change = summarize_graph_change(actions, edges, new_actions, new_edges)
+
+        assert change.changed_action_ids == changed_ids
+        assert change.removed_action_ids == removed_ids
+        assert change.added_edges == added_edges
+        assert change.removed_edges == removed_edges

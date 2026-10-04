@@ -2447,7 +2447,7 @@ class TestHogFlowAPI(APIBaseTest):
             ],
         )
         assert response.status_code == 200, response.json()
-        actions = {a["id"]: a for a in response.json()["actions"]}
+        actions = {a["id"]: a for a in HogFlow.objects.get(pk=flow_id).actions}
         assert actions["action_1"]["config"]["inputs"]["url"]["value"] == "https://new.example.com"
         # The rest of the graph is intact.
         assert actions["trigger_node"]["type"] == "trigger"
@@ -2470,9 +2470,12 @@ class TestHogFlowAPI(APIBaseTest):
         assert kwargs["resource_id"] == str(flow_id)
         assert kwargs["updated_at"]
 
-    def test_graph_response_echoes_full_graph(self):
+    def test_graph_response_for_web_echoes_full_graph(self):
         flow_id = self._create_draft_flow_with_graph()
-        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {"operations": [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]},
+        )
         assert response.status_code == 200, response.json()
         body = response.json()
         assert {"actions", "edges", "trigger"} <= set(body.keys())
@@ -2486,9 +2489,22 @@ class TestHogFlowAPI(APIBaseTest):
         flow_id = self._create_draft_flow_with_graph()
         response = self._patch_graph(flow_id, [{"op": "remove_action", "id": "action_1"}])
         assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert sorted(a["id"] for a in flow.actions) == ["exit_1", "trigger_node"]
+        assert flow.edges == [{"from": "trigger_node", "to": "exit_1", "type": "continue"}]
+
         body = response.json()
-        assert sorted(a["id"] for a in body["actions"]) == ["exit_1", "trigger_node"]
-        assert body["edges"] == [{"from": "trigger_node", "to": "exit_1", "type": "continue"}]
+        assert "actions" not in body
+        assert body["routed_to_draft"] is False
+        assert body["changed_action_ids"] == []
+        assert body["removed_action_ids"] == ["action_1"]
+        assert body["added_edges"] == [{"from": "trigger_node", "to": "exit_1", "type": "continue"}]
+        assert body["removed_edges"] == [
+            {"from": "trigger_node", "to": "action_1", "type": "continue"},
+            {"from": "action_1", "to": "exit_1", "type": "continue"},
+        ]
+        assert (body["action_count"], body["edge_count"]) == (2, 1)
+        assert body["base_updated_at"] == body["updated_at"]
 
     def test_graph_dangling_edge_rejected_with_no_partial_write(self):
         flow_id = self._create_draft_flow_with_graph()
@@ -2605,7 +2621,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self._patch_graph(flow_id, self._graph_insert_events_only_wait_ops())
         assert response.status_code == 200, response.json()
 
-        wait = next(a for a in response.json()["actions"] if a["type"] == "wait_until_condition")
+        wait = next(a for a in HogFlow.objects.get(pk=flow_id).actions if a["type"] == "wait_until_condition")
         assert wait["config"]["condition"] == {"filters": None}, wait["config"]
 
     def test_graph_wait_without_index_0_branch_rejected(self):

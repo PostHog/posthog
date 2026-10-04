@@ -438,14 +438,17 @@ const workflowsPatchActionEmail = (): ToolBase<
 
 const WorkflowsPatchGraphSchema = () => WorkflowGraphPatchSchema
 
-const workflowsPatchGraph = (): ToolBase<ReturnType<typeof WorkflowsPatchGraphSchema>, Schemas.HogFlow> => ({
+const workflowsPatchGraph = (): ToolBase<
+    ReturnType<typeof WorkflowsPatchGraphSchema>,
+    Schemas.HogFlowGraphPatchResponse
+> => ({
     name: 'workflows-patch-graph',
     schema: WorkflowsPatchGraphSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsPatchGraphSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const parsedParams = WorkflowsPatchGraphSchema().parse(params)
         const { id, ...body } = parsedParams
-        const result = await context.api.request<Schemas.HogFlow>({
+        const result = await context.api.request<Schemas.HogFlowGraphPatchResponse>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(id))}/graph/`,
             body,

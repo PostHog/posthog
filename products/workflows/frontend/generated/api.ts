@@ -17,6 +17,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowGraphPatchResponseApi,
     HogFlowInvocationApi,
     HogFlowOptimizationApi,
     HogFlowPublishRequestApi,
@@ -511,8 +512,8 @@ export const hogFlowsGraphPartialUpdate = async (
     id: string,
     patchedHogFlowGraphUpdateApi?: PatchedHogFlowGraphUpdateApi,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsGraphPartialUpdateUrl(projectId, id), {
+): Promise<HogFlowGraphPatchResponseApi> => {
+    return apiMutator<HogFlowGraphPatchResponseApi>(getHogFlowsGraphPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
