@@ -196,6 +196,16 @@ class TestAnthropicMessagesEndpoint:
         [
             pytest.param({}, "model", id="missing_model"),
             pytest.param({"model": "claude-3"}, "messages", id="missing_messages"),
+            pytest.param(
+                {"model": "claude-3", "messages": [{"role": "user", "content": "Hi"}], "tools": ["not-a-tool"]},
+                "tools",
+                id="tools_item_not_object",
+            ),
+            pytest.param(
+                {"model": "claude-3", "messages": [{"role": "user", "content": "Hi"}], "metadata": ["not-a-dict"]},
+                "metadata",
+                id="metadata_not_object",
+            ),
         ],
     )
     def test_validation_errors(
