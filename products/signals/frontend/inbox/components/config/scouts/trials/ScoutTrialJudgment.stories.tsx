@@ -63,7 +63,7 @@ export const TwelveRubricsNarrow: Story = {
 export const ExpandedRubric: Story = {
     ...TwelveRubrics,
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByText('Evidence grounding'))
+        await userEvent.click(await within(canvasElement).findByText('Evidence grounding'))
     },
 }
 
