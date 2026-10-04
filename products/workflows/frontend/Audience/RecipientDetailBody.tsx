@@ -31,7 +31,7 @@ export function RecipientDetailBody(): JSX.Element {
             return (
                 <EmptyMessage
                     title="No recipient with this address"
-                    description="PostHog no longer has a preference, suppression or person for this address. Go back to the list to see the current recipients."
+                    description="PostHog no longer has a preference, suppression or person for this address."
                 />
             )
         case 'found':
