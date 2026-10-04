@@ -51,9 +51,6 @@ from products.replay_vision.backend.temporal.activities.count_in_flight_applies 
     count_in_flight_by_team_activity,
 )
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
-from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
-    refresh_prompt_suggestion_activity,
-)
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
     DEEP_SWEEP_INTERVAL,
@@ -1495,7 +1492,6 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
     await _run_sweep(mocks)
 
     assert [fn for fn, _ in mocks.activity_calls] == [
-        refresh_prompt_suggestion_activity,
         check_scanner_budget_activity,
         count_in_flight_by_team_activity,
         find_scanner_candidates_activity,
@@ -1709,7 +1705,6 @@ async def test_inflight_cap_gates_the_sweep(
     if expected_candidate_limit is None:
         # Throttled: no find, no apply dispatch.
         assert [fn for fn, _ in mocks.activity_calls] == [
-            refresh_prompt_suggestion_activity,
             check_scanner_budget_activity,
             count_in_flight_by_team_activity,
         ]
@@ -1730,8 +1725,6 @@ async def test_capped_scanner_skips_the_sweep_entirely() -> None:
     await _run_sweep(mocks)
 
     called = [fn for fn, _ in mocks.activity_calls]
-    # Capped means no session scans; the heartbeats spend no scanner credits, so they still run.
-    assert refresh_prompt_suggestion_activity in called
     assert find_scanner_candidates_activity not in called
     assert count_in_flight_by_team_activity not in called
     assert mocks.child_calls == []
