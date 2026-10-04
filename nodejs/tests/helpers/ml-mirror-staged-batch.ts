@@ -32,7 +32,12 @@ import { BatchCommitter } from '~/ingestion/pipelines/sessionreplay/staged-batch
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
-/** Test-only: the runner the ML mirror server builds, started on one pipeline config. The clock defaults to one hour after the 2026-09-15T12:00Z the test session IDs start at, so the 14-day session age filter keeps them. */
+/**
+ * Test-only: builds the ML mirror server runner for one pipeline config.
+ * The clock defaults to 2026-09-15T13:00Z.
+ * The test session IDs start at 2026-09-15T12:00Z.
+ * The 14-day session age filter accepts these sessions.
+ */
 export function buildMlMirrorStagedRunner(
     config: SessionReplayPipelineConfig,
     mlOptions: MlMirrorPipelineOptions,
