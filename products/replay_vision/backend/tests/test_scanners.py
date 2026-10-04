@@ -112,10 +112,11 @@ class TestPreamble:
         assert "<output_privacy>" in rendered
         assert "email address" in rendered
         assert "verbatim" in rendered
-        # Whose data it is decides the rule, not what kind it is. A value the subject typed into a filter is
-        # a third party's, so a rewrite that only bans PII by category would let the customer's customer through.
+        # A value the subject typed into a filter is a third party's, so the subject exception must never cover it.
         assert "belongs to someone else" in rendered
         assert "filtered by a customer's email address" in rendered
+        # The subject is covered too: without an explicit ask, naming them in a title is still a leak.
+        assert "the subject too" in rendered
 
     @parameterized.expand(
         [
@@ -268,7 +269,7 @@ class TestPreamble:
         assert "- Organization the session belongs to: `Customer Co`" in rendered
         # The privacy block must carve the subject out, or the model keeps writing "a user" (see the
         # `<output_privacy>` test, which locks in that everyone else stays generic).
-        assert "The subject is the exception" in rendered
+        assert "explicitly asks who the session belongs to" in rendered
 
     def test_preamble_escapes_left_angle_in_session_identity(self) -> None:
         # A person or group name is customer-controlled free text, so it could forge a closing tag.
