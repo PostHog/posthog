@@ -26,6 +26,7 @@ const gateRender = (overrides: Partial<GateArgs> = {}): ProductEmptyStateGateRen
         emptyState: emptyState(),
         activeSceneId: 'ProductAnalytics',
         params: {},
+        searchParams: {},
         featureFlags: {},
         receivedFeatureFlags: true,
         forcedMode: null,

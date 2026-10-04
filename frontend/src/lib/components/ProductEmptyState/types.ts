@@ -220,6 +220,10 @@ export interface SceneProductEmptyState {
 /**
  * A scene id, or a scene id narrowed to some of its tabs. `tabs` lists every value of the
  * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
- * segment - `/workflows` and `/workflows/workflows` are the same tab.
+ * segment - `/workflows` and `/workflows/workflows` are the same tab. `exceptTabs` instead
+ * covers every value except the listed ones, so an unknown or new tab stays gated. Set
+ * `searchParam` for a scene that keeps its tab in a search param, e.g. `?activeTab=configuration`.
  */
-export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }
+export type GatedScene =
+    | string
+    | ({ scene: string; searchParam?: string } & ({ tabs: (string | undefined)[] } | { exceptTabs: string[] }))

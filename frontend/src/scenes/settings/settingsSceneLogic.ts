@@ -20,6 +20,8 @@ const LEGACY_LLM_ANALYTICS_BYOK_SETTING = 'llm-analytics-byok'
 const WEB_ANALYTICS_SETTINGS_SECTION: SettingSectionId = 'project-web-analytics'
 const WEB_ANALYTICS_AUTHORIZED_URLS_SETTING: SettingId = 'web-analytics-authorized-urls'
 const LEGACY_TOOLBAR_AUTHORIZED_URLS_SETTING = 'authorized-urls'
+const LEGACY_EXCEPTION_AUTOCAPTURE_SETTING = 'exception-autocapture'
+const ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_SETTING: SettingId = 'error-tracking-exception-autocapture'
 
 // Section ids that should resolve to a different section than the URL asks for. Two kinds live here:
 // sections that were removed or renamed, and ids that were never valid but are the intuitive guess.
@@ -47,6 +49,13 @@ const MOVED_SETTINGS: Record<string, SettingSectionId> = {
 }
 
 const hasHashParam = (hashParams: Params, key: string): boolean => Object.prototype.hasOwnProperty.call(hashParams, key)
+
+// Docs link to `#exception-autocapture` under the autocapture and error tracking sections. That
+// setting now lives on the error tracking Configuration tab.
+const isLegacyExceptionAutocaptureLink = (hashParams: Params): boolean =>
+    hasHashParam(hashParams, LEGACY_EXCEPTION_AUTOCAPTURE_SETTING) ||
+    hashParams.setting === LEGACY_EXCEPTION_AUTOCAPTURE_SETTING ||
+    hashParams.selectedSetting === LEGACY_EXCEPTION_AUTOCAPTURE_SETTING
 
 const sectionForMovedSetting = (section: string, hashParams: Params): SettingSectionId | null => {
     for (const [settingId, currentSection] of Object.entries(MOVED_SETTINGS)) {
@@ -230,6 +239,13 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
     urlToAction(({ actions, values }) => ({
         '/settings/:section': ({ section }) => {
             if (!section) {
+                return
+            }
+
+            if (isLegacyExceptionAutocaptureLink(router.values.hashParams)) {
+                router.actions.replace(urls.errorTrackingConfiguration(), undefined, {
+                    selectedSetting: ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_SETTING,
+                })
                 return
             }
 
