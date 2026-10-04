@@ -11,6 +11,7 @@ import {
     MARSHAL_ERROR_PREFIX,
     RUST_MAX_STEPS,
     RustExecResult,
+    isUnknownToNodeVm,
     isUnsupportedByRustVm,
     loadHogvmNodeModule,
 } from './rust-vm'
@@ -41,8 +42,14 @@ export const rustVmExecutionDuration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100],
 })
 
+// An unsupported-function fallback repeats on every invocation of the same program, so its warn
+// log is emitted once per function and error. The counter still counts every fallback. The cap
+// bounds memory; at the cap the set clears and each pair logs once more.
+const MAX_LOGGED_UNSUPPORTED_FALLBACKS = 10_000
+
 export class RustVmExecutor {
     private scheduler: RustVmBatchScheduler
+    private loggedUnsupportedFallbacks = new Set<string>()
 
     constructor(private options: { mmdbPath: string }) {
         this.scheduler = new RustVmBatchScheduler((program, events) => {
@@ -70,6 +77,9 @@ export class RustVmExecutor {
         error: unknown
     ): null {
         rustVmExecution.inc({ outcome })
+        if (outcome === 'fallback_unsupported' && !this.isFirstUnsupportedFallback(invocation, error)) {
+            return null
+        }
         logger.warn('🦀', 'Rust HogVM invocation fell back to the node vm', {
             outcome,
             functionId: invocation.functionId,
@@ -79,6 +89,18 @@ export class RustVmExecutor {
             error: error !== undefined ? sanitizeLogMessage([String(error)], sensitiveValues) : undefined,
         })
         return null
+    }
+
+    private isFirstUnsupportedFallback(invocation: CyclotronJobInvocationHogFunction, error: unknown): boolean {
+        const key = `${invocation.functionId}:${String(error)}`
+        if (this.loggedUnsupportedFallbacks.has(key)) {
+            return false
+        }
+        if (this.loggedUnsupportedFallbacks.size >= MAX_LOGGED_UNSUPPORTED_FALLBACKS) {
+            this.loggedUnsupportedFallbacks.clear()
+        }
+        this.loggedUnsupportedFallbacks.add(key)
+        return true
     }
 
     /**
@@ -91,7 +113,8 @@ export class RustVmExecutor {
      */
     public execute(
         invocation: CyclotronJobInvocationHogFunction,
-        sensitiveValues: string[]
+        sensitiveValues: string[],
+        nodeFunctions: Record<string, unknown>
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
         const module_ = this.getModule()
         if (!module_) {
@@ -116,7 +139,7 @@ export class RustVmExecutor {
             return this.fallback('fallback_exception', invocation, sensitiveValues, error)
         }
 
-        return this.toInvocationResult(rust, invocation, sensitiveValues)
+        return this.toInvocationResult(rust, invocation, sensitiveValues, nodeFunctions)
     }
 
     /**
@@ -128,7 +151,8 @@ export class RustVmExecutor {
      */
     public async executeBatched(
         invocation: CyclotronJobInvocationHogFunction,
-        sensitiveValues: string[]
+        sensitiveValues: string[],
+        nodeFunctions: Record<string, unknown>
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
         const module_ = this.getModule()
         if (!module_) {
@@ -148,15 +172,16 @@ export class RustVmExecutor {
             return this.fallback('fallback_exception', invocation, sensitiveValues, rust.error)
         }
 
-        return this.toInvocationResult(rust, invocation, sensitiveValues)
+        return this.toInvocationResult(rust, invocation, sensitiveValues, nodeFunctions)
     }
 
     private toInvocationResult(
         rust: RustExecResult,
         invocation: CyclotronJobInvocationHogFunction,
-        sensitiveValues: string[]
+        sensitiveValues: string[],
+        nodeFunctions: Record<string, unknown>
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
-        if (rust.error && isUnsupportedByRustVm(rust.error)) {
+        if (rust.error && isUnsupportedByRustVm(rust.error) && !isUnknownToNodeVm(rust.error, nodeFunctions)) {
             return this.fallback('fallback_unsupported', invocation, sensitiveValues, rust.error)
         }
 

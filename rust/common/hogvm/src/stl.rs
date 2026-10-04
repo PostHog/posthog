@@ -1002,6 +1002,17 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "extract",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "extract")?;
+                let part = args[0].deref(&vm.heap)?.try_as::<str>()?.to_string();
+                match extract_impl(vm, &part, &args[1])? {
+                    Some(n) => Ok(HogLiteral::Number(Num::Integer(n)).into()),
+                    None => Ok(HogLiteral::Null.into()),
+                }
+            }),
+        ),
+        (
             "toYYYYMM",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "toYYYYMM")?;
@@ -2126,6 +2137,42 @@ fn extract_utc_field(
         "second" => utc.second() as i64,
         _ => 0,
     })
+}
+
+// extract(part, value): the field of a Date/DateTime in its own zone (Dates are UTC midnight), or
+// of an ISO string read as UTC. The reference yields NaN, observably null, for a value it cannot
+// read, so those map to None.
+fn extract_impl(vm: &HogVM, part: &str, value: &HogValue) -> Result<Option<i64>, VmError> {
+    let (secs, zone) = match value.deref(&vm.heap)? {
+        HogLiteral::String(s) => match parse_datetime_native(s, None) {
+            Ok(secs) => (secs, "UTC".to_string()),
+            Err(_) => return Ok(None),
+        },
+        lit if lit.as_temporal_seconds(&vm.heap).is_some() => {
+            hog_datetime_parts(vm, value, "extract")?
+        }
+        _ => return Ok(None),
+    };
+    let Ok(tz) = zone.parse::<chrono_tz::Tz>() else {
+        return Ok(None);
+    };
+    let Some(dt) = DateTime::from_timestamp(secs.floor() as i64, 0) else {
+        return Ok(None);
+    };
+    let local = dt.with_timezone(&tz);
+    Ok(Some(match part {
+        "year" => local.year() as i64,
+        "month" => local.month() as i64,
+        "day" => local.day() as i64,
+        "hour" => local.hour() as i64,
+        "minute" => local.minute() as i64,
+        "second" => local.second() as i64,
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unknown extract part: {part}"
+            )))
+        }
+    }))
 }
 
 // dateTrunc: truncate the UTC wall-clock to the unit, then re-interpret in the value's zone.

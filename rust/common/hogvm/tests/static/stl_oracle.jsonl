@@ -123,3 +123,15 @@
 {"fn":"today","label":"today#0","match":"smoke","bytecode":["_H",1,2,"today",0,2,"print",1],"expected":""}
 {"fn":"randomFloat","label":"randomFloat#0","match":"smoke","bytecode":["_H",1,2,"randomFloat",0,2,"print",1],"expected":""}
 {"fn":"generateUUIDv4","label":"generateUUIDv4#0","match":"smoke","bytecode":["_H",1,2,"generateUUIDv4",0,2,"print",1],"expected":""}
+{"fn":"extract","label":"extract#0","match":"exact","bytecode":["_H",1,32,"year",32,"2021-03-04 05:06:07",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"2021"}
+{"fn":"extract","label":"extract#1","match":"exact","bytecode":["_H",1,32,"month",32,"2021-03-04 05:06:07",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"3"}
+{"fn":"extract","label":"extract#2","match":"exact","bytecode":["_H",1,32,"day",32,"2021-03-04 05:06:07",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"4"}
+{"fn":"extract","label":"extract#3","match":"exact","bytecode":["_H",1,32,"hour",32,"2021-03-04 05:06:07",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"5"}
+{"fn":"extract","label":"extract#4","match":"exact","bytecode":["_H",1,32,"minute",32,"2021-03-04 05:06:07",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"6"}
+{"fn":"extract","label":"extract#5","match":"exact","bytecode":["_H",1,32,"second",32,"2021-03-04 05:06:07",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"7"}
+{"fn":"extract","label":"extract#6","match":"exact","bytecode":["_H",1,32,"hour",32,"2021-03-04 05:06:07",2,"toDateTime",1,32,"America/New_York",2,"toTimeZone",2,2,"extract",2,2,"print",1],"expected":"0"}
+{"fn":"extract","label":"extract#7","match":"exact","bytecode":["_H",1,32,"day",32,"2021-03-04 02:06:07",2,"toDateTime",1,32,"America/New_York",2,"toTimeZone",2,2,"extract",2,2,"print",1],"expected":"3"}
+{"fn":"extract","label":"extract#8","match":"exact","bytecode":["_H",1,32,"day",32,"2021-03-04",2,"toDate",1,2,"extract",2,2,"print",1],"expected":"4"}
+{"fn":"extract","label":"extract#9","match":"exact","bytecode":["_H",1,32,"hour",32,"2021-03-04",2,"toDate",1,2,"extract",2,2,"print",1],"expected":"0"}
+{"fn":"extract","label":"extract#10","match":"exact","bytecode":["_H",1,32,"hour",32,"2021-03-04T05:06:07Z",2,"extract",2,2,"print",1],"expected":"5"}
+{"fn":"extract","label":"extract#11","match":"exact","bytecode":["_H",1,32,"hour",32,"2021-03-04T05:06:07+02:00",2,"extract",2,2,"print",1],"expected":"3"}
