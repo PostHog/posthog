@@ -55,7 +55,7 @@ from llm_gateway.metrics.prometheus import (
 from llm_gateway.modal import is_modal_served_model
 from llm_gateway.modal_routing import send_modal_anthropic_messages
 from llm_gateway.models.anthropic import GATEWAY_ONLY_FIELDS, AnthropicCountTokensRequest, AnthropicMessagesRequest
-from llm_gateway.products.config import validate_product
+from llm_gateway.products.config import resolve_product_alias, validate_product
 from llm_gateway.request_context import (
     apply_posthog_context_from_headers,
     extract_posthog_provider_from_headers,
@@ -458,6 +458,28 @@ def _is_anthropic_billing_block(exc: HTTPException) -> bool:
     return any(signature in message for signature in _ANTHROPIC_BILLING_SIGNATURES)
 
 
+_CLAUDE_CODE_VERSION_TOO_OLD = "claude_code_version_too_old"
+
+
+def _point_posthog_code_at_app_update(exc: HTTPException, *, model: str, product: str) -> None:
+    """Replace Anthropic's "Claude Code is too old" advice with advice a PostHog Code user can follow.
+
+    Anthropic tells the user to run `claude update` or update the Claude desktop app. PostHog Code
+    bundles its own Claude Code, so neither step helps: only a PostHog Code update brings a newer one.
+    """
+    if resolve_product_alias(product) != "posthog_code":
+        return
+    if not isinstance(exc, ProviderError) or exc.status_code != 400 or not isinstance(exc.detail, dict):
+        return
+    error = exc.detail.get("error")
+    if not isinstance(error, dict) or _CLAUDE_CODE_VERSION_TOO_OLD not in str(error.get("message", "")):
+        return
+    error["message"] = (
+        f"This version of PostHog Code can't use {model}. Update PostHog Code and try again, or pick a different model."
+    )
+    error["code"] = _CLAUDE_CODE_VERSION_TOO_OLD
+
+
 def _anthropic_error_type(exc: HTTPException) -> str:
     """The provider error type from an Anthropic-style HTTPException detail, or "unknown"."""
     detail = exc.detail
@@ -584,6 +606,7 @@ async def _handle_anthropic_messages(
         fallback_eligible = billing_block or not _is_breaker_success(exc.status_code)
         await _record_anthropic_outcome(breaker, success=not fallback_eligible)
         if not use_bedrock_fallback or not fallback_eligible:
+            _point_posthog_code_at_app_update(exc, model=body.model, product=product)
             raise
 
         error_type = "billing_block" if billing_block else _anthropic_error_type(exc)
