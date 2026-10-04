@@ -1,4 +1,6 @@
-import { recordingDisabledReason } from './ViewRecordingButton'
+import { dayjs } from 'lib/dayjs'
+
+import { noRecordingReason, recordingDisabledReason } from './ViewRecordingButton'
 
 describe('recordingDisabledReason', () => {
     // Malformed SDK payloads can send $session_id as a non-string (dict/array/number). Such a value
@@ -26,5 +28,15 @@ describe('recordingDisabledReason', () => {
         // Absent (not malformed) keeps the existing "no session id" guidance rather than "no recording".
         expect(recordingDisabledReason(undefined, undefined, undefined)).not.toBeNull()
         expect(typeof recordingDisabledReason(undefined, undefined, undefined)).not.toBe('string')
+    })
+})
+
+describe('noRecordingReason', () => {
+    it.each([
+        ['a recent event', dayjs().subtract(5, 'minute'), 'The recording may still be processing'],
+        ['an old event', dayjs().subtract(5, 'month'), 'It expired'],
+        ['no timestamp', undefined, 'It expired'],
+    ])('explains the missing recording for %s', (_label, timestamp, expected) => {
+        expect(noRecordingReason(timestamp)).toContain(expected)
     })
 })

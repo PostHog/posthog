@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { MatchedRecording } from '~/types'
 
-import { sessionRecordingInfoLogic } from './sessionRecordingInfoLogic'
+import { RecordingExistsState, sessionRecordingInfoLogic } from './sessionRecordingInfoLogic'
 import { sessionRecordingViewedLogic } from './sessionRecordingViewedLogic'
 
 export enum ViewRecordingButtonVariant {
@@ -76,7 +76,7 @@ export default function ViewRecordingButton({
     const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { getRecordingExists, recordingExistsStorage } = useValues(sessionRecordingInfoLogic)
 
     useEffect(() => {
         if (!isValidSessionId) {
@@ -87,11 +87,20 @@ export default function ViewRecordingButton({
         }
     }, [checkRecordingExists, isValidSessionId, sessionId, checkRecordingInfo])
 
+    // Until the existence check resolves, a click can open a player for a recording that does not exist.
+    let isCheckingRecording = false
+    let recordingCheckFailed = false
     if (hasRecording === undefined && checkRecordingExists && isValidSessionId) {
         hasRecording = getRecordingExists(sessionId)
+        recordingCheckFailed = recordingExistsStorage[sessionId] === RecordingExistsState.Error
+        isCheckingRecording = hasRecording === undefined && !recordingCheckFailed
     }
 
-    const { onClick, disabledReason, warningReason } = useRecordingButton({
+    const {
+        onClick,
+        disabledReason: baseDisabledReason,
+        warningReason,
+    } = useRecordingButton({
         sessionId,
         recordingStatus,
         recordingDuration,
@@ -101,6 +110,10 @@ export default function ViewRecordingButton({
         openPlayerIn,
         hasRecording,
     })
+    const disabledReason =
+        baseDisabledReason ??
+        (recordingCheckFailed ? 'Could not check if a recording exists. Refresh the page to try again.' : null)
+    const loading = props.loading || isCheckingRecording
 
     const { recordingViewed, recordingViewedLoading } = useValues(
         sessionRecordingViewedLogic({ sessionRecordingId: isValidSessionId ? sessionId : '' })
@@ -133,9 +146,21 @@ export default function ViewRecordingButton({
     )
 
     if (variant === ViewRecordingButtonVariant.Link) {
+        if (hasRecording === false) {
+            return (
+                <Tooltip title={noRecordingReason(timestamp)}>
+                    <span
+                        className={clsx(props.className, 'text-secondary', props.fullWidth && 'w-full')}
+                        data-attr={props['data-attr']}
+                    >
+                        No recording
+                    </span>
+                </Tooltip>
+            )
+        }
         const linkContent = (
             <Link
-                onClick={disabledReason || props.loading ? undefined : onClick}
+                onClick={disabledReason || loading ? undefined : onClick}
                 disabledReason={
                     typeof disabledReason === 'string'
                         ? disabledReason
@@ -145,13 +170,13 @@ export default function ViewRecordingButton({
                 }
                 className={clsx(
                     props.className,
-                    props.loading && 'opacity-50',
+                    loading && 'opacity-50',
                     props.fullWidth && 'w-full',
                     disabledReason && 'opacity-50'
                 )}
                 data-attr={props['data-attr']}
             >
-                {props.loading ? <Spinner className="text-sm" /> : null}
+                {loading ? <Spinner className="text-sm" /> : null}
                 {label ?? 'View recording'}
                 {sideIcon}
                 {maybeUnwatchedIndicator}
@@ -176,6 +201,7 @@ export default function ViewRecordingButton({
                 noPadding={noPadding}
                 {...captureAttrs}
                 {...props}
+                loading={loading}
             />
         )
     }
@@ -188,6 +214,7 @@ export default function ViewRecordingButton({
             sideIcon={sideIcon}
             {...captureAttrs}
             {...props}
+            loading={loading}
         >
             <div className="flex items-center gap-2 whitespace-nowrap">
                 <span>{label ? label : 'View recording'}</span>
@@ -230,6 +257,15 @@ export const recordingDisabledReason = (
         return 'No recording for this event'
     }
     return null
+}
+
+const RECENT_EVENT_MS = 60 * 60 * 1000
+
+export const noRecordingReason = (timestamp: string | Dayjs | undefined): string => {
+    if (timestamp && dayjs().diff(dayjs(timestamp)) < RECENT_EVENT_MS) {
+        return 'The recording may still be processing. Try again in a few minutes.'
+    }
+    return 'No recording exists for this session. It expired, or replay did not capture it.'
 }
 
 const recordingWarningReason = (
