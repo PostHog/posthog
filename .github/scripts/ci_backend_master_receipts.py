@@ -6,6 +6,13 @@ from typing import Literal, cast
 
 Engine = Literal["github", "depot"]
 MasterLane = Literal["push", "schedule"]
+DEPOT_IDENTIFIER_PATTERN = r"[a-z0-9][a-z0-9_-]{0,99}"
+
+
+def depot_identifier(value: str) -> str:
+    if re.fullmatch(DEPOT_IDENTIFIER_PATTERN, value) is None:
+        raise ValueError("Receipt must name a valid Depot identifier")
+    return value
 
 
 def _positive_integer(value: object, field: str) -> int:
@@ -117,8 +124,7 @@ class DepotBinding:
         if re.fullmatch(r"[0-9a-f]{64}", self.owner_digest) is None:
             raise ValueError("Binding must name the owner receipt digest")
         for value in (self.organization_id, self.workflow_id):
-            if re.fullmatch(r"[a-z0-9]+", value) is None:
-                raise ValueError("Binding must name a Depot organization and workflow")
+            depot_identifier(value)
 
     def to_json(self) -> str:
         return json.dumps({"version": 1, **asdict(self)}, sort_keys=True)
