@@ -51,6 +51,7 @@ from products.replay_vision.backend.temporal.activities import (
 )
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
+    CREATE_OBSERVATION_TIMEOUT,
     STATE_ACTIVITY_RETRY,
     STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
 )
@@ -300,7 +301,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 backfill_id=inputs.backfill_id,
                 variant_sampling_rates=inputs.variant_sampling_rates,
             ),
-            start_to_close_timeout=dt.timedelta(seconds=30),
+            start_to_close_timeout=CREATE_OBSERVATION_TIMEOUT,
             schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
             retry_policy=_CREATE_OBSERVATION_RETRY,
         )
