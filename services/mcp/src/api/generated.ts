@@ -13489,7 +13489,7 @@ export namespace Schemas {
     }
 
     /**
-     * Run metrics: rows scored, score distribution summary, validation AUC, etc.
+     * Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest.
      */
     export type AutoresearchRunMetrics = { [key: string]: unknown };
 
@@ -13550,7 +13550,7 @@ export namespace Schemas {
          * @nullable
          */
       rows_scored?: number | null;
-      /** Run metrics: rows scored, score distribution summary, validation AUC, etc. */
+      /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
       metrics: AutoresearchRunMetrics;
       /** Error message if the run failed. */
       error?: string;
@@ -105749,7 +105749,7 @@ export namespace Schemas {
     } as const;
 
     export interface ValidationWarning {
-      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
+      /** Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity 'error', mean a run would fail: fix the definition before creating. 'population_too_large' with severity 'info' means training uses a sample of the population, or each scoring run scores a rolling part of it: users never scored first, then users whose last score was oldest. 'low_volume', 'low_positives' and 'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). 'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are severity 'warning'. */
       code: string;
       /** Human-readable warning description. */
       message: string;
@@ -105762,7 +105762,7 @@ export namespace Schemas {
     }
 
     export interface ValidatePipelineResponse {
-      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score. */
+      /** False when any warning has severity 'error'. Creation does not enforce it, but a definition with an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train. */
       can_proceed: boolean;
       /** True if there are non-blocking warnings the user should acknowledge before proceeding. */
       requires_acknowledgement: boolean;

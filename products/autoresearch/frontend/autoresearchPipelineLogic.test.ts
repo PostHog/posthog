@@ -5,7 +5,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { SCORE_RUN_POLL_INTERVAL_MS, autoresearchPipelineLogic, scoringCoverage, trainingRunProgress } from './autoresearchPipelineLogic'
+import {
+    SCORE_RUN_POLL_INTERVAL_MS,
+    autoresearchPipelineLogic,
+    scoringCoverage,
+    trainingRunProgress,
+} from './autoresearchPipelineLogic'
 import {
     autoresearchModelsList,
     autoresearchRetrieve,
