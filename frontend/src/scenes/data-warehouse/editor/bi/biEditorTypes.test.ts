@@ -5,6 +5,7 @@ import {
     BIConfig,
     BIEditorView,
     BIField,
+    DEFAULT_BI_CONFIG,
     buildBIQuery,
     createDefaultDateFilter,
     defaultAggregationForField,
@@ -14,6 +15,7 @@ import {
     getBIFieldId,
     getBISortOptions,
     getBIValueSortKey,
+    getBIValuePillLabel,
     isBIFieldCompatible,
     isBIMeasureField,
     parseBIEditorState,
@@ -189,7 +191,15 @@ describe('BI editor query generation', () => {
         )
     })
 
-    it('keeps nested object paths and explicit SQL expressions in the generated query', () => {
+    test.each([
+        [undefined, 'custom_revenue'],
+        ['ARPU', 'ARPU'],
+        ['Revenue per user', '"Revenue per user"'],
+        ['`Revenue`', '"`Revenue`"'],
+        ['Revenue"quoted`', '`Revenue"quoted```'],
+        ['properties', 'properties_2'],
+        ['event', 'event_2'],
+    ])('keeps SQL expressions and measure label %s through persistence', (label, alias) => {
         const browserField: BIField = {
             id: 'warehouse:events:properties',
             name: 'properties',
@@ -197,7 +207,7 @@ describe('BI editor query generation', () => {
             type: 'json',
             source: { table: 'events' },
         }
-        const result = buildBIQuery({
+        const config: BIConfig = {
             source: { table: 'events' },
             chartType: ChartDisplayType.ActionsBar,
             rows: [browserField],
@@ -207,6 +217,7 @@ describe('BI editor query generation', () => {
                     field: revenueField,
                     aggregation: 'custom',
                     customExpression: "sumIf(properties.revenue, event = 'purchase')",
+                    label,
                 },
             ],
             filters: [
@@ -219,13 +230,50 @@ describe('BI editor query generation', () => {
                 },
             ],
             limit: 100,
-        })
+        }
+        const restored = parseBIEditorState(BIEditorView.BI, JSON.stringify(config))!.config
+        const result = buildBIQuery(restored)
 
         expect(result?.query).toContain('properties.$browser')
-        expect(result?.query).toContain("sumIf(properties.revenue, event = 'purchase') AS custom_revenue")
+        expect(result?.query).toContain(`sumIf(properties.revenue, event = 'purchase') AS ${alias}`)
+        expect(getBIValuePillLabel(restored.values[0])).toBe(label ?? "sumIf(properties.revenue, event = 'purchase')")
+        expect(getBISortOptions(restored).at(-1)?.label).toBe(label ?? "sumIf(properties.revenue, event = 'purchase')")
         expect(result?.query).toContain("timestamp > '2026-08-04 09:30:00'")
         expect(result?.query).toContain("properties.$browser != 'HeadlessChrome'")
     })
+
+    test.each([ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap])(
+        'disambiguates measure names from dimensions and generated aliases in %s',
+        (chartType) => {
+            const config: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                source: eventField.source,
+                chartType,
+                rows: [eventField],
+                values: [
+                    {
+                        field: revenueField,
+                        aggregation: 'custom',
+                        customExpression: 'sum(properties.revenue)',
+                        label: 'sum_revenue_2',
+                    },
+                    { field: revenueField, aggregation: 'sum' },
+                    { field: revenueField, aggregation: 'custom', customExpression: 'count(*)', label: 'event' },
+                ],
+                sort: { key: `values:${revenueField.id}:2`, direction: 'asc' },
+            }
+            const result = buildBIQuery(config)!
+            expect(result.query).toContain('sum(properties.revenue) AS sum_revenue_2,')
+            expect(result.query).toContain('sum(properties.revenue) AS sum_revenue_2_2,')
+            expect(result.query).toContain('ORDER BY\n    sum_revenue_2_2 ASC')
+            expect(getBISortOptions(config).find(({ key }) => key === config.sort?.key)?.expression).toBe(
+                'sum_revenue_2_2'
+            )
+            if (chartType === ChartDisplayType.TwoDimensionalHeatmap) {
+                expect(result.node.chartSettings?.heatmap?.valueColumn).toBe('sum_revenue_2')
+            }
+        }
+    )
 
     test.each([
         ['events', 'timestamp'],
