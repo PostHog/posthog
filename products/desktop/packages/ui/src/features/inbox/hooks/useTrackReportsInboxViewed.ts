@@ -15,6 +15,9 @@ export function useTrackReportsInboxViewed({
   scope,
   reportStateFilter,
   defaultReportStateFilter,
+  sortField,
+  sortDirection,
+  createdWindow,
 }: {
   reports: SignalReport[];
   totalCount: number;
@@ -25,6 +28,9 @@ export function useTrackReportsInboxViewed({
   scope: InboxReviewerScope;
   reportStateFilter: readonly string[];
   defaultReportStateFilter: readonly string[];
+  sortField: string;
+  sortDirection: string;
+  createdWindow: string | null;
 }): void {
   const firedRef = useRef(false);
 
@@ -44,6 +50,9 @@ export function useTrackReportsInboxViewed({
           scope,
           reportStateFilter,
           defaultReportStateFilter,
+          sortField,
+          sortDirection,
+          createdWindow,
         },
       }),
     );
@@ -57,5 +66,8 @@ export function useTrackReportsInboxViewed({
     scope,
     reportStateFilter,
     defaultReportStateFilter,
+    sortField,
+    sortDirection,
+    createdWindow,
   ]);
 }

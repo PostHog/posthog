@@ -3,12 +3,15 @@ import {
   inboxReportKeys,
   resolveInboxReportDetailCache,
 } from "@posthog/core/inbox/inboxQuery";
+import {
+  type InboxReportsQueryParams,
+  toSignalReportsRequest,
+} from "@posthog/core/inbox/reportFiltering";
 import type {
   AvailableSuggestedReviewersResponse,
   SignalReport,
   SignalReportArtefactsResponse,
   SignalReportSignalsResponse,
-  SignalReportsQueryParams,
   SignalReportsResponse,
   SuggestedReviewersArtefact,
   SuggestedReviewerWriteEntry,
@@ -31,7 +34,7 @@ const REPORTS_PAGE_SIZE = 50;
 export const reportKeys = inboxReportKeys;
 
 export function useInboxReports(
-  params?: SignalReportsQueryParams,
+  params?: InboxReportsQueryParams,
   options?: {
     enabled?: boolean;
     refetchInterval?: number | false | (() => number | false | undefined);
@@ -41,13 +44,13 @@ export function useInboxReports(
 ) {
   return useAuthenticatedQuery<SignalReportsResponse>(
     reportKeys.list(params),
-    (client) => client.getSignalReports(params),
+    (client) => client.getSignalReports(toSignalReportsRequest(params ?? {})),
     options,
   );
 }
 
 export function useInboxReportsInfinite(
-  params?: SignalReportsQueryParams,
+  params?: InboxReportsQueryParams,
   options?: {
     enabled?: boolean;
     refetchInterval?:
@@ -71,7 +74,7 @@ export function useInboxReportsInfinite(
     reportKeys.infiniteList({ ...params, limit: pageSize }),
     (client, offset) =>
       client.getSignalReports({
-        ...params,
+        ...toSignalReportsRequest(params ?? {}),
         limit: pageSize,
         offset,
       }),

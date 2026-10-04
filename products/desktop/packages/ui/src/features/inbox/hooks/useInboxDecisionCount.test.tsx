@@ -29,19 +29,22 @@ vi.mock("@posthog/ui/features/inbox/stores/inboxSignalsFilterStore", () => ({
     }),
 }));
 
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxActiveSort", () => ({
+  useInboxActiveSort: () => ({ createdWindow: "7d" }),
+}));
+
 import { useInboxDecisionCount } from "./useInboxDecisionCount";
 
-function renderCount(enabled: boolean) {
+function renderCount(enabled: boolean, ignoreFilters = true) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return renderHook(
-    () => useInboxDecisionCount({ enabled, ignoreFilters: true }),
-    { wrapper },
-  );
+  return renderHook(() => useInboxDecisionCount({ enabled, ignoreFilters }), {
+    wrapper,
+  });
 }
 
 describe("useInboxDecisionCount", () => {
@@ -61,6 +64,22 @@ describe("useInboxDecisionCount", () => {
         priority: undefined,
         source_product: undefined,
         status: "ready",
+      }),
+    );
+    expect(mockGetSignalReports.mock.calls[0][0]).not.toHaveProperty(
+      "created_after",
+    );
+  });
+
+  it("narrows the badge count by the list's filters and created-in window", async () => {
+    const { result } = renderCount(true, false);
+
+    await waitFor(() => expect(result.current).toBe(7));
+    expect(mockGetSignalReports).toHaveBeenCalledWith(
+      expect.objectContaining({
+        priority: "P1",
+        source_product: "github",
+        created_after: expect.any(String),
       }),
     );
   });

@@ -37,6 +37,9 @@ const NO_FILTERS = {
   scope: "for-you" as const,
   reportStateFilter: DEFAULT_REPORT_STATE_FILTER,
   defaultReportStateFilter: DEFAULT_REPORT_STATE_FILTER,
+  sortField: "created_at",
+  sortDirection: "desc",
+  createdWindow: null,
 };
 
 describe("buildBulkActionEvents", () => {
@@ -121,6 +124,8 @@ describe("buildInboxViewedProperties", () => {
     expect(props.pulls_tab_count).toBe(38);
     expect(props.reports_tab_count).toBe(62);
     expect(props.is_empty).toBe(false);
+    expect(props.sort_field).toBe("created_at");
+    expect(props.created_window).toBeNull();
     // Desktop now reports the report-state filter count (the two default buckets).
     expect(props.status_filter_count).toBe(2);
   });
@@ -178,6 +183,7 @@ describe("buildInboxViewedProperties", () => {
     ["priority", { priorityFilter: ["P0"] }],
     ["search", { searchQuery: "  crash  " }],
     ["non-default scope", { scope: "entire-project" as const }],
+    ["created-in window", { createdWindow: "7d" }],
   ])("flags has_active_filters for a %s filter", (_label, partial) => {
     const props = buildInboxViewedProperties({
       visibleReports: [fakeReport()],

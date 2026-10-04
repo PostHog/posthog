@@ -44,7 +44,13 @@ function buildMobileInboxViewedProperties(
   return buildInboxViewedProperties({
     visibleReports: reports,
     totalCount,
-    filters: { surface: "mobile", ...filters },
+    filters: {
+      surface: "mobile",
+      sortField: "priority",
+      sortDirection: "asc",
+      createdWindow: null,
+      ...filters,
+    },
   });
 }
 

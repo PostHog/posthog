@@ -16,6 +16,7 @@ import {
 import { ReportList } from "@/features/inbox/components/ReportList";
 import { ReviewerFilterSheet } from "@/features/inbox/components/ReviewerFilterSheet";
 import { TinderView } from "@/features/inbox/components/TinderView";
+import { useInboxActiveSort } from "@/features/inbox/hooks/useInboxActiveSort";
 import {
   useArchivedReports,
   useInboxReports,
@@ -43,6 +44,7 @@ export default function InboxScreen() {
   const sourceProductFilter = useInboxFilterStore((s) => s.sourceProductFilter);
   const statusFilter = useInboxFilterStore((s) => s.statusFilter);
   const priorityFilter = useInboxFilterStore((s) => s.priorityFilter);
+  const { sortField, sortDirection, createdWindow } = useInboxActiveSort();
   const suggestedReviewerFilter = useInboxFilterStore(
     (s) => s.suggestedReviewerFilter,
   );
@@ -77,6 +79,9 @@ export default function InboxScreen() {
           suggestedReviewerFilter,
           priorityFilter,
           defaultStatusFilter: INBOX_PIPELINE_STATUSES,
+          sortField,
+          sortDirection,
+          createdWindow,
         },
       }),
     );
@@ -90,6 +95,9 @@ export default function InboxScreen() {
     statusFilter,
     suggestedReviewerFilter,
     priorityFilter,
+    sortField,
+    sortDirection,
+    createdWindow,
   ]);
 
   // ── Tinder mode data ──────────────────────────────────────────────────────
@@ -126,6 +134,7 @@ export default function InboxScreen() {
   const hasActiveFilters =
     sourceProductFilter.length > 0 ||
     priorityFilter.length > 0 ||
+    createdWindow !== null ||
     statusFilter.length < INBOX_PIPELINE_STATUSES.length ||
     suggestedReviewerFilter.length > 0;
 

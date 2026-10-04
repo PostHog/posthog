@@ -1,7 +1,11 @@
-import { INBOX_PIPELINE_STATUSES } from "@posthog/core/inbox/reportFiltering";
+import {
+  INBOX_PIPELINE_STATUSES,
+  type InboxCreatedWindow,
+  type InboxSortDirection,
+  type InboxSortField,
+} from "@posthog/core/inbox/reportFiltering";
 import type { SourceProduct } from "@posthog/shared";
 import type {
-  SignalReportOrderingField,
   SignalReportPriority,
   SignalReportStatus,
 } from "@posthog/shared/domain-types";
@@ -9,16 +13,12 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-type SortField = Extract<
-  SignalReportOrderingField,
-  "priority" | "created_at" | "total_weight"
->;
-
-type SortDirection = "asc" | "desc";
-
 interface InboxFilterState {
-  sortField: SortField;
-  sortDirection: SortDirection;
+  /** Can hold a model sort the user can no longer use. Read the list sort through `useInboxActiveSort`. */
+  sortField: InboxSortField;
+  sortDirection: InboxSortDirection;
+  /** Null means no created-in window. Read the list window through `useInboxActiveSort`. */
+  createdWindow: InboxCreatedWindow | null;
   statusFilter: SignalReportStatus[];
   sourceProductFilter: SourceProduct[];
   suggestedReviewerFilter: string[];
@@ -26,7 +26,8 @@ interface InboxFilterState {
 }
 
 interface InboxFilterActions {
-  setSort: (field: SortField, direction: SortDirection) => void;
+  setSort: (field: InboxSortField, direction: InboxSortDirection) => void;
+  setCreatedWindow: (createdWindow: InboxCreatedWindow | null) => void;
   setStatusFilter: (statuses: SignalReportStatus[]) => void;
   toggleStatus: (status: SignalReportStatus) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
@@ -45,12 +46,14 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
     (set) => ({
       sortField: "priority",
       sortDirection: "asc",
+      createdWindow: null,
       statusFilter: [...INBOX_PIPELINE_STATUSES],
       sourceProductFilter: [],
       suggestedReviewerFilter: [],
       priorityFilter: [],
 
       setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
+      setCreatedWindow: (createdWindow) => set({ createdWindow }),
       setStatusFilter: (statusFilter) => set({ statusFilter }),
       toggleStatus: (status) =>
         set((state) => {
@@ -98,6 +101,7 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
           sourceProductFilter: [],
           suggestedReviewerFilter: [],
           priorityFilter: [],
+          createdWindow: null,
         }),
     }),
     {
@@ -106,6 +110,7 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
       partialize: (state) => ({
         sortField: state.sortField,
         sortDirection: state.sortDirection,
+        createdWindow: state.createdWindow,
         statusFilter: state.statusFilter,
         sourceProductFilter: state.sourceProductFilter,
         suggestedReviewerFilter: state.suggestedReviewerFilter,

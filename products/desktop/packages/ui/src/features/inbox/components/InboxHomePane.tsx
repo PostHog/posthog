@@ -10,13 +10,10 @@ import {
   Kbd,
 } from "@posthog/quill";
 import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
+import { useHasActiveReportsListFilters } from "@posthog/ui/features/inbox/hooks/useHasActiveReportsListFilters";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
 import { useInboxTriageHotkey } from "@posthog/ui/features/inbox/hooks/useInboxTriageHotkey";
 import { useSelfDrivingSetupStatus } from "@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus";
-import {
-  hasActiveReportsListFilters,
-  useInboxSignalsFilterStore,
-} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { INBOX_TRIAGE_ROUTE } from "@posthog/ui/features/inbox/triageRoute";
 import { OpenSidebarButton } from "@posthog/ui/features/sidebar/components/OpenSidebarButton";
 import { navigateToSettings } from "@posthog/ui/router/navigationBridge";
@@ -31,9 +28,7 @@ export function InboxHomePane(): ReactElement {
   const inbox = useInboxSectionedReports({ autoPage: false });
   const triageEnabled = useTriageFocusEnabled();
   const setupStatus = useSelfDrivingSetupStatus();
-  const hasActiveFilters = useInboxSignalsFilterStore(
-    hasActiveReportsListFilters,
-  );
+  const hasActiveFilters = useHasActiveReportsListFilters();
 
   useInboxTriageHotkey({
     enabled: triageEnabled,

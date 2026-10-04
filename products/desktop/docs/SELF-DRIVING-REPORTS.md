@@ -46,6 +46,13 @@ Hover opens the user list without moving keyboard focus. Click the search field 
 The search starts empty and shows up to 20 options, including For you and Entire project.
 Search by name or email across all users. The search field stays visible above the results.
 
+Staff with the `inbox-model-sort` flag can sort by the ranking model: Most likely to merge, to get a PR, to need action, or to be opened.
+These sorts order reports by the model's score, and reports without a score come last.
+With the `inbox-time-window` flag, Created limits the list to reports from the last 24 hours, 3 days, 7 days, or 14 days.
+A model sort selects Last 7 days when no window is set, because the model scores only reports from the last 7 days.
+If a flag is turned off, a saved model sort returns to the default sort and a saved window stops filtering the list.
+The mobile Filter & Sort sheet has the same options.
+
 ## Mobile report tasks
 
 Discuss starts a discussion task and forwards the question to the report's scout.

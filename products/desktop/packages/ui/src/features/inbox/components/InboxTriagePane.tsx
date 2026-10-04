@@ -1,10 +1,7 @@
 import { ReportTriageFocus } from "@posthog/ui/features/inbox/components/ReportTriageFocus";
+import { useHasActiveReportsListFilters } from "@posthog/ui/features/inbox/hooks/useHasActiveReportsListFilters";
 import { useInboxTriageOrigin } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxSectionedReports } from "@posthog/ui/features/inbox/hooks/useInboxSectionedReports";
-import {
-  hasActiveReportsListFilters,
-  useInboxSignalsFilterStore,
-} from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useNavigate } from "@tanstack/react-router";
 import type { ReactElement } from "react";
@@ -12,9 +9,7 @@ import type { ReactElement } from "react";
 export function InboxTriagePane(): ReactElement {
   const inbox = useInboxSectionedReports({ autoPage: true });
   const triageOrigin = useInboxTriageOrigin();
-  const hasActiveFilters = useInboxSignalsFilterStore(
-    hasActiveReportsListFilters,
-  );
+  const hasActiveFilters = useHasActiveReportsListFilters();
   const navigate = useNavigate();
 
   // The queue is filtered by task state, so a loaded page can hold no decision
