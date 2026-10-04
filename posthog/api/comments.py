@@ -45,7 +45,7 @@ from posthog.models.comment.utils import (
     send_mention_notifications,
 )
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
@@ -471,6 +471,7 @@ class CommentSerializer(serializers.ModelSerializer):
                 scope=target_scope,
                 item_id=target_item_id,
                 sandbox=is_sandbox_oauth_request(request),
+                sandbox_task_id=getattr(get_oauth_access_token(request), "sandbox_task_id", None),
             ):
                 raise exceptions.PermissionDenied("You do not have access to this task comment target")
 
@@ -908,6 +909,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             scope=comment.scope,
             item_id=comment.item_id,
             sandbox=is_sandbox_oauth_request(self.request),
+            sandbox_task_id=getattr(get_oauth_access_token(self.request), "sandbox_task_id", None),
         ):
             raise exceptions.NotFound()
 
@@ -923,6 +925,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 scope=comment.scope,
                 item_id=comment.item_id,
                 sandbox=is_sandbox_oauth_request(self.request),
+                sandbox_task_id=getattr(get_oauth_access_token(self.request), "sandbox_task_id", None),
             ):
                 raise exceptions.NotFound()
         return comment
@@ -986,6 +989,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                     scope=scope,
                     item_id=item_id,
                     sandbox=is_sandbox_oauth_request(self.request),
+                    sandbox_task_id=getattr(get_oauth_access_token(self.request), "sandbox_task_id", None),
                 ):
                     return queryset.none()
                 # A canvas thread belongs to the canvas, which `item_id` already selects. Its `taskId`

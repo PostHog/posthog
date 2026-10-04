@@ -924,6 +924,11 @@
         "params": ["skillName"],
         "scope": "project"
     },
+    "inboxScoutTrials": {
+        "template": "/scout-trials",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
         "params": [],
