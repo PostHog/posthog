@@ -88,10 +88,12 @@ describe('reportListLogic', () => {
         const FIRST_PAGE = Array.from({ length: 10 }, (_, i) => makeReport(`page-1-${i}`))
         const SECOND_PAGE = [makeReport('page-2-0')]
         let requestedOffsets: (string | null)[]
+        let pageIncludeCounts: (string | null)[]
         let logic: ReturnType<typeof reportListLogic.build>
 
         beforeEach(async () => {
             requestedOffsets = []
+            pageIncludeCounts = []
             useMocks({
                 get: {
                     // Reviewer scope loads alongside the list; an empty map keeps it out of the way.
@@ -100,14 +102,16 @@ describe('reportListLogic', () => {
                         const { searchParams } = new URL(request.url)
                         const offset = searchParams.get('offset')
                         // The header count fires a separate count-only request; not a page.
-                        if (searchParams.get('limit') !== '1') {
+                        const isCountRequest = searchParams.get('count_only') === 'true'
+                        if (!isCountRequest) {
                             requestedOffsets.push(offset)
+                            pageIncludeCounts.push(searchParams.get('include_count'))
                         }
                         const firstPage = offset === '0' || offset === null
                         return [
                             200,
                             {
-                                count: FIRST_PAGE.length + SECOND_PAGE.length,
+                                count: isCountRequest ? FIRST_PAGE.length + SECOND_PAGE.length : null,
                                 // A non-null `next` is what tells the section there are more pages.
                                 next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
                                 previous: null,
@@ -135,6 +139,10 @@ describe('reportListLogic', () => {
 
             expect(requestedOffsets).toEqual(['0', String(FIRST_PAGE.length)])
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+            // Pages skip the server count, so the total comes from the count request alone.
+            expect(pageIncludeCounts).toEqual(['false', 'false'])
+            expect(logic.values.count).toBe(FIRST_PAGE.length + SECOND_PAGE.length)
+            expect(logic.values.totalCount).toBe(FIRST_PAGE.length + SECOND_PAGE.length)
 
             // The second page came back with `next: null`, so a further loadMore fires no request.
             logic.actions.loadMore()
@@ -269,6 +277,55 @@ describe('reportListLogic', () => {
 
     // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
     // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
+    describe('total count', () => {
+        async function waitUntil(condition: () => boolean): Promise<void> {
+            for (let i = 0; i < 100 && !condition(); i++) {
+                await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            expect(condition()).toBe(true)
+        }
+
+        it('keeps the newest count when an older count request lands later', async () => {
+            const releaseCount: Record<string, () => void> = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: async ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        const priority = searchParams.get('priority') ?? 'any'
+                        if (searchParams.get('count_only') === 'true') {
+                            await new Promise<void>((resolve) => {
+                                releaseCount[priority] = resolve
+                            })
+                            return [200, { count: priority === 'P0' ? 1 : 9, next: null, previous: null, results: [] }]
+                        }
+                        return [200, { count: null, next: null, previous: null, results: [makeReport(priority)] }]
+                    },
+                },
+            })
+            initKeaTests()
+            const logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await waitUntil(() => logic.values.isLoaded && 'any' in releaseCount)
+
+            logic.actions.togglePriority('P0')
+            await waitUntil(() => 'P0' in releaseCount && logic.values.reports[0]?.id === 'P0')
+            releaseCount['P0']()
+            await waitUntil(() => logic.values.count === 1)
+            releaseCount['any']()
+            // The older count is the only loader still running, so this waits for its stale answer.
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.count).toBe(1)
+            expect(logic.values.totalCount).toBe(1)
+            logic.unmount()
+        })
+    })
+
     describe('lazy source line', () => {
         let logic: ReturnType<typeof reportListLogic.build>
         let includeSourceMetadata: (string | null)[]

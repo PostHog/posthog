@@ -11,15 +11,31 @@ interface SectionImpressionState {
     isLoaded: boolean
     reportsLoadFailed: boolean
     reportsResponseLoading: boolean
+    countLoading: boolean
     totalCount: number | null
     loadedQueryKey: string | null
     loadedContext: ReportListRequestContext | null
 }
 
 function useSectionImpressionState(sectionKey: InboxReportSectionKey): SectionImpressionState {
-    const { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext } =
-        useValues(reportListLogic(sectionListLogicProps(sectionKey)))
-    return { isLoaded, reportsLoadFailed, reportsResponseLoading, totalCount, loadedQueryKey, loadedContext }
+    const {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        countLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+    } = useValues(reportListLogic(sectionListLogicProps(sectionKey)))
+    return {
+        isLoaded,
+        reportsLoadFailed,
+        reportsResponseLoading,
+        countLoading,
+        totalCount,
+        loadedQueryKey,
+        loadedContext,
+    }
 }
 
 /**
@@ -55,9 +71,13 @@ export function useReportImpressions(rows: MergedReportRow[], selectedSections: 
         !isTriageOpen
 
     // Settled: every selected state answered (rows landed, or the request failed) with nothing in
-    // flight, so the merged rows are stable until the user or a pager changes the query.
+    // flight, so the merged rows are stable until the user or a pager changes the query. The count
+    // loads apart from the rows, so wait for it too, or `totalCount` is still null.
     const settled = selectedSections.every(
-        (key) => (sections[key].isLoaded || sections[key].reportsLoadFailed) && !sections[key].reportsResponseLoading
+        (key) =>
+            (sections[key].isLoaded || sections[key].reportsLoadFailed) &&
+            !sections[key].reportsResponseLoading &&
+            !sections[key].countLoading
     )
     const contextKey = JSON.stringify(selectedSections.map((key) => [key, sections[key].loadedQueryKey]))
 

@@ -43,9 +43,11 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -1068,6 +1070,35 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
         help_text="Whether this request started the re-ingestion or found one already running.",
     )
     report_id = serializers.UUIDField(help_text="Report being re-ingested.")
+
+
+class UncountedReportListPagination(LimitOffsetPagination):
+    """Pages the reports list without `COUNT(*)`. It reads one row past the page to find out if a next page exists."""
+
+    has_next: bool = False
+
+    def paginate_queryset(self, queryset, request, view=None) -> list[Any] | None:
+        self.request = request
+        self.limit = self.get_limit(request)
+        if self.limit is None:
+            return None
+        self.offset = self.get_offset(request)
+        self.count = None
+        rows = list(queryset[self.offset : self.offset + self.limit + 1])
+        self.has_next = len(rows) > self.limit
+        return rows[: self.limit]
+
+    def get_next_link(self) -> str | None:
+        if not self.has_next or self.request is None or self.limit is None or self.offset is None:
+            return None
+        url = self.request.build_absolute_uri()
+        url = replace_query_param(url, self.limit_query_param, self.limit)
+        return replace_query_param(url, self.offset_query_param, self.offset + self.limit)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        return Response(
+            {"count": None, "next": self.get_next_link(), "previous": self.get_previous_link(), "results": data}
+        )
 
 
 @extend_schema_view(
@@ -2329,12 +2360,14 @@ class SignalReportViewSet(
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
         count_only: bool = request.validated_query_data["count_only"]
+        include_count: bool = request.validated_query_data["include_count"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
         list_span = trace.get_current_span()
         list_span.set_attribute(
             "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
         )
         list_span.set_attribute("signals.reports.list.count_only", count_only)
+        list_span.set_attribute("signals.reports.list.include_count", include_count)
         list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
@@ -2342,7 +2375,8 @@ class SignalReportViewSet(
             if count_only:
                 total_count = queryset.count()
             else:
-                page = self.paginate_queryset(queryset)
+                paginator = self.paginator if include_count else UncountedReportListPagination()
+                page = paginator.paginate_queryset(queryset, request, view=self) if paginator else None
                 reports = list(page if page is not None else queryset)
 
         if count_only:
@@ -2352,9 +2386,9 @@ class SignalReportViewSet(
         report_ids = [str(r.id) for r in reports]
         list_span.set_attribute("signals.reports.list.count", len(report_ids))
         if page is not None:
-            page_limit = getattr(self.paginator, "limit", None)
-            page_offset = getattr(self.paginator, "offset", None)
-            total_count = getattr(self.paginator, "count", None)
+            page_limit = getattr(paginator, "limit", None)
+            page_offset = getattr(paginator, "offset", None)
+            total_count = getattr(paginator, "count", None)
             if isinstance(page_limit, int):
                 list_span.set_attribute("signals.reports.list.page_limit", page_limit)
             if isinstance(page_offset, int):
@@ -2365,11 +2399,13 @@ class SignalReportViewSet(
                     list_span.set_attribute(
                         "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
                     )
+            elif isinstance(paginator, UncountedReportListPagination):
+                list_span.set_attribute("signals.reports.list.has_next_page", paginator.has_next)
 
         data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
 
-        if page is not None:
-            return self.get_paginated_response(data)
+        if page is not None and paginator is not None:
+            return paginator.get_paginated_response(data)
         return Response(data)
 
     def _render_report_rows(self, reports: Sequence[Any], *, include_source_metadata: bool) -> Any:
