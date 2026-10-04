@@ -1,7 +1,6 @@
 import time
 import hashlib
 import secrets
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from datetime import date, datetime
 from typing import Any, Optional
@@ -12,6 +11,7 @@ import requests
 from asgiref.sync import async_to_sync
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
@@ -69,7 +69,7 @@ WEBHOOK_SCOPE_ERROR = (
 )
 
 
-@dataclasses.dataclass(frozen=True)
+@frozen
 class InstantlyResumeConfig:
     cursor: str
 
