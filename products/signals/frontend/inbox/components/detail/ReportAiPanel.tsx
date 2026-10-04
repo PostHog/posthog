@@ -32,14 +32,13 @@ export function ReportAiPanel({ panelId }: { panelId: string }): JSX.Element {
                     reportChatContext ? (
                         <ReportDiscussionComposer key={reportChatContext.report.id} {...reportChatContext} />
                     ) : (
-                        // `reportChatContext` is in-memory, but the `inbox-report` panel option round-trips
-                        // through the URL hash, so a reload lands here knowing the panel is a report chat but
-                        // not which report. Always filling the composer slot is what keeps the runner's
-                        // generic task composer out: a send from that would spend a run on a question the
-                        // agent cannot tie to any report.
+                        // The `inbox-report` panel option round-trips through the URL hash, so the panel can
+                        // open on a page with no report to restore. Always filling the composer slot is what
+                        // keeps the runner's generic task composer out: a send from that would spend a run on
+                        // a question the agent cannot tie to any report.
                         <EmptyMessage
                             title="No report selected"
-                            description="Reloading the page clears which report this chat was about. Select Ask AI on the report to start a new chat."
+                            description="Open a report and select Ask AI to chat about it."
                         />
                     )
                 }
