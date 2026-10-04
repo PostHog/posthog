@@ -474,8 +474,6 @@ class BigQueryQueryPermissionsTestStep(DestinationTestStep):
 
     async def _run_step(self) -> DestinationTestStepResult:
         """Run this test step."""
-        from google.cloud.exceptions import NotFound
-
         client = get_client(self.project_id, self.integration, self.service_account_info)
 
         fully_qualified_name = f"{self.project_id}.{self.dataset_id}.{self.table_id}"
