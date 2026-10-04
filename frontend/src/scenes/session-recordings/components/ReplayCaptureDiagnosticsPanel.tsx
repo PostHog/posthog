@@ -109,6 +109,7 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     sampled_out: 'info',
     buffering_empty: 'info',
     recorder_error: 'warning',
+    sdk_cannot_record: 'info',
     unknown: 'info',
 }
 
