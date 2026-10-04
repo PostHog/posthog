@@ -8,7 +8,7 @@ signal for the pipeline to cluster — so you author it directly and own its fra
 The harness already gives you the **general** report-channel discipline in your run prompt:
 search the inbox before authoring, prefer editing over a near-duplicate, keep a
 `report:<domain>:<entity>` scratchpad pointer, set `suggested_reviewers` to route the report,
-and never retry a non-idempotent call. This file is the **anomaly-specific** contract on top of
+and follow the shared retry-safety and cross-run deduplication rules. This file is the **anomaly-specific** contract on top of
 that: the authoring bar, the title/summary prose, the evidence shape, how to set
 actionability / priority / repository / reviewers for a metric move, and the notebook write-up.
 The harness validates request shape but does **not** grade prose — that's on you.
