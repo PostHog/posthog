@@ -337,7 +337,6 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
-                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
                               |ReviewReport
@@ -774,7 +773,6 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
-                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
                         |ReviewReport
