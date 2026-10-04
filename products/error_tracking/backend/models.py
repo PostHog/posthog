@@ -243,12 +243,12 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
 
     class Meta:
         constraints = [
-            # The included columns are what the ingestion fingerprint lookup selects, so it
-            # reads the index alone and never fetches from the heap.
+            # Key columns only. The included columns this index used to carry removed a heap
+            # fetch per lookup but did not reduce the total pages read, and they grew the index
+            # by about a third, which costs cache on the ingestion hot path.
             models.UniqueConstraint(
                 fields=["team", "fingerprint"],
-                include=["id", "issue", "version"],
-                name="unique_fingerprint_for_team_covering",
+                name="unique_fingerprint_for_team",
             ),
         ]
         db_table = "posthog_errortrackingissuefingerprintv2"
