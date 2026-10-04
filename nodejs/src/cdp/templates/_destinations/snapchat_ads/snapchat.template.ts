@@ -78,7 +78,6 @@ const build_inputs = (multiProductEvent = false): HogFunctionInputSchemaType[] =
                     : '{event.properties.quantity}',
                 order_id:
                     '{event.properties.orderId ?? event.properties.transactionId ?? event.properties.transaction_id}',
-                event_id: '{event.uuid}',
             },
             secret: false,
             required: true,
@@ -105,6 +104,7 @@ let body := {
     'data': [
         {
             'event_name': inputs.eventType,
+            'event_id': inputs.eventId,
             'action_source': inputs.actionSource,
             'event_time': inputs.eventTime,
             'event_source_url': inputs.eventSourceUrl,

@@ -154,6 +154,17 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Snap deduplicates against the Pixel's client_dedup_id only on a top-level event_id, and ignores
+            # one inside custom_data, where functions created before this fix send it.
+            "snapchat-ads-top-level-event-id": {
+                "template_id": "template-snapchat-ads",
+                "replacements": [
+                    {
+                        "from_string": "'event_name': inputs.eventType,\n            'action_source': inputs.actionSource,",
+                        "to_string": "'event_name': inputs.eventType,\n            'event_id': inputs.eventId,\n            'action_source': inputs.actionSource,",
+                    },
+                ],
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:

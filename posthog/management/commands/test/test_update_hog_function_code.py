@@ -547,3 +547,41 @@ class TestUpdateHogFunctionCode(BaseTest):
         function.refresh_from_db()
         assert POWERPLATFORM_BRANCH not in function.hog
         self.assertIn("Updated: 0", out.getvalue())
+
+    def test_snapchat_ads_migration_moves_event_id_to_top_level_once(self):
+        stale_hog = """
+let body := {
+    'data': [
+        {
+            'event_name': inputs.eventType,
+            'action_source': inputs.actionSource,
+            'event_time': inputs.eventTime,
+            'user_data': {},
+            'custom_data': {}
+        }
+    ]
+}
+"""
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            function = HogFunction.objects.create(
+                team=self.team,
+                name="Snapchat Function",
+                type="destination",
+                template_id="template-snapchat-ads",
+                hog=stale_hog,
+                enabled=True,
+            )
+
+        out = StringIO()
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            call_command("update_hog_function_code", replace_key="snapchat-ads-top-level-event-id", stdout=out)
+            call_command("update_hog_function_code", replace_key="snapchat-ads-top-level-event-id", stdout=out)
+
+        function.refresh_from_db()
+        assert function.hog.count("'event_id': inputs.eventId,") == 1
+        self.assertIn("Updated: 1", out.getvalue())
+        self.assertIn("Updated: 0", out.getvalue())
+        compile_hog_for_check(function.hog, "destination")
