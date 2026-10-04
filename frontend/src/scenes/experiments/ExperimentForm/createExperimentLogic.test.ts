@@ -178,16 +178,16 @@ describe('createExperimentLogic', () => {
             expect(scannerCreateSpy).toHaveBeenCalledTimes(1)
             expect(scannerRequestBody).toMatchObject({
                 name: 'Checkout flow (#123)',
-                scanner_type: 'classifier',
-                // Enabling starts credit spend, so a created scanner must never arrive switched on
+                scanner_type: 'experiment',
+                // The experiment is a draft, so the API refuses the scanner on; it turns on at launch
                 enabled: false,
+                scanner_config: { experiment_id: 123, variants: null, start_on_launch: true },
                 // `model` is required by the create serializer — omitting it 400s every create
                 provider: DEFAULT_PROVIDER,
                 model: DEFAULT_MODEL,
-                experiment_targeting: { experiment_id: 123, variant: null },
                 query: { kind: 'RecordingsQuery', filter_test_accounts: true },
             })
-            // The API derives the exposure filter from the targeting and rejects one set in the
+            // The API derives the exposure filter from the experiment and rejects one set in the
             // query, so a hand-built population here is the regression to catch
             expect(scannerRequestBody?.query).not.toHaveProperty('events')
             expect(scannerRequestBody?.query).not.toHaveProperty('experiment_exposure')
@@ -205,7 +205,7 @@ describe('createExperimentLogic', () => {
                 })
             )
             expect(lemonToast.success).toHaveBeenCalledWith(
-                'Experiment created. The Replay Vision scanner is off until you turn it on.',
+                'Experiment created. The Replay Vision scanner turns on when you launch the experiment.',
                 expect.objectContaining({
                     button: expect.objectContaining({ label: 'View scanner' }),
                 })

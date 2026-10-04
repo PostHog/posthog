@@ -124,10 +124,9 @@ function ReplayVisionScannerCheckbox(): JSX.Element {
                 <div className="py-3">
                     <div className="font-semibold">Watch participant behavior with Replay Vision</div>
                     <div className="mt-1 font-normal text-sm text-muted">
-                        Set up a scanner that classifies what participants do after experiment exposure. It is created
-                        turned off, so nothing is scanned and no credits are used until you turn it on. You can adjust
-                        its prompt, filters, and sampling first. A scanner keeps running after the experiment ends, so
-                        turn it off when you are done.
+                        Set up a scanner that summarizes what participants do in each variant after exposure. It turns
+                        on when you launch the experiment and stops when the experiment ends. Until launch, nothing is
+                        scanned and no credits are used, and you can adjust its prompt, filters, and sampling.
                     </div>
                     {/* Per-session price only: a monthly projection needs the 30-day recording history the
                      * estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so

@@ -538,7 +538,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         })
                     } else if (replayScannerId) {
                         lemonToast.success(
-                            'Experiment created. The Replay Vision scanner is off until you turn it on.',
+                            'Experiment created. The Replay Vision scanner turns on when you launch the experiment.',
                             {
                                 button: {
                                     label: 'View scanner',

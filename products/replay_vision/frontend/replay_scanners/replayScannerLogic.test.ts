@@ -154,7 +154,7 @@ describe('replayScannerLogic', () => {
         })
 
         // The replay filters entry point sends both when the filters scope to an experiment, since
-        // exposure can't ride inside the query. Keeping only the targeting would silently widen the
+        // exposure can't ride inside the query. Keeping only the experiment would silently widen the
         // scanner to every session; keeping only the filters would drop the experiment entirely.
         it('combines an experiment deep link with a ?filters= query rather than dropping either', async () => {
             useMocks({
@@ -168,7 +168,11 @@ describe('replayScannerLogic', () => {
 
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
 
-            expect(logic.values.scanner?.experiment_targeting).toMatchObject({ experiment_id: 7 })
+            expect(logic.values.scanner).toMatchObject({
+                scanner_type: 'experiment',
+                scanner_config: { experiment_id: 7, variants: null },
+                experiment_targeting: null,
+            })
             expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
         })
     })
@@ -238,19 +242,33 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
         })
 
-        it('carries the drafted experiment targeting onto the form', async () => {
-            // Targeting is not part of the query, so the form is its only carrier: dropped here, the
-            // saved scanner watches every visitor of the drafted pages instead of the participants.
+        // The experiment is not part of the query, so the form is its only carrier: dropped here, the
+        // saved scanner watches every visitor of the drafted pages instead of the participants. The
+        // API refuses new legacy targeting, so either draft shape must become the experiment type.
+        it.each([
+            {
+                shape: 'legacy targeting on another type',
+                scanner_type: 'classifier',
+                scanner_config: { prompt: 'Describe the friction.', tags: ['smooth'], multi_label: false },
+                experiment_targeting: { experiment_id: 11, variant: 'test' },
+            },
+            {
+                shape: 'the experiment type',
+                scanner_type: 'experiment',
+                scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
+                experiment_targeting: null,
+            },
+        ])('carries the drafted experiment onto the form from $shape', async (draft) => {
             draftSpy.mockReturnValue([
                 200,
                 {
                     name: 'New entrypoint friction',
-                    description: 'Classifies friction in the new entrypoint.',
-                    scanner_type: 'classifier',
-                    scanner_config: { prompt: 'Classify the friction.', tags: ['smooth'], multi_label: false },
+                    description: 'Describes friction in the new entrypoint.',
                     rationale: '',
                     query: null,
-                    experiment_targeting: { experiment_id: 11, variant: 'test' },
+                    scanner_type: draft.scanner_type,
+                    scanner_config: draft.scanner_config,
+                    experiment_targeting: draft.experiment_targeting,
                 },
             ])
             router.actions.push(urls.replayVisionScannerTemplate('new'))
@@ -259,11 +277,15 @@ describe('replayScannerLogic', () => {
                 logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
             ).toFinishAllListeners()
 
-            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
+            expect(logic.values.scanner).toMatchObject({
+                scanner_type: 'experiment',
+                scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
+                experiment_targeting: null,
+            })
         })
 
         it('keeps an experiment prefill the AI draft did not name', async () => {
-            // The experiment cross-sell deep-links targeting the goal text never mentions. Dropping it
+            // The experiment cross-sell deep-links an experiment the goal text never mentions. Dropping it
             // here would save a scanner watching every visitor of the drafted pages, not the participants.
             useMocks({
                 get: {
@@ -291,7 +313,9 @@ describe('replayScannerLogic', () => {
 
             expect(logic.values.scanner).toMatchObject({
                 name: 'Billing drop-off: Checkout redesign',
-                experiment_targeting: { experiment_id: 7, variant: null },
+                scanner_type: 'experiment',
+                scanner_config: { prompt: 'Watch for drop-off.', experiment_id: 7, variants: null },
+                experiment_targeting: null,
             })
         })
 
