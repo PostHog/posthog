@@ -30,6 +30,7 @@ import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
+import { OrganizationMembersService } from './services/managers/organization-members.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -468,7 +469,8 @@ export function createCdpCoreServices(
                 fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
             },
             deps.teamManager
-        )
+        ),
+        new OrganizationMembersService(deps.postgres, deps.teamManager)
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)

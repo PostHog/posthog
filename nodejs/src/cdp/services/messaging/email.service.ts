@@ -17,6 +17,7 @@ import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { logger } from '~/common/utils/logger'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { OrganizationMembersService } from '../managers/organization-members.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
@@ -335,6 +336,12 @@ export function parseAddressList(value?: string): string[] | undefined {
     return result.length > 0 ? result : undefined
 }
 
+function sandboxAddressList(value?: string): string[] {
+    return (parseAddressList(value) ?? []).map(
+        (address) => address.match(/^[^<>@;\r\n]*<([^<>]+)>$/)?.[1].trim() ?? address
+    )
+}
+
 export class EmailService {
     sesV2Client: SESv2Client | null
 
@@ -353,7 +360,8 @@ export class EmailService {
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null,
-        private sandboxSender: SandboxEmailSender | null = null
+        private sandboxSender: SandboxEmailSender | null = null,
+        private organizationMembers: OrganizationMembersService | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -494,6 +502,50 @@ export class EmailService {
                 })
                 return result
             }
+            if (isSandbox) {
+                const cc = sandboxAddressList(params.cc)
+                const bcc = sandboxAddressList(params.bcc)
+                const recipients = [params.to.email, ...cc, ...bcc]
+                let blockedRecipients: string[]
+                let reason: 'recipient_not_member' | 'check_failed' = 'recipient_not_member'
+                try {
+                    if (!this.organizationMembers) {
+                        throw new Error('Organization member checks are not configured')
+                    }
+                    blockedRecipients = await this.organizationMembers.getBlockedRecipients(
+                        invocation.teamId,
+                        recipients
+                    )
+                } catch {
+                    blockedRecipients = recipients
+                    reason = 'check_failed'
+                }
+                if (blockedRecipients.length) {
+                    addLog(
+                        'info',
+                        reason === 'check_failed'
+                            ? `Skipping send: could not check organization members for these addresses: ${blockedRecipients.join(', ')}. Try again, or verify your own domain to send to anyone.`
+                            : `Skipping send: the sandbox sender only sends to active organization members with verified email addresses. Blocked addresses: ${blockedRecipients.join(', ')}. Verify your own domain to send to anyone.`
+                    )
+                    result.skipped = true
+                    result.invocation.state.vmState?.stack.push({ success: false })
+                    await this.sandboxSender!.capture(invocation.teamId, isTest, {
+                        type: 'blocked',
+                        reason,
+                        blockedRecipientCount: blockedRecipients.length,
+                    })
+                    return result
+                }
+                deliveryParams = {
+                    ...params,
+                    to: {
+                        email: params.to.email.trim(),
+                        name: params.to.name ? sanitizeFromName(params.to.name) : undefined,
+                    },
+                    cc: cc.join(', ') || undefined,
+                    bcc: bcc.join(', ') || undefined,
+                }
+            }
             const from = this.resolveFromSender(integration, params.from, addLog)
 
             if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
@@ -604,7 +656,7 @@ export class EmailService {
                     break
                 case 'sandbox': {
                     deliveryParams = await this.sandboxSender!.withIdentificationFooter(
-                        params,
+                        deliveryParams,
                         from.name,
                         invocation.teamId
                     )
