@@ -622,6 +622,17 @@ export interface SignalViewApi {
     preview: SignalPreviewApi | null
 }
 
+/**
+ * * `tickets` - Support tickets
+ * * `query-hours` - Database hours
+ */
+export type ImpactNumberKeyEnumApi = (typeof ImpactNumberKeyEnumApi)[keyof typeof ImpactNumberKeyEnumApi]
+
+export const ImpactNumberKeyEnumApi = {
+    Tickets: 'tickets',
+    QueryHours: 'query-hours',
+} as const
+
 export interface ImpactWorkingApi {
     /** How the number is worked out, such as '120 ms × 30,000 calls'. */
     expression: string
@@ -630,8 +641,11 @@ export interface ImpactWorkingApi {
 }
 
 export interface ImpactNumberApi {
-    /** Which number this is: 'tickets' or 'query-hours'. */
-    key: string
+    /** Which number this is: distinct support tickets or database hours a day.
+     *
+     * * `tickets` - Support tickets
+     * * `query-hours` - Database hours */
+    key: ImpactNumberKeyEnumApi
     /** The number as shown, such as '2' or '1 hour'. */
     value: string
     /** The sentence that follows the number. */

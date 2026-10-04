@@ -5,7 +5,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from posthog.dataclasses import frozen
 
 from ..facade import contracts
-from .signal_text import SignalInput, headline, js_number, text_of
+from ..facade.enums import ImpactNumberKey
+from .signal_text import RECORDING_SOURCES, TICKET_SOURCES, SignalInput, headline, js_number, text_of
 
 _MIN_TICKETS = 2
 _WEEKS_FROM_DAYS = 14
@@ -16,8 +17,6 @@ _TIME_TAIL = "ms on average"
 _CALLS_TAIL = " calls in last 24h"
 _TIME_CHARS = frozenset("0123456789.,")
 _CALLS_CHARS = frozenset("0123456789,")
-_RECORDING_SOURCES = frozenset({"replay_vision", "session_replay"})
-_TICKET_SOURCES = frozenset({"conversations", "zendesk"})
 _QUERY_HOURS_SENTENCE = "database time a day, worked out from the query’s pganalyze stats."
 
 
@@ -36,16 +35,27 @@ class _QueryCost:
     hours: float
 
 
-def _occurrence_of(signal: SignalInput) -> tuple[str, str] | None:
-    if signal.source_product in _RECORDING_SOURCES:
+@frozen
+class _Occurrence:
+    kind: str
+    key: str
+
+
+def _occurrence_of(signal: SignalInput) -> _Occurrence | None:
+    if signal.source_product in RECORDING_SOURCES:
         session = text_of(signal.extra.get("session_id"))
-        return ("sessions", session) if session else None
-    if signal.source_product in _TICKET_SOURCES:
+        return _Occurrence(kind="sessions", key=session) if session else None
+    if signal.source_product in TICKET_SOURCES:
         ticket = js_number(signal.extra.get("ticket_number")) or signal.source_id
-        return ("tickets", ticket) if ticket else None
+        return _Occurrence(kind="tickets", key=ticket) if ticket else None
     if signal.source_product == "analytics" and signal.source_type == "anomaly_investigation":
-        return ("alerts", text_of(signal.extra.get("alert_check_id")) or signal.source_id)
+        return _Occurrence(kind="alerts", key=text_of(signal.extra.get("alert_check_id")) or signal.source_id)
     return None
+
+
+def _is_ticket(signal: SignalInput) -> bool:
+    occurrence = _occurrence_of(signal)
+    return occurrence is not None and occurrence.kind == "tickets"
 
 
 def _occurrences_by_kind(signals: list[SignalInput]) -> dict[str, _Occurrences]:
@@ -54,9 +64,8 @@ def _occurrences_by_kind(signals: list[SignalInput]) -> dict[str, _Occurrences]:
         occurrence = _occurrence_of(signal)
         if occurrence is None:
             continue
-        kind, key = occurrence
-        times = first_seen.setdefault(kind, {})
-        times[key] = min(signal.timestamp, times.get(key, signal.timestamp))
+        times = first_seen.setdefault(occurrence.kind, {})
+        times[occurrence.key] = min(signal.timestamp, times.get(occurrence.key, signal.timestamp))
     return {
         kind: _Occurrences(count=len(times), oldest=min(times.values()), newest=max(times.values()))
         for kind, times in first_seen.items()
@@ -139,9 +148,9 @@ def _ticket_number(signals: list[SignalInput]) -> contracts.ImpactNumber | None:
     tickets = _occurrences_by_kind(signals).get("tickets")
     if tickets is None or tickets.count < _MIN_TICKETS:
         return None
-    ticket = next((signal for signal in signals if (_occurrence_of(signal) or ("", ""))[0] == "tickets"), None)
+    ticket = next((signal for signal in signals if _is_ticket(signal)), None)
     return contracts.ImpactNumber(
-        key="tickets",
+        key=ImpactNumberKey.TICKETS,
         value=str(tickets.count),
         sentence=f"support tickets {_occurrence_span(tickets)}.",
         signal_id=ticket.signal_id if ticket else None,
@@ -157,7 +166,7 @@ def _query_hours_number(signals: list[SignalInput]) -> contracts.ImpactNumber | 
         return None
     hours = _grouped(cost.hours, 1 if cost.hours < 10 else 0)
     return contracts.ImpactNumber(
-        key="query-hours",
+        key=ImpactNumberKey.QUERY_HOURS,
         value=f"{hours} {'hour' if hours == '1' else 'hours'}",
         sentence=_QUERY_HOURS_SENTENCE,
         signal_id=cost.signal.signal_id,

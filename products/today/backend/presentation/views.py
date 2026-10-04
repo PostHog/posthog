@@ -1,6 +1,7 @@
 """DRF views for today. They read the request, call the facade and serialize the result."""
 
-from collections.abc import Callable
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import cast
 
 import structlog
@@ -43,9 +44,10 @@ class JevUnavailable(APIException):
     default_code = "jev_unavailable"
 
 
-def _ask_jev[T](team_id: int, ask: Callable[[], T]) -> T:
+@contextmanager
+def _jev_unavailable_as_503(team_id: int) -> Iterator[None]:
     try:
-        return ask()
+        yield
     except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
         logger.warning("today_jev_unavailable", team_id=team_id, reason=type(error).__name__)
         raise JevUnavailable() from error
@@ -151,10 +153,8 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for item in request.validated_data["requests"]
         ]
         user = self._jev_user()
-        texts = _ask_jev(
-            self.team.id,
-            lambda: api.report_key_clauses(team=self.team, user=user, report_id=report_id, requests=requests),
-        )
+        with _jev_unavailable_as_503(self.team.id):
+            texts = api.report_key_clauses(team=self.team, user=user, report_id=report_id, requests=requests)
         if texts is None:
             raise NotFound()
         return Response(KeyClausesSerializer({"texts": texts}).data)
@@ -167,7 +167,8 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks")
     def figure_marks(self, request: Request, report_id: str, **kwargs) -> Response:
         user = self._jev_user()
-        marks = _ask_jev(self.team.id, lambda: api.report_figure_marks(team=self.team, user=user, report_id=report_id))
+        with _jev_unavailable_as_503(self.team.id):
+            marks = api.report_figure_marks(team=self.team, user=user, report_id=report_id)
         if marks is None:
             raise NotFound()
         return Response(FigureMarksSerializer({"marks": marks}).data)
@@ -181,13 +182,11 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=False, methods=["post"], url_path="excerpt_choice")
     def excerpt_choice(self, request: Request, **kwargs) -> Response:
         user = self._jev_user()
-        index = _ask_jev(
-            self.team.id,
-            lambda: api.pick_code_excerpt(
+        with _jev_unavailable_as_503(self.team.id):
+            index = api.pick_code_excerpt(
                 team=self.team,
                 user=user,
                 finding=request.validated_data["finding"],
                 excerpts=request.validated_data["excerpts"],
-            ),
-        )
+            )
         return Response(ExcerptChoiceSerializer({"index": index}).data)

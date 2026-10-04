@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.today.backend.facade import contracts
-from products.today.backend.logic.evidence import pick_evidence, signal_view
+from products.today.backend.logic.evidence import distinct_evidence_count, pick_evidence, signal_view
 from products.today.backend.logic.signal_previews import body_paragraph, exception_chain, preview
 from products.today.backend.logic.signal_text import SignalInput, detail, headline, meta
 
@@ -296,3 +296,4 @@ class TestSignalViews(SimpleTestCase):
             )
         ]
         assert [picked.signal_id for picked in pick_evidence(signals, 3)] == ["late-check"]
+        assert distinct_evidence_count(signals) == 1

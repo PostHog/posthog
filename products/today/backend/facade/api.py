@@ -56,8 +56,8 @@ def list_candidates(*, team: Team, user: User, timezone_name: str | None) -> con
     return briefings.list_candidates(team=team, user=user, timezone_name=timezone_name)
 
 
-def _jev(team: Team, user: User) -> GatewayJev:
-    return GatewayJev(team_id=team.id, distinct_id=str(user.distinct_id))
+def _jev(team: Team, user: User, model: str | None = None) -> GatewayJev:
+    return GatewayJev(team_id=team.id, distinct_id=str(user.distinct_id), model=model)
 
 
 def report_key_clauses(
@@ -83,5 +83,4 @@ def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contr
     if page is None:
         return None
     artefacts = signals.report_artefact_texts(team=team, report_id=report_id, types=figure_sources.RESEARCH_TYPES)
-    jev = GatewayJev(team_id=team.id, distinct_id=str(user.distinct_id), model=figure_sources.FIGURE_MODEL)
-    return report_pages.figure_marks(page, artefacts, jev)
+    return report_pages.figure_marks(page, artefacts, _jev(team, user, figure_sources.FIGURE_MODEL))

@@ -1,5 +1,4 @@
 import re
-from datetime import date
 
 from markdown_it import MarkdownIt
 
@@ -60,10 +59,6 @@ def first_sentence(text: str) -> str:
         if end >= _MIN_SENTENCE_CHARS and not _inside_quote(text[:end]):
             return text[:end]
     return text
-
-
-def short_date(day: date) -> str:
-    return f"{day.day} {_MONTHS[day.month - 1]}"
 
 
 def _month_day(match: re.Match[str]) -> str:

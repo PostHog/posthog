@@ -5,7 +5,7 @@ from typing import Any
 
 from ..facade import contracts
 from .prose import concise_text, paragraphs
-from .signal_text import SignalInput, code_file, detail, github_file_url, slack_thread, text_of
+from .signal_text import RECORDING_SOURCES, SignalInput, code_file, detail, github_file_url, slack_thread, text_of
 
 _PREVIEW_CHARS = 240
 _MAX_EXCEPTIONS = 4
@@ -16,7 +16,6 @@ _IN_APP_PATH = re.compile(r"^(?:posthog|products|ee|common|services|frontend)/")
 _SECTION_LABEL = re.compile(r"^\*\*([^*\n]+?):\*\*\s*")
 _BARE_FILE_NAME = re.compile(r"`([\w-]+\.[a-z]{1,5})`", re.IGNORECASE | re.ASCII)
 _CHANNELS = {"slack": "Slack", "email": "Email", "widget": "Chat widget"}
-_RECORDING_SOURCES = frozenset({"replay_vision", "session_replay"})
 
 SourcePreview = Callable[[SignalInput, contracts.SignalPreview], contracts.SignalPreview | None]
 
@@ -52,7 +51,8 @@ def exception_chain(content: str) -> list[contracts.PreviewLine]:
         if 0 < index < len(exceptions) - _MAX_EXCEPTIONS + 1:
             continue
         own = [frame for frame in frames if _IN_APP_PATH.match(frame[1])]
-        shown = own[-1] if own else (frames[-1] if frames else None)
+        candidates = own or frames
+        shown = candidates[-1] if candidates else None
         if not (index == 0 and header in prose):
             lines.append(contracts.PreviewLine(text=header if index == 0 else f"Caused by {header}", quiet=False))
         if shown:
@@ -83,11 +83,15 @@ def body_paragraph(content: str, label: str | None = None) -> str | None:
     return (_SECTION_LABEL.sub("", chosen, count=1).strip() or None) if chosen else None
 
 
-def _github_facts(extra: dict[str, Any]) -> list[str]:
+def _github_state(extra: dict[str, Any]) -> str | None:
+    if isinstance(extra.get("merged_at"), str):
+        return "Merged"
     open_state = text_of(extra.get("state"))
-    state = (
-        "Merged" if isinstance(extra.get("merged_at"), str) else (_sentence_case(open_state) if open_state else None)
-    )
+    return _sentence_case(open_state) if open_state else None
+
+
+def _github_facts(extra: dict[str, Any]) -> list[str]:
+    state = _github_state(extra)
     author = text_of(extra.get("author_login"))
     raw_labels = extra.get("labels")
     labels = [
@@ -213,7 +217,7 @@ _SOURCE_PREVIEWS: dict[str, SourcePreview] = {
 
 
 def plays_recording(signal: SignalInput) -> bool:
-    return signal.source_product in _RECORDING_SOURCES and text_of(signal.extra.get("session_id")) is not None
+    return signal.source_product in RECORDING_SOURCES and text_of(signal.extra.get("session_id")) is not None
 
 
 def preview(signal: SignalInput) -> contracts.SignalPreview | None:

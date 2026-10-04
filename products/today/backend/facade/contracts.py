@@ -11,6 +11,7 @@ from .enums import (
     CitedSource,
     FigureSourceKind,
     FigureText,
+    ImpactNumberKey,
     ItemGroup,
     ItemReason,
     ItemSource,
@@ -230,7 +231,7 @@ class ImpactWorking:
 
 @dataclass(frozen=True)
 class ImpactNumber:
-    key: str
+    key: ImpactNumberKey
     value: str
     sentence: str
     signal_id: str | None

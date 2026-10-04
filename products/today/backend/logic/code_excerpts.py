@@ -6,8 +6,6 @@ _MIN_EXCERPT_PROBABILITY = 0.5
 
 
 def which_excerpt(finding: str, excerpts: list[str], jev: JevClient) -> int | None:
-    if len(excerpts) < 2:
-        return None
     numbered = [f"Code excerpt {index + 1}:\n{excerpt}" for index, excerpt in enumerate(excerpts)]
     item = "\n\n".join([f"Finding:\n{finding}", *numbered])
     [pick] = jev.choice([item], _EXCERPT_QUESTION, _EXCERPT_LABELS[: len(excerpts)])

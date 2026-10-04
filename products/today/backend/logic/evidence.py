@@ -27,13 +27,13 @@ def newest_first(signals: list[SignalInput]) -> list[SignalInput]:
     return sorted(signals, key=lambda signal: signal.timestamp, reverse=True)
 
 
-def distinct_evidence_count(signals: list[SignalInput]) -> int:
-    return len({(signal.source_product, signal.source_id) for signal in signals})
-
-
 def _evidence_item(signal: SignalInput) -> str:
     alert = text_of(signal.extra.get("alert_id")) if signal.source_product == "analytics" else None
     return f"analytics:alert:{alert}" if alert else f"{signal.source_product}:{signal.source_id}"
+
+
+def distinct_evidence_count(signals: list[SignalInput]) -> int:
+    return len({_evidence_item(signal) for signal in signals})
 
 
 def _unique_by(signals: list[SignalInput], key: Callable[[SignalInput], str]) -> list[SignalInput]:

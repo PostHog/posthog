@@ -3,7 +3,6 @@ from collections.abc import Callable
 from posthog.dataclasses import frozen
 
 _GITHUB_PREFIX = "https://github.com/"
-_URL_SCHEMES = ("https://", "http://")
 _PATH_PUNCTUATION = frozenset(".-")
 _ISO_DATE_LENGTH = 10
 _ISO_DATE_DASHES = (4, 7)
@@ -67,35 +66,6 @@ def github_links(text: str, accept: Callable[[GitHubLink], bool] = lambda link: 
         else:
             index = text.find(_GITHUB_PREFIX, index + 1)
     return links
-
-
-def url_spans(text: str) -> list[tuple[int, int]]:
-    spans: list[tuple[int, int]] = []
-    index = 0
-    while index < len(text):
-        scheme = next((scheme for scheme in _URL_SCHEMES if text.startswith(scheme, index)), None)
-        if scheme is None:
-            index += 1
-            continue
-        end = index + len(scheme)
-        while end < len(text) and not text[end].isspace():
-            end += 1
-        if end > index + len(scheme):
-            spans.append((index, end))
-            index = end
-        else:
-            index += 1
-    return spans
-
-
-def without_spans(text: str, spans: list[tuple[int, int]]) -> str:
-    kept: list[str] = []
-    last = 0
-    for start, end in spans:
-        kept.append(text[last:start])
-        last = end
-    kept.append(text[last:])
-    return "".join(kept)
 
 
 def _is_iso_date(candidate: str) -> bool:

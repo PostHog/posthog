@@ -30,7 +30,7 @@ from ..facade.contracts import (
     SignalView,
     TextKeyClauses,
 )
-from ..facade.enums import CitedSource, FigureSourceKind, FigureText, KeyClauseRole
+from ..facade.enums import CitedSource, FigureSourceKind, FigureText, ImpactNumberKey, KeyClauseRole
 
 
 class TodayQuerySerializer(serializers.Serializer):
@@ -371,7 +371,10 @@ class ImpactWorkingSerializer(DataclassSerializer):
 
 
 class ImpactNumberSerializer(DataclassSerializer):
-    key = serializers.CharField(help_text="Which number this is: 'tickets' or 'query-hours'.")
+    key = serializers.ChoiceField(
+        choices=ImpactNumberKey.choices,
+        help_text="Which number this is: distinct support tickets or database hours a day.",
+    )
     value = serializers.CharField(help_text="The number as shown, such as '2' or '1 hour'.")
     sentence = serializers.CharField(help_text="The sentence that follows the number.")
     signal_id = serializers.CharField(allow_null=True, help_text="The signal the number comes from, if one does.")

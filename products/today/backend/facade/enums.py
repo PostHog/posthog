@@ -77,6 +77,11 @@ class FigureText(LabeledStrEnum):
     IMPACT = "impact", "Impact"
 
 
+class ImpactNumberKey(LabeledStrEnum):
+    TICKETS = "tickets", "Support tickets"
+    QUERY_HOURS = "query-hours", "Database hours"
+
+
 class FigureSourceKind(LabeledStrEnum):
     SIGNAL = "signal", "Signal"
     RESEARCH = "research", "Agent's research"

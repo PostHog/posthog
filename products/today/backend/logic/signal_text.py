@@ -37,7 +37,8 @@ _MIN_CLAUSE_CHARS = 120
 _LINK_POINTER_WORDS = 6
 _DETAIL_ENDS = (".", "!", "?", ":", ")")
 _SCOUT = "signals_scout"
-_TICKET_SOURCES = frozenset({"conversations", "zendesk"})
+TICKET_SOURCES = frozenset({"conversations", "zendesk"})
+RECORDING_SOURCES = frozenset({"replay_vision", "session_replay"})
 
 
 @frozen
@@ -156,7 +157,7 @@ def _meta_parts(signal: SignalInput) -> list[str]:
         number = js_number(signal.extra.get("number"))
         kind = "Pull request" if is_pull_request(signal) else "Issue"
         return [f"{kind} #{number}"] if number else []
-    if signal.source_product in _TICKET_SOURCES:
+    if signal.source_product in TICKET_SOURCES:
         ticket = js_number(signal.extra.get("ticket_number"))
         return [f"Ticket #{ticket}"] if ticket else []
     if signal.source_product == _SCOUT:

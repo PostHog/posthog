@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
-from typing import Any
 
 from posthog.dataclasses import frozen
 
@@ -23,15 +22,10 @@ class SampleSignal:
 @frozen
 class SampleReport:
     id: str
-    title: str
     summary: str
-    hours_ago: float
-    priority: str | None
     actionability: str | None
     status: str
-    source_products: list[str]
     pull_request_url: str | None
-    metrics: list[dict[str, Any]]
     signals: list[SampleSignal]
 
 
