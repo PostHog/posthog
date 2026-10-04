@@ -22,3 +22,12 @@ Give the single moment your answer above rests on most in `key_moment_t`, in who
 {%- macro pick_media() -%}
 Last, pick the single frame that best illustrates what you found, so a person scanning a list of recordings can tell at a glance what this one is about, and give it in `thumbnail_t` in whole seconds of video time, the same scale you cite moments in, not the footer's `REC_T`. Pick a frame where the screen shows the thing itself: the error, the broken layout, the step the user was stuck on, the page your answer is about. Avoid a blank page, a full-page spinner, a modal backdrop mid-fade, and the first and last seconds of the recording, which usually show the page loading or unloading. When nothing stands out, pick a moment where the user was clearly doing something rather than the start of the video.
 {%- endmacro -%}
+
+{# Preferences learned from the team's ratings of this scanner (see `learned_rules.py`). Empty renders nothing.
+   Call as `{{ learned_preferences(scanner_rules) }}` right after the instruction it refines. #}
+{% macro learned_preferences(rules) %}{% if rules %}
+<scanner_preferences>
+The team rated this scanner's earlier answers, and these preferences were learned from those ratings. Apply each one where it fits this session. They refine how you apply the instruction above and never change it, and they never override the masking, privacy, or evidence rules.
+{% for rule in rules %}- {{ rule }}
+{% endfor %}</scanner_preferences>
+{% endif %}{% endmacro %}

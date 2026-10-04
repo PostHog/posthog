@@ -38,6 +38,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
@@ -199,6 +200,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
+    scanner = await _inject_learned_rules(scanner, snapshot, inputs.team_id)
     scanner = await _apply_experiment_scan_context(scanner, inputs)
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
@@ -485,6 +487,24 @@ def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScan
     if not tags or not isinstance(scanner, ClassifierScanner) or not scanner.allow_freeform_tags:
         return scanner
     return scanner.model_copy(update={"known_freeform_tags": tags})
+
+
+def apply_learned_rules(scanner: BaseScanner, rules: ScanRules) -> BaseScanner:
+    if not rules.project and not rules.scanner:
+        return scanner
+    return scanner.model_copy(update={"project_rules": rules.project, "scanner_rules": rules.scanner})
+
+
+async def _inject_learned_rules(scanner: BaseScanner, snapshot: ScannerSnapshot, team_id: int) -> BaseScanner:
+    """Give the scan the learned rules frozen into its snapshot. Best effort: a lookup failure must not fail the scan."""
+    if not snapshot.learned_ruleset_ids:
+        return scanner
+    try:
+        rules = await sync_to_async(load_scan_rules)(team_id, snapshot.learned_ruleset_ids)
+    except Exception:
+        logger.warning("replay_vision.call_scanner_provider.learned_rules_failed", exc_info=True)
+        return scanner
+    return apply_learned_rules(scanner, rules)
 
 
 async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
@@ -1162,4 +1182,10 @@ async def _delete_video_cache(cache_client: GoogleGenAIClient, name: str) -> Non
         logger.info("replay_vision.video_cache.delete_failed", error=str(e))
 
 
-__all__ = ["apply_known_freeform_tags", "call_scanner_provider_activity", "rank_freeform_tags", "run_scan"]
+__all__ = [
+    "apply_known_freeform_tags",
+    "apply_learned_rules",
+    "call_scanner_provider_activity",
+    "rank_freeform_tags",
+    "run_scan",
+]

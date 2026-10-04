@@ -6,7 +6,9 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from temporalio.exceptions import ApplicationError
 
+from products.replay_vision.backend.learned_rules import ScanRules
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.temporal.activities.call_scanner_provider import apply_learned_rules
 from products.replay_vision.backend.temporal.scanners import (
     ClassifierOutput,
     ClassifierScanner,
@@ -114,6 +116,25 @@ class TestPreamble:
         # a third party's, so a rewrite that only bans PII by category would let the customer's customer through.
         assert "belongs to someone else" in rendered
         assert "filtered by a customer's email address" in rendered
+
+    @parameterized.expand(
+        [
+            ("monitor", MonitorScanner(prompt="did they pay?")),
+            ("classifier", ClassifierScanner(prompt="which flow?", tags=["a", "b"])),
+            ("scorer", ScorerScanner(prompt="how smooth?", scale={"min": 1, "max": 5})),
+            ("summarizer", SummarizerScanner(prompt="")),
+            ("experiment", ExperimentScanner(prompt="p", experiment_id=1)),
+        ]
+    )
+    def test_learned_rules_render_only_when_present(self, _name: str, scanner: BaseScanner) -> None:
+        assert "<team_preferences>" not in scanner.preamble(team_name="Acme")
+        assert "<scanner_preferences>" not in _core_instruction(scanner)
+
+        ruled = apply_learned_rules(scanner, ScanRules(project=["Avoid: project rule"], scanner=["Encourage: own"]))
+
+        assert "- Avoid: project rule" in ruled.preamble(team_name="Acme")
+        assert "- Encourage: own" in _core_instruction(ruled)
+        assert "project_rules" not in ruled.model_dump()
 
     def test_preamble_exposes_events_via_tool_not_inline(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
