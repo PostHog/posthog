@@ -4,9 +4,12 @@ from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
 from typing import Any
 
-from django.db import connections
+from django.db import connections, router, transaction
+from django.db.backends.base.base import BaseDatabaseWrapper
 
-from posthog.ingress.dispatch.database import bounded_statement_timeout, read_aliases
+from temporalio import activity
+
+from posthog.ingress.dispatch.database import read_aliases
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -16,25 +19,61 @@ _BUDGET_SHARE = 0.75
 _MODELS = [ReplayScanner, ReplayObservation]
 
 
+def _aliases() -> list[str]:
+    aliases = read_aliases(_MODELS)
+    for model in _MODELS:
+        alias = router.db_for_write(model) or "default"
+        if alias not in aliases:
+            aliases.append(alias)
+    return aliases
+
+
+def _attempt_started_at(attempt_timeout: dt.timedelta) -> float:
+    now = time.time()
+    if not activity.in_activity():
+        return now
+    started = activity.info().started_time.timestamp()
+    # An attempt older than its own timeout is already dead, or the start is a test placeholder.
+    return started if now - started < attempt_timeout.total_seconds() else now
+
+
+def _set_statement_timeout(connection: BaseDatabaseWrapper, value: str) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('statement_timeout', %s, true)", [value])
+
+
 @contextmanager
-def bounded_queries(attempt_timeout: dt.timedelta) -> Iterator[None]:
-    """Cancel Postgres work in the block once it runs past most of the timeout that ends the attempt.
-
-    A timed-out attempt leaves its thread and query running, so each retry would add another copy holding locks.
-    Each statement gets what is left of the block's budget, and the block is one transaction, so keep calls to
-    other services out of it.
-    """
-    budget_s = attempt_timeout.total_seconds() * _BUDGET_SHARE
-    deadline = time.monotonic() + budget_s
-
+def _capped(connection: BaseDatabaseWrapper, deadline: float) -> Iterator[None]:
     def cap_to_deadline(execute: Callable[..., Any], sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
-        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+        remaining_ms = max(1, int((deadline - time.time()) * 1000))
         # The driver cursor runs this outside the wrapper chain, so it does not recurse.
         context["cursor"].cursor.execute("SELECT set_config('statement_timeout', %s, true)", [f"{remaining_ms}ms"])
         return execute(sql, params, many, context)
 
+    # Inside a caller's transaction the cap must not outlive the block, so the caller's value goes back.
+    previous = None
+    if connection.in_atomic_block:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_setting('statement_timeout')")
+            previous = cursor.fetchone()[0]
+    with transaction.atomic(using=connection.alias):
+        with connection.execute_wrapper(cap_to_deadline):
+            yield
+        if previous is not None:
+            _set_statement_timeout(connection, previous)
+
+
+@contextmanager
+def bounded_queries(attempt_timeout: dt.timedelta, *, from_attempt_start: bool = True) -> Iterator[None]:
+    """Cancel Postgres work in the block once it runs past most of the timeout that ends the attempt.
+
+    A timed-out attempt leaves its thread and query running, so each retry would add another copy holding locks.
+    Every block in one attempt shares the budget counted from the attempt's start; pass `from_attempt_start=False`
+    to give each block its own. The block is one transaction, so keep calls to other services out of it.
+    """
+    started = _attempt_started_at(attempt_timeout) if from_attempt_start else time.time()
+    deadline = started + attempt_timeout.total_seconds() * _BUDGET_SHARE
     with ExitStack() as stack:
-        stack.enter_context(bounded_statement_timeout(int(budget_s * 1000), models=_MODELS))
-        for alias in read_aliases(_MODELS):
-            stack.enter_context(connections[alias].execute_wrapper(cap_to_deadline))
+        for alias in _aliases():
+            stack.enter_context(_capped(connections[alias], deadline))
         yield

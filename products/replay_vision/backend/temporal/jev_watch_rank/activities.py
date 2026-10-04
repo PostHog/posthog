@@ -59,7 +59,7 @@ from products.replay_vision.backend.temporal.jev_watch_rank.types import (
 )
 from products.replay_vision.backend.temporal.query_budget import bounded_queries
 
-# The background heartbeat keeps a stalled query's attempt alive for the whole sweep, so each query gets the
+# The background heartbeat keeps a stalled query's attempt alive for the whole sweep, so each query gets its own
 # heartbeat window instead.
 _QUERY_BUDGET = SWEEP_ACTIVITY_HEARTBEAT_TIMEOUT
 
@@ -74,7 +74,7 @@ def _teams_with_scanners() -> list[int]:
     an unordered slice could drop an enrolled team on some runs and not others. Pinned teams go
     first, so they never fall past the cap at all.
     """
-    with bounded_queries(_QUERY_BUDGET):
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
         team_ids = list(
             ReplayScanner.all_origins.values_list("team_id", flat=True)
             .distinct()
@@ -84,7 +84,7 @@ def _teams_with_scanners() -> list[int]:
 
 
 def _team_scanner_ids(team_id: int, window_start: datetime) -> list[UUID]:
-    with bounded_queries(_QUERY_BUDGET):
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
         return list(
             ReplayObservation.objects.filter(
                 team_id=team_id, status=ObservationStatus.SUCCEEDED, created_at__gte=window_start
@@ -97,7 +97,7 @@ def _team_scanner_ids(team_id: int, window_start: datetime) -> list[UUID]:
 def _scanner_window_ids(team_id: int, scanner_id: UUID, window_start: datetime) -> list[UUID]:
     """Newest first, ids only: cheap enough to list the whole capped window every sweep, so the
     sweep can tell which rows still lack a judgment and which cached entries left the window."""
-    with bounded_queries(_QUERY_BUDGET):
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
         return list(
             ReplayObservation.objects.filter(
                 team_id=team_id,
@@ -111,7 +111,7 @@ def _scanner_window_ids(team_id: int, scanner_id: UUID, window_start: datetime) 
 
 
 def _rows_by_id(team_id: int, ids: list[UUID]) -> list[dict[str, Any]]:
-    with bounded_queries(_QUERY_BUDGET):
+    with bounded_queries(_QUERY_BUDGET, from_attempt_start=False):
         rows = list(ReplayObservation.objects.filter(team_id=team_id, id__in=ids).values("id", "scanner_result"))
     by_id = {row["id"]: dict(row) for row in rows}
     # `id__in` loses the caller's newest-first order.

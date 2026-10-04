@@ -12,7 +12,7 @@ from products.replay_vision.backend.temporal.query_budget import bounded_queries
 class TestBoundedQueries(BaseTest):
     def test_a_later_statement_only_gets_what_is_left_of_the_block_budget(self) -> None:
         clock = iter([0.0, 0.0, 100.0])
-        with patch.object(query_budget.time, "monotonic", side_effect=lambda: next(clock)):
+        with patch.object(query_budget.time, "time", side_effect=lambda: next(clock)):
             with self.assertRaisesRegex(OperationalError, "statement timeout"):
                 with bounded_queries(dt.timedelta(seconds=60)):
                     with connection.cursor() as cursor:

@@ -287,7 +287,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
     # overshoot by at most the in-flight caps allow, which is accepted.
-    quota = quota_state(scanner.team.organization_id)
+    with bounded_queries(CREATE_OBSERVATION_TIMEOUT):
+        quota = quota_state(scanner.team.organization_id)
     if quota.would_exceed(observation_credits_for_model(priced_model)):
         record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(

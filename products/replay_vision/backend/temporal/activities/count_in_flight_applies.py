@@ -71,7 +71,8 @@ def count_in_flight(
 @track_activity()
 def count_in_flight_by_team_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
     with bounded_queries(COUNT_IN_FLIGHT_APPLIES_TIMEOUT):
-        counts = count_in_flight(inputs.team_id, inputs.scanner_id)
+        rows = count_in_flight_rows(inputs.team_id, inputs.scanner_id)
+    counts = count_in_flight(inputs.team_id, inputs.scanner_id, rows=rows)
     team = counts["team"]
     scanner = counts["scanner"]
     # The workflow makes the same call on these counts; recorded here because metrics
