@@ -14,6 +14,7 @@ common-cache = { path = "../common/cache" }
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-hypercache = { path = "../common/hypercache" }
 common-metrics = { path = "../common/metrics" }
+common-replay-domains = { path = "../common/replay-domains" }
 common-redis = { path = "../common/redis" }
 envconfig = { workspace = true }
 health = { path = "../common/health" }
@@ -29,8 +30,6 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
-regex = { workspace = true }
-url = "2.5"
 
 [dev-dependencies]
 common-continuous-profiling = { path = "../common/continuous_profiling" }

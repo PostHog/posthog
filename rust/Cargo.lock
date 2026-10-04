@@ -3091,6 +3091,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-replay-domains"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.0",
+ "regex",
+ "serde_json",
+ "url",
+]
+
+[[package]]
 name = "common-s3"
 version = "0.1.0"
 dependencies = [
@@ -4657,6 +4667,7 @@ dependencies = [
  "common-kafka",
  "common-metrics",
  "common-redis",
+ "common-replay-domains",
  "common-s3",
  "common-types",
  "dateparser",
@@ -4709,7 +4720,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "url",
  "usage-ingestion-proto",
  "uuid",
 ]
@@ -6035,6 +6045,7 @@ dependencies = [
  "common-hypercache",
  "common-metrics",
  "common-redis",
+ "common-replay-domains",
  "common-s3",
  "envconfig",
  "health",
@@ -6042,7 +6053,6 @@ dependencies = [
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
- "regex",
  "reqwest 0.12.28",
  "serde",
  "serde-pickle",
@@ -6054,7 +6064,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]
