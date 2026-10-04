@@ -73,6 +73,17 @@ MIN_RUN_INTERVAL = dt.timedelta(minutes=30)
 # A rule backed by this many ratings survives a run unless at least as many ratings contradict it, so one
 # dissenting rating narrows a well-backed rule instead of erasing it.
 PROTECTED_SUPPORT = 3
+# The topics the scan prompt builds in. A `built_in` retirement only skips protection for a rule about one of them,
+# so text injected into the model's input cannot use the flag to delete an unrelated, well-backed rule.
+_BUILT_IN_TOPICS = re.compile(
+    r"personal|\bnames?\b|e-?mail|identit|phone|address"
+    r"|mask|blank|black|grey|gray|empty|canvas|iframe|embed|video|not (?:recorded|captured|rendered)"
+    r"|click|tap|idle|inactiv|read|scroll|brows|pause"
+    r"|load|spinner|wait|slow|timeout|connect"
+    r"|validation|paywall|upgrade|plan limit|disabled"
+    r"|ends? (?:before|during|mid)|unknown",
+    re.IGNORECASE,
+)
 _IDENTIFIER = re.compile(r"https?://|www\.|@|\b[0-9a-f]{8}-[0-9a-f]{4}-")
 
 
@@ -484,7 +495,14 @@ def _merge(
     kept_by_response = {rule.id for rule in proposed if rule.id in by_id and _clean_text(rule.text) is not None}
     merged_into: dict[str, str] = {}
     # A rule that only restates what the scan prompt now builds in goes however well rated it was.
-    built_in = {entry.id for entry in retired if entry.built_in and entry.id not in kept_by_response}
+    built_in = {
+        entry.id
+        for entry in retired
+        if entry.built_in
+        and entry.id not in kept_by_response
+        and (stored := by_id.get(entry.id)) is not None
+        and _BUILT_IN_TOPICS.search(stored.text)
+    }
     for entry in retired:
         new_against[entry.id].update(rating_ids[key] for key in entry.contradicted_by if key in rating_ids)
         if entry.merged_into and entry.merged_into != entry.id and entry.id not in kept_by_response:
