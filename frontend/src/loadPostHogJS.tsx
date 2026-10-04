@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
-import { getAppContext } from 'lib/utils/getAppContext'
+import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 
@@ -104,6 +104,10 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
+            // Hobby static files use /static/<asset>.js, without a version directory.
+            ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
+                ? { strict_script_versioning: false as const }
+                : {}),
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
