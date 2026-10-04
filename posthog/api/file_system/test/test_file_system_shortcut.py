@@ -232,6 +232,39 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual([row["path"] for row in response.json()], ["Dashboards"])
 
+    @parameterized.expand(
+        [
+            ("retrieve", "get", status.HTTP_404_NOT_FOUND, True),
+            ("update", "patch", status.HTTP_404_NOT_FOUND, True),
+            ("delete", "delete", status.HTTP_204_NO_CONTENT, False),
+        ]
+    )
+    def test_retired_shortcut_is_hidden_except_from_delete(
+        self, _name: str, method: str, expected_status: int, still_exists: bool
+    ) -> None:
+        retired = FileSystemShortcut.objects.create(team=self.team, path="Old link", type="link", user=self.user)
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{retired.pk}/", {"path": "Renamed"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(FileSystemShortcut.objects.filter(pk=retired.pk, path="Old link").exists(), still_exists)
+
+    @parameterized.expand(
+        [
+            ("create", "", {"path": "Old link", "type": "link"}),
+            ("bulk_update", "bulk_update/", {"add": [{"path": "Old link", "type": "link"}]}),
+        ]
+    )
+    def test_rejects_new_shortcut_of_retired_type(self, _name: str, url_suffix: str, body: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{url_suffix}", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertFalse(FileSystemShortcut.objects.filter(type="link").exists())
+
     def test_reorder_rejects_empty_list(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
