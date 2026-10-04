@@ -538,6 +538,54 @@ def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
             )
 
 
+@pytest.mark.parametrize(
+    "rejected_start,raises",
+    [
+        (dt.date(2023, 1, 1), False),
+        (dt.date(2024, 3, 1), True),
+    ],
+)
+def test_metric_set_skips_a_rejected_window_only_beyond_the_proven_history(
+    rejected_start: dt.date, raises: bool
+) -> None:
+    rejection = requests.HTTPError(
+        "400 Client Error: for url: https://playdeveloperreporting.googleapis.com",
+        response=_response(400, text="INVALID_ARGUMENT"),
+    )
+
+    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
+        if path.endswith(":query"):
+            start = body["timelineSpec"]["startTime"] if body else {}
+            day = dt.date(start["year"], start["month"], start["day"])
+            if day == rejected_start:
+                raise rejection
+            return {"rows": [_metric_row(day, 12, "0.01")]}
+        return _freshness(dt.date(2024, 3, 31))
+
+    def run() -> list[list[dict[str, Any]]]:
+        return list(
+            _iter_metric_set_rows(
+                client=_client(mock.MagicMock()),
+                endpoint=METRIC_SETS["crash_rate"],
+                package_names=["com.example.app"],
+                history_start=rejected_start,
+                manager=_manager(),
+                resume=None,
+            )
+        )
+
+    with (
+        mock.patch(f"{MODULE}._today", return_value=TODAY),
+        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
+    ):
+        if raises:
+            with pytest.raises(requests.HTTPError):
+                run()
+        else:
+            dates = [row["date"] for batch in run() for row in batch]
+            assert dates[0] == rejected_start + dt.timedelta(days=30)
+
+
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
     manager = _manager()
     payloads: list[dict[str, Any]] = [
@@ -917,8 +965,8 @@ def test_metric_set_source_streams_rows_for_the_incremental_window() -> None:
 @pytest.mark.parametrize(
     "resource_name,expected_start",
     [
-        # The vitals rate metric sets keep the deep 180-day backfill.
-        ("crash_rate", dt.date(2023, 10, 3)),
+        # The vitals rate metric sets backfill 730 days.
+        ("crash_rate", dt.date(2022, 4, 1)),
         # Error counts live on the short-retention error backend, which rejects a start that
         # far back with a 400, so the first sync begins inside the error history window.
         ("error_counts", dt.date(2024, 3, 1)),
