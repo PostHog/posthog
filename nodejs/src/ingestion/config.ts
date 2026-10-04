@@ -193,6 +193,8 @@ export type IngestionConsumerConfig = {
     // Teams whose merges and deletes tombstone the person row instead of hard-deleting it, and
     // whose creates revive a tombstoned key. Every environment rolled this out to all teams, so
     // '*' is the default. Comma-separated team IDs, or '*' for all teams; empty means no teams.
+    // Teams off this list attach distinct ids without lifecycle marks, so personhog's tombstone
+    // RPC cannot fence those attaches and a delete can strand a live mapping.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
     // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
     // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
