@@ -340,15 +340,15 @@ export interface todaySpacesLogicActions {
     toggleSection: (sectionId: TodayWorkSectionId) => {
         sectionId: TodayWorkSectionId
     }
-    touchMenuOpened: (menu: TodayTouchMenu) => {
-        menu: TodayTouchMenu
-    }
     toggleStar: (
         spaceId: string,
         starred: boolean
     ) => {
         spaceId: string
         starred: boolean
+    }
+    touchMenuOpened: (menu: TodayTouchMenu) => {
+        menu: TodayTouchMenu
     }
 }
 
