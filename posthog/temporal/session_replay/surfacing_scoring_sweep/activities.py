@@ -41,6 +41,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
@@ -99,9 +100,15 @@ async def list_chunks_activity(_inputs: ScoreSessionsBatchInputs) -> ListChunksR
     of_chunks = DEFAULT_OF_CHUNKS
     chunk_size = TARGET_CHUNK_SIZE
 
-    sampled = await sync_to_async(_count_unscored_in_one_bucket, thread_sensitive=False)(lookback_days, of_chunks)
-    estimated_total = sampled * of_chunks
-    record_backlog_estimate(estimated_total)
+    # The estimate only feeds the backlog gauge, so a busy cluster must not block the chunk dispatch.
+    estimated_total = 0
+    try:
+        sampled = await sync_to_async(_count_unscored_in_one_bucket, thread_sensitive=False)(lookback_days, of_chunks)
+    except ClickHouseClusterMemoryLimitExceeded:
+        logger.warning("surfacing_scoring_sweep.list_chunks.backlog_estimate_skipped", reason="cluster_memory_limit")
+    else:
+        estimated_total = sampled * of_chunks
+        record_backlog_estimate(estimated_total)
 
     chunks = [
         ChunkSpec(

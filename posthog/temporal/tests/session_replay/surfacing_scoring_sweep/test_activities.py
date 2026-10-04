@@ -10,6 +10,7 @@ import pandas as pd
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded
 from posthog.temporal.session_replay.surfacing_scoring_sweep.activities import (
     _build_features_dataframe,
     _build_partial_row,
@@ -61,6 +62,21 @@ class TestListChunksActivity:
             await ActivityEnvironment().run(list_chunks_activity, ScoreSessionsBatchInputs())
 
         record_backlog_mock.assert_called_once_with(42 * DEFAULT_OF_CHUNKS)
+
+    @pytest.mark.asyncio
+    async def test_dispatches_chunks_without_gauge_when_cluster_memory_is_full(self) -> None:
+        with (
+            mock.patch(
+                f"{ACTIVITIES_MODULE}._count_unscored_in_one_bucket",
+                side_effect=ClickHouseClusterMemoryLimitExceeded(),
+            ),
+            mock.patch(f"{ACTIVITIES_MODULE}.record_backlog_estimate") as record_backlog_mock,
+        ):
+            result = await ActivityEnvironment().run(list_chunks_activity, ScoreSessionsBatchInputs())
+
+        assert len(result.chunks) == DEFAULT_OF_CHUNKS
+        assert result.estimated_unscored_sessions == 0
+        record_backlog_mock.assert_not_called()
 
 
 class TestBuildPartialRow:
