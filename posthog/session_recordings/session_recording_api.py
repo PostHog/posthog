@@ -192,7 +192,8 @@ def _request_auth_type(request) -> str:
     return "logged_in"
 
 
-# The replay asset proxy exists only for the player, so API clients such as personal API keys and OAuth get no token.
+# The replay asset proxy serves only the web player under a login session, a share link, or an export.
+# Every OAuth client gets no token, which includes the player in standalone OAuth mode, and so do personal API keys.
 _PLAYER_AUTHENTICATION_CLASSES = (
     SessionAuthentication,
     SharingAccessTokenAuthentication,

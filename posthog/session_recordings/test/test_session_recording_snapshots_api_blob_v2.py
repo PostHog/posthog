@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import PersonalAPIKey, SessionRecording
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
@@ -178,7 +179,12 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert (response.json()["replay_proxy_token"] is not None) == expects_token
+        token = response.json()["replay_proxy_token"]
+        if expects_token:
+            claims = decode_jwt(token, PosthogJwtAudience.REPLAY_PROXY, verification_keys=["replay-proxy-key"])
+            assert claims["team_id"] == self.team.pk
+        else:
+            assert token is None
 
     @parameterized.expand(
         [
