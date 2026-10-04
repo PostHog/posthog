@@ -65508,6 +65508,29 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
+    export interface OrganizationMemberNoticeAction {
+      /**
+         * Text on the button shown next to the notice.
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * Link the button opens in a new tab. Must use http or https.
+         * @maxLength 2000
+         */
+      url: string;
+    }
+
+    export interface OrganizationMemberNotice {
+      /**
+         * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+         * @maxLength 1000
+         */
+      message: string;
+      /** Optional link button shown on the right of the banner. */
+      action?: OrganizationMemberNoticeAction | null;
+    }
+
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -65552,6 +65575,8 @@ export namespace Schemas {
          * @nullable
          */
       read_only_mcp_access?: boolean | null;
+      /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+      member_notice?: OrganizationMemberNotice | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -78489,6 +78514,8 @@ export namespace Schemas {
          * @nullable
          */
       read_only_mcp_access?: boolean | null;
+      /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+      member_notice?: OrganizationMemberNotice | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
