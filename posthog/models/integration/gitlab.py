@@ -11,7 +11,7 @@ from posthog.security.url_validation import is_url_allowed
 from . import common, model
 
 
-class GitLabIntegrationError(Exception):
+class GitLabIntegrationError(common.IntegrationError):
     pass
 
 
@@ -21,7 +21,7 @@ class GitLabIntegration:
     @staticmethod
     def _validate_api_url(url: str) -> None:
         if urlparse(url).scheme != "https":
-            raise GitLabIntegrationError("Invalid GitLab hostname: HTTPS is required")
+            raise GitLabIntegrationError("Invalid GitLab hostname: use a URL that starts with https://")
         allowed, error = is_url_allowed(url)
         if not allowed:
             raise GitLabIntegrationError(f"Invalid GitLab hostname: {error}")
