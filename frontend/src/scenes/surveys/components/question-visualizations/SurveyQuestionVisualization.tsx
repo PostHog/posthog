@@ -17,6 +17,8 @@ import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { QuestionProcessedResponses, SurveyEventProperties, SurveyQuestion, SurveyQuestionType } from '~/types'
 
+import { resolveQuestionVizState } from 'products/surveys/frontend/components/question-visualizations/questionVizState'
+
 import { SCALE_LABELS } from '../../constants'
 import { isThumbQuestion } from '../../utils'
 import { NPSBreakdownSkeleton, RatingQuestionViz } from './RatingQuestionViz'
@@ -242,11 +244,13 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
         return null
     }
 
-    const processedData: QuestionProcessedResponses | undefined =
-        enrichedConsolidatedSurveyResults?.responsesByQuestion[question.id]
-    const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
+    const vizState = resolveQuestionVizState({
+        responsesByQuestion: enrichedConsolidatedSurveyResults?.responsesByQuestion,
+        questionId: question.id,
+        isRefreshingResults: resultsRequeryInProgress || isAnyResultsLoading,
+    })
 
-    if (!processedData) {
+    if (vizState.kind === 'loading') {
         return (
             <div className="flex flex-col gap-2">
                 <QuestionTitle question={question} questionIndex={questionIndex} />
@@ -258,28 +262,21 @@ export function SurveyQuestionVisualization({ question, questionIndex, demoData 
         )
     }
 
-    if (processedData.totalResponses === 0 || processedData.data.length === 0) {
-        if (isRefreshingResults) {
-            return (
-                <div className="flex flex-col gap-2">
-                    <QuestionTitle question={question} questionIndex={questionIndex} />
-
-                    <div className="flex flex-col gap-4">
-                        <QuestionLoadingSkeleton question={question} />
-                    </div>
-                </div>
-            )
-        }
-
-        const skipCount = 'noResponseCount' in processedData ? processedData.noResponseCount : 0
+    if (vizState.kind === 'empty') {
         return (
             <div className="flex flex-col gap-2">
-                <QuestionTitle question={question} questionIndex={questionIndex} noResponseCount={skipCount} />
+                <QuestionTitle
+                    question={question}
+                    questionIndex={questionIndex}
+                    noResponseCount={vizState.noResponseCount}
+                />
 
                 <SurveyNoResponsesBanner type="question" />
             </div>
         )
     }
+
+    const { processedData } = vizState
 
     return (
         <div className="flex flex-col gap-2">
