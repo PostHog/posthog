@@ -38,6 +38,17 @@ logger = structlog.get_logger(__name__)
 if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
+# `TaskRun` columns a run summary never reads. `state` and `output` are unbounded JSON, and
+# `imported_mcp_servers` is decrypted per row on load, so a join that fetches them makes a
+# wide list read slow enough to time out the MCP call.
+UNREAD_TASK_RUN_FIELDS = (
+    "task_run__state",
+    "task_run__output",
+    "task_run__artifacts",
+    "task_run__imported_mcp_servers",
+    "task_run__relayed_mcp_servers",
+)
+
 # Defensive caps so a runaway agent loop can't pull thousands of rows in one call.
 DEFAULT_RUN_SEARCH_LIMIT = 20
 MAX_RUN_SEARCH_LIMIT = 100
@@ -208,7 +219,12 @@ def search_recent_runs(
     are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
-    qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
+    qs = (
+        SignalScoutRun.objects.filter(team_id=team_id)
+        .select_related("task_run")
+        .defer(*UNREAD_TASK_RUN_FIELDS)
+        .order_by("-created_at")
+    )
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
     if date_to is not None:
@@ -374,6 +390,7 @@ def recent_runs_per_scout(
     rows = (
         SignalScoutRun.objects.filter(team_id=team_id, id__in=run_ids)
         .select_related("task_run")
+        .defer(*UNREAD_TASK_RUN_FIELDS)
         .order_by("-created_at")
     )
     return [_to_summary(row, team_id=team_id) for row in rows]
@@ -482,7 +499,12 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     Team scoping is non-negotiable: a run row from another team must not be
     readable, even if the caller knows the UUID.
     """
-    row = SignalScoutRun.objects.select_related("task_run").filter(team_id=team_id, id=run_id).first()
+    row = (
+        SignalScoutRun.objects.select_related("task_run")
+        .defer(*UNREAD_TASK_RUN_FIELDS)
+        .filter(team_id=team_id, id=run_id)
+        .first()
+    )
     if row is None:
         return None
     return _to_detail(row, team_id=team_id)

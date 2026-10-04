@@ -25,7 +25,19 @@ from django.utils import timezone
 
 from products.signals.backend.models import SignalScratchpad
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
-from products.signals.backend.scout_harness.tools.runs import _build_task_url
+from products.signals.backend.scout_harness.tools.runs import UNREAD_TASK_RUN_FIELDS, _build_task_url
+
+# `_to_entry` reads only the creating run's `skill_name` and its task run's ids. The rest of both
+# joined rows is dead weight on a search that can return 1000 entries.
+_UNREAD_CREATOR_FIELDS = (
+    "created_by_run__summary",
+    "created_by_run__metadata",
+    "created_by_run__emitted_finding_ids",
+    "created_by_run__emitted_report_ids",
+    "created_by_run__edited_report_ids",
+    *(f"created_by_run__{field}" for field in UNREAD_TASK_RUN_FIELDS),
+    "created_by_run__task_run__error_message",
+)
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
@@ -112,7 +124,11 @@ def search_scratchpad(
     clamped_limit = _clamp_search_limit(limit)
     # Join the creating run (and its task_run) so per-row skill/url resolution in `_to_entry`
     # stays a single query rather than an N+1 across the result window.
-    qs = SignalScratchpad.objects.filter(team_id=team_id).select_related("created_by_run", "created_by_run__task_run")
+    qs = (
+        SignalScratchpad.objects.filter(team_id=team_id)
+        .select_related("created_by_run", "created_by_run__task_run")
+        .defer(*_UNREAD_CREATOR_FIELDS)
+    )
     qs = _project_content_in_sql(qs, keys_only=keys_only, content_max_chars=content_max_chars)
     if key:
         qs = qs.filter(key=key)
@@ -148,8 +164,10 @@ def search_scratchpad_naming(
         return []
     boundary = "[^A-Za-z0-9_-]"
     pattern = f"(^|{boundary})({'|'.join(re.escape(term) for term in wanted)})({boundary}|$)"
-    qs = SignalScratchpad.objects.filter(team_id=team_id, key__startswith=key_prefix).select_related(
-        "created_by_run", "created_by_run__task_run"
+    qs = (
+        SignalScratchpad.objects.filter(team_id=team_id, key__startswith=key_prefix)
+        .select_related("created_by_run", "created_by_run__task_run")
+        .defer(*_UNREAD_CREATOR_FIELDS)
     )
     qs = _project_content_in_sql(qs, keys_only=True, content_max_chars=None)
     qs = qs.filter(Q(content__iregex=pattern) | Q(key__iregex=pattern))

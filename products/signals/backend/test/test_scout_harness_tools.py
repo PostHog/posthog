@@ -11,7 +11,9 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pytest_asyncio
@@ -665,6 +667,30 @@ class TestForget(BaseTest):
 
     def test_returns_false_when_key_missing(self) -> None:
         assert forget(team_id=self.team.id, key="never-existed") is False
+
+
+class TestSearchJoinsSkipHeavyTaskRunColumns(BaseTest):
+    @parameterized.expand(
+        [
+            ("runs", lambda team_id: [hit.status for hit in search_recent_runs(team_id=team_id)]),
+            (
+                "scratchpad",
+                lambda team_id: [e.created_by_run_url is not None for e in search_scratchpad(team_id=team_id)],
+            ),
+        ]
+    )
+    def test_search_reads_linked_task_run_in_one_query_without_heavy_columns(self, _name: str, search) -> None:
+        run = _create_run(self.team)
+        remember(team_id=self.team.id, key="k", content="c", run_id=str(run.id))
+
+        with CaptureQueriesContext(connection) as queries:
+            resolved = search(self.team.id)
+
+        assert resolved and all(resolved)
+        assert len(queries.captured_queries) == 1
+        sql = queries.captured_queries[0]["sql"]
+        for column in ("state", "output", "artifacts", "imported_mcp_servers", "relayed_mcp_servers"):
+            assert f'."{column}"' not in sql
 
 
 class TestSearchScratchpad(BaseTest):
