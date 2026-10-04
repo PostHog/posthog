@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.sharing import RECORDING_OWNED_BY_OTHER_PROJECT_ERROR
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
@@ -74,6 +75,24 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
     def test_enable_sharing_creates_access_token(self) -> None:
         token = self._enable_sharing(self.session_id)
         assert isinstance(token, str) and len(token) > 0
+
+    @parameterized.expand(
+        [
+            ("enable", "patch", "sharing", {"enabled": True}),
+            ("refresh", "post", "sharing/refresh", {}),
+        ]
+    )
+    def test_sharing_recording_owned_by_another_team_returns_400(self, _name, method, path, data) -> None:
+        other_team = create_team(organization=self.organization)
+        SessionRecording.objects.create(session_id=self.session_id, team=other_team)
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/session_recordings/{self.session_id}/{path}", data
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == RECORDING_OWNED_BY_OTHER_PROJECT_ERROR
+        assert not SessionRecording.objects.filter(session_id=self.session_id, team=self.team).exists()
 
     @parameterized.expand(
         [
