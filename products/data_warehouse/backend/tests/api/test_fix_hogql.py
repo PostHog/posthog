@@ -33,8 +33,11 @@ class TestFixHogQL(APIBaseTest):
             )
 
         assert response.status_code == 503
-        assert response.json()["error"].startswith("AI could not fix this query")
-        mock_capture.assert_called_once()
+        response_data = response.json()
+        assert response_data["error"].startswith("AI could not fix this query")
+        mock_capture.assert_called_once_with(
+            mock.ANY, {"trace_id": response_data["trace_id"], "has_connection_id": False}
+        )
 
     @parameterized.expand(
         [
