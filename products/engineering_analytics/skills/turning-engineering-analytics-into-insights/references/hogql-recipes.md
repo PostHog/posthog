@@ -107,7 +107,11 @@ SELECT
     countIf(conclusion = 'success')
         / nullIf(countIf(conclusion IN ('success', 'failure', 'timed_out', 'startup_failure', 'stale')), 0)
             AS success_rate,
-    quantileIf(0.95)(duration_seconds, conclusion = 'success') AS p95_seconds
+    if(
+        countIf(conclusion = 'success' AND duration_seconds >= 10) > 0,
+        quantileIf(0.95)(duration_seconds, conclusion = 'success' AND duration_seconds >= 10),
+        quantileIf(0.95)(duration_seconds, conclusion = 'success')
+    ) AS p95_seconds
 FROM runs
 WHERE status = 'completed'
   AND run_started_at >= now() - INTERVAL 60 DAY
@@ -119,6 +123,10 @@ ORDER BY week, runs DESC
 The success rate counts `failure`, `timed_out`, `startup_failure`, and `stale` as failures.
 It excludes skipped, cancelled, neutral, and action-required runs because they did not reach a pass-or-fail verdict.
 The duration percentile uses successful runs because cancelled and failed runs end early.
+It also drops successful runs under 10 seconds, which are gate runs that skipped the real work (path filters, eligibility checks) and would otherwise pull the percentile down to seconds.
+A workflow with no successful run of 10 seconds or more falls back to all of its successful runs, because duration alone cannot tell a gate no-op from a workflow that is legitimately fast.
+This is the same population the product's `workflow-health` query uses (`run_duration_percentile_expr` in `products/engineering_analytics/backend/logic/queries/_workflow_filters.py`), so the two agree; say which of the two rules produced the number when you report it.
+Job-level percentiles do not use this gate: a job that takes seconds can be a real duration sample.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
 
 ## Recipe: PR throughput per week
