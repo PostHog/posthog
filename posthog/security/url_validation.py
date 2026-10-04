@@ -41,6 +41,9 @@ METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 # Percent-encoded forms of the characters that end a URL authority ("/", "?", "#", "@")
 ENCODED_AUTHORITY_TERMINATORS = ("%2f", "%3f", "%23", "%40")
 
+# Reason returned when a host has no usable DNS answer.
+HOST_RESOLUTION_FAILED_REASON = "Could not resolve host"
+
 # Internal domain patterns that should never be accessed
 # These are common internal TLDs and suffixes used in private networks
 INTERNAL_DOMAIN_PATTERNS = (
@@ -478,7 +481,7 @@ def _validate_url_with_ips(
 
     ips = resolve_host_ips(host) if resolved_ips_by_host is None else resolved_ips_by_host.get(host, empty)
     if not ips:
-        return _blocked("Could not resolve host", host=host)
+        return _blocked(HOST_RESOLUTION_FAILED_REASON, host=host)
     for ip in ips:
         if _is_internal_ip(ip):
             return _blocked(f"Disallowed target IP: {ip}", host=host, ip=str(ip))

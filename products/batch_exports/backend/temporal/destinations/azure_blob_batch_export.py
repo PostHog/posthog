@@ -13,7 +13,11 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import AzureBlobIntegration, Integration
-from posthog.models.integration.azure_blob import EndpointNotAllowedError, validate_azure_blob_connection_string
+from posthog.models.integration.azure_blob import (
+    EndpointNotAllowedError,
+    EndpointResolutionError,
+    validate_azure_blob_connection_string,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -51,6 +55,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     "AzureBlobIntegrationError",
     "AzureBlobIntegrationNotFoundError",
     "ClientAuthenticationError",
+    "EndpointNotAllowedError",
     "MalformedConnectionStringError",
     "MissingRequiredPermissionsError",
     "ResourceNotFoundError",
@@ -189,7 +194,7 @@ class AzureBlobConsumer(Consumer):
                 retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
                 permit_redirects=False,
             )
-        except EndpointNotAllowedError:
+        except (EndpointNotAllowedError, EndpointResolutionError):
             raise
         except ValueError:
             raise MalformedConnectionStringError()
