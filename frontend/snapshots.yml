@@ -10850,6 +10850,10 @@ snapshots:
         hash: v1.k794b7964.e182c7027fe3958107c915fa345b91480ce706dfc0b953c1d626ba8c93a5b31c.rZU4OpJ_LaHQK9vm7VAjiyReEvm8-W5Kx3Z-aZ5gZL8
     scenes-app-inbox-scout-comparisons--wide--light:
         hash: v1.k794b7964.53e27319e86fcb2918993900aaf488b6405308de17ff14ddbe2073b5757ba0ed.GHbHAKZ3QEONYiTleLwq2bqK5-ebFEdkNANN1lzb37s
+    scenes-app-inbox-scout-comparisons-interactive--disabled--dark:
+        hash: v1.k794b7964.dac92fa6fd3eb2b305018d68ccfd79d3b4b719f5b785cc7793f272e32a2e9ee1.wumEh08nv2pps3290IALWsb9MWlf23ClK5Pyapb_uxc
+    scenes-app-inbox-scout-comparisons-interactive--disabled--light:
+        hash: v1.k794b7964.b015f41d998ecf543036636ea71c650b613d1abace5a5385d4b6bfb7577cc0d6._-58A9e8K-YCsO2zoyUfTkZ0eENXU71bqE2gVUsQEBo
     scenes-app-inbox-scout-comparisons-interactive--interactive--dark:
         hash: v1.k794b7964.4c093028e1dc36460d740780e0ce73f9bd5e263d796c723704e970103ddc3588.Kw7B7EOOtMZTnABbC3xd0FcMvDb5-g2Y2A-Rwfpee7s
     scenes-app-inbox-scout-comparisons-interactive--interactive--light:
@@ -10866,6 +10870,10 @@ snapshots:
         hash: v1.k794b7964.a13d024432b547ff073172e29dcc40517a82c13a01bbf210a2618b384e3aa068.0HfN4Sly_VW4RRktOpR2dpsE5nSq1cYAsi47hY_vk4c
     scenes-app-inbox-scout-run-judgment--excluded--light:
         hash: v1.k794b7964.8f29cd15a85b3cca66438e7face097f1eaaf9e1b56197971a8dd54f5dfb8f9bc.ZGz5bH5kh4aavtA3P0MIJwveGqnvFgx8uJJeXnhlszk
+    scenes-app-inbox-scout-run-judgment--expanded-rubric--dark:
+        hash: v1.k794b7964.f649b49772d0e6dda3c8ca7c2a2a2e2b9c84874131c453ab971dd2bf21ade232.w3zuJ70_T3WAEJ5RKimragry5-UW7Q1K0PabL75yts8
+    scenes-app-inbox-scout-run-judgment--expanded-rubric--light:
+        hash: v1.k794b7964.0a0eef7e9222b1cbcc7273282692d02471e485205eda03e42f3d6842cc0a85b8.y1lag6YM05Oz29mtPU1FnfjW75smWo7lnLlNwIxVWQA
     scenes-app-inbox-scout-run-judgment--mixed-verdicts--dark:
         hash: v1.k794b7964.64e33e3534668148742582c948f7e5aca16c51ffdf24016c687771384dc38355.vidu3XTVy3bxVXpUE28tmxwkph79GXz6wP8BTronGYg
     scenes-app-inbox-scout-run-judgment--mixed-verdicts--light:
