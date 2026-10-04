@@ -24,7 +24,7 @@ For revertible cloud deploys:
 ## Design decisions
 
 - We tried writing the UDFs in Python, but this cause ClickHouse nodes to crash as the garbage collector could not keep up. As such we're now writing the functions in Rust.
-- We're using `cross-rs` to compile the binaries - it's a cross platfrom rust compiler.
+- We're using `cross-rs` to compile the binaries - it's a cross platform rust compiler.
 
 ## Troubleshooting
 
