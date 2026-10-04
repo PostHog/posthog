@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconCode, IconCopy, IconLogomark, IconSearch } from '@posthog/icons'
 import {
     Button,
@@ -12,9 +14,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { IMPLEMENTATION_AGENTS } from 'products/signals/frontend/inbox/components/detail/implementationAgents'
 import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
+import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
 import { reportWorkKind, reportWorkPrompt } from './todayNextStep'
+import { todayReportLogic } from './todayReportLogic'
 
 const AGENTS = IMPLEMENTATION_AGENTS.filter((agent) => agent.key !== 'posthog-code')
 
@@ -23,14 +27,15 @@ export function TodayImplementMenu({
     reportUrl,
     disabled,
     postHogDisabledReason,
-    onStartWithPostHog,
 }: {
     report: SignalReport
     reportUrl: string
     disabled: boolean
     postHogDisabledReason: string | null
-    onStartWithPostHog: (prompt: string) => void
 }): JSX.Element {
+    const { isCreatingPr, isDiscussing } = useValues(inboxTaskKickoffLogic)
+    const { startWithPostHog } = useActions(todayReportLogic({ reportId: report.id }))
+    const starting = isCreatingPr || isDiscussing
     const implement = reportWorkKind(report) === 'implement'
 
     const sendPrompt = (agentKey: string, send: (prompt: string) => void): void => {
@@ -61,8 +66,8 @@ export function TodayImplementMenu({
             />
             <DropdownMenuContent align="start" className="TodayImplementMenu w-52">
                 <DropdownMenuItem
-                    onClick={() => sendPrompt('posthog', onStartWithPostHog)}
-                    disabled={!!postHogDisabledReason}
+                    onClick={() => startWithPostHog()}
+                    disabled={!!postHogDisabledReason || starting}
                     title={postHogDisabledReason ?? undefined}
                     data-attr="today-report-start-task"
                 >
