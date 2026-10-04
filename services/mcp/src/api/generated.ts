@@ -4539,38 +4539,6 @@ export namespace Schemas {
     }
 
     /**
-     * Schema for a single active breakpoint
-     */
-    export interface ActiveBreakpoint {
-      /** Unique identifier for the breakpoint */
-      id: string;
-      /**
-         * Repository identifier (e.g., 'PostHog/posthog')
-         * @nullable
-         */
-      repository?: string | null;
-      /** File path where the breakpoint is set */
-      filename: string;
-      /** Line number of the breakpoint */
-      line_number: number;
-      /** Whether the breakpoint is enabled */
-      enabled: boolean;
-      /**
-         * Optional condition for the breakpoint
-         * @nullable
-         */
-      condition?: string | null;
-    }
-
-    /**
-     * Response schema for active breakpoints endpoint
-     */
-    export interface ActiveBreakpointsResponse {
-      /** List of active breakpoints */
-      breakpoints: ActiveBreakpoint[];
-    }
-
-    /**
      * * `not_started` - not_started
      * * `queued` - queued
      * * `in_progress` - in_progress
@@ -17833,45 +17801,6 @@ export namespace Schemas {
     export interface BreakdownValue {
       count: number;
       value: string;
-    }
-
-    /**
-     * Local variables at the time of the hit
-     */
-    export type BreakpointHitVariables = { [key: string]: unknown };
-
-    /**
-     * Schema for a single breakpoint hit event
-     */
-    export interface BreakpointHit {
-      /** Unique identifier for the hit event */
-      id: string;
-      /** Line number where the breakpoint was hit */
-      lineNumber: number;
-      /** Name of the function where breakpoint was hit */
-      functionName: string;
-      /** When the breakpoint was hit */
-      timestamp: string;
-      /** Local variables at the time of the hit */
-      variables: BreakpointHitVariables;
-      /** Stack trace at the time of the hit */
-      stackTrace: unknown[];
-      /** ID of the breakpoint that was hit */
-      breakpoint_id: string;
-      /** Filename where the breakpoint was hit */
-      filename: string;
-    }
-
-    /**
-     * Response schema for breakpoint hits endpoint
-     */
-    export interface BreakpointHitsResponse {
-      /** List of breakpoint hit events */
-      results: BreakpointHit[];
-      /** Number of results returned */
-      count: number;
-      /** Whether there are more results available */
-      has_more: boolean;
     }
 
     export interface BriefAnchors {
@@ -59171,23 +59100,6 @@ export namespace Schemas {
       status: BatchExportRunStatusEnum;
     }
 
-    export interface LiveDebuggerBreakpoint {
-      readonly id: string;
-      /** @nullable */
-      repository?: string | null;
-      filename: string;
-      /**
-         * @minimum 0
-         * @maximum 2147483647
-         */
-      line_number: number;
-      enabled?: boolean;
-      /** @nullable */
-      condition?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
     export interface LlmEvalReportSignalExtra {
       evaluation_id: string;
       evaluation_name: string;
@@ -67475,15 +67387,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ListOutput[];
-    }
-
-    export interface PaginatedLiveDebuggerBreakpointList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: LiveDebuggerBreakpoint[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
@@ -77861,23 +77764,6 @@ export namespace Schemas {
          * @maxLength 400
          */
       version_description?: string;
-    }
-
-    export interface PatchedLiveDebuggerBreakpoint {
-      readonly id?: string;
-      /** @nullable */
-      repository?: string | null;
-      filename?: string;
-      /**
-         * @minimum 0
-         * @maximum 2147483647
-         */
-      line_number?: number;
-      enabled?: boolean;
-      /** @nullable */
-      condition?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedLogsAlertConfiguration {
@@ -119511,49 +119397,6 @@ export namespace Schemas {
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
-
-    export type LiveDebuggerBreakpointsListParams = {
-    filename?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    repository?: string;
-    };
-
-    export type LiveDebuggerBreakpointsActiveRetrieveParams = {
-    /**
-     * Only return enabled breakpoints
-     */
-    enabled?: boolean;
-    /**
-     * Filter breakpoints for a specific file
-     */
-    filename?: string;
-    /**
-     * Filter breakpoints for a specific repository (e.g., 'PostHog/posthog')
-     */
-    repository?: string;
-    };
-
-    export type LiveDebuggerBreakpointsBreakpointHitsRetrieveParams = {
-    /**
-     * Filter hits for specific breakpoints (repeat parameter for multiple IDs, e.g., ?breakpoint_ids=uuid1&breakpoint_ids=uuid2)
-     */
-    breakpoint_ids?: string;
-    /**
-     * Number of hits to return (default: 100, max: 1000)
-     */
-    limit?: number;
-    /**
-     * Pagination offset for retrieving additional results (default: 0)
-     */
-    offset?: number;
-    };
 
     export type LlmAnalyticsClusteringJobsListParams = {
     /**
