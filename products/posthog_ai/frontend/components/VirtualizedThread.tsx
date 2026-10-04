@@ -1,8 +1,6 @@
 import { elementScroll, useVirtualizer } from '@tanstack/react-virtual'
 import {
-    Component,
     createContext,
-    createRef,
     CSSProperties,
     memo,
     ReactNode,
@@ -16,6 +14,9 @@ import {
 } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
+
+import { FlowRows } from './FlowRows'
+import { VirtualizedThreadRowContext, type VirtualizedThreadRowContextValue } from './VirtualizedThreadRowContext'
 
 /**
  * Slack the virtualizer core is allowed to treat as "at the end" while the thread is pinned, so its own
@@ -112,12 +113,7 @@ interface RootContextValue {
     virtualized: boolean
 }
 
-interface RowContextValue {
-    index: number
-}
-
 const RootContext = createContext<RootContextValue | null>(null)
-const RowContext = createContext<RowContextValue | null>(null)
 
 /**
  * Virtualized row shell: publishes the row index via context and defers content to `renderRow`. Row
@@ -131,205 +127,9 @@ const InternalRow = memo(function InternalRow({
     index: number
     renderRow: (index: number) => ReactNode
 }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
+    const value = useMemo<VirtualizedThreadRowContextValue>(() => ({ index }), [index])
+    return <VirtualizedThreadRowContext.Provider value={value}>{renderRow(index)}</VirtualizedThreadRowContext.Provider>
 })
-
-const FlowRow = memo(function FlowRow({ index, children }: { index: number; children: ReactNode }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{children}</RowContext.Provider>
-})
-
-const FlowItemRow = memo(function FlowItemRow<T>({
-    index,
-    item,
-    render,
-}: {
-    index: number
-    item: T
-    render: (item: T, index: number) => ReactNode
-}): JSX.Element {
-    return <FlowRow index={index}>{render(item, index)}</FlowRow>
-}) as <T>(props: { index: number; item: T; render: (item: T, index: number) => ReactNode }) => JSX.Element
-
-const FLOW_INITIAL_ROWS = 24
-const FLOW_JUMP_ROWS = 48
-const FLOW_CHUNK_BUDGET_MS = 40
-const FLOW_MIN_CHUNK_ROWS = 4
-const FLOW_MAX_CHUNK_ROWS = 256
-const FLOW_INPUT_PAUSE_MS = 200
-const FLOW_INPUT_EVENTS = ['wheel', 'touchmove', 'keydown', 'pointerdown', 'pointermove'] as const
-
-interface FlowWindow<T> {
-    start: number
-    items: T[]
-}
-
-function nextFlowWindow<T>(
-    previous: FlowWindow<T> | null,
-    items: T[],
-    getItemKey: (item: T, index: number) => string
-): FlowWindow<T> {
-    const initialStart = Math.max(0, items.length - FLOW_INITIAL_ROWS)
-    if (!previous || items.length === 0) {
-        return { start: initialStart, items }
-    }
-    const replaced = previous.items.length === 0 || getItemKey(previous.items[0], 0) !== getItemKey(items[0], 0)
-    const jumped =
-        items.length - previous.items.length > FLOW_JUMP_ROWS &&
-        previous.items.length - previous.start <= FLOW_INITIAL_ROWS
-    if (replaced || jumped) {
-        return { start: initialStart, items }
-    }
-    return { start: Math.min(previous.start, items.length), items }
-}
-
-function findScrollParent(node: Element): HTMLElement | null {
-    let current = node.parentElement
-    while (current) {
-        const { overflowY } = getComputedStyle(current)
-        if (overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay') {
-            return current
-        }
-        current = current.parentElement
-    }
-    return document.scrollingElement instanceof HTMLElement ? document.scrollingElement : null
-}
-
-interface FlowScrollSnapshot {
-    scroller: HTMLElement
-    top: number
-    height: number
-}
-
-class FlowScrollKeeper extends Component<{ start: number }> {
-    private sentinel = createRef<HTMLSpanElement>()
-
-    override getSnapshotBeforeUpdate(previous: Readonly<{ start: number }>): FlowScrollSnapshot | null {
-        if (this.props.start >= previous.start || !this.sentinel.current) {
-            return null
-        }
-        const scroller = findScrollParent(this.sentinel.current)
-        return scroller ? { scroller, top: scroller.scrollTop, height: scroller.scrollHeight } : null
-    }
-
-    override componentDidUpdate(
-        _previous: Readonly<{ start: number }>,
-        _state: unknown,
-        snapshot: FlowScrollSnapshot | null
-    ): void {
-        if (snapshot) {
-            const { scroller, top, height } = snapshot
-            scroller.scrollTop = top <= 0 ? 0 : top + scroller.scrollHeight - height
-        }
-    }
-
-    override render(): JSX.Element | null {
-        return this.props.start > 0 ? <span hidden ref={this.sentinel} /> : null
-    }
-}
-
-function FlowRows<T>({
-    items,
-    getItemKey,
-    header,
-    footer,
-    footerIndex,
-    render,
-}: {
-    items: T[]
-    getItemKey: (item: T, index: number) => string
-    header: ReactNode
-    footer: ReactNode
-    footerIndex: number
-    render: (item: T, index: number) => ReactNode
-}): JSX.Element {
-    const [flow, setFlow] = useState<FlowWindow<T>>(() => nextFlowWindow(null, items, getItemKey))
-    let current = flow
-    if (flow.items !== items) {
-        current = nextFlowWindow(flow, items, getItemKey)
-        setFlow(current)
-    }
-    const { start } = current
-    const chunkRowsRef = useRef(FLOW_INITIAL_ROWS)
-    const chunkStartedAtRef = useRef<number | null>(null)
-
-    useLayoutEffect(() => {
-        const startedAt = chunkStartedAtRef.current
-        if (startedAt === null) {
-            return
-        }
-        chunkStartedAtRef.current = null
-        const elapsed = Math.max(1, performance.now() - startedAt)
-        chunkRowsRef.current = Math.min(
-            FLOW_MAX_CHUNK_ROWS,
-            Math.max(FLOW_MIN_CHUNK_ROWS, Math.round((chunkRowsRef.current * FLOW_CHUNK_BUDGET_MS) / elapsed))
-        )
-    }, [start])
-
-    const filling = start > 0
-    const lastInputAtRef = useRef(-Infinity)
-    useEffect(() => {
-        if (!filling) {
-            return
-        }
-        const noteInput = (event: Event): void => {
-            if (event.type !== 'pointermove' || (event as PointerEvent).buttons !== 0) {
-                lastInputAtRef.current = performance.now()
-            }
-        }
-        for (const type of FLOW_INPUT_EVENTS) {
-            window.addEventListener(type, noteInput, { capture: true, passive: true })
-        }
-        return () => {
-            for (const type of FLOW_INPUT_EVENTS) {
-                window.removeEventListener(type, noteInput, { capture: true })
-            }
-        }
-    }, [filling])
-
-    useLayoutEffect(() => {
-        if (start === 0) {
-            return
-        }
-        let timer: ReturnType<typeof setTimeout>
-        const renderNextChunk = (): void => {
-            const sinceInput = performance.now() - lastInputAtRef.current
-            if (sinceInput < FLOW_INPUT_PAUSE_MS) {
-                timer = setTimeout(renderNextChunk, FLOW_INPUT_PAUSE_MS - sinceInput)
-                return
-            }
-            chunkStartedAtRef.current = performance.now()
-            setFlow((previous) => ({ ...previous, start: Math.max(0, previous.start - chunkRowsRef.current) }))
-        }
-        timer = setTimeout(renderNextChunk, 0)
-        return () => clearTimeout(timer)
-    }, [start])
-
-    return (
-        <>
-            <FlowScrollKeeper start={start} />
-            {header != null && start === 0 && (
-                <FlowRow key="header" index={0}>
-                    {header}
-                </FlowRow>
-            )}
-            {items.slice(start).map((item, offset) => (
-                <FlowItemRow
-                    key={getItemKey(item, start + offset)}
-                    index={start + offset}
-                    item={item}
-                    render={render}
-                />
-            ))}
-            {footer != null && (
-                <FlowRow key="footer" index={footerIndex}>
-                    {footer}
-                </FlowRow>
-            )}
-        </>
-    )
-}
 
 export interface VirtualizedThreadRootProps<T> {
     items: T[]
@@ -1162,7 +962,7 @@ function Root<T>({
  */
 function Row({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
     const root = useContext(RootContext)
-    const row = useContext(RowContext)
+    const row = useContext(VirtualizedThreadRowContext)
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }
