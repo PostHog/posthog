@@ -73,6 +73,7 @@ from products.signals.backend.scout_harness.runner import (
     _create_run_row,
     _failure_streak_runs_in_window,
     arun_signals_scout,
+    reap_stale_runs,
 )
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
@@ -2726,6 +2727,49 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill):
     assert props["stale_cutoff_seconds"] == STALE_RUN_CUTOFF_S
     # Age is measured from the orphan's TaskRun.created_at, so it clears the cutoff.
     assert props["age_seconds"] >= STALE_RUN_CUTOFF_S
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_sweep_reaps_stale_runs_on_every_lane_without_a_dispatch(ateam):
+    TaskRun = apps.get_model("tasks", "TaskRun")
+    # A worker killed mid-run by a deploy leaves lanes that are not due again for a day. The
+    # coordinator sweep must reap each stale run without a dispatch, and must leave a live run alone.
+    runs: dict[str, TaskRun] = {}
+    for skill_name, age_seconds in (
+        ("signals-scout-errors", STALE_RUN_CUTOFF_S + 60),
+        ("signals-scout-flags", STALE_RUN_CUTOFF_S + 600),
+        ("signals-scout-live", 30),
+    ):
+        task_run = await database_sync_to_async(_make_task_run)(ateam)
+        await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(
+            status=TaskRun.Status.IN_PROGRESS,
+            created_at=datetime.now(UTC) - timedelta(seconds=age_seconds),
+        )
+        await database_sync_to_async(SignalScoutRun.objects.create)(
+            task_run=task_run, team=ateam, skill_name=skill_name, skill_version=1
+        )
+        runs[skill_name] = task_run
+
+    with patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture:
+        reaped = await database_sync_to_async(reap_stale_runs)()
+
+    assert reaped == 2
+    statuses = {
+        skill_name: (await database_sync_to_async(TaskRun.objects.get)(id=task_run.id)).status
+        for skill_name, task_run in runs.items()
+    }
+    assert statuses == {
+        "signals-scout-errors": TaskRun.Status.FAILED,
+        "signals-scout-flags": TaskRun.Status.FAILED,
+        "signals-scout-live": TaskRun.Status.IN_PROGRESS,
+    }
+    reaped_events = [c.kwargs for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_run_reaped"]
+    assert sorted(e["properties"]["skill_name"] for e in reaped_events) == [
+        "signals-scout-errors",
+        "signals-scout-flags",
+    ]
+    assert {e["properties"]["reaped_by"] for e in reaped_events} == {"sweep"}
 
 
 @pytest.mark.asyncio

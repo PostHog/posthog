@@ -174,6 +174,7 @@ class TestSignalsProductModuleIntegrity:
             "fetch_enabled_signals_scout_runs_activity",
             "stamp_dispatched_signals_scout_runs_activity",
             "run_due_signal_report_checks_activity",
+            "reap_stale_signals_scout_runs_activity",
             "run_signals_scout_activity",
             "resume_signals_scout_workflow_step",
             "plan_scout_suggestion_runs_activity",

@@ -179,6 +179,38 @@ async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> Ru
     )
 
 
+@frozen
+class ReapStaleRunsInput:
+    """No fields today; the sweep reads its own bounds."""
+
+
+@frozen
+class ReapStaleRunsOutput:
+    reaped: int
+
+
+@activity.defn
+async def reap_stale_signals_scout_runs_activity(_input: ReapStaleRunsInput) -> ReapStaleRunsOutput:
+    """Close scout runs whose worker died before finalize, across the fleet.
+
+    Without this sweep, only the next dispatch of the same `(team, skill)` reaps an orphan, so a
+    daily scout killed by a deploy stays open for about a day. Best-effort: a failure here must
+    not fail the tick and stop the dispatch that follows, so it logs and reports zero.
+    """
+    # Deferred: runner imports temporal.agentic, so a module-level import here closes that cycle.
+    from products.signals.backend.scout_harness.runner import reap_stale_runs  # noqa: PLC0415
+
+    async with Heartbeater():
+        try:
+            reaped = await database_sync_to_async(reap_stale_runs, thread_sensitive=False)()
+        except Exception:
+            logger.exception("signals_scout coordinator: stale run sweep failed")
+            reaped = 0
+    if reaped:
+        logger.warning("signals_scout coordinator: reaped stale runs", count=reaped)
+    return ReapStaleRunsOutput(reaped=reaped)
+
+
 @activity.defn
 async def fetch_enabled_signals_scout_runs_activity(
     _input: FetchEnabledRunsInput,
@@ -1042,6 +1074,14 @@ class SignalsScoutCoordinatorWorkflow:
             await workflow.execute_activity(
                 run_due_signal_report_checks_activity,
                 RunDueChecksInput(),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+        if workflow.patched("signals-scout-reap-stale-runs-2026-09"):
+            await workflow.execute_activity(
+                reap_stale_signals_scout_runs_activity,
+                ReapStaleRunsInput(),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )

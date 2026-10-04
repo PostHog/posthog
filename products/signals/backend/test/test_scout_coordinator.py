@@ -82,6 +82,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _overdue_seconds,
     _slot_anchor,
     fetch_enabled_signals_scout_runs_activity,
+    reap_stale_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -2443,11 +2444,18 @@ async def test_workflow_returns_zero_counts_when_no_planned_runs():
 @pytest.mark.parametrize(
     "gate_open,expected_activities",
     [
-        (True, [run_due_signal_report_checks_activity, fetch_enabled_signals_scout_runs_activity]),
+        (
+            True,
+            [
+                run_due_signal_report_checks_activity,
+                reap_stale_signals_scout_runs_activity,
+                fetch_enabled_signals_scout_runs_activity,
+            ],
+        ),
         (False, [fetch_enabled_signals_scout_runs_activity]),
     ],
 )
-async def test_report_checks_run_only_on_the_patched_path(gate_open, expected_activities):
+async def test_gated_activities_run_only_on_the_patched_path(gate_open, expected_activities):
     # An in-flight coordinator replays its recorded history through the closed gate. Commanding the
     # new activity there fails that replay with a non-determinism error, which under
     # `ScheduleOverlapPolicy.SKIP` starves every later tick.
@@ -2701,8 +2709,9 @@ async def test_hard_dispatch_error_does_not_stamp():
         with pytest.raises(RuntimeError, match="temporal unavailable"):
             await coordinator.run(CoordinatorWorkflowInput())
 
-    # Only the report checks and the planning activity ran — the stamp activity never executed.
+    # Only the pre-dispatch activities and the planning activity ran — the stamp activity never executed.
     assert execute_activity_calls == [
         run_due_signal_report_checks_activity,
+        reap_stale_signals_scout_runs_activity,
         fetch_enabled_signals_scout_runs_activity,
     ]
