@@ -166,6 +166,7 @@ MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 150
 # N x 150 rasterizer slots. Fairness only; the rasterizer scales horizontally for total throughput.
 MAX_IN_FLIGHT_APPLIES_PER_TEAM = 300
 COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
