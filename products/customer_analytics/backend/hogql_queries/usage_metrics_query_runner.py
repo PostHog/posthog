@@ -7,6 +7,7 @@ from posthog.schema import CachedUsageMetricsQueryResponse, UsageMetric, UsageMe
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -195,6 +196,11 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
                 right=ast.Constant(value=date_to),
             ),
         ]
+        if source_descriptor[0] == GroupUsageMetric.Source.EVENTS:
+            # Rows that match no metric filter add zero to every metric, so the WHERE can drop them.
+            # This lets ClickHouse skip by the `event` sort key instead of reading every event in the window.
+            metric_filters = [clone_expr(filter_expr) for _, filter_expr in group]
+            where_exprs.append(metric_filters[0] if len(metric_filters) == 1 else ast.Or(exprs=metric_filters))
 
         return ast.SelectQuery(
             select=select_exprs,
